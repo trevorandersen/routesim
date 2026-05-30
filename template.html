@@ -1,0 +1,180 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>RouteSim</title>
+  <style>
+{{STYLES}}
+  </style>
+</head>
+<body class="inspector-closed terminal-closed">
+  <aside class="rail" aria-label="Tools">
+    <div class="mark" aria-label="RouteSim">RS</div>
+    <div class="tool-group">
+      <button class="tool-button active" data-tool="select" title="Select and move" aria-label="Select and move">
+        <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 4l7 16l2 -7l7 -2z"></path></svg>
+      </button>
+      <button class="tool-button" data-tool="computer" title="Add computer" aria-label="Add computer">
+        <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M3 5a1 1 0 0 1 1 -1h16a1 1 0 0 1 1 1v10a1 1 0 0 1 -1 1h-16a1 1 0 0 1 -1 -1v-10"></path><path d="M7 20h10"></path><path d="M9 16v4"></path><path d="M15 16v4"></path></svg>
+      </button>
+      <button class="tool-button" data-tool="switch" title="Add switch" aria-label="Add switch">
+        <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M16 3l4 4l-4 4"></path><path d="M10 7l10 0"></path><path d="M8 13l-4 4l4 4"></path><path d="M4 17l9 0"></path></svg>
+      </button>
+      <button class="tool-button" data-tool="router" title="Add router" aria-label="Add router">
+        <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 12m-9 0a9 9 0 1 0 18 0a9 9 0 1 0 -18 0"></path><path d="M6 12h5"></path><path d="M8 10l3 2l-3 2"></path><path d="M18 12h-5"></path><path d="M16 10l-3 2l3 2"></path><path d="M12 10v-5"></path><path d="M10 7l2 -2l2 2"></path><path d="M12 14v5"></path><path d="M10 17l2 2l2 -2"></path></svg>
+      </button>
+      <button class="tool-button" data-tool="connect" title="Connect devices" aria-label="Connect devices">
+        <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M7 7m-3 0a3 3 0 1 0 6 0a3 3 0 1 0 -6 0"></path><path d="M17 17m-3 0a3 3 0 1 0 6 0a3 3 0 1 0 -6 0"></path><path d="M9 9l6 6"></path></svg>
+      </button>
+      <button class="tool-button" data-tool="configure" title="Configure device" aria-label="Configure device">
+        <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M16 5l3 3l-11 11h-3v-3z"></path><path d="M14 7l3 3"></path><path d="M12 20h9"></path></svg>
+      </button>
+    </div>
+    <div class="spacer"></div>
+    <button class="tool-button" id="fitButton" title="Center network" aria-label="Center network">
+      <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M10 10m-7 0a7 7 0 1 0 14 0a7 7 0 1 0 -14 0"></path><path d="M21 21l-6 -6"></path><path d="M10 7v6"></path><path d="M7 10h6"></path></svg>
+    </button>
+  </aside>
+
+  <main class="stage">
+    <header class="topbar">
+      <div class="title">
+        <h1>RouteSim</h1>
+        <span class="mode-label" id="modeLabel">Select and move devices</span>
+      </div>
+      <div class="actions">
+        <span class="zoom-readout" id="zoomLevel" aria-live="polite">100%</span>
+        <button class="icon-button" id="undoButton" title="Undo" aria-label="Undo" disabled>
+          <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M9 14l-4 -4l4 -4"></path><path d="M5 10h11a4 4 0 1 1 0 8h-1"></path></svg>
+        </button>
+        <button class="icon-button" id="terminalOpenButton" title="Device terminal" aria-label="Open device terminal" aria-controls="terminalPanel" aria-expanded="false">
+          <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 17l6 -6l-6 -6"></path><path d="M12 19h8"></path></svg>
+        </button>
+        <button class="icon-button" id="inspectorOpenButton" title="Network panel" aria-label="Toggle network panel" aria-controls="networkInspector" aria-expanded="false">
+          <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 21v-7"></path><path d="M4 10V3"></path><path d="M12 21v-9"></path><path d="M12 8V3"></path><path d="M20 21v-5"></path><path d="M20 12V3"></path><path d="M2 14h4"></path><path d="M10 8h4"></path><path d="M18 16h4"></path></svg>
+        </button>
+        <button class="icon-button" id="themeButton" title="Toggle light mode" aria-label="Toggle light mode" aria-pressed="false">
+          <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 3v1"></path><path d="M12 20v1"></path><path d="M3 12h1"></path><path d="M20 12h1"></path><path d="M5.6 5.6l.7 .7"></path><path d="M17.7 17.7l.7 .7"></path><path d="M18.4 5.6l-.7 .7"></path><path d="M6.3 17.7l-.7 .7"></path><path d="M12 8a4 4 0 1 0 0 8a4 4 0 0 0 0 -8"></path></svg>
+        </button>
+        <div class="topology-chooser" id="topologyChooser">
+          <button class="icon-button" id="topologyButton" title="Load topology" aria-label="Load topology" aria-expanded="false">
+            <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 6h16"></path><path d="M4 12h16"></path><path d="M4 18h16"></path></svg>
+          </button>
+          <div class="topology-menu" id="topologyMenu">
+            <button class="topology-option" data-topology="basic">Basic Network</button>
+            <button class="topology-option" data-topology="vlan-roas">VLAN Router-on-a-Stick</button>
+            <button class="topology-option" data-topology="router-mesh">5-Router Mesh</button>
+          </div>
+        </div>
+        <button class="icon-button" id="loadButton" title="Load config from config.json" aria-label="Load config from config.json">
+          <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 21V9"></path><path d="M7 14l5-5 5 5"></path><path d="M5 3h14"></path></svg>
+        </button>
+        <button class="icon-button" id="saveButton" title="Save config to config.json" aria-label="Save config to config.json">
+          <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 3v12"></path><path d="M7 10l5 5 5-5"></path><path d="M5 21h14"></path></svg>
+        </button>
+        <button class="icon-button danger" id="clearButton" title="Clear network" aria-label="Clear network">
+          <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M3 6h18"></path><path d="M8 6V4h8v2"></path><path d="M19 6l-1 14H6L5 6"></path><path d="M10 11v5"></path><path d="M14 11v5"></path></svg>
+        </button>
+      </div>
+    </header>
+    <section class="canvas-wrap">
+      <canvas id="networkCanvas" aria-label="Network canvas"></canvas>
+      <div class="sim-controls" id="simControls">
+        <button class="sim-btn" id="simPlayPause" title="Play / Pause" aria-label="Play or pause simulation">▶</button>
+        <button class="sim-btn" id="simStep" title="Next step" aria-label="Next simulation step">⏭</button>
+        <button class="sim-btn" id="simStop" title="Stop simulation" aria-label="Stop simulation">⏹</button>
+        <label class="sim-speed-label">
+          <span>Speed</span>
+          <input id="simSpeed" type="range" min="200" max="3000" value="1000" title="Simulation speed">
+        </label>
+      </div>
+      <div class="hint" id="hint">Click a tool, then click the canvas. Drag devices in select mode.</div>
+    </section>
+  </main>
+
+  <section class="sim-log-panel" id="simLogPanel" aria-label="Simulation log">
+    <div class="sim-log-titlebar">
+      <span id="simLogTitle">Simulation Log</span>
+      <button class="panel-toggle" id="simLogCloseButton" type="button" title="Close log" aria-label="Close simulation log">
+        <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M18 6 6 18"></path><path d="m6 6 12 12"></path></svg>
+      </button>
+    </div>
+    <div class="sim-log-output" id="simLogOutput" aria-live="polite"></div>
+  </section>
+
+  <section class="terminal-panel" id="terminalPanel" aria-label="Device terminal">
+    <div class="terminal-titlebar">
+      <span id="terminalTitle">PC terminal</span>
+      <button class="panel-toggle" id="terminalCloseButton" type="button" title="Close terminal" aria-label="Close terminal">
+        <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M18 6 6 18"></path><path d="m6 6 12 12"></path></svg>
+      </button>
+    </div>
+    <div class="terminal-output" id="terminalOutput" aria-live="polite"></div>
+    <form class="terminal-input-row" id="terminalForm" autocomplete="off">
+      <span id="terminalPrompt">pc$</span>
+      <input id="terminalInput" spellcheck="false" placeholder="help">
+    </form>
+  </section>
+
+  <aside class="inspector" id="networkInspector" aria-label="Inspector">
+    <button class="inspector-resize" id="inspectorResizeHandle" type="button" title="Resize panel" aria-label="Resize network panel"></button>
+    <section class="panel-section">
+      <div class="panel-heading">
+        <h2>Network</h2>
+        <button class="panel-toggle" id="inspectorCloseButton" type="button" title="Close network panel" aria-label="Close network panel">
+          <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M18 6 6 18"></path><path d="m6 6 12 12"></path></svg>
+        </button>
+      </div>
+      <div class="metric-grid">
+        <div class="metric"><strong id="deviceCount">0</strong><span>Devices</span></div>
+        <div class="metric"><strong id="linkCount">0</strong><span>Links</span></div>
+      </div>
+    </section>
+    <section class="panel-section">
+      <div class="panel-heading">
+        <h2>Options</h2>
+        <button class="panel-toggle" id="displayOptionsButton" type="button" title="Display options" aria-label="Display options" aria-controls="displayOptionsPanel" aria-expanded="false">
+          <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 21v-7"></path><path d="M4 10V3"></path><path d="M12 21v-9"></path><path d="M12 8V3"></path><path d="M20 21v-5"></path><path d="M20 12V3"></path><path d="M2 14h4"></path><path d="M10 8h4"></path><path d="M18 16h4"></path></svg>
+        </button>
+      </div>
+      <div class="option-list closed" id="displayOptionsPanel">
+        <label class="toggle-row" for="showDeviceNames">
+          <span>Device names</span>
+          <input id="showDeviceNames" type="checkbox" checked>
+        </label>
+        <label class="toggle-row" for="showIpAddresses">
+          <span>IP addresses</span>
+          <input id="showIpAddresses" type="checkbox" checked>
+        </label>
+        <label class="toggle-row" for="showMacAddresses">
+          <span>MAC addresses</span>
+          <input id="showMacAddresses" type="checkbox" checked>
+        </label>
+      </div>
+    </section>
+    <section class="panel-section" id="detailsPanel">
+      <h2>Selection</h2>
+      <p class="empty-state">No device selected.</p>
+    </section>
+    <div class="device-list" id="deviceList" aria-label="Devices"></div>
+  </aside>
+
+  <div class="port-selection-overlay" id="portSelectionOverlay">
+    <div class="port-selection-modal">
+      <div class="port-selection-header">
+        <h3>Select Interfaces</h3>
+        <button class="panel-toggle" id="portSelectionCancel">&#x2715;</button>
+      </div>
+      <div class="port-selection-body" id="portSelectionBody"></div>
+      <div class="port-selection-footer">
+        <button class="wide-button" id="portSelectionConfirm">Connect</button>
+      </div>
+    </div>
+  </div>
+
+  <script>
+{{SCRIPT}}
+  </script>
+</body>
+</html>

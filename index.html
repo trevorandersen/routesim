@@ -1,0 +1,3228 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>RouteSim</title>
+  <style>
+    :root {
+      color-scheme: dark;
+      --theme: dark;
+      --bg: #0f1419;
+      --panel: #151c22;
+      --panel-soft: #1e2730;
+      --line: #2d3945;
+      --line-strong: #607080;
+      --text: #e6edf3;
+      --muted: #95a4b3;
+      --accent: #14746f;
+      --accent-soft: #123d3a;
+      --danger: #f87171;
+      --stage-bg: #111920;
+      --canvas-bg: #0d141b;
+      --grid-major: rgba(214, 224, 235, 0.08);
+      --grid-minor: rgba(214, 224, 235, 0.04);
+      --topbar-bg: rgba(21, 28, 34, 0.94);
+      --hint-text: #cfdae5;
+      --hint-bg: rgba(21, 28, 34, 0.9);
+      --rail-bg: #101820;
+      --rail-button-active-text: #d7f1ed;
+      --rail-button-active-bg: #0e5b57;
+      --link-host: #ffffff;
+      --link-switch: #7dd3fc;
+      --link-router: #ef4444;
+      --link-active: #facc15;
+      --label-primary: #e6edf3;
+      --label-ip: #c7d2de;
+      --label-mac: #95a4b3;
+      --pc-fill: #162235;
+      --pc-stroke: #3b82c4;
+      --pc-accent: #1d334d;
+      --pc-icon: #8db7e8;
+      --switch-fill: #122824;
+      --switch-stroke: #1f8f86;
+      --switch-accent: #173a35;
+      --switch-icon: #7fd1c8;
+      --router-fill: #2b2114;
+      --router-stroke: #a56a26;
+      --router-accent: #3a2a16;
+      --router-icon: #d6a15e;
+      --lan-fill: #1e2431;
+      --lan-stroke: #6f8192;
+      --lan-accent: #293242;
+      --lan-icon: #b7c4d1;
+      --shadow: 0 18px 40px rgba(0, 0, 0, 0.34);
+      --inspector-width: 320px;
+      --terminal-height: 280px;
+    }
+
+    :root[data-theme="light"] {
+      color-scheme: light;
+      --theme: light;
+      --bg: #eef1f4;
+      --panel: #ffffff;
+      --panel-soft: #f7f9fb;
+      --line: #cfd7df;
+      --line-strong: #8b98a5;
+      --text: #17212b;
+      --muted: #667381;
+      --accent-soft: #dff4f0;
+      --danger: #bc3b3b;
+      --stage-bg: #e8edf1;
+      --canvas-bg: #eef3f6;
+      --grid-major: rgba(38, 55, 70, 0.08);
+      --grid-minor: rgba(38, 55, 70, 0.04);
+      --topbar-bg: rgba(255, 255, 255, 0.92);
+      --hint-text: #41505f;
+      --hint-bg: rgba(255, 255, 255, 0.88);
+      --rail-bg: #1d2935;
+      --rail-button-active-text: #0e5b57;
+      --rail-button-active-bg: #d7f1ed;
+      --link-host: #3f4650;
+      --link-switch: #2563eb;
+      --link-router: #dc2626;
+      --link-active: #0e827a;
+      --label-primary: #17212b;
+      --label-ip: #52616f;
+      --label-mac: #667381;
+      --pc-fill: #f8fbff;
+      --pc-stroke: #3264a8;
+      --pc-accent: #dbeafe;
+      --pc-icon: #244c84;
+      --switch-fill: #f8fff9;
+      --switch-stroke: #14746f;
+      --switch-accent: #dff4f0;
+      --switch-icon: #0d5a56;
+      --router-fill: #fffaf1;
+      --router-stroke: #9a5b13;
+      --router-accent: #fdecc8;
+      --router-icon: #73420c;
+      --lan-fill: #f7f9fb;
+      --lan-stroke: #667381;
+      --lan-accent: #e8eef3;
+      --lan-icon: #41505f;
+      --shadow: 0 10px 28px rgba(19, 33, 46, 0.12);
+    }
+
+    * {
+      box-sizing: border-box;
+    }
+
+    html,
+    body {
+      width: 100%;
+      height: 100%;
+      margin: 0;
+      overflow: hidden;
+      font-family: Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+      color: var(--text);
+      background: var(--bg);
+    }
+
+    body {
+      display: grid;
+      grid-template-columns: 72px minmax(0, 1fr) var(--inspector-width);
+      grid-template-rows: 100vh;
+    }
+
+    body.inspector-closed {
+      grid-template-columns: 72px minmax(0, 1fr);
+    }
+
+    button,
+    input,
+    select {
+      font: inherit;
+    }
+
+    .rail {
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      gap: 10px;
+      padding: 12px 10px;
+      background: var(--rail-bg);
+      border-right: 1px solid rgba(255, 255, 255, 0.08);
+    }
+
+    .mark {
+      width: 44px;
+      height: 44px;
+      display: grid;
+      place-items: center;
+      color: #ffffff;
+      font-weight: 800;
+      letter-spacing: 0;
+      border: 1px solid rgba(255, 255, 255, 0.16);
+      background: #263746;
+      border-radius: 8px;
+      margin-bottom: 8px;
+    }
+
+    .tool-group {
+      display: flex;
+      flex-direction: column;
+      gap: 8px;
+    }
+
+    .tool-button,
+    .icon-button {
+      appearance: none;
+      border: 0;
+      cursor: pointer;
+      display: grid;
+      place-items: center;
+      border-radius: 8px;
+      transition: background 140ms ease, color 140ms ease, transform 140ms ease;
+    }
+
+    .tool-button {
+      width: 48px;
+      height: 48px;
+      color: #d7e1ea;
+      background: transparent;
+    }
+
+    .tool-button svg,
+    .icon-button svg {
+      width: 22px;
+      height: 22px;
+      stroke: currentColor;
+      stroke-width: 2;
+      stroke-linecap: round;
+      stroke-linejoin: round;
+      fill: none;
+    }
+
+    .tool-button:hover {
+      color: #ffffff;
+      background: rgba(255, 255, 255, 0.1);
+    }
+
+    .tool-button.active {
+      color: var(--rail-button-active-text);
+      background: var(--rail-button-active-bg);
+    }
+
+    .spacer {
+      flex: 1;
+    }
+
+    .stage {
+      min-width: 0;
+      display: grid;
+      grid-template-rows: 58px minmax(0, 1fr);
+      background: var(--stage-bg);
+    }
+
+    .topbar {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 16px;
+      padding: 0 18px;
+      background: var(--topbar-bg);
+      border-bottom: 1px solid var(--line);
+    }
+
+    .title {
+      display: flex;
+      align-items: baseline;
+      gap: 12px;
+      min-width: 0;
+    }
+
+    .title h1 {
+      margin: 0;
+      font-size: 18px;
+      line-height: 1;
+      letter-spacing: 0;
+    }
+
+    .mode-label {
+      color: var(--muted);
+      font-size: 13px;
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+    }
+
+    .actions {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+    }
+
+    .zoom-readout {
+      min-width: 54px;
+      height: 32px;
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      padding: 0 10px;
+      border: 1px solid var(--line);
+      border-radius: 8px;
+      color: var(--muted);
+      background: var(--panel-soft);
+      font-size: 12px;
+      font-weight: 800;
+    }
+
+    .icon-button {
+      width: 38px;
+      height: 38px;
+      color: var(--muted);
+      background: var(--panel-soft);
+      border: 1px solid var(--line);
+    }
+
+    .icon-button:hover {
+      color: var(--text);
+      background: var(--panel);
+      transform: translateY(-1px);
+    }
+
+    .icon-button[aria-expanded="true"] {
+      color: var(--accent);
+      border-color: rgba(20, 116, 111, 0.35);
+      background: var(--accent-soft);
+    }
+
+    .icon-button.danger:hover {
+      color: var(--danger);
+      border-color: rgba(188, 59, 59, 0.36);
+    }
+
+    .topology-chooser {
+      position: relative;
+      display: inline-block;
+    }
+    .topology-menu {
+      display: none;
+      position: absolute;
+      right: 0;
+      top: 100%;
+      margin-top: 4px;
+      background: var(--panel);
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      box-shadow: 0 4px 16px rgba(0,0,0,.25);
+      min-width: 200px;
+      z-index: 100;
+      padding: 4px 0;
+    }
+    .topology-menu.open { display: block; }
+    .topology-option {
+      display: block;
+      width: 100%;
+      text-align: left;
+      padding: 8px 14px;
+      font: 600 13px/1 Inter, system-ui, sans-serif;
+      color: var(--text);
+      background: none;
+      border: none;
+      cursor: pointer;
+      border-radius: 0;
+    }
+    .topology-option:hover {
+      background: var(--accent-soft);
+      color: var(--accent);
+    }
+
+    .canvas-wrap {
+      position: relative;
+      min-width: 0;
+      min-height: 0;
+    }
+
+    canvas {
+      width: 100%;
+      height: 100%;
+      display: block;
+      background-color: var(--canvas-bg);
+      background-image:
+        linear-gradient(var(--grid-major) 1px, transparent 1px),
+        linear-gradient(90deg, var(--grid-major) 1px, transparent 1px),
+        linear-gradient(var(--grid-minor) 1px, transparent 1px),
+        linear-gradient(90deg, var(--grid-minor) 1px, transparent 1px);
+      background-size: 80px 80px, 80px 80px, 20px 20px, 20px 20px;
+      cursor: crosshair;
+    }
+
+    .hint {
+      position: absolute;
+      left: 16px;
+      bottom: 16px;
+      max-width: min(560px, calc(100% - 32px));
+      padding: 9px 12px;
+      border: 1px solid rgba(139, 152, 165, 0.32);
+      border-radius: 8px;
+      color: var(--hint-text);
+      background: var(--hint-bg);
+      box-shadow: 0 6px 18px rgba(19, 33, 46, 0.08);
+      font-size: 13px;
+      pointer-events: none;
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+    }
+
+    .terminal-panel {
+      position: fixed;
+      left: 72px;
+      right: 0;
+      bottom: 0;
+      z-index: 8;
+      height: min(var(--terminal-height), calc(100vh - 80px));
+      display: grid;
+      grid-template-rows: 42px minmax(0, 1fr) 44px;
+      border-top: 1px solid var(--line);
+      background: #0a0f14;
+      box-shadow: 0 -18px 36px rgba(0, 0, 0, 0.28);
+    }
+
+    body:not(.inspector-closed) .terminal-panel {
+      right: var(--inspector-width);
+    }
+
+    body.terminal-closed .terminal-panel {
+      display: none;
+    }
+
+    .terminal-titlebar {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 12px;
+      padding: 0 12px 0 16px;
+      color: var(--text);
+      background: var(--panel);
+      border-bottom: 1px solid var(--line);
+      font-size: 13px;
+      font-weight: 800;
+    }
+
+    .terminal-titlebar span {
+      min-width: 0;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+    }
+
+    .terminal-output {
+      min-height: 0;
+      overflow: auto;
+      padding: 12px 16px;
+      color: #d6e3ef;
+      font: 12px/1.45 ui-monospace, SFMono-Regular, Menlo, Consolas, "Liberation Mono", monospace;
+    }
+
+    .terminal-line {
+      margin: 0 0 6px;
+      white-space: pre-wrap;
+      word-break: break-word;
+    }
+
+    .terminal-line.command {
+      color: #7dd3fc;
+    }
+
+    .terminal-line.error {
+      color: #fca5a5;
+    }
+
+    .terminal-line.muted {
+      color: #95a4b3;
+    }
+
+    .terminal-input-row {
+      display: grid;
+      grid-template-columns: auto minmax(0, 1fr);
+      align-items: center;
+      gap: 8px;
+      padding: 8px 12px 10px 16px;
+      border-top: 1px solid rgba(214, 224, 235, 0.12);
+      color: #7dd3fc;
+      background: #0a0f14;
+      font: 13px ui-monospace, SFMono-Regular, Menlo, Consolas, "Liberation Mono", monospace;
+    }
+
+    .terminal-input-row input {
+      width: 100%;
+      min-width: 0;
+      height: 26px;
+      border: 0;
+      outline: 0;
+      color: #e6edf3;
+      background: transparent;
+      font: inherit;
+    }
+
+    .terminal-input-row input::placeholder {
+      color: #6f8192;
+    }
+
+    .inspector {
+      position: relative;
+      min-width: 0;
+      display: flex;
+      flex-direction: column;
+      background: var(--panel);
+      border-left: 1px solid var(--line);
+      overflow-y: auto;
+      overflow-x: hidden;
+    }
+
+    .inspector-resize {
+      position: absolute;
+      inset: 0 auto 0 0;
+      z-index: 3;
+      width: 8px;
+      border: 0;
+      padding: 0;
+      background: transparent;
+      cursor: col-resize;
+    }
+
+    .inspector-resize::before {
+      content: "";
+      position: absolute;
+      left: 3px;
+      top: 0;
+      bottom: 0;
+      width: 2px;
+      background: transparent;
+      transition: background 140ms ease;
+    }
+
+    .inspector-resize:hover::before,
+    body.resizing-inspector .inspector-resize::before {
+      background: var(--accent);
+    }
+
+    body.resizing-inspector {
+      cursor: col-resize;
+      user-select: none;
+    }
+
+    body.inspector-closed .inspector {
+      display: none;
+    }
+
+    .panel-section {
+      padding: 18px;
+      border-bottom: 1px solid var(--line);
+    }
+
+    .panel-section h2 {
+      margin: 0 0 14px;
+      font-size: 13px;
+      color: var(--muted);
+      font-weight: 700;
+      letter-spacing: 0.04em;
+      text-transform: uppercase;
+    }
+
+    .panel-heading {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 12px;
+      margin-bottom: 14px;
+    }
+
+    .panel-heading h2 {
+      margin: 0;
+    }
+
+    .panel-toggle {
+      width: 32px;
+      height: 32px;
+      display: grid;
+      place-items: center;
+      border: 1px solid var(--line);
+      border-radius: 8px;
+      color: var(--muted);
+      background: var(--panel-soft);
+      cursor: pointer;
+    }
+
+    .panel-toggle:hover,
+    .panel-toggle[aria-expanded="true"] {
+      color: var(--text);
+      background: var(--panel);
+    }
+
+    .panel-toggle svg {
+      width: 18px;
+      height: 18px;
+      stroke: currentColor;
+      stroke-width: 2;
+      stroke-linecap: round;
+      stroke-linejoin: round;
+      fill: none;
+    }
+
+    .metric-grid {
+      display: grid;
+      grid-template-columns: repeat(2, minmax(0, 1fr));
+      gap: 10px;
+    }
+
+    .metric {
+      min-width: 0;
+      padding: 12px;
+      border: 1px solid var(--line);
+      border-radius: 8px;
+      background: var(--panel-soft);
+    }
+
+    .metric strong {
+      display: block;
+      font-size: 24px;
+      line-height: 1;
+      margin-bottom: 6px;
+    }
+
+    .metric span {
+      display: block;
+      color: var(--muted);
+      font-size: 12px;
+    }
+
+    .option-list {
+      display: grid;
+      gap: 10px;
+    }
+
+    .option-list.closed {
+      display: none;
+    }
+
+    .toggle-row {
+      min-width: 0;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 12px;
+      color: var(--text);
+      font-size: 14px;
+      font-weight: 700;
+    }
+
+    .toggle-row input {
+      width: 18px;
+      height: 18px;
+      accent-color: var(--accent);
+      flex: 0 0 auto;
+    }
+
+    .field {
+      display: grid;
+      gap: 7px;
+      margin-bottom: 13px;
+    }
+
+    .field label {
+      font-size: 12px;
+      color: var(--muted);
+      font-weight: 700;
+    }
+
+    .field input {
+      width: 100%;
+      min-width: 0;
+      height: 38px;
+      border-radius: 8px;
+      border: 1px solid var(--line);
+      padding: 0 10px;
+      color: var(--text);
+      background: var(--panel-soft);
+      outline: none;
+    }
+
+    .field input::placeholder {
+      color: var(--muted);
+      opacity: 0.78;
+    }
+
+    .input-with-button {
+      display: flex;
+      gap: 6px;
+    }
+
+    .input-with-button input {
+      flex: 1;
+    }
+
+    .inline-button {
+      flex: 0 0 auto;
+      height: 38px;
+      padding: 0 10px;
+      border-radius: 8px;
+      border: 1px solid var(--line);
+      color: var(--muted);
+      background: var(--panel-soft);
+      font-size: 11px;
+      font-weight: 700;
+      cursor: pointer;
+      white-space: nowrap;
+    }
+
+    .inline-button:hover {
+      color: var(--text);
+      border-color: var(--line-strong);
+      background: var(--panel);
+    }
+
+    .field input[type="checkbox"] {
+      width: 18px;
+      height: 18px;
+      padding: 0;
+      accent-color: var(--accent);
+      justify-self: start;
+    }
+
+    .field input:focus {
+      border-color: var(--accent);
+      box-shadow: 0 0 0 3px var(--accent-soft);
+    }
+
+    .pill-row {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 8px;
+    }
+
+    .pill {
+      display: inline-flex;
+      align-items: center;
+      min-height: 28px;
+      padding: 5px 9px;
+      border-radius: 999px;
+      color: #29404f;
+      background: #e8eef3;
+      font-size: 12px;
+      font-weight: 700;
+    }
+
+    .port-list {
+      display: grid;
+      gap: 6px;
+      margin: 2px 0 13px;
+    }
+
+    .interface-list {
+      display: grid;
+      gap: 8px;
+      margin: 2px 0 13px;
+    }
+
+    .interface-row {
+      min-width: 0;
+      display: grid;
+      grid-template-columns: 46px minmax(70px, 0.8fr) minmax(0, 1fr);
+      align-items: center;
+      gap: 8px;
+      padding: 8px;
+      border: 1px solid var(--line);
+      border-radius: 8px;
+      background: var(--panel-soft);
+      font-size: 12px;
+    }
+
+    .interface-name {
+      color: var(--muted);
+      font-weight: 800;
+    }
+
+    .interface-peer {
+      min-width: 0;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+      color: var(--text);
+      font-weight: 700;
+    }
+
+    .interface-row input {
+      width: 100%;
+      min-width: 0;
+      height: 32px;
+      border-radius: 8px;
+      border: 1px solid var(--line);
+      padding: 0 9px;
+      color: var(--text);
+      background: var(--panel);
+      outline: none;
+    }
+
+    .port-row {
+      min-width: 0;
+      display: flex;
+      flex-wrap: nowrap;
+      align-items: center;
+      gap: 6px;
+      min-height: 30px;
+      padding: 6px 8px;
+      border: 1px solid var(--line);
+      border-radius: 8px;
+      background: var(--panel-soft);
+      font-size: 12px;
+    }
+
+    .port-id {
+      color: var(--muted);
+      font-weight: 800;
+      flex: 0 0 38px;
+    }
+
+    .port-mode {
+      flex: 0 0 auto;
+      font-size: 10px;
+      font-weight: 700;
+      padding: 1px 5px;
+      border-radius: 4px;
+      background: var(--panel);
+      color: var(--muted);
+    }
+    .port-mode.trunk {
+      background: var(--accent-soft);
+      color: var(--accent);
+    }
+    .port-vlan {
+      flex: 0 0 auto;
+      font-size: 10px;
+      font-weight: 600;
+      color: var(--muted);
+    }
+
+    .port-peer {
+      flex: 1 1 0;
+      min-width: 0;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+      color: var(--text);
+      font-weight: 700;
+    }
+
+    .port-peer.empty {
+      color: var(--muted);
+      font-weight: 600;
+    }
+
+    .data-table {
+      width: 100%;
+      margin: 2px 0 13px;
+      border-collapse: separate;
+      border-spacing: 0;
+      border: 1px solid var(--line);
+      border-radius: 8px;
+      overflow: hidden;
+      background: var(--panel-soft);
+      font-size: 12px;
+    }
+
+    .data-table th,
+    .data-table td {
+      min-width: 0;
+      padding: 7px 8px;
+      border-bottom: 1px solid var(--line);
+      text-align: left;
+      vertical-align: middle;
+    }
+
+    .data-table th {
+      color: var(--muted);
+      font-weight: 800;
+      background: var(--panel);
+    }
+
+    .data-table tr:last-child td {
+      border-bottom: 0;
+    }
+
+    .data-table td {
+      min-width: 0;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+      color: var(--text);
+      font-weight: 700;
+    }
+
+    .table-empty {
+      color: var(--muted);
+      font-weight: 600;
+    }
+
+    .port-remove {
+      appearance: none;
+      width: 24px;
+      height: 24px;
+      display: grid;
+      place-items: center;
+      padding: 0;
+      border: 1px solid var(--line);
+      border-radius: 6px;
+      color: var(--muted);
+      background: transparent;
+      cursor: pointer;
+      line-height: 1;
+    }
+
+    .port-remove:hover {
+      color: var(--danger);
+      border-color: rgba(248, 113, 113, 0.42);
+      background: var(--panel);
+    }
+
+    .port-remove svg {
+      display: block;
+      width: 14px;
+      height: 14px;
+      stroke: currentColor;
+      stroke-width: 2.4;
+      stroke-linecap: round;
+      stroke-linejoin: round;
+      fill: none;
+    }
+
+    .empty-state {
+      color: var(--muted);
+      font-size: 14px;
+      line-height: 1.45;
+    }
+
+    .wide-button {
+      width: 100%;
+      height: 40px;
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      gap: 8px;
+      border-radius: 8px;
+      border: 1px solid var(--line);
+      color: var(--text);
+      background: var(--panel-soft);
+      cursor: pointer;
+    }
+
+    .wide-button:hover {
+      border-color: var(--line-strong);
+      background: var(--panel);
+    }
+
+    .wide-button.danger {
+      color: var(--danger);
+    }
+
+    .wide-button svg {
+      width: 18px;
+      height: 18px;
+      stroke: currentColor;
+      stroke-width: 2;
+      stroke-linecap: round;
+      stroke-linejoin: round;
+      fill: none;
+    }
+
+    .device-list {
+      padding: 10px;
+    }
+
+    .device-row {
+      width: 100%;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 10px;
+      padding: 9px 10px;
+      border: 1px solid transparent;
+      border-radius: 8px;
+      background: transparent;
+      text-align: left;
+      cursor: pointer;
+    }
+
+    .device-row:hover,
+    .device-row.active {
+      border-color: var(--line);
+      background: var(--panel-soft);
+    }
+
+    .device-name {
+      min-width: 0;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+      font-size: 13px;
+      font-weight: 700;
+    }
+
+    .device-type {
+      color: var(--muted);
+      font-size: 12px;
+      white-space: nowrap;
+    }
+
+    @media (max-width: 1100px) {
+      body,
+      body.inspector-closed {
+        grid-template-columns: 72px minmax(0, 1fr);
+      }
+
+      .inspector {
+        position: fixed;
+        top: 0;
+        right: 0;
+        z-index: 10;
+        width: min(var(--inspector-width), calc(100vw - 72px));
+        height: 100vh;
+        box-shadow: var(--shadow);
+      }
+
+      body:not(.inspector-closed) .inspector {
+        display: flex;
+      }
+
+      body.inspector-closed .inspector {
+        display: none;
+      }
+
+      .terminal-panel,
+      body:not(.inspector-closed) .terminal-panel {
+        right: 0;
+      }
+    }
+
+    @media (max-width: 820px) {
+      body {
+        grid-template-columns: 60px minmax(0, 1fr);
+      }
+
+      .inspector {
+        width: min(var(--inspector-width), calc(100vw - 60px));
+      }
+
+      .terminal-panel {
+        left: 60px;
+      }
+
+      body:not(.inspector-closed) .inspector {
+        display: flex;
+      }
+
+      .tool-button {
+        width: 42px;
+        height: 42px;
+      }
+
+      .mark {
+        width: 40px;
+        height: 40px;
+      }
+
+      .interface-row {
+        grid-template-columns: 42px minmax(0, 1fr);
+      }
+
+      .interface-row input {
+        grid-column: 1 / -1;
+      }
+    }
+
+    /* ─── Simulation controls ─────────────────────────────── */
+
+    .sim-controls {
+      display: none;
+      position: absolute;
+      bottom: 12px;
+      left: 50%;
+      transform: translateX(-50%);
+      background: var(--panel);
+      border: 1px solid var(--border);
+      border-radius: 10px;
+      padding: 6px 14px;
+      gap: 8px;
+      align-items: center;
+      z-index: 10;
+      box-shadow: 0 4px 16px rgba(0,0,0,.3);
+    }
+
+    .sim-controls.active {
+      display: flex;
+    }
+
+    .sim-btn {
+      width: 32px;
+      height: 32px;
+      border: none;
+      background: var(--surface);
+      color: var(--text-primary);
+      border-radius: 6px;
+      cursor: pointer;
+      font-size: 14px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      transition: background .15s;
+    }
+
+    .sim-btn:hover {
+      background: var(--border);
+    }
+
+    .sim-speed-label {
+      display: flex;
+      align-items: center;
+      gap: 6px;
+      color: var(--text-secondary);
+      font-size: 11px;
+      font-weight: 600;
+    }
+
+    .sim-speed-label input[type="range"] {
+      width: 80px;
+      accent-color: var(--accent, #6366f1);
+    }
+
+    /* ─── Simulation terminal log colors ─────────────────── */
+
+    .terminal-line.sim       { color: #a5b4fc; }
+    .terminal-line.sim-arp   { color: #fbbf24; }
+    .terminal-line.sim-icmp  { color: #34d399; }
+    .terminal-line.sim-learn { color: #94a3b8; }
+    .terminal-line.sim-forward { color: #7dd3fc; }
+    .terminal-line.sim-drop  { color: #f87171; }
+    .terminal-line.sim-dhcp  { color: #a78bfa; }
+
+    /* ─── Simulation log panel ────────────────────────────── */
+
+    .sim-log-panel {
+      display: none;
+      position: fixed;
+      top: 56px;
+      right: 0;
+      z-index: 9;
+      width: 380px;
+      max-height: calc(100vh - 120px);
+      flex-direction: column;
+      border: 1px solid var(--line);
+      border-radius: 10px 0 0 10px;
+      background: #0a0f14;
+      box-shadow: var(--shadow);
+      overflow: hidden;
+    }
+
+    .sim-log-panel.active {
+      display: flex;
+    }
+
+    body:not(.inspector-closed) .sim-log-panel {
+      right: var(--inspector-width);
+    }
+
+    .sim-log-titlebar {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 12px;
+      padding: 0 10px 0 14px;
+      min-height: 36px;
+      color: var(--text);
+      background: var(--panel);
+      border-bottom: 1px solid var(--line);
+      font-size: 12px;
+      font-weight: 800;
+    }
+
+    .sim-log-titlebar span {
+      min-width: 0;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+    }
+
+    .sim-log-output {
+      min-height: 60px;
+      max-height: 400px;
+      overflow: auto;
+      padding: 10px 14px;
+      color: #d6e3ef;
+      font: 11px/1.5 ui-monospace, SFMono-Regular, Menlo, Consolas, "Liberation Mono", monospace;
+    }
+
+    .sim-log-line {
+      margin: 0 0 3px;
+      white-space: pre-wrap;
+      word-break: break-word;
+    }
+
+    .sim-log-line.sim-arp     { color: #fbbf24; }
+    .sim-log-line.sim-icmp    { color: #34d399; }
+    .sim-log-line.sim-learn   { color: #94a3b8; }
+    .sim-log-line.sim-forward { color: #7dd3fc; }
+    .sim-log-line.sim-drop    { color: #f87171; }
+    .sim-log-line.sim-dhcp    { color: #a78bfa; }
+
+    @media (max-width: 820px) {
+      .sim-log-panel {
+        width: min(340px, calc(100vw - 80px));
+      }
+    }
+
+    /* ─── Link frame history ──────────────────────────────── */
+
+    .frame-history-list {
+      display: flex;
+      flex-direction: column;
+      gap: 4px;
+      max-height: 320px;
+      overflow: auto;
+    }
+
+    .frame-history-entry {
+      display: grid;
+      grid-template-columns: 56px minmax(0, 1fr) minmax(0, 1fr);
+      align-items: center;
+      gap: 6px;
+      padding: 5px 8px;
+      border: 1px solid var(--line);
+      border-radius: 6px;
+      background: var(--panel-soft);
+      font-size: 11px;
+      font-weight: 600;
+    }
+
+    .frame-step {
+      color: var(--muted);
+      font-weight: 800;
+      font-size: 10px;
+    }
+
+    .frame-label {
+      font-weight: 700;
+    }
+
+    .frame-dir {
+      color: var(--muted);
+      text-align: right;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+    }
+
+    .frame-history-entry.arp .frame-label  { color: #fbbf24; }
+    .frame-history-entry.icmp .frame-label { color: #34d399; }
+    .frame-history-entry.dhcp .frame-label { color: #a78bfa; }
+
+    /* ─── Port selection modal ─── */
+
+    .port-selection-overlay {
+      display: none;
+      position: fixed;
+      inset: 0;
+      z-index: 50;
+      background: rgba(0, 0, 0, 0.5);
+      place-items: center;
+    }
+    .port-selection-overlay.open {
+      display: grid;
+    }
+    .port-selection-modal {
+      width: min(640px, calc(100vw - 48px));
+      max-height: calc(100vh - 80px);
+      background: var(--panel-bg);
+      border: 1px solid var(--border);
+      border-radius: 12px;
+      box-shadow: 0 16px 48px rgba(0, 0, 0, 0.3);
+      display: flex;
+      flex-direction: column;
+      overflow: hidden;
+    }
+    .port-selection-header {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      padding: 12px 16px;
+      border-bottom: 1px solid var(--border);
+    }
+    .port-selection-header h3 {
+      margin: 0;
+      font-size: 14px;
+      font-weight: 600;
+      color: var(--fg);
+    }
+    .port-selection-body {
+      padding: 16px;
+      overflow-y: auto;
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 16px;
+    }
+    .port-selection-body.single-column {
+      grid-template-columns: 1fr;
+    }
+    .port-column {
+      display: flex;
+      flex-direction: column;
+      gap: 6px;
+    }
+    .port-column-header {
+      font-size: 12px;
+      font-weight: 600;
+      color: var(--muted);
+      text-transform: uppercase;
+      letter-spacing: 0.5px;
+      margin-bottom: 4px;
+    }
+    .port-option {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      padding: 8px 12px;
+      border: 1px solid var(--border);
+      border-radius: 6px;
+      background: var(--panel-bg);
+      color: var(--fg);
+      font-size: 13px;
+      cursor: pointer;
+      transition: border-color 0.15s, background 0.15s;
+    }
+    .port-option:hover:not(.occupied) {
+      border-color: var(--accent, #f0b429);
+      background: rgba(240, 180, 41, 0.06);
+    }
+    .port-option.selected {
+      border-color: var(--accent, #f0b429);
+      background: rgba(240, 180, 41, 0.12);
+    }
+    .port-option.occupied {
+      opacity: 0.4;
+      cursor: not-allowed;
+    }
+    .port-option .port-name {
+      font-weight: 500;
+    }
+    .port-option .port-status {
+      font-size: 11px;
+      color: var(--muted);
+    }
+    .port-selection-footer {
+      padding: 12px 16px;
+      border-top: 1px solid var(--border);
+      display: flex;
+      justify-content: flex-end;
+    }
+
+  </style>
+</head>
+<body class="inspector-closed terminal-closed">
+  <aside class="rail" aria-label="Tools">
+    <div class="mark" aria-label="RouteSim">RS</div>
+    <div class="tool-group">
+      <button class="tool-button active" data-tool="select" title="Select and move" aria-label="Select and move">
+        <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 4l7 16l2 -7l7 -2z"></path></svg>
+      </button>
+      <button class="tool-button" data-tool="computer" title="Add computer" aria-label="Add computer">
+        <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M3 5a1 1 0 0 1 1 -1h16a1 1 0 0 1 1 1v10a1 1 0 0 1 -1 1h-16a1 1 0 0 1 -1 -1v-10"></path><path d="M7 20h10"></path><path d="M9 16v4"></path><path d="M15 16v4"></path></svg>
+      </button>
+      <button class="tool-button" data-tool="switch" title="Add switch" aria-label="Add switch">
+        <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M16 3l4 4l-4 4"></path><path d="M10 7l10 0"></path><path d="M8 13l-4 4l4 4"></path><path d="M4 17l9 0"></path></svg>
+      </button>
+      <button class="tool-button" data-tool="router" title="Add router" aria-label="Add router">
+        <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 12m-9 0a9 9 0 1 0 18 0a9 9 0 1 0 -18 0"></path><path d="M6 12h5"></path><path d="M8 10l3 2l-3 2"></path><path d="M18 12h-5"></path><path d="M16 10l-3 2l3 2"></path><path d="M12 10v-5"></path><path d="M10 7l2 -2l2 2"></path><path d="M12 14v5"></path><path d="M10 17l2 2l2 -2"></path></svg>
+      </button>
+      <button class="tool-button" data-tool="connect" title="Connect devices" aria-label="Connect devices">
+        <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M7 7m-3 0a3 3 0 1 0 6 0a3 3 0 1 0 -6 0"></path><path d="M17 17m-3 0a3 3 0 1 0 6 0a3 3 0 1 0 -6 0"></path><path d="M9 9l6 6"></path></svg>
+      </button>
+      <button class="tool-button" data-tool="configure" title="Configure device" aria-label="Configure device">
+        <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M16 5l3 3l-11 11h-3v-3z"></path><path d="M14 7l3 3"></path><path d="M12 20h9"></path></svg>
+      </button>
+    </div>
+    <div class="spacer"></div>
+    <button class="tool-button" id="fitButton" title="Center network" aria-label="Center network">
+      <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M10 10m-7 0a7 7 0 1 0 14 0a7 7 0 1 0 -14 0"></path><path d="M21 21l-6 -6"></path><path d="M10 7v6"></path><path d="M7 10h6"></path></svg>
+    </button>
+  </aside>
+
+  <main class="stage">
+    <header class="topbar">
+      <div class="title">
+        <h1>RouteSim</h1>
+        <span class="mode-label" id="modeLabel">Select and move devices</span>
+      </div>
+      <div class="actions">
+        <span class="zoom-readout" id="zoomLevel" aria-live="polite">100%</span>
+        <button class="icon-button" id="undoButton" title="Undo" aria-label="Undo" disabled>
+          <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M9 14l-4 -4l4 -4"></path><path d="M5 10h11a4 4 0 1 1 0 8h-1"></path></svg>
+        </button>
+        <button class="icon-button" id="terminalOpenButton" title="Device terminal" aria-label="Open device terminal" aria-controls="terminalPanel" aria-expanded="false">
+          <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 17l6 -6l-6 -6"></path><path d="M12 19h8"></path></svg>
+        </button>
+        <button class="icon-button" id="inspectorOpenButton" title="Network panel" aria-label="Toggle network panel" aria-controls="networkInspector" aria-expanded="false">
+          <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 21v-7"></path><path d="M4 10V3"></path><path d="M12 21v-9"></path><path d="M12 8V3"></path><path d="M20 21v-5"></path><path d="M20 12V3"></path><path d="M2 14h4"></path><path d="M10 8h4"></path><path d="M18 16h4"></path></svg>
+        </button>
+        <button class="icon-button" id="themeButton" title="Toggle light mode" aria-label="Toggle light mode" aria-pressed="false">
+          <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 3v1"></path><path d="M12 20v1"></path><path d="M3 12h1"></path><path d="M20 12h1"></path><path d="M5.6 5.6l.7 .7"></path><path d="M17.7 17.7l.7 .7"></path><path d="M18.4 5.6l-.7 .7"></path><path d="M6.3 17.7l-.7 .7"></path><path d="M12 8a4 4 0 1 0 0 8a4 4 0 0 0 0 -8"></path></svg>
+        </button>
+        <div class="topology-chooser" id="topologyChooser">
+          <button class="icon-button" id="topologyButton" title="Load topology" aria-label="Load topology" aria-expanded="false">
+            <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 6h16"></path><path d="M4 12h16"></path><path d="M4 18h16"></path></svg>
+          </button>
+          <div class="topology-menu" id="topologyMenu">
+            <button class="topology-option" data-topology="basic">Basic Network</button>
+            <button class="topology-option" data-topology="vlan-roas">VLAN Router-on-a-Stick</button>
+            <button class="topology-option" data-topology="router-mesh">5-Router Mesh</button>
+          </div>
+        </div>
+        <button class="icon-button" id="loadButton" title="Load config from config.json" aria-label="Load config from config.json">
+          <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 21V9"></path><path d="M7 14l5-5 5 5"></path><path d="M5 3h14"></path></svg>
+        </button>
+        <button class="icon-button" id="saveButton" title="Save config to config.json" aria-label="Save config to config.json">
+          <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 3v12"></path><path d="M7 10l5 5 5-5"></path><path d="M5 21h14"></path></svg>
+        </button>
+        <button class="icon-button danger" id="clearButton" title="Clear network" aria-label="Clear network">
+          <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M3 6h18"></path><path d="M8 6V4h8v2"></path><path d="M19 6l-1 14H6L5 6"></path><path d="M10 11v5"></path><path d="M14 11v5"></path></svg>
+        </button>
+      </div>
+    </header>
+    <section class="canvas-wrap">
+      <canvas id="networkCanvas" aria-label="Network canvas"></canvas>
+      <div class="sim-controls" id="simControls">
+        <button class="sim-btn" id="simPlayPause" title="Play / Pause" aria-label="Play or pause simulation">▶</button>
+        <button class="sim-btn" id="simStep" title="Next step" aria-label="Next simulation step">⏭</button>
+        <button class="sim-btn" id="simStop" title="Stop simulation" aria-label="Stop simulation">⏹</button>
+        <label class="sim-speed-label">
+          <span>Speed</span>
+          <input id="simSpeed" type="range" min="200" max="3000" value="1000" title="Simulation speed">
+        </label>
+      </div>
+      <div class="hint" id="hint">Click a tool, then click the canvas. Drag devices in select mode.</div>
+    </section>
+  </main>
+
+  <section class="sim-log-panel" id="simLogPanel" aria-label="Simulation log">
+    <div class="sim-log-titlebar">
+      <span id="simLogTitle">Simulation Log</span>
+      <button class="panel-toggle" id="simLogCloseButton" type="button" title="Close log" aria-label="Close simulation log">
+        <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M18 6 6 18"></path><path d="m6 6 12 12"></path></svg>
+      </button>
+    </div>
+    <div class="sim-log-output" id="simLogOutput" aria-live="polite"></div>
+  </section>
+
+  <section class="terminal-panel" id="terminalPanel" aria-label="Device terminal">
+    <div class="terminal-titlebar">
+      <span id="terminalTitle">PC terminal</span>
+      <button class="panel-toggle" id="terminalCloseButton" type="button" title="Close terminal" aria-label="Close terminal">
+        <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M18 6 6 18"></path><path d="m6 6 12 12"></path></svg>
+      </button>
+    </div>
+    <div class="terminal-output" id="terminalOutput" aria-live="polite"></div>
+    <form class="terminal-input-row" id="terminalForm" autocomplete="off">
+      <span id="terminalPrompt">pc$</span>
+      <input id="terminalInput" spellcheck="false" placeholder="help">
+    </form>
+  </section>
+
+  <aside class="inspector" id="networkInspector" aria-label="Inspector">
+    <button class="inspector-resize" id="inspectorResizeHandle" type="button" title="Resize panel" aria-label="Resize network panel"></button>
+    <section class="panel-section">
+      <div class="panel-heading">
+        <h2>Network</h2>
+        <button class="panel-toggle" id="inspectorCloseButton" type="button" title="Close network panel" aria-label="Close network panel">
+          <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M18 6 6 18"></path><path d="m6 6 12 12"></path></svg>
+        </button>
+      </div>
+      <div class="metric-grid">
+        <div class="metric"><strong id="deviceCount">0</strong><span>Devices</span></div>
+        <div class="metric"><strong id="linkCount">0</strong><span>Links</span></div>
+      </div>
+    </section>
+    <section class="panel-section">
+      <div class="panel-heading">
+        <h2>Options</h2>
+        <button class="panel-toggle" id="displayOptionsButton" type="button" title="Display options" aria-label="Display options" aria-controls="displayOptionsPanel" aria-expanded="false">
+          <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 21v-7"></path><path d="M4 10V3"></path><path d="M12 21v-9"></path><path d="M12 8V3"></path><path d="M20 21v-5"></path><path d="M20 12V3"></path><path d="M2 14h4"></path><path d="M10 8h4"></path><path d="M18 16h4"></path></svg>
+        </button>
+      </div>
+      <div class="option-list closed" id="displayOptionsPanel">
+        <label class="toggle-row" for="showDeviceNames">
+          <span>Device names</span>
+          <input id="showDeviceNames" type="checkbox" checked>
+        </label>
+        <label class="toggle-row" for="showIpAddresses">
+          <span>IP addresses</span>
+          <input id="showIpAddresses" type="checkbox" checked>
+        </label>
+        <label class="toggle-row" for="showMacAddresses">
+          <span>MAC addresses</span>
+          <input id="showMacAddresses" type="checkbox" checked>
+        </label>
+      </div>
+    </section>
+    <section class="panel-section" id="detailsPanel">
+      <h2>Selection</h2>
+      <p class="empty-state">No device selected.</p>
+    </section>
+    <div class="device-list" id="deviceList" aria-label="Devices"></div>
+  </aside>
+
+  <div class="port-selection-overlay" id="portSelectionOverlay">
+    <div class="port-selection-modal">
+      <div class="port-selection-header">
+        <h3>Select Interfaces</h3>
+        <button class="panel-toggle" id="portSelectionCancel">&#x2715;</button>
+      </div>
+      <div class="port-selection-body" id="portSelectionBody"></div>
+      <div class="port-selection-footer">
+        <button class="wide-button" id="portSelectionConfirm">Connect</button>
+      </div>
+    </div>
+  </div>
+
+  <script>
+"use strict";(()=>{var mt;function gt(e){mt=e}function v(){return mt}var r={tool:"select",devices:[],links:[],selectedId:null,selectedLinkId:null,configuringId:null,linkStartId:null,pointer:null,drag:null,panDrag:null,pan:{x:0,y:0},scale:1,theme:"dark",inspectorWidth:320,inspectorResize:null,terminal:{open:!1,deviceId:null,mode:"exec",interfacePeerId:null,interfaceVlanTag:null,lines:[],history:[],historyIndex:-1},options:{showDeviceNames:!0,showIpAddresses:!0,showMacAddresses:!0,displayOptionsOpen:!1,networkPanelOpen:!1},nextComputer:1,nextSwitch:1,nextRouter:1,configStore:{version:1,configs:{}},configFileHandle:null,undoStack:[],isApplyingCompositeChange:!1,simulation:{status:"idle",mode:"ping",events:[],log:[],transits:[],pendingArp:{},speed:1e3,autoPlay:!0,stepIndex:0,originDeviceId:null,pingTargetIp:null,pingSuccess:!1,pingTtl:64,dhcpSuccess:!1,dhcpAssignedIp:null,dhcpAssignedGateway:null},portSelection:null},Te={select:["Select and move devices","Drag devices to arrange the network."],computer:["Add computer","Click the canvas to place a computer."],switch:["Add switch","Click the canvas to place a switch."],connect:["Connect devices","Click one device, then another device to connect them."],router:["Add router","Click the canvas to place a router."],configure:["Configure device","Click a device to edit its static configuration."]},ht={selected:"#f0b429"},yt={computer:["M3 5a1 1 0 0 1 1 -1h16a1 1 0 0 1 1 1v10a1 1 0 0 1 -1 1h-16a1 1 0 0 1 -1 -1v-10","M7 20h10","M9 16v4","M15 16v4"],switch:["M16 3l4 4l-4 4","M10 7l10 0","M8 13l-4 4l4 4","M4 17l9 0"],router:["M12 12m-9 0a9 9 0 1 0 18 0a9 9 0 1 0 -18 0","M6 12h5","M8 10l3 2l-3 2","M18 12h-5","M16 10l-3 2l3 2","M12 10v-5","M10 7l2 -2l2 2","M12 14v5","M10 17l2 2l2 -2"],lan:["M7 18a4.6 4.4 0 0 1 -1.2 -8.9a5.8 5.6 0 0 1 10.8 -1.9a4.7 4.5 0 0 1 1.4 8.8","M8 18h9","M10 15h4","M12 13v5","M8 20h8"]},xe={version:1,devices:[{id:"pc-a1",type:"computer",name:"PC-A1",x:-560,y:-250,config:{ipv4Address:"192.168.10.11",gatewayIpv4Address:"192.168.10.1",macAddress:"02:00:00:00:10:11"}},{id:"pc-a2",type:"computer",name:"PC-A2",x:-560,y:-130,config:{ipv4Address:"192.168.10.12",gatewayIpv4Address:"192.168.10.1",macAddress:"02:00:00:00:10:12"}},{id:"sw-a",type:"switch",name:"Access-SW-A",x:-360,y:-190,config:{managed:!1,ethernetPorts:8}},{id:"pc-b1",type:"computer",name:"PC-B1",x:-560,y:90,config:{ipv4Address:"192.168.10.21",gatewayIpv4Address:"192.168.10.1",macAddress:"02:00:00:00:10:21"}},{id:"pc-b2",type:"computer",name:"PC-B2",x:-560,y:210,config:{ipv4Address:"192.168.10.22",gatewayIpv4Address:"192.168.10.1",macAddress:"02:00:00:00:10:22"}},{id:"sw-b",type:"switch",name:"Access-SW-B",x:-360,y:150,config:{managed:!1,ethernetPorts:8}},{id:"sw-core",type:"switch",name:"Core-SW",x:-80,y:-20,config:{managed:!1,ethernetPorts:8}},{id:"router",type:"router",name:"Router",x:210,y:-20,config:{interfaces:[{peerId:"sw-core",type:"ethernet",ipv4Address:"192.168.10.1"},{peerId:"sw-c",type:"ethernet",ipv4Address:"192.168.30.1"}]}},{id:"pc-c1",type:"computer",name:"PC-C1",x:540,y:-80,config:{ipv4Address:"192.168.30.11",gatewayIpv4Address:"192.168.30.1",macAddress:"02:00:00:00:30:11"}},{id:"pc-c2",type:"computer",name:"PC-C2",x:540,y:80,config:{ipv4Address:"192.168.30.12",gatewayIpv4Address:"192.168.30.1",macAddress:"02:00:00:00:30:12"}},{id:"sw-c",type:"switch",name:"Access-SW-C",x:360,y:0,config:{managed:!1,ethernetPorts:8}}],links:[{from:"pc-a1",to:"sw-a"},{from:"pc-a2",to:"sw-a"},{from:"pc-b1",to:"sw-b"},{from:"pc-b2",to:"sw-b"},{from:"sw-a",to:"sw-core"},{from:"sw-b",to:"sw-core"},{from:"sw-core",to:"router"},{from:"pc-c1",to:"sw-c"},{from:"pc-c2",to:"sw-c"},{from:"sw-c",to:"router"}]},vt={version:1,devices:[{id:"rtr",type:"router",name:"Router",x:300,y:0,config:{ethernetPorts:4,serialPorts:2,interfaces:[{peerId:"sw-core",type:"ethernet",ipv4Address:"192.168.10.1",vlanTag:10},{peerId:"sw-core",type:"ethernet",ipv4Address:"192.168.20.1",vlanTag:20},{peerId:"sw-core",type:"ethernet",ipv4Address:"192.168.30.1",vlanTag:30}]}},{id:"sw-core",type:"switch",name:"Core-SW",x:40,y:0,config:{managed:!0,ethernetPorts:8,vlans:[{id:1,name:"default"},{id:10,name:"Sales"},{id:20,name:"Engineering"},{id:30,name:"Servers"}],portVlans:{},portModes:{Ethernet1:"trunk",Ethernet2:"trunk",Ethernet3:"trunk",Ethernet4:"trunk"},trunkNativeVlans:{},trunkAllowedVlans:{}}},{id:"sw-a",type:"switch",name:"Edge-SW-A",x:-250,y:-200,config:{managed:!0,ethernetPorts:8,vlans:[{id:1,name:"default"},{id:10,name:"Sales"},{id:20,name:"Engineering"},{id:30,name:"Servers"}],portVlans:{Ethernet2:10,Ethernet3:10},portModes:{Ethernet1:"trunk"},trunkNativeVlans:{},trunkAllowedVlans:{}}},{id:"sw-b",type:"switch",name:"Edge-SW-B",x:-250,y:0,config:{managed:!0,ethernetPorts:8,vlans:[{id:1,name:"default"},{id:10,name:"Sales"},{id:20,name:"Engineering"},{id:30,name:"Servers"}],portVlans:{Ethernet2:20,Ethernet3:20},portModes:{Ethernet1:"trunk"},trunkNativeVlans:{},trunkAllowedVlans:{}}},{id:"sw-c",type:"switch",name:"Edge-SW-C",x:-250,y:200,config:{managed:!0,ethernetPorts:8,vlans:[{id:1,name:"default"},{id:10,name:"Sales"},{id:20,name:"Engineering"},{id:30,name:"Servers"}],portVlans:{Ethernet2:30,Ethernet3:30},portModes:{Ethernet1:"trunk",Ethernet4:"trunk"},trunkNativeVlans:{},trunkAllowedVlans:{}}},{id:"sw-d",type:"switch",name:"Edge-SW-D",x:-520,y:280,config:{managed:!1,ethernetPorts:8}},{id:"pc-a1",type:"computer",name:"PC-A1",x:-520,y:-260,config:{ipv4Address:"192.168.10.11",gatewayIpv4Address:"192.168.10.1",macAddress:"02:00:0A:00:01:01"}},{id:"pc-a2",type:"computer",name:"PC-A2",x:-520,y:-160,config:{ipv4Address:"192.168.10.12",gatewayIpv4Address:"192.168.10.1",macAddress:"02:00:0A:00:01:02"}},{id:"pc-b1",type:"computer",name:"PC-B1",x:-520,y:-60,config:{ipv4Address:"192.168.20.11",gatewayIpv4Address:"192.168.20.1",macAddress:"02:00:14:00:01:01"}},{id:"pc-b2",type:"computer",name:"PC-B2",x:-520,y:40,config:{ipv4Address:"192.168.20.12",gatewayIpv4Address:"192.168.20.1",macAddress:"02:00:14:00:01:02"}},{id:"pc-c1",type:"computer",name:"PC-C1",x:-520,y:130,config:{ipv4Address:"192.168.30.11",gatewayIpv4Address:"192.168.30.1",macAddress:"02:00:1E:00:01:01"}},{id:"pc-c2",type:"computer",name:"PC-C2",x:-520,y:210,config:{ipv4Address:"192.168.30.12",gatewayIpv4Address:"192.168.30.1",macAddress:"02:00:1E:00:01:02"}},{id:"pc-d1",type:"computer",name:"PC-D1",x:-760,y:200,config:{ipv4Address:"192.168.30.21",gatewayIpv4Address:"192.168.30.1",macAddress:"02:00:1E:00:02:01"}},{id:"pc-d2",type:"computer",name:"PC-D2",x:-760,y:290,config:{ipv4Address:"192.168.30.22",gatewayIpv4Address:"192.168.30.1",macAddress:"02:00:1E:00:02:02"}},{id:"pc-d3",type:"computer",name:"PC-D3",x:-760,y:380,config:{ipv4Address:"192.168.30.23",gatewayIpv4Address:"192.168.30.1",macAddress:"02:00:1E:00:02:03"}}],links:[{from:"sw-core",to:"rtr"},{from:"sw-core",to:"sw-a"},{from:"sw-core",to:"sw-b"},{from:"sw-core",to:"sw-c"},{from:"sw-a",to:"pc-a1"},{from:"sw-a",to:"pc-a2"},{from:"sw-b",to:"pc-b1"},{from:"sw-b",to:"pc-b2"},{from:"sw-c",to:"pc-c1"},{from:"sw-c",to:"pc-c2"},{from:"sw-c",to:"sw-d"},{from:"sw-d",to:"pc-d1"},{from:"sw-d",to:"pc-d2"},{from:"sw-d",to:"pc-d3"}]},wt={version:1,devices:[{id:"r1",type:"router",name:"R1",x:-80,y:-60,config:{ethernetPorts:4,serialPorts:4,interfaces:[{peerId:"sw1",type:"ethernet",ipv4Address:"192.168.1.1",macAddress:"02:a1:00:00:01:01"},{peerId:"r2",type:"serial",ipv4Address:"10.0.12.1",macAddress:"02:a1:00:00:02:01"},{peerId:"r3",type:"serial",ipv4Address:"10.0.13.1",macAddress:"02:a1:00:00:03:01"},{peerId:"r4",type:"serial",ipv4Address:"10.0.14.1",macAddress:"02:a1:00:00:04:01"}],staticRoutes:[{network:"192.168.2.0/24",nextHop:"10.0.12.2"},{network:"192.168.4.0/24",nextHop:"10.0.14.2"},{network:"10.0.25.0/24",nextHop:"10.0.12.2"},{network:"10.0.34.0/24",nextHop:"10.0.13.2"},{network:"10.0.45.0/24",nextHop:"10.0.14.2"}]}},{id:"r2",type:"router",name:"R2",x:380,y:-60,config:{ethernetPorts:4,serialPorts:4,interfaces:[{peerId:"sw2",type:"ethernet",ipv4Address:"192.168.2.1",macAddress:"02:a2:00:00:01:01"},{peerId:"r1",type:"serial",ipv4Address:"10.0.12.2",macAddress:"02:a2:00:00:02:01"},{peerId:"r5",type:"serial",ipv4Address:"10.0.25.2",macAddress:"02:a2:00:00:03:01"}],staticRoutes:[{network:"192.168.1.0/24",nextHop:"10.0.12.1"},{network:"192.168.4.0/24",nextHop:"10.0.25.5"},{network:"10.0.13.0/24",nextHop:"10.0.12.1"},{network:"10.0.14.0/24",nextHop:"10.0.12.1"},{network:"10.0.34.0/24",nextHop:"10.0.12.1"},{network:"10.0.45.0/24",nextHop:"10.0.25.5"}]}},{id:"r3",type:"router",name:"R3",x:-300,y:180,config:{ethernetPorts:4,serialPorts:4,interfaces:[{peerId:"r1",type:"serial",ipv4Address:"10.0.13.2",macAddress:"02:a3:00:00:01:01"},{peerId:"r4",type:"serial",ipv4Address:"10.0.34.3",macAddress:"02:a3:00:00:02:01"}],staticRoutes:[{network:"192.168.1.0/24",nextHop:"10.0.13.1"},{network:"192.168.2.0/24",nextHop:"10.0.13.1"},{network:"192.168.4.0/24",nextHop:"10.0.34.4"},{network:"10.0.12.0/24",nextHop:"10.0.13.1"},{network:"10.0.14.0/24",nextHop:"10.0.13.1"},{network:"10.0.25.0/24",nextHop:"10.0.13.1"},{network:"10.0.45.0/24",nextHop:"10.0.34.4"}]}},{id:"r4",type:"router",name:"R4",x:80,y:280,config:{ethernetPorts:4,serialPorts:4,interfaces:[{peerId:"sw4",type:"ethernet",ipv4Address:"192.168.4.1",macAddress:"02:a4:00:00:01:01"},{peerId:"r1",type:"serial",ipv4Address:"10.0.14.2",macAddress:"02:a4:00:00:02:01"},{peerId:"r3",type:"serial",ipv4Address:"10.0.34.4",macAddress:"02:a4:00:00:03:01"},{peerId:"r5",type:"serial",ipv4Address:"10.0.45.4",macAddress:"02:a4:00:00:04:01"}],staticRoutes:[{network:"192.168.1.0/24",nextHop:"10.0.14.1"},{network:"192.168.2.0/24",nextHop:"10.0.45.5"},{network:"10.0.12.0/24",nextHop:"10.0.14.1"},{network:"10.0.13.0/24",nextHop:"10.0.34.3"},{network:"10.0.25.0/24",nextHop:"10.0.45.5"}]}},{id:"r5",type:"router",name:"R5",x:380,y:200,config:{ethernetPorts:4,serialPorts:4,interfaces:[{peerId:"r2",type:"serial",ipv4Address:"10.0.25.5",macAddress:"02:a5:00:00:01:01"},{peerId:"r4",type:"serial",ipv4Address:"10.0.45.5",macAddress:"02:a5:00:00:02:01"}],staticRoutes:[{network:"192.168.1.0/24",nextHop:"10.0.25.2"},{network:"192.168.2.0/24",nextHop:"10.0.25.2"},{network:"192.168.4.0/24",nextHop:"10.0.45.4"},{network:"10.0.12.0/24",nextHop:"10.0.25.2"},{network:"10.0.13.0/24",nextHop:"10.0.25.2"},{network:"10.0.14.0/24",nextHop:"10.0.45.4"},{network:"10.0.34.0/24",nextHop:"10.0.45.4"}]}},{id:"sw1",type:"switch",name:"SW1",x:-320,y:-60,config:{managed:!1,ethernetPorts:8}},{id:"sw2",type:"switch",name:"SW2",x:600,y:-60,config:{managed:!1,ethernetPorts:8}},{id:"sw4",type:"switch",name:"SW4",x:80,y:460,config:{managed:!1,ethernetPorts:8}},{id:"pc-a1",type:"computer",name:"PC-A1",x:-520,y:-120,config:{ipv4Address:"192.168.1.11",gatewayIpv4Address:"192.168.1.1",macAddress:"02:00:01:00:01:11"}},{id:"pc-a2",type:"computer",name:"PC-A2",x:-520,y:-10,config:{ipv4Address:"192.168.1.12",gatewayIpv4Address:"192.168.1.1",macAddress:"02:00:01:00:01:12"}},{id:"pc-b1",type:"computer",name:"PC-B1",x:800,y:-120,config:{ipv4Address:"192.168.2.11",gatewayIpv4Address:"192.168.2.1",macAddress:"02:00:02:00:01:11"}},{id:"pc-b2",type:"computer",name:"PC-B2",x:800,y:-10,config:{ipv4Address:"192.168.2.12",gatewayIpv4Address:"192.168.2.1",macAddress:"02:00:02:00:01:12"}},{id:"pc-d1",type:"computer",name:"PC-D1",x:-100,y:530,config:{ipv4Address:"192.168.4.11",gatewayIpv4Address:"192.168.4.1",macAddress:"02:00:04:00:01:11"}},{id:"pc-d2",type:"computer",name:"PC-D2",x:260,y:530,config:{ipv4Address:"192.168.4.12",gatewayIpv4Address:"192.168.4.1",macAddress:"02:00:04:00:01:12"}}],links:[{from:"sw1",to:"r1"},{from:"sw2",to:"r2"},{from:"sw4",to:"r4"},{from:"pc-a1",to:"sw1"},{from:"pc-a2",to:"sw1"},{from:"pc-b1",to:"sw2"},{from:"pc-b2",to:"sw2"},{from:"pc-d1",to:"sw4"},{from:"pc-d2",to:"sw4"},{from:"r1",to:"r2"},{from:"r1",to:"r3"},{from:"r1",to:"r4"},{from:"r3",to:"r4"},{from:"r2",to:"r5"},{from:"r4",to:"r5"}]};function ce(){return JSON.stringify({devices:r.devices,links:r.links.map(e=>{let{frameHistory:t,...n}=e;return n}),selectedId:r.selectedId,configuringId:r.configuringId,nextComputer:r.nextComputer,nextSwitch:r.nextSwitch,nextRouter:r.nextRouter})}function I(){r.isApplyingCompositeChange||Ae(ce())}function Ae(e){r.undoStack[r.undoStack.length-1]!==e&&(r.undoStack.push(e),r.undoStack.length>80&&r.undoStack.shift()),It()}function It(){document.getElementById("undoButton").disabled=r.undoStack.length===0}function xn(e){let t=JSON.parse(e);r.devices=t.devices,r.links=t.links,r.selectedId=t.selectedId,r.configuringId=t.configuringId,r.nextComputer=t.nextComputer,r.nextSwitch=t.nextSwitch,r.nextRouter=t.nextRouter||1,r.linkStartId=null,r.selectedLinkId=null,r.drag=null,r.panDrag=null,v().syncPanel(),v().render()}function ze(){if(r.simulation.status!=="idle"&&r.simulation.status!=="done"){r.simulation.status="idle",r.simulation.events=[],r.simulation.log=[],r.simulation.transits=[],r.simulation.pendingArp={};let t=document.getElementById("terminalInput");t&&(t.disabled=!1);let n=document.getElementById("simLogPanel");n&&n.classList.remove("active")}let e=r.undoStack.pop();e&&(xn(e),It())}function oe(e){e.addEventListener("focus",()=>{e.dataset.undoSnapshot||(e.dataset.undoSnapshot=ce())}),e.addEventListener("blur",()=>{let t=e.dataset.undoSnapshot;delete e.dataset.undoSnapshot,t&&t!==ce()&&Ae(t)})}var p={canvas:document.getElementById("networkCanvas"),ctx:document.getElementById("networkCanvas").getContext("2d"),toolButtons:[...document.querySelectorAll(".tool-button[data-tool]")],modeLabel:document.getElementById("modeLabel"),hint:document.getElementById("hint"),deviceCount:document.getElementById("deviceCount"),linkCount:document.getElementById("linkCount"),inspectorOpenButton:document.getElementById("inspectorOpenButton"),inspectorCloseButton:document.getElementById("inspectorCloseButton"),inspectorResizeHandle:document.getElementById("inspectorResizeHandle"),displayOptionsButton:document.getElementById("displayOptionsButton"),displayOptionsPanel:document.getElementById("displayOptionsPanel"),showDeviceNames:document.getElementById("showDeviceNames"),showIpAddresses:document.getElementById("showIpAddresses"),showMacAddresses:document.getElementById("showMacAddresses"),detailsPanel:document.getElementById("detailsPanel"),deviceList:document.getElementById("deviceList"),zoomLevel:document.getElementById("zoomLevel"),undoButton:document.getElementById("undoButton"),terminalOpenButton:document.getElementById("terminalOpenButton"),terminalCloseButton:document.getElementById("terminalCloseButton"),terminalPanel:document.getElementById("terminalPanel"),terminalTitle:document.getElementById("terminalTitle"),terminalOutput:document.getElementById("terminalOutput"),terminalForm:document.getElementById("terminalForm"),terminalPrompt:document.getElementById("terminalPrompt"),terminalInput:document.getElementById("terminalInput"),themeButton:document.getElementById("themeButton"),loadButton:document.getElementById("loadButton"),saveButton:document.getElementById("saveButton"),clearButton:document.getElementById("clearButton"),topologyButton:document.getElementById("topologyButton"),topologyMenu:document.getElementById("topologyMenu"),fitButton:document.getElementById("fitButton"),simControls:document.getElementById("simControls"),simPlayPause:document.getElementById("simPlayPause"),simStep:document.getElementById("simStep"),simStop:document.getElementById("simStop"),simSpeed:document.getElementById("simSpeed"),simLogPanel:document.getElementById("simLogPanel"),simLogOutput:document.getElementById("simLogOutput"),simLogTitle:document.getElementById("simLogTitle"),simLogCloseButton:document.getElementById("simLogCloseButton"),portSelectionOverlay:document.getElementById("portSelectionOverlay"),portSelectionBody:document.getElementById("portSelectionBody"),portSelectionConfirm:document.getElementById("portSelectionConfirm"),portSelectionCancel:document.getElementById("portSelectionCancel")};function b(e){return String(e).replaceAll("&","&amp;").replaceAll("<","&lt;").replaceAll(">","&gt;").replaceAll('"',"&quot;")}function P(e){let t=e.split(".");return t.length!==4?!1:t.every(n=>{if(!/^\d{1,3}$/.test(n)||n.length>1&&n.startsWith("0"))return!1;let o=Number(n);return o>=0&&o<=255})}function _(e){let t=e.split(".").map(Number);return(t[0]<<24|t[1]<<16|t[2]<<8|t[3])>>>0}function q(e,t){return!e||!t||!P(e)||!P(t)?!1:_(e)>>>8===_(t)>>>8}function F(e){return String(e||"").trim().replaceAll("-",":").toUpperCase()}function Le(e){return/^([0-9A-F]{2}:){5}[0-9A-F]{2}$/.test(e)}function me(e){let t=Number(e);return Number.isInteger(t)?Math.min(24,Math.max(4,t)):8}function Z(e){let t=Number(e);return Number.isInteger(t)?Math.min(12,Math.max(0,t)):4}function ie(e){let t=String(e||"").trim().match(/^([^/]+)(?:\/(\d{1,2}))?$/);if(!t)return null;let n=t[1],o=t[2]==null?null:Number(t[2]);return!P(n)||o!=null&&(!Number.isInteger(o)||o<0||o>32)?null:{address:n,prefixLength:o}}function U(e){let t=Number(e);return!Number.isInteger(t)||t<1||t>4094?null:t}function E(e){return getComputedStyle(document.documentElement).getPropertyValue(e).trim()}function G(e){return Array.isArray(e)?e.map(t=>({ipv4Address:String(t.ipv4Address||t.ip||"").trim(),macAddress:F(t.macAddress||t.mac||"")})).filter(t=>t.ipv4Address||t.macAddress):[]}function ge(e){return Array.isArray(e)?e.map(t=>({macAddress:F(t.macAddress||t.mac||""),ipv4Address:String(t.ipv4Address||t.ip||"").trim()})).filter(t=>t.macAddress&&t.ipv4Address):[]}function se(e){return Array.isArray(e)?e.map(t=>{let n=t.vlan==null?"":String(t.vlan).trim(),o=F(t.macAddress||t.mac||""),s=String(t.port||"").trim(),l=!!(n||o||s||t.type)?String(t.type||"DYNAMIC").trim().toUpperCase():"";return{vlan:n,macAddress:o,type:l,port:s}}).filter(t=>t.vlan||t.macAddress||t.type||t.port):[]}function Q(e){let t=Array.isArray(e)?e:[],n=new Set,o=[{id:1,name:"default"}];return t.forEach(s=>{let i=U(typeof s=="object"?s.id:s);!i||n.has(i)||i===1||(n.add(i),o.push({id:i,name:String(s.name||`Vlan${i}`).trim()}))}),o.sort((s,i)=>s.id-i.id)}function D(e){return!e||typeof e!="object"?{}:Object.fromEntries(Object.entries(e).map(([t,n])=>[String(t).trim(),U(n)]).filter(([t,n])=>t&&n&&n!==1))}function W(e){if(!e||typeof e!="object")return{};let t=new Set(["access","trunk"]);return Object.fromEntries(Object.entries(e).map(([n,o])=>[String(n).trim(),t.has(String(o))?String(o):"access"]).filter(([n])=>n))}function K(e){return!e||typeof e!="object"?{}:Object.fromEntries(Object.entries(e).map(([t,n])=>[String(t).trim(),(Array.isArray(n)?n:[]).map(Number).filter(o=>o>=1&&o<=4094)]).filter(([t,n])=>t&&n.length))}function he(e,t){return Array.isArray(e)?e.map((n,o)=>({peerId:String(n.peerId||n.peer||n.linkedDeviceId||"").trim(),type:n.type==="serial"?"serial":"ethernet",name:String(n.name||"").trim(),ipv4Address:String(n.ipv4Address||n.ip||"").trim(),macAddress:n.macAddress||An(t||"",o),arpTable:G(n.arpTable||[]),dhcpLeases:ge(n.dhcpLeases||[]),vlanTag:n.vlanTag!=null&&U(n.vlanTag)||null})).filter(n=>n.peerId||n.name||n.ipv4Address||n.arpTable.length):[]}function ye(e){return!e||typeof e!="object"?{enabled:!1,networks:[],passiveInterfaces:[],learnedRoutes:[]}:{enabled:!!e.enabled,networks:Array.isArray(e.networks)?e.networks.map(t=>String(t).trim()).filter(Boolean):[],passiveInterfaces:Array.isArray(e.passiveInterfaces)?e.passiveInterfaces.map(t=>String(t).trim()).filter(Boolean):[],learnedRoutes:Array.isArray(e.learnedRoutes)?e.learnedRoutes.map(t=>({network:String(t.network||"").trim(),nextHop:String(t.nextHop||"").trim(),interface:t.interface?String(t.interface).trim():void 0,metric:Number(t.metric)||2})).filter(t=>t.network&&t.nextHop):[]}}function ee(e){return Array.isArray(e)?e.filter(t=>t&&t.network&&t.nextHop).map(t=>({network:String(t.network).trim(),nextHop:String(t.nextHop).trim()})):[]}function An(e,t){let n=0;for(let i=0;i<e.length;i++)n=(n<<5)-n+e.charCodeAt(i)|0;let o=((n>>>0)%256).toString(16).padStart(2,"0"),s=((t+1)%256).toString(16).padStart(2,"0");return`02:${o}:00:00:${s}:01`}function bn(e){if(e.type==="switch"){let s=me(e.config?.ethernetPorts??e.ethernetPorts??8),i=!!(e.config?.managed??e.managed??!1);return{managed:i,ethernetPorts:s,macTable:se(e.config?.macTable||e.macTable||[]),...i?{vlans:Q(e.config?.vlans||e.vlans||[]),portVlans:D(e.config?.portVlans||e.portVlans||{}),portModes:W(e.config?.portModes||e.portModes||{}),trunkAllowedVlans:K(e.config?.trunkAllowedVlans||{}),trunkNativeVlans:D(e.config?.trunkNativeVlans||{})}:{}}}if(e.type==="router"){let s=Z(e.config?.ethernetPorts??e.ethernetPorts??4),i=Z(e.config?.serialPorts??e.serialPorts??4),l=he(e.config?.interfaces||e.interfaces||[],e.id);if(l.find(m=>m.ipv4Address&&!P(m.ipv4Address)))throw new Error(`${e.name||e.id||"Router"} has an invalid interface IPv4 address.`);let c=ye(e.config?.rip);return{ethernetPorts:s,serialPorts:i,interfaces:l,staticRoutes:ee(e.config?.staticRoutes||[]),...c.enabled?{rip:c}:{}}}if(e.type==="lan")return{anchorId:String(e.config?.anchorId||e.anchorId||""),members:Array.isArray(e.config?.members||e.members)?(e.config?.members||e.members).map(s=>String(s)):[],absorbedLans:Array.isArray(e.config?.absorbedLans||e.absorbedLans)?(e.config?.absorbedLans||e.absorbedLans).map(s=>String(s)):[]};if(e.type!=="computer")return{};let t=String(e.config?.ipv4Address||e.ipv4Address||"").trim(),n=String(e.config?.gatewayIpv4Address||e.gatewayIpv4Address||e.gateway||"").trim(),o=F(e.config?.macAddress||e.macAddress||"");if(t&&!P(t))throw new Error(`${e.name||e.id||"Computer"} has an invalid IPv4 address.`);if(n&&!P(n))throw new Error(`${e.name||e.id||"Computer"} has an invalid default gateway.`);if(o&&!Le(o))throw new Error(`${e.name||e.id||"Computer"} has an invalid MAC address.`);return{ipv4Address:t,gatewayIpv4Address:n,macAddress:o,arpTable:G(e.config?.arpTable||e.arpTable||[])}}function te(e){if(!e||!Array.isArray(e.devices)||!Array.isArray(e.links))throw new Error("Config needs devices and links arrays.");let t=new Set,n=e.devices.map((i,l)=>{if(!i||!["computer","switch","router","lan"].includes(i.type))throw new Error(`Device ${l+1} needs type computer, switch, router, or lan.`);let a=String(i.id||`device-${l+1}`);if(t.has(a))throw new Error(`Duplicate device id: ${a}`);t.add(a);let c=Number(i.x),m=Number(i.y);if(!Number.isFinite(c)||!Number.isFinite(m))throw new Error(`Device ${i.name||a} needs numeric x and y.`);return{id:a,type:i.type,name:String(i.name||kn(i.type,l+1)),x:c,y:m,width:de(i.type).width,height:de(i.type).height,hidden:!!i.hidden,...i.poweredOff?{poweredOff:!0}:{},...i.collapsedBy?{collapsedBy:String(i.collapsedBy)}:{},config:bn(i)}}),o=[],s=new Set;return e.links.forEach((i,l)=>{if(!i||!t.has(String(i.from))||!t.has(String(i.to)))throw new Error(`Link ${l+1} references a missing device.`);let a=String(i.from),c=String(i.to);if(a===c)return;let m=[a,c].sort().join("::");s.has(m)||(s.add(m),o.push({id:crypto.randomUUID?crypto.randomUUID():`${Date.now()}-${Math.random()}`,from:a,to:c,...i.fromPort!=null?{fromPort:Number(i.fromPort)}:{},...i.toPort!=null?{toPort:Number(i.toPort)}:{},hidden:!!i.hidden,...i.collapsedBy?{collapsedBy:String(i.collapsedBy)}:{},...i.proxy?{proxy:!0}:{}}))}),{devices:n,links:o}}function be(e){return{version:1,configs:e&&e.configs&&typeof e.configs=="object"?e.configs:{}}}function Xe(e){return String(e||"").trim().replace(/[<>:"/\\|?*]/g,"-")}function R(e){return e==="computer"?{ipv4Address:"",gatewayIpv4Address:"",macAddress:"",arpTable:[]}:e==="switch"?{managed:!1,ethernetPorts:8,macTable:[],vlans:[],portVlans:{},portModes:{},trunkAllowedVlans:{},trunkNativeVlans:{}}:e==="router"?{ethernetPorts:4,serialPorts:4,interfaces:[]}:e==="lan"?{members:[]}:{}}function de(e){return e==="computer"?{width:92,height:68}:e==="router"?{width:92,height:70}:e==="lan"?{width:112,height:72}:{width:104,height:58}}function kn(e,t){return e==="router"?`RTR-${t}`:e==="computer"?`PC-${t}`:`SW-${t}`}function kt(e,t,n,o){I();let s={id:crypto.randomUUID?crypto.randomUUID():`${Date.now()}-${Math.random()}`,type:e,name:o||$n(e),x:t,y:n,width:de(e).width,height:de(e).height,config:R(e)};return r.devices.push(s),r.selectedId=s.id,v().syncPanel(),v().render(),s}function Pt(e,t,n,o){if(e===t)return;if(!r.links.some(i=>i.from===e&&i.to===t||i.from===t&&i.to===e)){I();let i=n??xt(e),l=o??xt(t);r.links.push({id:crypto.randomUUID?crypto.randomUUID():`${Date.now()}-${Math.random()}`,from:e,to:t,fromPort:i,toPort:l})}r.linkStartId=null,v().syncPanel(),v().render()}function xt(e){if(!x(e))return 1;let n=new Set;for(let s of r.links)s.hidden||(s.from===e&&s.fromPort&&n.add(s.fromPort),s.to===e&&s.toPort&&n.add(s.toPort));let o=1;for(;n.has(o);)o++;return o}function Re(){if(!r.selectedId)return;let e=x(r.selectedId);if(e?.type==="lan"){Ke(e);return}I();let t=r.selectedId;r.devices=r.devices.filter(n=>n.id!==t),r.links=r.links.filter(n=>n.from!==t&&n.to!==t),r.selectedId=null,r.configuringId=null,r.linkStartId=null,r.terminal.deviceId===t&&(r.terminal.open=!1,r.terminal.deviceId=null,r.terminal.mode="exec",r.terminal.interfacePeerId=null,r.terminal.interfaceVlanTag=null,r.terminal.lines=[]),v().syncPanel(),v().syncTerminal(),v().render()}function $t(){(r.devices.length||r.links.length)&&I(),r.devices=[],r.links=[],r.selectedId=null,r.configuringId=null,r.linkStartId=null,r.panDrag=null,r.terminal.open=!1,r.terminal.deviceId=null,r.terminal.mode="exec",r.terminal.interfacePeerId=null,r.terminal.lines=[],r.nextComputer=1,r.nextSwitch=1,r.nextRouter=1,v().syncPanel(),v().syncTerminal(),v().render()}function De(e){for(let t=r.devices.length-1;t>=0;t--){let n=r.devices[t];if(!n.hidden&&e.x>=n.x-n.width/2&&e.x<=n.x+n.width/2&&e.y>=n.y-n.height/2&&e.y<=n.y+n.height/2)return n}return null}function Ge(e){for(let n of r.links){if(n.hidden)continue;let o=x(n.from),s=x(n.to);if(!o||!s||o.hidden||s.hidden)continue;if(Pn(e.x,e.y,o.x,o.y,s.x,s.y)<=14)return n}return null}function Pn(e,t,n,o,s,i){let l=s-n,a=i-o,c=l*l+a*a;if(c===0)return Math.hypot(e-n,t-o);let m=((e-n)*l+(t-o)*a)/c;return m=Math.max(0,Math.min(1,m)),Math.hypot(e-(n+m*l),t-(o+m*a))}function x(e){return r.devices.find(t=>t.id===e)}function ne(e){return e&&!e.hidden}function Be(e){return r.links.filter(t=>!t.hidden&&(t.from===e||t.to===e)).map(t=>t.from===e?t.to:t.from)}function z(e){let t=r.links.filter(a=>!a.hidden&&(a.from===e||a.to===e)).map(a=>{let c=a.from===e,m=c?a.fromPort:a.toPort;return{link:a,peer:x(c?a.to:a.from),portNum:m||0}}).filter(a=>ne(a.peer));if(!t.some(a=>a.portNum>0))return t.map(({link:a,peer:c})=>({link:a,peer:c}));let o=[],s=t.filter(a=>a.portNum>0).sort((a,c)=>a.portNum-c.portNum),i=t.filter(a=>a.portNum===0);for(let a of s){let c=a.portNum-1;for(;o.length<=c;)o.push(null);o[c]={link:a.link,peer:a.peer}}let l=0;for(let a of i){for(;l<o.length&&o[l]!==null;)l++;l<o.length?o[l]={link:a.link,peer:a.peer}:o.push({link:a.link,peer:a.peer}),l++}return o}function $n(e){return e==="computer"?`PC-${r.nextComputer++}`:e==="router"?`RTR-${r.nextRouter++}`:`SW-${r.nextSwitch++}`}function Ne(e){let t=e==="computer"?"PC-":e==="router"?"RTR-":"SW-";return r.devices.filter(o=>o.type===e&&o.name.startsWith(t)).map(o=>Number(o.name.slice(t.length))).filter(Number.isFinite).reduce((o,s)=>Math.max(o,s),0)+1}function Sn(e){let t=new Set,n=new Set,o=[e];for(;o.length;){let s=o.shift();if(t.has(s))continue;let i=x(s);if(!(!i||i.hidden||i.type==="router")){if(i.type==="lan"){n.add(i.id),(i.config?.members||[]).forEach(l=>o.push(l));continue}t.add(s),r.links.forEach(l=>{if(l.hidden||l.from!==s&&l.to!==s)return;let a=l.from===s?l.to:l.from,c=x(a);c&&!c.hidden&&c.type!=="router"&&o.push(a)})}}return{members:[...t],absorbedLans:[...n]}}function St(e){if(!e||e.type!=="switch")return;let{members:t,absorbedLans:n}=Sn(e.id);if(t.length<2){p.hint.textContent="Collapse LAN needs a switch with at least one attached LAN device.";return}I();let o=new Set(t),s=new Set(n),i=r.devices.filter(u=>o.has(u.id)),l=i.reduce((u,f)=>({minX:Math.min(u.minX,f.x-f.width/2),minY:Math.min(u.minY,f.y-f.height/2),maxX:Math.max(u.maxX,f.x+f.width/2),maxY:Math.max(u.maxY,f.y+f.height/2)}),{minX:1/0,minY:1/0,maxX:-1/0,maxY:-1/0}),a=crypto.randomUUID?crypto.randomUUID():`${Date.now()}-${Math.random()}`,c={id:a,type:"lan",name:`${e.name} LAN`,x:(l.minX+l.maxX)/2,y:(l.minY+l.maxY)/2,width:de("lan").width,height:de("lan").height,config:{anchorId:e.id,members:t,absorbedLans:n}},m=new Set;r.links.forEach(u=>{if(s.has(u.from)||s.has(u.to)){u.visibleBeforeParentCollapse=!u.hidden,u.hidden=!0,u.collapsedBy=a;return}let f=o.has(u.from),g=o.has(u.to);if(!f&&!g)return;u.hidden=!0,u.collapsedBy=a;let y=f?u.to:u.from,w=x(y);w&&w.type==="router"&&!w.hidden&&m.add(w.id)}),i.forEach(u=>{u.hidden=!0,u.collapsedBy=a}),r.devices.forEach(u=>{s.has(u.id)&&(u.hidden=!0,u.collapsedBy=a)}),m.forEach(u=>{r.links.push({id:crypto.randomUUID?crypto.randomUUID():`${Date.now()}-${Math.random()}`,from:a,to:u,proxy:!0,collapsedBy:a})}),r.devices.push(c),r.selectedId=a,r.configuringId=null,r.linkStartId=null,v().syncPanel(),v().render(),p.hint.textContent=`Collapsed ${t.length} devices into ${c.name}.`}function Ke(e){if(!e||e.type!=="lan")return;I();let t=e.id,n=new Set(e.config?.absorbedLans||[]);r.devices.forEach(o=>{o.collapsedBy===t&&(o.hidden=!1,delete o.collapsedBy,n.has(o.id))}),r.links=r.links.filter(o=>!o.proxy||o.collapsedBy!==t),r.links.forEach(o=>{o.collapsedBy===t&&(n.has(o.from)||n.has(o.to)?o.hidden=!o.visibleBeforeParentCollapse:o.hidden=!1,delete o.visibleBeforeParentCollapse,delete o.collapsedBy)}),r.devices=r.devices.filter(o=>o.id!==t),r.selectedId=e.config?.anchorId||null,r.configuringId=null,r.linkStartId=null,v().syncPanel(),v().render(),p.hint.textContent=`Expanded ${e.name}.`}function pe(e,t,n){e.config=e.config||R("router"),e.config.interfaces=he(e.config.interfaces||[]);let o;if(n!=null?o=e.config.interfaces.find(s=>s.peerId===t&&s.vlanTag===n):o=e.config.interfaces.find(s=>s.peerId===t&&s.vlanTag==null)||e.config.interfaces.find(s=>s.peerId===t),!o){let i=x(t)?.type==="router"?"serial":"ethernet";o={peerId:t,type:i,ipv4Address:"",vlanTag:n??null},e.config.interfaces.push(o)}return o}function N(e){let t=Z(e.config?.ethernetPorts??4),n=Z(e.config?.serialPorts??4),o=he(e.config?.interfaces||[]),s=z(e.id).map(u=>{let f=u.peer.type==="router"?"serial":"ethernet",g=o.filter(y=>y.peerId===u.peer.id);return g.length===0&&g.push({peerId:u.peer.id,type:f,ipv4Address:"",vlanTag:null}),{peer:u.peer,peerId:u.peer.id,type:g[0].type||f,configs:g}}),i=0,l=0,a=[];for(let u of s){let f=u.type==="serial"?++l:++i;if(u.type==="serial"&&f>n||u.type!=="serial"&&f>t)continue;let g=u.type==="serial"?`Serial${f}`:`Ethernet${f}`;if(u.configs.some(w=>w.vlanTag!=null))for(let w of u.configs)w.vlanTag!=null&&a.push({name:`${g}.${w.vlanTag}`,type:u.type,peer:u.peer,peerId:u.peerId,config:w});else a.push({name:g,type:u.type,peer:u.peer,peerId:u.peerId,config:u.configs[0]})}let c=Array.from({length:Math.max(0,t-i)},(u,f)=>({name:`Ethernet${i+f+1}`,type:"ethernet",peer:null,peerId:"",config:{peerId:"",type:"ethernet",ipv4Address:"",vlanTag:null}})),m=Array.from({length:Math.max(0,n-l)},(u,f)=>({name:`Serial${l+f+1}`,type:"serial",peer:null,peerId:"",config:{peerId:"",type:"serial",ipv4Address:"",vlanTag:null}}));return[...a,...c,...m]}function Et(e,t){let n=String(t||"").trim().toLowerCase();return N(e).find(o=>o.name.toLowerCase()===n)}function X(e){let t=me(e.config?.ethernetPorts??8),n=z(e.id),o=D(e.config?.portVlans||{}),s=W(e.config?.portModes||{}),i=D(e.config?.trunkNativeVlans||{});return Array.from({length:t},(l,a)=>{let c=`Ethernet${a+1}`;return{name:c,portNumber:a+1,peer:n[a]?.peer||null,vlan:o[c]||1,mode:s[c]||"access",nativeVlan:i[c]||1}})}function At(e){let t=x(e);if(!t)return[];if(t.type==="computer"){let n=z(e),o=n.length>0;return[{name:"eth0",port:1,available:!o,connectedTo:o&&n[0]?.peer?.name||null}]}return t.type==="switch"?X(t).map(o=>({name:o.name,port:o.portNumber,available:!o.peer,connectedTo:o.peer?.name||null})):t.type==="router"?N(t).filter(o=>!o.name.includes(".")).map((o,s)=>({name:o.name,port:s+1,available:!o.peer,connectedTo:o.peer?.name||null})):[]}function Ct(e,t){let n=x(e),o=x(t);if(!n||!o)return;let s=n.type!=="computer",i=o.type!=="computer";if(!s&&!i){Pt(e,t,1,1);return}let l=At(e),a=At(t);r.portSelection={fromId:e,toId:t,fromPorts:l,toPorts:a,selectedFrom:s?null:1,selectedTo:i?null:1,showFromPicker:s,showToPicker:i},s||(r.portSelection.selectedFrom=1),i||(r.portSelection.selectedTo=1),Mt(),p.portSelectionOverlay.classList.add("open")}function Mt(){let e=r.portSelection;if(!e)return;let t=x(e.fromId),n=x(e.toId);if(!t||!n)return;let o=[];e.showFromPicker&&o.push(bt(t.name,e.fromPorts,e.selectedFrom,"from")),e.showToPicker&&o.push(bt(n.name,e.toPorts,e.selectedTo,"to"));let s=!e.showFromPicker||!e.showToPicker;p.portSelectionBody.className=`port-selection-body${s?" single-column":""}`,p.portSelectionBody.innerHTML=o.join(""),p.portSelectionBody.querySelectorAll(".port-option:not(.occupied)").forEach(l=>{l.addEventListener("click",()=>{let a=l.dataset.side,c=Number(l.dataset.port);a==="from"?r.portSelection.selectedFrom=c:r.portSelection.selectedTo=c,Mt()})});let i=e.selectedFrom!=null&&e.selectedTo!=null;p.portSelectionConfirm.disabled=!i}function bt(e,t,n,o){return`<div class="port-column">
+    <div class="port-column-header">${b(e)}</div>
+    ${t.map(s=>{let i=["port-option"];s.available||i.push("occupied"),s.port===n&&i.push("selected");let l=s.connectedTo?`Connected to ${b(s.connectedTo)}`:"Available";return`<button class="${i.join(" ")}" data-side="${o}" data-port="${s.port}">
+        <span class="port-name">${b(s.name)}</span>
+        <span class="port-status">${l}</span>
+      </button>`}).join("")}
+  </div>`}function Tt(){let e=r.portSelection;!e||e.selectedFrom==null||e.selectedTo==null||(Pt(e.fromId,e.toId,e.selectedFrom,e.selectedTo),ke())}function ke(){r.portSelection=null,p.portSelectionOverlay.classList.remove("open"),r.linkStartId=null,v().render()}var Ye=null,_e=null;function Lt(e){Ye=e.setTool,_e=e.setNetworkPanel}function Je(e){e&&(r.selectedId=e.id,r.configuringId=e.id,r.drag=null,r.panDrag=null,r.linkStartId=null,Ye&&Ye("configure"),_e&&_e(!0),p.hint.textContent=`Configuring ${e.name}.`,v().syncPanel(),v().render())}var En=0;function ae(){return`frame-${++En}-${Date.now()}`}var re="FF:FF:FF:FF:FF:FF";function Pe(e,t,n,o=null){let s={type:"arp",operation:"request",senderMac:e,senderIp:t,targetMac:"00:00:00:00:00:00",targetIp:n};return{id:ae(),srcMac:e,dstMac:re,etherType:2054,vlanTag:o,payload:s}}function Ze(e,t,n,o,s=null){let i={type:"arp",operation:"reply",senderMac:e,senderIp:t,targetMac:n,targetIp:o};return{id:ae(),srcMac:e,dstMac:n,etherType:2054,vlanTag:s,payload:i}}function $e(e,t,n,o,s,i=null,l=1){let c={type:"ipv4",srcIp:n,dstIp:o,ttl:s,protocol:1,payload:{type:"icmp",icmpType:8,sequence:l}};return{id:ae(),srcMac:e,dstMac:t,etherType:2048,vlanTag:i,payload:c}}function Qe(e,t,n,o,s,i=null,l=1){let c={type:"ipv4",srcIp:n,dstIp:o,ttl:s,protocol:1,payload:{type:"icmp",icmpType:0,sequence:l}};return{id:ae(),srcMac:e,dstMac:t,etherType:2048,vlanTag:i,payload:c}}function Rt(e,t,n=null){let s={type:"ipv4",srcIp:"0.0.0.0",dstIp:"255.255.255.255",ttl:64,protocol:17,payload:{type:"dhcp",messageType:"discover",transactionId:t,clientMac:e}};return{id:ae(),srcMac:e,dstMac:re,etherType:2048,vlanTag:n,payload:s}}function Dt(e,t,n,o,s,i=null){let a={type:"ipv4",srcIp:t,dstIp:"255.255.255.255",ttl:64,protocol:17,payload:{type:"dhcp",messageType:"offer",transactionId:s,clientMac:n,assignedIp:o,gatewayIp:t,serverIp:t}};return{id:ae(),srcMac:e,dstMac:re,etherType:2048,vlanTag:i,payload:a}}function Bt(e,t,n,o,s=null){let l={type:"ipv4",srcIp:"0.0.0.0",dstIp:"255.255.255.255",ttl:64,protocol:17,payload:{type:"dhcp",messageType:"request",transactionId:o,clientMac:e,requestedIp:t,serverIp:n}};return{id:ae(),srcMac:e,dstMac:re,etherType:2048,vlanTag:s,payload:l}}function Nt(e,t,n,o,s,i=null){let a={type:"ipv4",srcIp:t,dstIp:"255.255.255.255",ttl:64,protocol:17,payload:{type:"dhcp",messageType:"ack",transactionId:s,clientMac:n,assignedIp:o,gatewayIp:t,serverIp:t}};return{id:ae(),srcMac:e,dstMac:re,etherType:2048,vlanTag:i,payload:a}}function Y(e){let t;if(e.payload.type==="arp")t=e.payload.operation==="request"?"ARP Req":"ARP Reply";else{let n=e.payload;if(n.payload.type==="dhcp"){let o=n.payload;t={discover:"DHCP Disc",offer:"DHCP Offer",request:"DHCP Req",ack:"DHCP ACK"}[o.messageType]||"DHCP"}else n.payload.type==="icmp"?t=n.payload.icmpType===8?"ICMP Echo":"ICMP Reply":t="Frame"}return e.vlanTag!=null&&(t+=` [V${e.vlanTag}]`),t}function Vt(e){if(e.payload.type==="arp")return"#f59e0b";let t=e.payload;return t.payload.type==="dhcp"?"#a78bfa":t.payload.type==="icmp"&&t.payload.icmpType===8?"#3b82f6":"#22c55e"}function Ft(e){for(let t of r.links){if(t.hidden)continue;let n=t.from===e,o=t.to===e;if(!n&&!o)continue;let s=n?t.to:t.from,i=x(s);if(!i||i.type!=="switch"||!i.config?.managed)continue;let a=z(i.id).findIndex(u=>u.peer.id===e);if(a===-1)continue;let c=`Ethernet${a+1}`;return D(i.config.portVlans||{})[c]||1}return 1}function Ht(e,t){let n=t.indexOf("/"),o=n>=0?t.slice(0,n):t;return!P(o)||!P(e)?!1:_(e)>>>8===_(o)>>>8}function Cn(e,t){for(let n of r.devices){if(n.type!=="router"||n.hidden||n.poweredOff)continue;let o=n.config?.interfaces;if(!Array.isArray(o))continue;let s=null,i=null;for(let l of o){let a=l.ipv4Address;!a||!P(a)||(q(a,e)&&(s=l),q(a,t)&&(i=l))}if(s&&i)return{router:n,sourceIface:s,destIface:i};if(s&&!i){let a=ee(n.config?.staticRoutes||[]).some(u=>Ht(t,u.network)),m=(n.config?.rip?.enabled&&Array.isArray(n.config.rip.learnedRoutes)?n.config.rip.learnedRoutes:[]).some(u=>Ht(t,u.network));if(a||m)return{router:n,sourceIface:s,destIface:s}}}return null}function Mn(e){let t=String(e||"").trim().toLowerCase();return r.devices.find(n=>n.type==="computer"&&(String(n.config?.ipv4Address||"").toLowerCase()===t||n.name.toLowerCase()===t))}function Ot(e,t){if(!e.config?.ipv4Address)return`${e.name}: eth0 has no IPv4 address.`;if(!e.config?.macAddress)return`${e.name}: eth0 has no MAC address.`;let n=Mn(t);if(!n)return`ping: cannot resolve ${t}`;let o=e.config.ipv4Address,s=e.config.macAddress,i=n.config?.ipv4Address;if(!i)return`${n.name}: eth0 has no IPv4 address.`;if(n.id===e.id)return`PING ${o}
+64 bytes from ${o}: icmp_seq=1 ttl=64 time=0.1 ms
+
+--- ${o} ping statistics ---
+1 packets transmitted, 1 received, 0% packet loss`;let l=null,a={},c=jt(e);if(!c)return"ping: connect: Network is unreachable (no link)";if(q(o,i)){let y=(e.config.arpTable||[]).find(C=>C.ipv4Address===i),w;if(y)w=$e(s,y.macAddress,o,i,64,l);else{w=Pe(s,o,i,l);let C=$e(s,"00:00:00:00:00:00",o,i,64,l);a[`${e.id}:${i}`]=[C]}return{events:[{type:"frame_arrive",frame:w,deviceId:c.peerId,fromDeviceId:e.id,linkId:c.linkId}],pendingArp:a}}if(!e.config?.gatewayIpv4Address)return"ping: connect: Network is unreachable (no default gateway)";let m=e.config.gatewayIpv4Address;if(!q(m,o))return"ping: connect: Network is unreachable (gateway not on source subnet)";let u=Cn(o,i);if(!u)return`PING ${i}
+
+--- ${i} ping statistics ---
+1 packets transmitted, 0 received, 100% packet loss`;if(m!==u.sourceIface.ipv4Address)return`PING ${i}
+
+--- ${i} ping statistics ---
+1 packets transmitted, 0 received, 100% packet loss`;let f=(e.config.arpTable||[]).find(y=>y.ipv4Address===m),g;if(f)g=$e(s,f.macAddress,o,i,64,l);else{g=Pe(s,o,m,l);let y=$e(s,"00:00:00:00:00:00",o,i,64,l);a[`${e.id}:${m}`]=[y]}return{events:[{type:"frame_arrive",frame:g,deviceId:c.peerId,fromDeviceId:e.id,linkId:c.linkId}],pendingArp:a}}function Wt(e){if(!e.config?.macAddress)return`${e.name}: eth0 has no MAC address.`;let t=jt(e);if(!t)return"dhcp: Network is unreachable (no link)";let n=e.config.macAddress,o=`dhcp-${Date.now()}-${Math.random().toString(36).slice(2,6)}`;return{events:[{type:"frame_arrive",frame:Rt(n,o),deviceId:t.peerId,fromDeviceId:e.id,linkId:t.linkId}],pendingArp:{}}}function jt(e){for(let t of r.links){if(t.hidden)continue;let n=t.from===e.id,o=t.to===e.id;if(!n&&!o)continue;let s=n?t.to:t.from,i=x(s);if(i&&!i.hidden&&!i.poweredOff)return{peerId:i.id,linkId:t.id}}return null}var et=["#94a3b8","#f59e0b","#3b82f6","#10b981","#a78bfa","#f43f5e","#06b6d4"];function qt(e){return e<=1?et[0]:et[(e-2)%(et.length-1)+1]}var ue=p.canvas,d=p.ctx;function le(){let e=ue.getBoundingClientRect(),t=Math.max(1,window.devicePixelRatio||1);ue.width=Math.floor(e.width*t),ue.height=Math.floor(e.height*t),d.setTransform(t,0,0,t,0,0),L()}function ve(e){return{x:(e.x-r.pan.x)/r.scale,y:(e.y-r.pan.y)/r.scale}}function Ut(e,t){let n=ve(t);r.scale=Math.min(2.5,Math.max(.25,e)),r.pan.x=t.x-n.x*r.scale,r.pan.y=t.y-n.y*r.scale,Se(),L()}function Se(){p.zoomLevel.textContent=`${Math.round(r.scale*100)}%`}function Tn(e,t){return e.type==="router"&&t.type==="router"?E("--link-router"):(e.type==="switch"||t.type==="switch")&&e.type!=="computer"&&t.type!=="computer"?E("--link-switch"):E("--link-host")}function Ln(e){return e==="computer"?{fill:E("--pc-fill"),stroke:E("--pc-stroke"),accent:E("--pc-accent"),dark:E("--pc-icon")}:e==="router"?{fill:E("--router-fill"),stroke:E("--router-stroke"),accent:E("--router-accent"),dark:E("--router-icon")}:e==="lan"?{fill:E("--lan-fill"),stroke:E("--lan-stroke"),accent:E("--lan-accent"),dark:E("--lan-icon")}:{fill:E("--switch-fill"),stroke:E("--switch-stroke"),accent:E("--switch-accent"),dark:E("--switch-icon")}}function Rn(e,t){function n(o,s){if(o.type!=="switch"||!o.config?.managed)return!1;let i=W(o.config.portModes||{}),a=z(o.id).findIndex(c=>c.peer.id===s);return a<0?!1:(i[`Ethernet${a+1}`]||"access")==="trunk"}return n(e,t.id)||n(t,e.id)}function Dn(e){let t=x(e.from),n=x(e.to);if(!ne(t)||!ne(n)||e.hidden)return;let s=r.selectedLinkId===e.id||r.selectedId===t.id||r.selectedId===n.id||r.linkStartId===t.id||r.linkStartId===n.id,i=s?E("--link-active"):Tn(t,n),l=t.poweredOff||n.poweredOff,a=Rn(t,n);if(d.save(),l&&(d.globalAlpha=.3),d.strokeStyle=i,d.lineWidth=s?3:2,a){let u=n.x-t.x,f=n.y-t.y,g=Math.hypot(u,f)||1,y=-f/g*2.5,w=u/g*2.5;d.beginPath(),d.moveTo(t.x+y,t.y+w),d.lineTo(n.x+y,n.y+w),d.stroke(),d.beginPath(),d.moveTo(t.x-y,t.y-w),d.lineTo(n.x-y,n.y-w),d.stroke()}else d.beginPath(),d.moveTo(t.x,t.y),d.lineTo(n.x,n.y),d.stroke();let c=(t.x+n.x)/2,m=(t.y+n.y)/2;d.fillStyle=s?i:E("--canvas-bg"),d.strokeStyle=i,d.lineWidth=2,d.beginPath(),d.arc(c,m,5,0,Math.PI*2),d.fill(),d.stroke(),d.restore()}function Ve(e,t,n,o=10,s=1.7){let i=e.x-e.width/2,l=e.y-e.height/2;d.fillStyle=t.fill,d.strokeStyle=t.stroke,d.lineWidth=2,tt(i,l,e.width,e.height,o),d.fill(),d.stroke(),d.fillStyle=t.accent,tt(i+10,l+10,e.width-20,e.height-20,Math.max(5,o-3)),d.fill(),Bn(e.x,e.y,n,t.dark,Math.min(e.width,e.height)-22,s)}function Bn(e,t,n,o,s,i=1.7){let l=s/24;d.save(),d.translate(e-s/2,t-s/2),d.scale(l,l),d.strokeStyle=o,d.lineWidth=i,d.lineCap="round",d.lineJoin="round",d.fillStyle="transparent",yt[n].forEach(a=>{d.stroke(new Path2D(a))}),d.restore()}function Nn(e,t){Ve(e,t,"computer",10)}function Vn(e,t){Ve(e,t,"switch",8),e.config?.managed&&Hn(e,t)}function Hn(e,t){let n=e.x+e.width/2-18,o=e.y-e.height/2+18;d.save(),d.fillStyle=E("--panel"),d.strokeStyle=t.stroke,d.lineWidth=1.6,d.beginPath(),d.arc(n,o,10,0,Math.PI*2),d.fill(),d.stroke(),d.strokeStyle=t.dark,d.lineWidth=1.2,d.lineCap="round",d.lineJoin="round";for(let s=0;s<8;s++){let i=s*Math.PI/4;d.beginPath(),d.moveTo(n+Math.cos(i)*6,o+Math.sin(i)*6),d.lineTo(n+Math.cos(i)*8,o+Math.sin(i)*8),d.stroke()}d.beginPath(),d.arc(n,o,4,0,Math.PI*2),d.stroke(),d.restore()}function Fn(e,t){Ve(e,t,"router",12,.77)}function On(e){if(e.hidden)return;let t=r.selectedId===e.id,n=r.linkStartId===e.id,o=Ln(e.type);d.save(),e.poweredOff&&(d.globalAlpha=.35),(t||n)&&(d.strokeStyle=t?ht.selected:E("--link-active"),d.lineWidth=4,d.setLineDash(t?[]:[7,5]),tt(e.x-e.width/2-7,e.y-e.height/2-7,e.width+14,e.height+14,12),d.stroke(),d.setLineDash([])),e.type==="computer"?Nn(e,o):e.type==="router"?Fn(e,o):e.type==="lan"?Ve(e,o,"lan",14):Vn(e,o),d.restore()}function Wn(e){if(e.hidden)return;d.save(),e.poweredOff&&(d.globalAlpha=.35),d.textAlign="center",d.textBaseline="top";let t=e.y+e.height/2+10;if(r.options.showDeviceNames){d.fillStyle=E("--label-primary"),d.font="700 13px Inter, system-ui, sans-serif";let n=jn(e.name,e.width+10);d.fillText(n,e.x,t),t+=17}if(e.type==="computer"&&r.options.showIpAddresses&&e.config?.ipv4Address&&(d.fillStyle=E("--label-ip"),d.font="600 11px Inter, system-ui, sans-serif",d.fillText(e.config.ipv4Address,e.x,t),t+=15),e.type==="computer"&&r.options.showMacAddresses&&e.config?.macAddress&&(d.fillStyle=E("--label-mac"),d.font="600 10px Inter, system-ui, sans-serif",d.fillText(e.config.macAddress,e.x,t),t+=13),e.type==="computer"&&r.options.showIpAddresses){let n=Ft(e.id);if(n>1){let o=qt(n);d.fillStyle=o,d.beginPath(),d.arc(e.x-d.measureText(`VLAN ${n}`).width/2-8,t+5,4,0,Math.PI*2),d.fill(),d.font="600 10px Inter, system-ui, sans-serif",d.fillText(`VLAN ${n}`,e.x+2,t),t+=13}}if(e.type==="switch"&&e.config?.managed&&r.options.showIpAddresses){let n=(e.config.vlans||[]).filter(o=>o.id!==1);if(n.length>0){let i=n.length*12-5,l=e.x-i/2+3.5;for(let a of n)d.fillStyle=qt(a.id),d.beginPath(),d.arc(l,t+5,3.5,0,Math.PI*2),d.fill(),l+=12;t+=14}}if(e.type==="router"){let n=N(e);for(let o of n)o.peer&&(r.options.showIpAddresses&&o.config.ipv4Address&&(d.fillStyle=E("--label-ip"),d.font="600 11px Inter, system-ui, sans-serif",d.fillText(`${o.name}: ${o.config.ipv4Address}`,e.x,t),t+=15),r.options.showMacAddresses&&o.config.macAddress&&(d.fillStyle=E("--label-mac"),d.font="600 10px Inter, system-ui, sans-serif",d.fillText(o.config.macAddress,e.x,t),t+=13))}d.restore()}function jn(e,t){if(d.measureText(e).width<=t)return e;let n=e;for(;n.length>1&&d.measureText(`${n}...`).width>t;)n=n.slice(0,-1);return`${n}...`}function tt(e,t,n,o,s){let i=Math.min(s,n/2,o/2);d.beginPath(),d.moveTo(e+i,t),d.arcTo(e+n,t,e+n,t+o,i),d.arcTo(e+n,t+o,e,t+o,i),d.arcTo(e,t+o,e,t,i),d.arcTo(e,t,e+n,t,i),d.closePath()}function L(){let e=ue.getBoundingClientRect();d.clearRect(0,0,e.width,e.height),d.save(),d.translate(r.pan.x,r.pan.y),d.scale(r.scale,r.scale),ue.style.backgroundPosition=`${r.pan.x}px ${r.pan.y}px`;let t=80*r.scale,n=20*r.scale;if(ue.style.backgroundSize=`${t}px ${t}px, ${t}px ${t}px, ${n}px ${n}px, ${n}px ${n}px`,r.links.forEach(Dn),r.tool==="connect"&&r.linkStartId&&r.pointer){let o=x(r.linkStartId),s=ve(r.pointer);o&&(d.strokeStyle=E("--link-active"),d.lineWidth=2,d.setLineDash([8,6]),d.beginPath(),d.moveTo(o.x,o.y),d.lineTo(s.x,s.y),d.stroke(),d.setLineDash([]))}qn(),r.devices.forEach(On),r.devices.forEach(Wn),d.restore()}function qn(){let e=r.simulation.transits;if(!(!e||e.length===0))for(let t of e){let n=x(t.fromDeviceId),o=x(t.toDeviceId);if(!n||!o)continue;let s=t.progress,i=n.x+(o.x-n.x)*s,l=n.y+(o.y-n.y)*s,a=Vt(t.frame),c=Y(t.frame);d.save(),d.shadowColor=a,d.shadowBlur=8,d.fillStyle=a,d.beginPath(),d.arc(i,l,7,0,Math.PI*2),d.fill(),d.shadowBlur=0,d.fillStyle="#ffffff",d.beginPath(),d.arc(i,l,3,0,Math.PI*2),d.fill(),d.fillStyle=a,d.font="bold 10px Inter, system-ui, sans-serif",d.textAlign="center",d.textBaseline="bottom",d.fillText(c,i,l-12),d.restore()}}function He(){let e=ue.getBoundingClientRect(),t=r.devices.filter(ne);if(!t.length){r.pan={x:e.width/2,y:e.height/2},r.scale=1,Se(),L();return}let n=t.reduce((l,a)=>({minX:Math.min(l.minX,a.x-a.width/2),minY:Math.min(l.minY,a.y-a.height/2),maxX:Math.max(l.maxX,a.x+a.width/2),maxY:Math.max(l.maxY,a.y+a.height/2)}),{minX:1/0,minY:1/0,maxX:-1/0,maxY:-1/0}),o=n.maxX-n.minX,s=n.maxY-n.minY,i=Math.min(1.2,e.width/Math.max(o+180,1),e.height/Math.max(s+180,1));r.scale=Math.max(.55,i),r.pan={x:e.width/2-(n.minX+o/2)*r.scale,y:e.height/2-(n.minY+s/2)*r.scale},Se(),L()}function ot(e,t,n,o="ping"){ir(),I();let s=r.simulation;s.status="running",s.mode=o,s.events=e.events,s.log=[],s.transits=[],s.pendingArp={...e.pendingArp},s.stepIndex=0,s.originDeviceId=t,s.pingTargetIp=n,s.pingSuccess=!1,s.pingTtl=64,s.dhcpSuccess=!1,s.dhcpAssignedIp=null,s.dhcpAssignedGateway=null;let i=o==="dhcp"?"Requesting DHCP lease...":`Simulating ping to ${n}...`;r.terminal.lines.push({kind:"sim",text:i}),V(),Fe(),Un(),s.autoPlay&&we()}function Xt(){let e=r.simulation;e.status!=="idle"&&(e.status="idle",e.events=[],e.log=[],e.transits=[],e.pendingArp={},Kt(),Fe(),V(),v().render())}function Yt(){r.simulation.status==="running"&&(r.simulation.status="paused",Oe())}function _t(){r.simulation.status==="paused"&&(r.simulation.status="running",Oe(),r.simulation.transits.length===0&&we())}function Gt(){let e=r.simulation;if(!(e.status!=="paused"&&e.status!=="running")){if(e.status="paused",e.transits.length>0){for(let t of e.transits)t.progress=1;Zt()}we(),Oe()}}var fe=null;function Un(){fe==null&&(fe=requestAnimationFrame(Jt))}function Kt(){fe!=null&&(cancelAnimationFrame(fe),fe=null)}function Jt(e){let t=r.simulation;for(let n of t.transits)n.progress=Math.min(1,(e-n.startTime)/t.speed);v().render(),t.transits.length>0&&t.transits.every(n=>n.progress>=1)?(Zt(),t.status==="running"&&t.autoPlay&&we()):t.transits.length===0&&t.events.length>0&&t.status==="running"&&t.autoPlay&&we(),t.status==="running"||t.status==="paused"||t.transits.length>0?fe=requestAnimationFrame(Jt):fe=null}function Zt(){let e=r.simulation,t=e.transits.filter(n=>n.progress>=1);e.transits=e.transits.filter(n=>n.progress<1);for(let n of t){let o=r.links.find(s=>s.id===n.linkId);o&&(o.frameHistory||(o.frameHistory=[]),o.frameHistory.push({step:e.stepIndex,frame:n.frame,fromDeviceId:n.fromDeviceId,toDeviceId:n.toDeviceId,timestamp:Date.now()}),o.frameHistory.length>200&&o.frameHistory.splice(0,o.frameHistory.length-200)),e.events.push({type:"frame_arrive",frame:n.frame,deviceId:n.toDeviceId,fromDeviceId:n.fromDeviceId,linkId:n.linkId})}}function we(){let e=r.simulation;if(e.events.length===0){zt();return}let t=e.events.shift();e.stepIndex++;let n=x(t.deviceId);if(!n)return;let o;n.type==="computer"?o=zn(n,t.frame,t.fromDeviceId):n.type==="switch"?o=Xn(n,t.frame,t.fromDeviceId):n.type==="router"?o=Yn(n,t.frame,t.fromDeviceId):o=[];let s=performance.now();for(let i of o){let l=nr(t.deviceId,i.toDeviceId);l&&e.transits.push({frame:i.frame,linkId:l.id,fromDeviceId:t.deviceId,toDeviceId:i.toDeviceId,progress:0,startTime:s})}if(Fe(),v().render(),e.transits.length===0&&e.events.length>0&&e.status==="running"){we();return}e.transits.length===0&&e.events.length===0&&e.status!=="done"&&zt()}function zn(e,t,n){let o=r.simulation,s=[];if(e.poweredOff)return s;let i=e.config;if(!i)return s;if(t={...t,srcMac:F(t.srcMac),dstMac:F(t.dstMac)},t.payload.type==="arp"){let l=t.payload;if(l.operation==="request")if(l.targetIp===i.ipv4Address){nt(i,l.senderIp,l.senderMac),M(e,"sim-arp",`Received ARP Request for ${l.targetIp} \u2014 sending ARP Reply`);let a=Ze(i.macAddress,i.ipv4Address,l.senderMac,l.senderIp,t.vlanTag);n&&s.push({frame:a,toDeviceId:n})}else M(e,"sim-arp",`Received ARP Request for ${l.targetIp} \u2014 not our IP, ignoring`);else if(l.operation==="reply"){nt(i,l.senderIp,l.senderMac),M(e,"sim-arp",`Received ARP Reply: ${l.senderIp} is-at ${l.senderMac}`);let a=`${e.id}:${l.senderIp}`,c=o.pendingArp[a];if(c&&c.length>0){for(let m of c)m.dstMac=l.senderMac,M(e,"sim-icmp",`Sending deferred ICMP Echo Request to ${l.senderIp}`),n&&s.push({frame:m,toDeviceId:n});delete o.pendingArp[a]}}}else if(t.payload.type==="ipv4"){let l=t.payload;if(l.payload.type==="icmp")if(l.payload.icmpType===8){M(e,"sim-icmp",`Received ICMP Echo Request from ${l.srcIp} \u2014 sending Reply`);let a=Qe(i.macAddress,t.srcMac,i.ipv4Address,l.srcIp,64,t.vlanTag,l.payload.sequence);n&&s.push({frame:a,toDeviceId:n})}else l.payload.icmpType===0&&e.id===o.originDeviceId&&(o.pingSuccess=!0,o.pingTtl=l.ttl,M(e,"sim-icmp",`Received ICMP Echo Reply from ${l.srcIp} (TTL=${l.ttl})`));else if(l.payload.type==="dhcp"){let a=l.payload;if(a.clientMac!==i.macAddress)return s;if(a.messageType==="offer"){M(e,"sim-dhcp",`Received DHCP Offer: ${a.assignedIp} from ${a.serverIp}`);let c=Bt(i.macAddress,a.assignedIp,a.serverIp,a.transactionId,t.vlanTag);n&&s.push({frame:c,toDeviceId:n})}else a.messageType==="ack"&&(M(e,"sim-dhcp",`Received DHCP ACK: assigned ${a.assignedIp}, gateway ${a.gatewayIp}`),i.ipv4Address=a.assignedIp||"",i.gatewayIpv4Address=a.gatewayIp||"",a.gatewayIp&&t.srcMac&&t.srcMac!==re&&nt(i,a.gatewayIp,t.srcMac),o.dhcpSuccess=!0,o.dhcpAssignedIp=a.assignedIp||null,o.dhcpAssignedGateway=a.gatewayIp||null)}}return s}function Xn(e,t,n){let o=[];if(e.poweredOff)return o;let s=e.config;if(!s)return o;t={...t,srcMac:F(t.srcMac),dstMac:F(t.dstMac)};let i=z(e.id),l=n?i.findIndex($=>$.peer.id===n):-1,a=l>=0?`Ethernet${l+1}`:null,c=!!s.managed,m=c?D(s.portVlans||{}):{},u=c?W(s.portModes||{}):{},f=c?D(s.trunkNativeVlans||{}):{},g=c?K(s.trunkAllowedVlans||{}):{},y=null;if(c&&a)if((u[a]||"access")==="trunk"){y=t.vlanTag??(f[a]||1);let A=g[a];if(A&&A.length>0&&!A.includes(y))return M(e,"sim-drop",`Drop ${Y(t)} \u2014 VLAN ${y} not allowed on trunk ${a}`),o}else{if(t.vlanTag!=null)return M(e,"sim-drop",`Drop ${Y(t)} \u2014 tagged frame on access port ${a}`),o;y=m[a]||1}if(a&&t.srcMac!==re){s.macTable=se(s.macTable||[]);let $=c?String(y||1):"",A=s.macTable.find(T=>T.macAddress===t.srcMac);A?(A.port=a,{{SCRIPT}}&(A.vlan=$)):s.macTable.push({macAddress:t.srcMac,port:a,type:"DYNAMIC",vlan:$}),M(e,"sim-learn",`MAC learn ${t.srcMac} \u2192 ${a}${c?` (VLAN ${y})`:""}`)}function w($,A){if(!c)return!0;if((u[$]||"access")==="trunk"){let H=g[$];return!H||H.length===0||H.includes(A)}return(m[$]||1)===A}let C=t.dstMac===re,B=[];if(C){B=i.map((A,T)=>T).filter(A=>A!==l).filter(A=>y==null||w(`Ethernet${A+1}`,y));let $=B.map(A=>`Ethernet${A+1}`).join(", ");M(e,"sim-forward",`Flood ${Y(t)} \u2192 ${$||"(none)"}`)}else{s.macTable=se(s.macTable||[]);let $=s.macTable.find(A=>!(A.macAddress!==t.dstMac||c&&y!=null&&A.vlan&&Number(A.vlan)!==y));if($){let A=i.findIndex((T,H)=>`Ethernet${H+1}`===$.port);A>=0&&A!==l?(B=[A],M(e,"sim-forward",`Forward ${Y(t)} \u2192 ${$.port} (known unicast)`)):M(e,"sim-drop",`Drop ${Y(t)} \u2014 dest port is ingress`)}else{B=i.map((T,H)=>H).filter(T=>T!==l).filter(T=>y==null||w(`Ethernet${T+1}`,y));let A=B.map(T=>`Ethernet${T+1}`).join(", ");M(e,"sim-forward",`Flood ${Y(t)} \u2192 ${A} (unknown unicast)`)}}for(let $ of B){let A=i[$]?.peer;if(A){let T=`Ethernet${$+1}`,H={...t,id:t.id+`-${$}`};if(c&&y!=null)if((u[T]||"access")==="trunk"){let Me=f[T]||1;H.vlanTag=y===Me?null:y}else H.vlanTag=null;o.push({frame:H,toDeviceId:A.id})}}return o}function Yn(e,t,n){let o=[];if(e.poweredOff)return o;let s=e.config;if(!s?.interfaces)return o;t={...t,srcMac:F(t.srcMac),dstMac:F(t.dstMac)};let i=s.interfaces,l=null;if(n){let a=i.filter(c=>c.peerId===n);a.length>1?l=a.find(c=>t.vlanTag!=null?c.vlanTag===t.vlanTag:c.vlanTag==null):l=a[0]||null}if(!l)return M(e,"sim-drop","Received frame but no matching interface for peer"),o;if(t.payload.type==="arp")return _n(e,t,i,l,n);if(t.payload.type==="ipv4"){let a=t.payload;return a.dstIp==="255.255.255.255"&&a.payload.type==="dhcp"?Gn(e,l,n,a.payload,a):Kn(e,t,i,l,n,a)}return o}function _n(e,t,n,o,s){let i=r.simulation,l=[],a=t.payload;if(a.operation==="request"&&a.targetIp===o.ipv4Address){rt(o,a.senderIp,a.senderMac),M(e,"sim-arp",`Received ARP Request for ${a.targetIp} on ${Ee(o)} \u2014 sending Reply`);let c=Ze(o.macAddress,o.ipv4Address,a.senderMac,a.senderIp,o.vlanTag??null);l.push({frame:c,toDeviceId:s})}else if(a.operation==="reply"){rt(o,a.senderIp,a.senderMac),M(e,"sim-arp",`Received ARP Reply on ${Ee(o)}: ${a.senderIp} is-at ${a.senderMac}`);let c=`${e.id}:${a.senderIp}`,m=i.pendingArp[c];if(m&&m.length>0){for(let u of m){let f=u.payload,g=Qn(n,f.dstIp);g&&(u.srcMac=g.macAddress,u.dstMac=a.senderMac,u.vlanTag=g.vlanTag??null,M(e,"sim-forward",`Forward deferred ICMP to ${f.dstIp} via ${Ee(g)} (TTL ${f.ttl}\u2192${f.ttl-1})`),f.ttl--,l.push({frame:u,toDeviceId:g.peerId}))}delete i.pendingArp[c]}}else M(e,"sim-arp",`Received ARP for ${a.targetIp} \u2014 not our IP, ignoring`);return l}function Gn(e,t,n,o,s){let i=[];if(o.messageType==="discover"){let l=Zn(t,e);if(!l)return M(e,"sim-drop",`DHCP Discover from ${o.clientMac}: no addresses available`),i;M(e,"sim-dhcp",`DHCP Discover from ${o.clientMac} \u2014 offering ${l}`);let a=Dt(t.macAddress,t.ipv4Address,o.clientMac,l,o.transactionId,t.vlanTag??null);i.push({frame:a,toDeviceId:n})}else if(o.messageType==="request"){let l=o.requestedIp||"";t.dhcpLeases||(t.dhcpLeases=[]),t.dhcpLeases=ge(t.dhcpLeases);let a=t.dhcpLeases.find(m=>m.macAddress===o.clientMac);a?a.ipv4Address=l:t.dhcpLeases.push({macAddress:o.clientMac,ipv4Address:l}),rt(t,l,o.clientMac),M(e,"sim-dhcp",`DHCP Request from ${o.clientMac} for ${l} \u2014 sending ACK`);let c=Nt(t.macAddress,t.ipv4Address,o.clientMac,l,o.transactionId,t.vlanTag??null);i.push({frame:c,toDeviceId:n})}return i}function Kn(e,t,n,o,s,i){let l=r.simulation,a=[];if(n.find(w=>w.ipv4Address===i.dstIp)){if(i.payload.icmpType===8){M(e,"sim-icmp",`Received ICMP Echo Request for self (${i.dstIp}) \u2014 sending Reply`);let w=Qe(o.macAddress,t.srcMac,i.dstIp,i.srcIp,64,o.vlanTag??null,i.payload.sequence);a.push({frame:w,toDeviceId:s})}return a}let m=tr(e,i.dstIp);if(!m)return M(e,"sim-drop",`No route to ${i.dstIp} \u2014 dropping`),a;let{egressIface:u,nextHopIp:f}=m;if(i.ttl<=1)return M(e,"sim-drop",`TTL expired for packet to ${i.dstIp} \u2014 dropping`),a;let g=u.vlanTag??null,y=(u.arpTable||[]).find(w=>w.ipv4Address===f);if(y){let w={...t,id:t.id+"-routed",srcMac:u.macAddress,dstMac:y.macAddress,vlanTag:g,payload:{...i,ttl:i.ttl-1}},C=f!==i.dstIp?` next-hop ${f}`:"";M(e,"sim-forward",`Route ${i.srcIp}\u2192${i.dstIp} via ${Ee(u)}${C} (TTL ${i.ttl}\u2192${i.ttl-1})`),a.push({frame:w,toDeviceId:u.peerId})}else{let w=`${e.id}:${f}`;l.pendingArp[w]||(l.pendingArp[w]=[]),l.pendingArp[w].push({...t,id:t.id+"-buffered"}),M(e,"sim-arp",`ARP miss for ${f} on ${Ee(u)} \u2014 buffering frame, sending ARP Request`);let C=Pe(u.macAddress,u.ipv4Address,f,g);a.push({frame:C,toDeviceId:u.peerId})}return a}function Jn(){let e=1+Math.floor(Math.random()*254),t=1+Math.floor(Math.random()*254);return`169.254.${e}.${t}`}function Zn(e,t){if(!e.ipv4Address||!P(e.ipv4Address))return null;let n=e.ipv4Address.split("."),o=`${n[0]}.${n[1]}.${n[2]}`,s=new Set;for(let i of t.config?.interfaces||[])i.ipv4Address&&q(i.ipv4Address,e.ipv4Address)&&s.add(i.ipv4Address);for(let i of ge(e.dhcpLeases||[]))s.add(i.ipv4Address);for(let i of r.devices){if(i.hidden)continue;let l=i.config?.ipv4Address;l&&P(l)&&q(l,e.ipv4Address)&&s.add(l)}for(let i=100;i<=254;i++){let l=`${o}.${i}`;if(!s.has(l))return l}return null}function Qn(e,t){return e.find(n=>n.ipv4Address&&P(n.ipv4Address)&&q(n.ipv4Address,t))||null}function it(e){let t=[],n=N(e),o=new Set;for(let i of n){let l=i.config?.ipv4Address;if(!l||!P(l)||!i.peer)continue;let a=l.split("."),c=`${a[0]}.${a[1]}.${a[2]}.0/24`;o.has(c)||(o.add(c),t.push({network:c,nextHop:"",interface:i.name,type:"C",metric:0}))}let s=ee(e.config?.staticRoutes||[]);for(let i of s)o.has(i.network)||(o.add(i.network),t.push({network:i.network,nextHop:i.nextHop,type:"S",metric:1}));if(e.config?.rip?.enabled&&Array.isArray(e.config.rip.learnedRoutes))for(let i of e.config.rip.learnedRoutes)o.has(i.network)||(o.add(i.network),t.push({network:i.network,nextHop:i.nextHop,interface:i.interface,type:"R",metric:i.metric}));return t.sort((i,l)=>i.metric-l.metric),t}function er(e,t){let n=t.indexOf("/"),o=n>=0?t.slice(0,n):t;return!P(o)||!P(e)?!1:_(e)>>>8===_(o)>>>8}function tr(e,t){let n=it(e),o=e.config?.interfaces||[],s=n.find(a=>er(t,a.network));if(!s)return null;if(s.type==="C"){let a=o.find(c=>c.ipv4Address&&P(c.ipv4Address)&&q(c.ipv4Address,t));return a?{egressIface:a,nextHopIp:t}:null}let i=s.nextHop;if(!i||!P(i))return null;let l=o.find(a=>a.ipv4Address&&P(a.ipv4Address)&&q(a.ipv4Address,i));return l?{egressIface:l,nextHopIp:i}:null}function Ee(e){return e.name||e.peerId||"unknown"}function nt(e,t,n){e.arpTable=G(e.arpTable||[]);let o=e.arpTable.find(s=>s.ipv4Address===t);o?o.macAddress=n:e.arpTable.push({ipv4Address:t,macAddress:n})}function rt(e,t,n){e.arpTable=G(e.arpTable||[]);let o=e.arpTable.find(s=>s.ipv4Address===t);o?o.macAddress=n:e.arpTable.push({ipv4Address:t,macAddress:n})}function M(e,t,n){let o=r.simulation,s={step:o.stepIndex,deviceId:e.id,deviceName:e.name,action:n,kind:t,summary:`[Step ${o.stepIndex}] ${e.name}: ${n}`};o.log.push(s)}function Fe(){let e=r.simulation,t=e.status!=="idle"&&e.log.length>0;p.simLogPanel.classList.toggle("active",t),t&&(p.simLogOutput.innerHTML=e.log.map(n=>`<p class="sim-log-line ${b(n.kind||"")}">${b(n.summary)}</p>`).join(""),p.simLogOutput.scrollTop=p.simLogOutput.scrollHeight)}function nr(e,t){return r.links.find(n=>!n.hidden&&(n.from===e&&n.to===t||n.from===t&&n.to===e))||null}function zt(){let e=r.simulation;if(e.mode==="dhcp")if(e.dhcpSuccess)h("",`DHCP configured:
+  IP address: ${e.dhcpAssignedIp}
+  Default gateway: ${e.dhcpAssignedGateway}`);else{let n=Jn(),o=x(e.originDeviceId);o?.config&&(o.config.ipv4Address=n,o.config.gatewayIpv4Address=""),e.dhcpAssignedIp=n,h("error",`DHCP: no response from server.
+APIPA: assigned link-local ${n}`)}else{let n=e.pingTargetIp||"?";if(e.pingSuccess){let o=e.pingTtl,s=e.stepIndex<15?"1.0":"2.0";h("",`PING ${n}
+64 bytes from ${n}: icmp_seq=1 ttl=${o} time=${s} ms
+
+--- ${n} ping statistics ---
+1 packets transmitted, 1 received, 0% packet loss`)}else h("",`PING ${n}
+
+--- ${n} ping statistics ---
+1 packets transmitted, 0 received, 100% packet loss`)}e.status="done";let t=document.getElementById("terminalInput");t&&(t.disabled=!1),Fe(),V(),v().syncPanel(),Oe(),Kt()}function Oe(){let e=document.getElementById("simControls"),t=document.getElementById("simPlayPause"),n=r.simulation.status==="running"||r.simulation.status==="paused";e&&e.classList.toggle("active",n),t&&(t.textContent=r.simulation.status==="running"?"\u23F8":"\u25B6")}function rr(e,t,n){let o=[];for(let s of e){let i=s.config?.ipv4Address;if(!i||!P(i)||!s.peer)continue;let l=i.split("."),a=`${l[0]}.${l[1]}.${l[2]}.0/24`;t.some(m=>{let u=m.indexOf("/"),f=u>=0?m.slice(0,u):m;return P(f)?_(f)>>>8===_(i)>>>8:!1})&&o.push({network:a,metric:1,sourceInterface:s.name})}for(let s of n)s.metric>=15||o.push({network:s.network,metric:s.metric+1,sourceInterface:s.interface||""});return o}function or(e,t,n,o,s,i){let l=!1,a=0;for(let c of o){if(c.sourceInterface===s&&c.metric>1||c.metric>15)continue;let u=(e.config.rip.learnedRoutes||[]).find(f=>f.network===c.network);if(u)c.metric<u.metric&&(u.metric=c.metric,u.nextHop=i,u.interface=t.name,l=!0,a++);else{if(n.some(g=>{let y=g.config?.ipv4Address;if(!y||!P(y)||!g.peer)return!1;let w=y.split(".");return`${w[0]}.${w[1]}.${w[2]}.0/24`===c.network}))continue;e.config.rip.learnedRoutes||(e.config.rip.learnedRoutes=[]),e.config.rip.learnedRoutes.push({network:c.network,nextHop:i,interface:t.name,metric:c.metric}),l=!0,a++}}return{changed:l,exchanged:a}}function ir(){let e=r.devices.filter(s=>s.type==="router"&&!s.hidden&&!s.poweredOff&&s.config?.rip?.enabled);if(e.length===0)return{iterations:0,routesExchanged:0};let t=0,n=0,o=15;for(let s=0;s<o;s++){let i=!1;n=s+1;for(let l of e){let a=N(l),c=l.config.rip.networks||[],m=l.config.rip.learnedRoutes||[],u=rr(a,c,m),f=l.config.rip.passiveInterfaces||[];for(let g of a){if(!g.peer||!g.config?.ipv4Address||f.includes(g.name))continue;let y=x(g.peer.id);if(!y||y.type!=="router"||!y.config?.rip?.enabled)continue;let w=N(y),C=w.find(A=>A.peer&&A.peer.id===l.id);if(!C||!C.config?.ipv4Address||(y.config.rip.passiveInterfaces||[]).includes(C.name))continue;let $=or(y,C,w,u,g.name,g.config.ipv4Address);$.changed&&(i=!0),t+=$.exchanged}}if(!i)break}return{iterations:n,routesExchanged:t}}function h(e,t){r.terminal.lines.push({kind:e,text:t}),r.terminal.lines.length>120&&r.terminal.lines.splice(0,r.terminal.lines.length-120)}function tn(e){return e.type==="computer"?`${e.name}<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>RouteSim</title>
+  <style>
+    :root {
+      color-scheme: dark;
+      --theme: dark;
+      --bg: #0f1419;
+      --panel: #151c22;
+      --panel-soft: #1e2730;
+      --line: #2d3945;
+      --line-strong: #607080;
+      --text: #e6edf3;
+      --muted: #95a4b3;
+      --accent: #14746f;
+      --accent-soft: #123d3a;
+      --danger: #f87171;
+      --stage-bg: #111920;
+      --canvas-bg: #0d141b;
+      --grid-major: rgba(214, 224, 235, 0.08);
+      --grid-minor: rgba(214, 224, 235, 0.04);
+      --topbar-bg: rgba(21, 28, 34, 0.94);
+      --hint-text: #cfdae5;
+      --hint-bg: rgba(21, 28, 34, 0.9);
+      --rail-bg: #101820;
+      --rail-button-active-text: #d7f1ed;
+      --rail-button-active-bg: #0e5b57;
+      --link-host: #ffffff;
+      --link-switch: #7dd3fc;
+      --link-router: #ef4444;
+      --link-active: #facc15;
+      --label-primary: #e6edf3;
+      --label-ip: #c7d2de;
+      --label-mac: #95a4b3;
+      --pc-fill: #162235;
+      --pc-stroke: #3b82c4;
+      --pc-accent: #1d334d;
+      --pc-icon: #8db7e8;
+      --switch-fill: #122824;
+      --switch-stroke: #1f8f86;
+      --switch-accent: #173a35;
+      --switch-icon: #7fd1c8;
+      --router-fill: #2b2114;
+      --router-stroke: #a56a26;
+      --router-accent: #3a2a16;
+      --router-icon: #d6a15e;
+      --lan-fill: #1e2431;
+      --lan-stroke: #6f8192;
+      --lan-accent: #293242;
+      --lan-icon: #b7c4d1;
+      --shadow: 0 18px 40px rgba(0, 0, 0, 0.34);
+      --inspector-width: 320px;
+      --terminal-height: 280px;
+    }
+
+    :root[data-theme="light"] {
+      color-scheme: light;
+      --theme: light;
+      --bg: #eef1f4;
+      --panel: #ffffff;
+      --panel-soft: #f7f9fb;
+      --line: #cfd7df;
+      --line-strong: #8b98a5;
+      --text: #17212b;
+      --muted: #667381;
+      --accent-soft: #dff4f0;
+      --danger: #bc3b3b;
+      --stage-bg: #e8edf1;
+      --canvas-bg: #eef3f6;
+      --grid-major: rgba(38, 55, 70, 0.08);
+      --grid-minor: rgba(38, 55, 70, 0.04);
+      --topbar-bg: rgba(255, 255, 255, 0.92);
+      --hint-text: #41505f;
+      --hint-bg: rgba(255, 255, 255, 0.88);
+      --rail-bg: #1d2935;
+      --rail-button-active-text: #0e5b57;
+      --rail-button-active-bg: #d7f1ed;
+      --link-host: #3f4650;
+      --link-switch: #2563eb;
+      --link-router: #dc2626;
+      --link-active: #0e827a;
+      --label-primary: #17212b;
+      --label-ip: #52616f;
+      --label-mac: #667381;
+      --pc-fill: #f8fbff;
+      --pc-stroke: #3264a8;
+      --pc-accent: #dbeafe;
+      --pc-icon: #244c84;
+      --switch-fill: #f8fff9;
+      --switch-stroke: #14746f;
+      --switch-accent: #dff4f0;
+      --switch-icon: #0d5a56;
+      --router-fill: #fffaf1;
+      --router-stroke: #9a5b13;
+      --router-accent: #fdecc8;
+      --router-icon: #73420c;
+      --lan-fill: #f7f9fb;
+      --lan-stroke: #667381;
+      --lan-accent: #e8eef3;
+      --lan-icon: #41505f;
+      --shadow: 0 10px 28px rgba(19, 33, 46, 0.12);
+    }
+
+    * {
+      box-sizing: border-box;
+    }
+
+    html,
+    body {
+      width: 100%;
+      height: 100%;
+      margin: 0;
+      overflow: hidden;
+      font-family: Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+      color: var(--text);
+      background: var(--bg);
+    }
+
+    body {
+      display: grid;
+      grid-template-columns: 72px minmax(0, 1fr) var(--inspector-width);
+      grid-template-rows: 100vh;
+    }
+
+    body.inspector-closed {
+      grid-template-columns: 72px minmax(0, 1fr);
+    }
+
+    button,
+    input,
+    select {
+      font: inherit;
+    }
+
+    .rail {
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      gap: 10px;
+      padding: 12px 10px;
+      background: var(--rail-bg);
+      border-right: 1px solid rgba(255, 255, 255, 0.08);
+    }
+
+    .mark {
+      width: 44px;
+      height: 44px;
+      display: grid;
+      place-items: center;
+      color: #ffffff;
+      font-weight: 800;
+      letter-spacing: 0;
+      border: 1px solid rgba(255, 255, 255, 0.16);
+      background: #263746;
+      border-radius: 8px;
+      margin-bottom: 8px;
+    }
+
+    .tool-group {
+      display: flex;
+      flex-direction: column;
+      gap: 8px;
+    }
+
+    .tool-button,
+    .icon-button {
+      appearance: none;
+      border: 0;
+      cursor: pointer;
+      display: grid;
+      place-items: center;
+      border-radius: 8px;
+      transition: background 140ms ease, color 140ms ease, transform 140ms ease;
+    }
+
+    .tool-button {
+      width: 48px;
+      height: 48px;
+      color: #d7e1ea;
+      background: transparent;
+    }
+
+    .tool-button svg,
+    .icon-button svg {
+      width: 22px;
+      height: 22px;
+      stroke: currentColor;
+      stroke-width: 2;
+      stroke-linecap: round;
+      stroke-linejoin: round;
+      fill: none;
+    }
+
+    .tool-button:hover {
+      color: #ffffff;
+      background: rgba(255, 255, 255, 0.1);
+    }
+
+    .tool-button.active {
+      color: var(--rail-button-active-text);
+      background: var(--rail-button-active-bg);
+    }
+
+    .spacer {
+      flex: 1;
+    }
+
+    .stage {
+      min-width: 0;
+      display: grid;
+      grid-template-rows: 58px minmax(0, 1fr);
+      background: var(--stage-bg);
+    }
+
+    .topbar {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 16px;
+      padding: 0 18px;
+      background: var(--topbar-bg);
+      border-bottom: 1px solid var(--line);
+    }
+
+    .title {
+      display: flex;
+      align-items: baseline;
+      gap: 12px;
+      min-width: 0;
+    }
+
+    .title h1 {
+      margin: 0;
+      font-size: 18px;
+      line-height: 1;
+      letter-spacing: 0;
+    }
+
+    .mode-label {
+      color: var(--muted);
+      font-size: 13px;
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+    }
+
+    .actions {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+    }
+
+    .zoom-readout {
+      min-width: 54px;
+      height: 32px;
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      padding: 0 10px;
+      border: 1px solid var(--line);
+      border-radius: 8px;
+      color: var(--muted);
+      background: var(--panel-soft);
+      font-size: 12px;
+      font-weight: 800;
+    }
+
+    .icon-button {
+      width: 38px;
+      height: 38px;
+      color: var(--muted);
+      background: var(--panel-soft);
+      border: 1px solid var(--line);
+    }
+
+    .icon-button:hover {
+      color: var(--text);
+      background: var(--panel);
+      transform: translateY(-1px);
+    }
+
+    .icon-button[aria-expanded="true"] {
+      color: var(--accent);
+      border-color: rgba(20, 116, 111, 0.35);
+      background: var(--accent-soft);
+    }
+
+    .icon-button.danger:hover {
+      color: var(--danger);
+      border-color: rgba(188, 59, 59, 0.36);
+    }
+
+    .topology-chooser {
+      position: relative;
+      display: inline-block;
+    }
+    .topology-menu {
+      display: none;
+      position: absolute;
+      right: 0;
+      top: 100%;
+      margin-top: 4px;
+      background: var(--panel);
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      box-shadow: 0 4px 16px rgba(0,0,0,.25);
+      min-width: 200px;
+      z-index: 100;
+      padding: 4px 0;
+    }
+    .topology-menu.open { display: block; }
+    .topology-option {
+      display: block;
+      width: 100%;
+      text-align: left;
+      padding: 8px 14px;
+      font: 600 13px/1 Inter, system-ui, sans-serif;
+      color: var(--text);
+      background: none;
+      border: none;
+      cursor: pointer;
+      border-radius: 0;
+    }
+    .topology-option:hover {
+      background: var(--accent-soft);
+      color: var(--accent);
+    }
+
+    .canvas-wrap {
+      position: relative;
+      min-width: 0;
+      min-height: 0;
+    }
+
+    canvas {
+      width: 100%;
+      height: 100%;
+      display: block;
+      background-color: var(--canvas-bg);
+      background-image:
+        linear-gradient(var(--grid-major) 1px, transparent 1px),
+        linear-gradient(90deg, var(--grid-major) 1px, transparent 1px),
+        linear-gradient(var(--grid-minor) 1px, transparent 1px),
+        linear-gradient(90deg, var(--grid-minor) 1px, transparent 1px);
+      background-size: 80px 80px, 80px 80px, 20px 20px, 20px 20px;
+      cursor: crosshair;
+    }
+
+    .hint {
+      position: absolute;
+      left: 16px;
+      bottom: 16px;
+      max-width: min(560px, calc(100% - 32px));
+      padding: 9px 12px;
+      border: 1px solid rgba(139, 152, 165, 0.32);
+      border-radius: 8px;
+      color: var(--hint-text);
+      background: var(--hint-bg);
+      box-shadow: 0 6px 18px rgba(19, 33, 46, 0.08);
+      font-size: 13px;
+      pointer-events: none;
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+    }
+
+    .terminal-panel {
+      position: fixed;
+      left: 72px;
+      right: 0;
+      bottom: 0;
+      z-index: 8;
+      height: min(var(--terminal-height), calc(100vh - 80px));
+      display: grid;
+      grid-template-rows: 42px minmax(0, 1fr) 44px;
+      border-top: 1px solid var(--line);
+      background: #0a0f14;
+      box-shadow: 0 -18px 36px rgba(0, 0, 0, 0.28);
+    }
+
+    body:not(.inspector-closed) .terminal-panel {
+      right: var(--inspector-width);
+    }
+
+    body.terminal-closed .terminal-panel {
+      display: none;
+    }
+
+    .terminal-titlebar {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 12px;
+      padding: 0 12px 0 16px;
+      color: var(--text);
+      background: var(--panel);
+      border-bottom: 1px solid var(--line);
+      font-size: 13px;
+      font-weight: 800;
+    }
+
+    .terminal-titlebar span {
+      min-width: 0;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+    }
+
+    .terminal-output {
+      min-height: 0;
+      overflow: auto;
+      padding: 12px 16px;
+      color: #d6e3ef;
+      font: 12px/1.45 ui-monospace, SFMono-Regular, Menlo, Consolas, "Liberation Mono", monospace;
+    }
+
+    .terminal-line {
+      margin: 0 0 6px;
+      white-space: pre-wrap;
+      word-break: break-word;
+    }
+
+    .terminal-line.command {
+      color: #7dd3fc;
+    }
+
+    .terminal-line.error {
+      color: #fca5a5;
+    }
+
+    .terminal-line.muted {
+      color: #95a4b3;
+    }
+
+    .terminal-input-row {
+      display: grid;
+      grid-template-columns: auto minmax(0, 1fr);
+      align-items: center;
+      gap: 8px;
+      padding: 8px 12px 10px 16px;
+      border-top: 1px solid rgba(214, 224, 235, 0.12);
+      color: #7dd3fc;
+      background: #0a0f14;
+      font: 13px ui-monospace, SFMono-Regular, Menlo, Consolas, "Liberation Mono", monospace;
+    }
+
+    .terminal-input-row input {
+      width: 100%;
+      min-width: 0;
+      height: 26px;
+      border: 0;
+      outline: 0;
+      color: #e6edf3;
+      background: transparent;
+      font: inherit;
+    }
+
+    .terminal-input-row input::placeholder {
+      color: #6f8192;
+    }
+
+    .inspector {
+      position: relative;
+      min-width: 0;
+      display: flex;
+      flex-direction: column;
+      background: var(--panel);
+      border-left: 1px solid var(--line);
+      overflow-y: auto;
+      overflow-x: hidden;
+    }
+
+    .inspector-resize {
+      position: absolute;
+      inset: 0 auto 0 0;
+      z-index: 3;
+      width: 8px;
+      border: 0;
+      padding: 0;
+      background: transparent;
+      cursor: col-resize;
+    }
+
+    .inspector-resize::before {
+      content: "";
+      position: absolute;
+      left: 3px;
+      top: 0;
+      bottom: 0;
+      width: 2px;
+      background: transparent;
+      transition: background 140ms ease;
+    }
+
+    .inspector-resize:hover::before,
+    body.resizing-inspector .inspector-resize::before {
+      background: var(--accent);
+    }
+
+    body.resizing-inspector {
+      cursor: col-resize;
+      user-select: none;
+    }
+
+    body.inspector-closed .inspector {
+      display: none;
+    }
+
+    .panel-section {
+      padding: 18px;
+      border-bottom: 1px solid var(--line);
+    }
+
+    .panel-section h2 {
+      margin: 0 0 14px;
+      font-size: 13px;
+      color: var(--muted);
+      font-weight: 700;
+      letter-spacing: 0.04em;
+      text-transform: uppercase;
+    }
+
+    .panel-heading {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 12px;
+      margin-bottom: 14px;
+    }
+
+    .panel-heading h2 {
+      margin: 0;
+    }
+
+    .panel-toggle {
+      width: 32px;
+      height: 32px;
+      display: grid;
+      place-items: center;
+      border: 1px solid var(--line);
+      border-radius: 8px;
+      color: var(--muted);
+      background: var(--panel-soft);
+      cursor: pointer;
+    }
+
+    .panel-toggle:hover,
+    .panel-toggle[aria-expanded="true"] {
+      color: var(--text);
+      background: var(--panel);
+    }
+
+    .panel-toggle svg {
+      width: 18px;
+      height: 18px;
+      stroke: currentColor;
+      stroke-width: 2;
+      stroke-linecap: round;
+      stroke-linejoin: round;
+      fill: none;
+    }
+
+    .metric-grid {
+      display: grid;
+      grid-template-columns: repeat(2, minmax(0, 1fr));
+      gap: 10px;
+    }
+
+    .metric {
+      min-width: 0;
+      padding: 12px;
+      border: 1px solid var(--line);
+      border-radius: 8px;
+      background: var(--panel-soft);
+    }
+
+    .metric strong {
+      display: block;
+      font-size: 24px;
+      line-height: 1;
+      margin-bottom: 6px;
+    }
+
+    .metric span {
+      display: block;
+      color: var(--muted);
+      font-size: 12px;
+    }
+
+    .option-list {
+      display: grid;
+      gap: 10px;
+    }
+
+    .option-list.closed {
+      display: none;
+    }
+
+    .toggle-row {
+      min-width: 0;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 12px;
+      color: var(--text);
+      font-size: 14px;
+      font-weight: 700;
+    }
+
+    .toggle-row input {
+      width: 18px;
+      height: 18px;
+      accent-color: var(--accent);
+      flex: 0 0 auto;
+    }
+
+    .field {
+      display: grid;
+      gap: 7px;
+      margin-bottom: 13px;
+    }
+
+    .field label {
+      font-size: 12px;
+      color: var(--muted);
+      font-weight: 700;
+    }
+
+    .field input {
+      width: 100%;
+      min-width: 0;
+      height: 38px;
+      border-radius: 8px;
+      border: 1px solid var(--line);
+      padding: 0 10px;
+      color: var(--text);
+      background: var(--panel-soft);
+      outline: none;
+    }
+
+    .field input::placeholder {
+      color: var(--muted);
+      opacity: 0.78;
+    }
+
+    .input-with-button {
+      display: flex;
+      gap: 6px;
+    }
+
+    .input-with-button input {
+      flex: 1;
+    }
+
+    .inline-button {
+      flex: 0 0 auto;
+      height: 38px;
+      padding: 0 10px;
+      border-radius: 8px;
+      border: 1px solid var(--line);
+      color: var(--muted);
+      background: var(--panel-soft);
+      font-size: 11px;
+      font-weight: 700;
+      cursor: pointer;
+      white-space: nowrap;
+    }
+
+    .inline-button:hover {
+      color: var(--text);
+      border-color: var(--line-strong);
+      background: var(--panel);
+    }
+
+    .field input[type="checkbox"] {
+      width: 18px;
+      height: 18px;
+      padding: 0;
+      accent-color: var(--accent);
+      justify-self: start;
+    }
+
+    .field input:focus {
+      border-color: var(--accent);
+      box-shadow: 0 0 0 3px var(--accent-soft);
+    }
+
+    .pill-row {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 8px;
+    }
+
+    .pill {
+      display: inline-flex;
+      align-items: center;
+      min-height: 28px;
+      padding: 5px 9px;
+      border-radius: 999px;
+      color: #29404f;
+      background: #e8eef3;
+      font-size: 12px;
+      font-weight: 700;
+    }
+
+    .port-list {
+      display: grid;
+      gap: 6px;
+      margin: 2px 0 13px;
+    }
+
+    .interface-list {
+      display: grid;
+      gap: 8px;
+      margin: 2px 0 13px;
+    }
+
+    .interface-row {
+      min-width: 0;
+      display: grid;
+      grid-template-columns: 46px minmax(70px, 0.8fr) minmax(0, 1fr);
+      align-items: center;
+      gap: 8px;
+      padding: 8px;
+      border: 1px solid var(--line);
+      border-radius: 8px;
+      background: var(--panel-soft);
+      font-size: 12px;
+    }
+
+    .interface-name {
+      color: var(--muted);
+      font-weight: 800;
+    }
+
+    .interface-peer {
+      min-width: 0;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+      color: var(--text);
+      font-weight: 700;
+    }
+
+    .interface-row input {
+      width: 100%;
+      min-width: 0;
+      height: 32px;
+      border-radius: 8px;
+      border: 1px solid var(--line);
+      padding: 0 9px;
+      color: var(--text);
+      background: var(--panel);
+      outline: none;
+    }
+
+    .port-row {
+      min-width: 0;
+      display: flex;
+      flex-wrap: nowrap;
+      align-items: center;
+      gap: 6px;
+      min-height: 30px;
+      padding: 6px 8px;
+      border: 1px solid var(--line);
+      border-radius: 8px;
+      background: var(--panel-soft);
+      font-size: 12px;
+    }
+
+    .port-id {
+      color: var(--muted);
+      font-weight: 800;
+      flex: 0 0 38px;
+    }
+
+    .port-mode {
+      flex: 0 0 auto;
+      font-size: 10px;
+      font-weight: 700;
+      padding: 1px 5px;
+      border-radius: 4px;
+      background: var(--panel);
+      color: var(--muted);
+    }
+    .port-mode.trunk {
+      background: var(--accent-soft);
+      color: var(--accent);
+    }
+    .port-vlan {
+      flex: 0 0 auto;
+      font-size: 10px;
+      font-weight: 600;
+      color: var(--muted);
+    }
+
+    .port-peer {
+      flex: 1 1 0;
+      min-width: 0;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+      color: var(--text);
+      font-weight: 700;
+    }
+
+    .port-peer.empty {
+      color: var(--muted);
+      font-weight: 600;
+    }
+
+    .data-table {
+      width: 100%;
+      margin: 2px 0 13px;
+      border-collapse: separate;
+      border-spacing: 0;
+      border: 1px solid var(--line);
+      border-radius: 8px;
+      overflow: hidden;
+      background: var(--panel-soft);
+      font-size: 12px;
+    }
+
+    .data-table th,
+    .data-table td {
+      min-width: 0;
+      padding: 7px 8px;
+      border-bottom: 1px solid var(--line);
+      text-align: left;
+      vertical-align: middle;
+    }
+
+    .data-table th {
+      color: var(--muted);
+      font-weight: 800;
+      background: var(--panel);
+    }
+
+    .data-table tr:last-child td {
+      border-bottom: 0;
+    }
+
+    .data-table td {
+      min-width: 0;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+      color: var(--text);
+      font-weight: 700;
+    }
+
+    .table-empty {
+      color: var(--muted);
+      font-weight: 600;
+    }
+
+    .port-remove {
+      appearance: none;
+      width: 24px;
+      height: 24px;
+      display: grid;
+      place-items: center;
+      padding: 0;
+      border: 1px solid var(--line);
+      border-radius: 6px;
+      color: var(--muted);
+      background: transparent;
+      cursor: pointer;
+      line-height: 1;
+    }
+
+    .port-remove:hover {
+      color: var(--danger);
+      border-color: rgba(248, 113, 113, 0.42);
+      background: var(--panel);
+    }
+
+    .port-remove svg {
+      display: block;
+      width: 14px;
+      height: 14px;
+      stroke: currentColor;
+      stroke-width: 2.4;
+      stroke-linecap: round;
+      stroke-linejoin: round;
+      fill: none;
+    }
+
+    .empty-state {
+      color: var(--muted);
+      font-size: 14px;
+      line-height: 1.45;
+    }
+
+    .wide-button {
+      width: 100%;
+      height: 40px;
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      gap: 8px;
+      border-radius: 8px;
+      border: 1px solid var(--line);
+      color: var(--text);
+      background: var(--panel-soft);
+      cursor: pointer;
+    }
+
+    .wide-button:hover {
+      border-color: var(--line-strong);
+      background: var(--panel);
+    }
+
+    .wide-button.danger {
+      color: var(--danger);
+    }
+
+    .wide-button svg {
+      width: 18px;
+      height: 18px;
+      stroke: currentColor;
+      stroke-width: 2;
+      stroke-linecap: round;
+      stroke-linejoin: round;
+      fill: none;
+    }
+
+    .device-list {
+      padding: 10px;
+    }
+
+    .device-row {
+      width: 100%;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 10px;
+      padding: 9px 10px;
+      border: 1px solid transparent;
+      border-radius: 8px;
+      background: transparent;
+      text-align: left;
+      cursor: pointer;
+    }
+
+    .device-row:hover,
+    .device-row.active {
+      border-color: var(--line);
+      background: var(--panel-soft);
+    }
+
+    .device-name {
+      min-width: 0;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+      font-size: 13px;
+      font-weight: 700;
+    }
+
+    .device-type {
+      color: var(--muted);
+      font-size: 12px;
+      white-space: nowrap;
+    }
+
+    @media (max-width: 1100px) {
+      body,
+      body.inspector-closed {
+        grid-template-columns: 72px minmax(0, 1fr);
+      }
+
+      .inspector {
+        position: fixed;
+        top: 0;
+        right: 0;
+        z-index: 10;
+        width: min(var(--inspector-width), calc(100vw - 72px));
+        height: 100vh;
+        box-shadow: var(--shadow);
+      }
+
+      body:not(.inspector-closed) .inspector {
+        display: flex;
+      }
+
+      body.inspector-closed .inspector {
+        display: none;
+      }
+
+      .terminal-panel,
+      body:not(.inspector-closed) .terminal-panel {
+        right: 0;
+      }
+    }
+
+    @media (max-width: 820px) {
+      body {
+        grid-template-columns: 60px minmax(0, 1fr);
+      }
+
+      .inspector {
+        width: min(var(--inspector-width), calc(100vw - 60px));
+      }
+
+      .terminal-panel {
+        left: 60px;
+      }
+
+      body:not(.inspector-closed) .inspector {
+        display: flex;
+      }
+
+      .tool-button {
+        width: 42px;
+        height: 42px;
+      }
+
+      .mark {
+        width: 40px;
+        height: 40px;
+      }
+
+      .interface-row {
+        grid-template-columns: 42px minmax(0, 1fr);
+      }
+
+      .interface-row input {
+        grid-column: 1 / -1;
+      }
+    }
+
+    /* ─── Simulation controls ─────────────────────────────── */
+
+    .sim-controls {
+      display: none;
+      position: absolute;
+      bottom: 12px;
+      left: 50%;
+      transform: translateX(-50%);
+      background: var(--panel);
+      border: 1px solid var(--border);
+      border-radius: 10px;
+      padding: 6px 14px;
+      gap: 8px;
+      align-items: center;
+      z-index: 10;
+      box-shadow: 0 4px 16px rgba(0,0,0,.3);
+    }
+
+    .sim-controls.active {
+      display: flex;
+    }
+
+    .sim-btn {
+      width: 32px;
+      height: 32px;
+      border: none;
+      background: var(--surface);
+      color: var(--text-primary);
+      border-radius: 6px;
+      cursor: pointer;
+      font-size: 14px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      transition: background .15s;
+    }
+
+    .sim-btn:hover {
+      background: var(--border);
+    }
+
+    .sim-speed-label {
+      display: flex;
+      align-items: center;
+      gap: 6px;
+      color: var(--text-secondary);
+      font-size: 11px;
+      font-weight: 600;
+    }
+
+    .sim-speed-label input[type="range"] {
+      width: 80px;
+      accent-color: var(--accent, #6366f1);
+    }
+
+    /* ─── Simulation terminal log colors ─────────────────── */
+
+    .terminal-line.sim       { color: #a5b4fc; }
+    .terminal-line.sim-arp   { color: #fbbf24; }
+    .terminal-line.sim-icmp  { color: #34d399; }
+    .terminal-line.sim-learn { color: #94a3b8; }
+    .terminal-line.sim-forward { color: #7dd3fc; }
+    .terminal-line.sim-drop  { color: #f87171; }
+    .terminal-line.sim-dhcp  { color: #a78bfa; }
+
+    /* ─── Simulation log panel ────────────────────────────── */
+
+    .sim-log-panel {
+      display: none;
+      position: fixed;
+      top: 56px;
+      right: 0;
+      z-index: 9;
+      width: 380px;
+      max-height: calc(100vh - 120px);
+      flex-direction: column;
+      border: 1px solid var(--line);
+      border-radius: 10px 0 0 10px;
+      background: #0a0f14;
+      box-shadow: var(--shadow);
+      overflow: hidden;
+    }
+
+    .sim-log-panel.active {
+      display: flex;
+    }
+
+    body:not(.inspector-closed) .sim-log-panel {
+      right: var(--inspector-width);
+    }
+
+    .sim-log-titlebar {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 12px;
+      padding: 0 10px 0 14px;
+      min-height: 36px;
+      color: var(--text);
+      background: var(--panel);
+      border-bottom: 1px solid var(--line);
+      font-size: 12px;
+      font-weight: 800;
+    }
+
+    .sim-log-titlebar span {
+      min-width: 0;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+    }
+
+    .sim-log-output {
+      min-height: 60px;
+      max-height: 400px;
+      overflow: auto;
+      padding: 10px 14px;
+      color: #d6e3ef;
+      font: 11px/1.5 ui-monospace, SFMono-Regular, Menlo, Consolas, "Liberation Mono", monospace;
+    }
+
+    .sim-log-line {
+      margin: 0 0 3px;
+      white-space: pre-wrap;
+      word-break: break-word;
+    }
+
+    .sim-log-line.sim-arp     { color: #fbbf24; }
+    .sim-log-line.sim-icmp    { color: #34d399; }
+    .sim-log-line.sim-learn   { color: #94a3b8; }
+    .sim-log-line.sim-forward { color: #7dd3fc; }
+    .sim-log-line.sim-drop    { color: #f87171; }
+    .sim-log-line.sim-dhcp    { color: #a78bfa; }
+
+    @media (max-width: 820px) {
+      .sim-log-panel {
+        width: min(340px, calc(100vw - 80px));
+      }
+    }
+
+    /* ─── Link frame history ──────────────────────────────── */
+
+    .frame-history-list {
+      display: flex;
+      flex-direction: column;
+      gap: 4px;
+      max-height: 320px;
+      overflow: auto;
+    }
+
+    .frame-history-entry {
+      display: grid;
+      grid-template-columns: 56px minmax(0, 1fr) minmax(0, 1fr);
+      align-items: center;
+      gap: 6px;
+      padding: 5px 8px;
+      border: 1px solid var(--line);
+      border-radius: 6px;
+      background: var(--panel-soft);
+      font-size: 11px;
+      font-weight: 600;
+    }
+
+    .frame-step {
+      color: var(--muted);
+      font-weight: 800;
+      font-size: 10px;
+    }
+
+    .frame-label {
+      font-weight: 700;
+    }
+
+    .frame-dir {
+      color: var(--muted);
+      text-align: right;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+    }
+
+    .frame-history-entry.arp .frame-label  { color: #fbbf24; }
+    .frame-history-entry.icmp .frame-label { color: #34d399; }
+    .frame-history-entry.dhcp .frame-label { color: #a78bfa; }
+
+    /* ─── Port selection modal ─── */
+
+    .port-selection-overlay {
+      display: none;
+      position: fixed;
+      inset: 0;
+      z-index: 50;
+      background: rgba(0, 0, 0, 0.5);
+      place-items: center;
+    }
+    .port-selection-overlay.open {
+      display: grid;
+    }
+    .port-selection-modal {
+      width: min(640px, calc(100vw - 48px));
+      max-height: calc(100vh - 80px);
+      background: var(--panel-bg);
+      border: 1px solid var(--border);
+      border-radius: 12px;
+      box-shadow: 0 16px 48px rgba(0, 0, 0, 0.3);
+      display: flex;
+      flex-direction: column;
+      overflow: hidden;
+    }
+    .port-selection-header {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      padding: 12px 16px;
+      border-bottom: 1px solid var(--border);
+    }
+    .port-selection-header h3 {
+      margin: 0;
+      font-size: 14px;
+      font-weight: 600;
+      color: var(--fg);
+    }
+    .port-selection-body {
+      padding: 16px;
+      overflow-y: auto;
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 16px;
+    }
+    .port-selection-body.single-column {
+      grid-template-columns: 1fr;
+    }
+    .port-column {
+      display: flex;
+      flex-direction: column;
+      gap: 6px;
+    }
+    .port-column-header {
+      font-size: 12px;
+      font-weight: 600;
+      color: var(--muted);
+      text-transform: uppercase;
+      letter-spacing: 0.5px;
+      margin-bottom: 4px;
+    }
+    .port-option {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      padding: 8px 12px;
+      border: 1px solid var(--border);
+      border-radius: 6px;
+      background: var(--panel-bg);
+      color: var(--fg);
+      font-size: 13px;
+      cursor: pointer;
+      transition: border-color 0.15s, background 0.15s;
+    }
+    .port-option:hover:not(.occupied) {
+      border-color: var(--accent, #f0b429);
+      background: rgba(240, 180, 41, 0.06);
+    }
+    .port-option.selected {
+      border-color: var(--accent, #f0b429);
+      background: rgba(240, 180, 41, 0.12);
+    }
+    .port-option.occupied {
+      opacity: 0.4;
+      cursor: not-allowed;
+    }
+    .port-option .port-name {
+      font-weight: 500;
+    }
+    .port-option .port-status {
+      font-size: 11px;
+      color: var(--muted);
+    }
+    .port-selection-footer {
+      padding: 12px 16px;
+      border-top: 1px solid var(--border);
+      display: flex;
+      justify-content: flex-end;
+    }
+
+  </style>
+</head>
+<body class="inspector-closed terminal-closed">
+  <aside class="rail" aria-label="Tools">
+    <div class="mark" aria-label="RouteSim">RS</div>
+    <div class="tool-group">
+      <button class="tool-button active" data-tool="select" title="Select and move" aria-label="Select and move">
+        <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 4l7 16l2 -7l7 -2z"></path></svg>
+      </button>
+      <button class="tool-button" data-tool="computer" title="Add computer" aria-label="Add computer">
+        <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M3 5a1 1 0 0 1 1 -1h16a1 1 0 0 1 1 1v10a1 1 0 0 1 -1 1h-16a1 1 0 0 1 -1 -1v-10"></path><path d="M7 20h10"></path><path d="M9 16v4"></path><path d="M15 16v4"></path></svg>
+      </button>
+      <button class="tool-button" data-tool="switch" title="Add switch" aria-label="Add switch">
+        <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M16 3l4 4l-4 4"></path><path d="M10 7l10 0"></path><path d="M8 13l-4 4l4 4"></path><path d="M4 17l9 0"></path></svg>
+      </button>
+      <button class="tool-button" data-tool="router" title="Add router" aria-label="Add router">
+        <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 12m-9 0a9 9 0 1 0 18 0a9 9 0 1 0 -18 0"></path><path d="M6 12h5"></path><path d="M8 10l3 2l-3 2"></path><path d="M18 12h-5"></path><path d="M16 10l-3 2l3 2"></path><path d="M12 10v-5"></path><path d="M10 7l2 -2l2 2"></path><path d="M12 14v5"></path><path d="M10 17l2 2l2 -2"></path></svg>
+      </button>
+      <button class="tool-button" data-tool="connect" title="Connect devices" aria-label="Connect devices">
+        <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M7 7m-3 0a3 3 0 1 0 6 0a3 3 0 1 0 -6 0"></path><path d="M17 17m-3 0a3 3 0 1 0 6 0a3 3 0 1 0 -6 0"></path><path d="M9 9l6 6"></path></svg>
+      </button>
+      <button class="tool-button" data-tool="configure" title="Configure device" aria-label="Configure device">
+        <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M16 5l3 3l-11 11h-3v-3z"></path><path d="M14 7l3 3"></path><path d="M12 20h9"></path></svg>
+      </button>
+    </div>
+    <div class="spacer"></div>
+    <button class="tool-button" id="fitButton" title="Center network" aria-label="Center network">
+      <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M10 10m-7 0a7 7 0 1 0 14 0a7 7 0 1 0 -14 0"></path><path d="M21 21l-6 -6"></path><path d="M10 7v6"></path><path d="M7 10h6"></path></svg>
+    </button>
+  </aside>
+
+  <main class="stage">
+    <header class="topbar">
+      <div class="title">
+        <h1>RouteSim</h1>
+        <span class="mode-label" id="modeLabel">Select and move devices</span>
+      </div>
+      <div class="actions">
+        <span class="zoom-readout" id="zoomLevel" aria-live="polite">100%</span>
+        <button class="icon-button" id="undoButton" title="Undo" aria-label="Undo" disabled>
+          <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M9 14l-4 -4l4 -4"></path><path d="M5 10h11a4 4 0 1 1 0 8h-1"></path></svg>
+        </button>
+        <button class="icon-button" id="terminalOpenButton" title="Device terminal" aria-label="Open device terminal" aria-controls="terminalPanel" aria-expanded="false">
+          <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 17l6 -6l-6 -6"></path><path d="M12 19h8"></path></svg>
+        </button>
+        <button class="icon-button" id="inspectorOpenButton" title="Network panel" aria-label="Toggle network panel" aria-controls="networkInspector" aria-expanded="false">
+          <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 21v-7"></path><path d="M4 10V3"></path><path d="M12 21v-9"></path><path d="M12 8V3"></path><path d="M20 21v-5"></path><path d="M20 12V3"></path><path d="M2 14h4"></path><path d="M10 8h4"></path><path d="M18 16h4"></path></svg>
+        </button>
+        <button class="icon-button" id="themeButton" title="Toggle light mode" aria-label="Toggle light mode" aria-pressed="false">
+          <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 3v1"></path><path d="M12 20v1"></path><path d="M3 12h1"></path><path d="M20 12h1"></path><path d="M5.6 5.6l.7 .7"></path><path d="M17.7 17.7l.7 .7"></path><path d="M18.4 5.6l-.7 .7"></path><path d="M6.3 17.7l-.7 .7"></path><path d="M12 8a4 4 0 1 0 0 8a4 4 0 0 0 0 -8"></path></svg>
+        </button>
+        <div class="topology-chooser" id="topologyChooser">
+          <button class="icon-button" id="topologyButton" title="Load topology" aria-label="Load topology" aria-expanded="false">
+            <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 6h16"></path><path d="M4 12h16"></path><path d="M4 18h16"></path></svg>
+          </button>
+          <div class="topology-menu" id="topologyMenu">
+            <button class="topology-option" data-topology="basic">Basic Network</button>
+            <button class="topology-option" data-topology="vlan-roas">VLAN Router-on-a-Stick</button>
+            <button class="topology-option" data-topology="router-mesh">5-Router Mesh</button>
+          </div>
+        </div>
+        <button class="icon-button" id="loadButton" title="Load config from config.json" aria-label="Load config from config.json">
+          <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 21V9"></path><path d="M7 14l5-5 5 5"></path><path d="M5 3h14"></path></svg>
+        </button>
+        <button class="icon-button" id="saveButton" title="Save config to config.json" aria-label="Save config to config.json">
+          <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 3v12"></path><path d="M7 10l5 5 5-5"></path><path d="M5 21h14"></path></svg>
+        </button>
+        <button class="icon-button danger" id="clearButton" title="Clear network" aria-label="Clear network">
+          <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M3 6h18"></path><path d="M8 6V4h8v2"></path><path d="M19 6l-1 14H6L5 6"></path><path d="M10 11v5"></path><path d="M14 11v5"></path></svg>
+        </button>
+      </div>
+    </header>
+    <section class="canvas-wrap">
+      <canvas id="networkCanvas" aria-label="Network canvas"></canvas>
+      <div class="sim-controls" id="simControls">
+        <button class="sim-btn" id="simPlayPause" title="Play / Pause" aria-label="Play or pause simulation">▶</button>
+        <button class="sim-btn" id="simStep" title="Next step" aria-label="Next simulation step">⏭</button>
+        <button class="sim-btn" id="simStop" title="Stop simulation" aria-label="Stop simulation">⏹</button>
+        <label class="sim-speed-label">
+          <span>Speed</span>
+          <input id="simSpeed" type="range" min="200" max="3000" value="1000" title="Simulation speed">
+        </label>
+      </div>
+      <div class="hint" id="hint">Click a tool, then click the canvas. Drag devices in select mode.</div>
+    </section>
+  </main>
+
+  <section class="sim-log-panel" id="simLogPanel" aria-label="Simulation log">
+    <div class="sim-log-titlebar">
+      <span id="simLogTitle">Simulation Log</span>
+      <button class="panel-toggle" id="simLogCloseButton" type="button" title="Close log" aria-label="Close simulation log">
+        <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M18 6 6 18"></path><path d="m6 6 12 12"></path></svg>
+      </button>
+    </div>
+    <div class="sim-log-output" id="simLogOutput" aria-live="polite"></div>
+  </section>
+
+  <section class="terminal-panel" id="terminalPanel" aria-label="Device terminal">
+    <div class="terminal-titlebar">
+      <span id="terminalTitle">PC terminal</span>
+      <button class="panel-toggle" id="terminalCloseButton" type="button" title="Close terminal" aria-label="Close terminal">
+        <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M18 6 6 18"></path><path d="m6 6 12 12"></path></svg>
+      </button>
+    </div>
+    <div class="terminal-output" id="terminalOutput" aria-live="polite"></div>
+    <form class="terminal-input-row" id="terminalForm" autocomplete="off">
+      <span id="terminalPrompt">pc$</span>
+      <input id="terminalInput" spellcheck="false" placeholder="help">
+    </form>
+  </section>
+
+  <aside class="inspector" id="networkInspector" aria-label="Inspector">
+    <button class="inspector-resize" id="inspectorResizeHandle" type="button" title="Resize panel" aria-label="Resize network panel"></button>
+    <section class="panel-section">
+      <div class="panel-heading">
+        <h2>Network</h2>
+        <button class="panel-toggle" id="inspectorCloseButton" type="button" title="Close network panel" aria-label="Close network panel">
+          <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M18 6 6 18"></path><path d="m6 6 12 12"></path></svg>
+        </button>
+      </div>
+      <div class="metric-grid">
+        <div class="metric"><strong id="deviceCount">0</strong><span>Devices</span></div>
+        <div class="metric"><strong id="linkCount">0</strong><span>Links</span></div>
+      </div>
+    </section>
+    <section class="panel-section">
+      <div class="panel-heading">
+        <h2>Options</h2>
+        <button class="panel-toggle" id="displayOptionsButton" type="button" title="Display options" aria-label="Display options" aria-controls="displayOptionsPanel" aria-expanded="false">
+          <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 21v-7"></path><path d="M4 10V3"></path><path d="M12 21v-9"></path><path d="M12 8V3"></path><path d="M20 21v-5"></path><path d="M20 12V3"></path><path d="M2 14h4"></path><path d="M10 8h4"></path><path d="M18 16h4"></path></svg>
+        </button>
+      </div>
+      <div class="option-list closed" id="displayOptionsPanel">
+        <label class="toggle-row" for="showDeviceNames">
+          <span>Device names</span>
+          <input id="showDeviceNames" type="checkbox" checked>
+        </label>
+        <label class="toggle-row" for="showIpAddresses">
+          <span>IP addresses</span>
+          <input id="showIpAddresses" type="checkbox" checked>
+        </label>
+        <label class="toggle-row" for="showMacAddresses">
+          <span>MAC addresses</span>
+          <input id="showMacAddresses" type="checkbox" checked>
+        </label>
+      </div>
+    </section>
+    <section class="panel-section" id="detailsPanel">
+      <h2>Selection</h2>
+      <p class="empty-state">No device selected.</p>
+    </section>
+    <div class="device-list" id="deviceList" aria-label="Devices"></div>
+  </aside>
+
+  <div class="port-selection-overlay" id="portSelectionOverlay">
+    <div class="port-selection-modal">
+      <div class="port-selection-header">
+        <h3>Select Interfaces</h3>
+        <button class="panel-toggle" id="portSelectionCancel">&#x2715;</button>
+      </div>
+      <div class="port-selection-body" id="portSelectionBody"></div>
+      <div class="port-selection-footer">
+        <button class="wide-button" id="portSelectionConfirm">Connect</button>
+      </div>
+    </div>
+  </div>
+
+  <script>
+:e.type==="switch"?`${e.name}#`:r.terminal.mode==="config"?`${e.name}(config)#`:r.terminal.mode==="interface"?`${e.name}(config-if)#`:r.terminal.mode==="rip"?`${e.name}(config-router)#`:r.terminal.mode==="privileged"?`${e.name}#`:`${e.name}>`}function sr(e){let t=e.config?.ipv4Address||"unassigned",n=e.config?.macAddress||"unassigned",o=e.config?.ipv4Address?`    inet ${t}/24 scope global eth0`:"    inet unassigned";return["1: eth0: <BROADCAST,MULTICAST,UP> mtu 1500",`    link/ether ${n} brd ff:ff:ff:ff:ff:ff`,o].join(`
+`)}function ar(e){let t=e.config?.gatewayIpv4Address;return t?`default via ${t} dev eth0`:"No default route configured."}function lr(e){let t=G(e.config?.arpTable||[]);return t.length?["Address                  HWtype  HWaddress           Flags Mask            Iface",...t.map(n=>`${n.ipv4Address.padEnd(24)}ether   ${n.macAddress.padEnd(19)}C                     eth0`)].join(`
+`):"Address                  HWtype  HWaddress           Flags Mask            Iface"}function cr(e,t){let n=ie(t);return n?(I(),e.config=e.config||R("computer"),e.config.ipv4Address=n.address,v().syncPanel(),v().render(),`Assigned ${n.address}${n.prefixLength==null?"":`/${n.prefixLength}`} to eth0.`):`Invalid IPv4 address: ${t}`}function dr(e){return e.config?.ipv4Address?(I(),e.config=e.config||R("computer"),e.config.ipv4Address="",e.config.arpTable=[],v().syncPanel(),v().render(),"Flushed IPv4 address and ARP table from eth0."):"No IPv4 address configured on eth0."}function pr(e,t){let n=ie(t);return n?(I(),e.config=e.config||R("computer"),e.config.gatewayIpv4Address=n.address,v().syncPanel(),v().render(),`Default gateway set to ${n.address}.`):`Invalid IPv4 address: ${t}`}function ur(e){let t=N(e);return t.length?["Interface     IP-Address      Status  Protocol  VLAN  Connected to",...t.map(n=>{let o=n.config.vlanTag!=null?String(n.config.vlanTag):"-";return[n.name.padEnd(14),(n.config.ipv4Address||"unassigned").padEnd(16),(n.peer?"up":"down").padEnd(8),(n.peer?"up":"down").padEnd(10),o.padEnd(6),n.peer?.name||"-"].join("")})].join(`
+`):"No interfaces configured."}function fr(e){let t=it(e);return t.length?["Codes: C - connected, S - static, R - RIP","",...t.map(n=>n.type==="C"?`C>* ${n.network} is directly connected, ${n.interface||"?"}`:n.type==="S"?`S>* ${n.network} via ${n.nextHop}`:`R>* ${n.network} via ${n.nextHop} [${n.metric}]`)].join(`
+`):`Codes: C - connected, S - static, R - RIP
+
+No routes configured.`}function mr(e){let t=N(e).flatMap(n=>G(n.config.arpTable||[]).map(o=>({...o,iface:n.name})));return t.length?["Address                  HWtype  HWaddress           Flags Mask            Iface",...t.map(n=>`${n.ipv4Address.padEnd(24)}ether   ${n.macAddress.padEnd(19)}C                     ${n.iface}`)].join(`
+`):"Address                  HWtype  HWaddress           Flags Mask            Iface"}function gr(e){let t=N(e).flatMap(n=>ge(n.config.dhcpLeases||[]).map(o=>({...o,iface:n.name})));return t.length?["IP Address       Client MAC         Interface",...t.map(n=>`${n.ipv4Address.padEnd(17)}${n.macAddress.padEnd(19)}${n.iface}`)].join(`
+`):`IP Address       Client MAC         Interface
+--- No active bindings ---`}function hr(e){let t=ye(e.config?.rip);return t.enabled?["RIP Configuration:","  Status: enabled",`  Networks: ${t.networks.length?t.networks.join(", "):"(none)"}`,`  Passive interfaces: ${t.passiveInterfaces.length?t.passiveInterfaces.join(", "):"(none)"}`,`  Learned routes: ${t.learnedRoutes.length}`].join(`
+`):"RIP is not enabled on this router."}function yr(e){let t=ye(e.config?.rip);return t.enabled?t.learnedRoutes.length?["RIP Database:",...t.learnedRoutes.map(n=>`  ${n.network} via ${n.nextHop} metric ${n.metric}${n.interface?` (${n.interface})`:""}`)].join(`
+`):`RIP Database:
+  No learned routes.`:"RIP is not enabled on this router."}function vr(e){let t=N(e),n=ee(e.config?.staticRoutes||[]);return["!",`hostname ${e.name}`,"!",...t.filter(o=>o.peer||o.config.ipv4Address).flatMap(o=>{let s=[`interface ${o.name}`];return o.config.vlanTag!=null&&s.push(` encapsulation dot1q ${o.config.vlanTag}`),s.push(o.config.ipv4Address?` ip address ${o.config.ipv4Address}/24`:" no ip address"),s.push(" exit","!"),s}),...n.map(o=>`ip route ${o.network} ${o.nextHop}`),...n.length?["!"]:[],...e.config?.rip?.enabled?["router rip",...(e.config.rip.networks||[]).map(o=>` network ${o}`),...(e.config.rip.passiveInterfaces||[]).map(o=>` passive-interface ${o}`)," exit","!"]:[],"end"].join(`
+`)}function wr(e){return["Interface  Admin  Oper  Mode    VLAN  Connected to",...X(e).map(n=>{let o=n.mode||"access",s=o==="trunk"?"-":String(n.vlan);return[n.name.padEnd(11),"up".padEnd(7),(n.peer?"up":"down").padEnd(6),o.padEnd(8),s.padEnd(6),n.peer?.name||"-"].join("")})].join(`
+`)}function Ir(e){let t=Q(e.config?.vlans||[]),n=t.length?t:[{id:1,name:"default"}],o=X(e),s=K(e.config?.trunkAllowedVlans||{});return["VLAN ID  Name       Ports",...n.map(i=>{let l=o.filter(m=>m.mode!=="trunk"&&m.vlan===i.id).map(m=>m.name),a=o.filter(m=>{if(m.mode!=="trunk")return!1;let u=s[m.name];return!u||u.length===0||u.includes(i.id)}).map(m=>`${m.name}(T)`),c=[...l,...a].join(",")||"-";return`${String(i.id).padEnd(8)}${String(i.name||`Vlan${i.id}`).padEnd(11)}${c}`})].join(`
+`)}function xr(e){let t=se(e.config?.macTable||[]);return t.length?["No.    Vlan  MacAddress         Port      Type",...t.map((n,o)=>`${String(o+1).padEnd(7)}${String(n.vlan||"-").padEnd(6)}${n.macAddress.padEnd(19)}${String(n.port||"-").padEnd(10)}${n.type||"DYNAMIC"}`)].join(`
+`):"No.    Vlan  MacAddress         Port      Type"}function Ar(e){let t=Q(e.config?.vlans||[]),n=X(e),o=K(e.config?.trunkAllowedVlans||{}),s=[];for(let i of n){let l=[];if(i.mode==="trunk"){l.push(" switchport mode trunk"),i.nativeVlan!==1&&l.push(` switchport trunk native vlan ${i.nativeVlan}`);let a=o[i.name];a&&a.length>0&&l.push(` switchport trunk allowed vlan ${a.join(",")}`)}else i.vlan!==1&&(l.push(" switchport mode access"),l.push(` switchport access vlan ${i.vlan}`));l.length&&s.push(`interface ${i.name}
+${l.join(`
+`)}
+!`)}return["!",`hostname ${e.name}`,"!",...t.filter(i=>i.id!==1).map(i=>`vlan ${i.id}
+ name ${i.name||`Vlan${i.id}`}
+!`),...s,"end"].join(`
+`)}function br(e,t){let n=U(t);if(!n)return`Invalid VLAN ID: ${t}`;I(),e.config=e.config||R("switch");let o=Q(e.config.vlans||[]);return o.some(s=>s.id===n)||o.push({id:n,name:n===1?"default":`Vlan${n}`}),e.config.vlans=o.sort((s,i)=>s.id-i.id),v().syncPanel(),`Added VLAN ${n}.`}function kr(e,t){let n=U(t);if(!n||n===1)return`Invalid VLAN ID: ${t}`;I(),e.config=e.config||R("switch"),e.config.vlans=Q(e.config.vlans||[]).filter(s=>s.id!==n);let o=D(e.config.portVlans||{});return Object.keys(o).forEach(s=>{o[s]===n&&delete o[s]}),e.config.portVlans=o,v().syncPanel(),`Removed VLAN ${n}.`}function Qt(e,t,n){let o=U(n),s=X(e).find(a=>a.name.toLowerCase()===String(t||"").toLowerCase());if(!s)return`Unknown interface ${t}.`;if(!o)return`Invalid VLAN ID: ${n}`;I(),e.config=e.config||R("switch");let i=Q(e.config.vlans||[]);i.some(a=>a.id===o)||i.push({id:o,name:o===1?"default":`Vlan${o}`});let l=D(e.config.portVlans||{});return o===1?delete l[s.name]:l[s.name]=o,e.config.vlans=i.sort((a,c)=>a.id-c.id),e.config.portVlans=l,v().syncPanel(),`Assigned ${s.name} to VLAN ${o}.`}function Pr(e,t,n){let o=X(e).find(i=>i.name.toLowerCase()===String(t||"").toLowerCase());if(!o)return`Unknown interface ${t}.`;I(),e.config=e.config||R("switch");let s=W(e.config.portModes||{});return n==="access"?delete s[o.name]:s[o.name]=n,e.config.portModes=s,v().syncPanel(),v().render(),`Set ${o.name} to ${n} mode.`}function $r(e,t,n){let o=U(n),s=X(e).find(l=>l.name.toLowerCase()===String(t||"").toLowerCase());if(!s)return`Unknown interface ${t}.`;if(!o)return`Invalid VLAN ID: ${n}`;I(),e.config=e.config||R("switch");let i=D(e.config.trunkNativeVlans||{});return o===1?delete i[s.name]:i[s.name]=o,e.config.trunkNativeVlans=i,v().syncPanel(),`Set ${s.name} trunk native VLAN to ${o}.`}function en(e,t,n,o){let s=U(n),i=X(e).find(a=>a.name.toLowerCase()===String(t||"").toLowerCase());if(!i)return`Unknown interface ${t}.`;if(!s)return`Invalid VLAN ID: ${n}`;I(),e.config=e.config||R("switch");let l=K(e.config.trunkAllowedVlans||{});return l[i.name]||(l[i.name]=[]),o==="add"?(l[i.name].includes(s)||l[i.name].push(s),l[i.name].sort((a,c)=>a-c)):(l[i.name]=l[i.name].filter(a=>a!==s),l[i.name].length===0&&delete l[i.name]),e.config.trunkAllowedVlans=l,v().syncPanel(),o==="add"?`Added VLAN ${s} to ${i.name} trunk allowed list.`:`Removed VLAN ${s} from ${i.name} trunk allowed list.`}function Sr(e,t,n,o){let s=ie(n);if(!s)return`Invalid IPv4 address: ${n}`;I();let i=pe(e,t,o);return i.ipv4Address=s.address,v().syncPanel(),v().render(),""}function Er(e,t,n){I();let o=pe(e,t,n);o.ipv4Address="",v().syncPanel(),v().render()}function Cr(e,t){let n=t.toLowerCase();if(n==="?"||n==="help"){h("muted",["enable","show ip interface brief","show ip route","show ip arp","show ip dhcp binding","show ip rip","show ip rip database","show running-config","configure terminal","interface <EthernetN|SerialN|EthernetN.vlan>","ip address <ipv4>/24","no ip address","ip route <network/prefix> <next-hop-ip>","no ip route <network/prefix>","router rip / no router rip","  network <cidr>","  no network <cidr>","  passive-interface <name>","  no passive-interface <name>","encapsulation dot1q <vlan-id>","no encapsulation dot1q","exit","end"].join(`
+`));return}if(n==="clear"){r.terminal.lines=[];return}if(n==="exit"){r.terminal.mode==="interface"?(r.terminal.mode="config",r.terminal.interfacePeerId=null,r.terminal.interfaceVlanTag=null):r.terminal.mode==="rip"?r.terminal.mode="config":r.terminal.mode==="config"?r.terminal.mode="privileged":r.terminal.mode==="privileged"?r.terminal.mode="exec":st();return}if(n==="end"){r.terminal.mode="privileged",r.terminal.interfacePeerId=null,r.terminal.interfaceVlanTag=null;return}if(n==="enable"){r.terminal.mode="privileged",r.terminal.interfacePeerId=null,r.terminal.interfaceVlanTag=null;return}if(n==="configure terminal"||n==="conf t"){r.terminal.mode==="exec"?h("error","% Privileged mode required. Enter enable first."):(r.terminal.mode="config",r.terminal.interfacePeerId=null,r.terminal.interfaceVlanTag=null);return}if(n==="show ip interface brief"||n==="show interface brief"){h("",ur(e));return}if(n==="show ip route"||n==="show route"){h("",fr(e));return}if(n==="show ip arp"||n==="show arp"){h("",mr(e));return}if(n==="show ip dhcp binding"||n==="show ip dhcp pool"){h("",gr(e));return}if(n==="show ip rip"){h("",hr(e));return}if(n==="show ip rip database"){h("",yr(e));return}if(n==="show running-config"||n==="show run"){h("",vr(e));return}if(n==="clear ip rip database"){if(!e.config?.rip?.enabled){h("error","% RIP is not enabled on this router.");return}I(),e.config.rip.learnedRoutes=[],v().syncPanel(),h("","RIP learned routes cleared.");return}if(n==="write memory"||n==="copy running-config startup-config"){h("",`Building configuration...
+[OK]`);return}let o=t.match(/^interface\s+(\S+)$/i);if(o){if(r.terminal.mode!=="config"){h("error","% Enter configuration mode first.");return}let g=Et(e,o[1]);if(!g){h("error",`% Unknown interface ${o[1]}`);return}r.terminal.mode="interface",r.terminal.interfacePeerId=g.peerId,r.terminal.interfaceVlanTag=g.config?.vlanTag??null;return}let s=t.match(/^ip\s+address\s+(\S+)$/i);if(s){if(r.terminal.mode!=="interface"||!r.terminal.interfacePeerId){h("error","% Interface mode required.");return}let g=Sr(e,r.terminal.interfacePeerId,s[1],r.terminal.interfaceVlanTag);g&&h("error",g);return}if(n==="no ip address"){if(r.terminal.mode!=="interface"||!r.terminal.interfacePeerId){h("error","% Interface mode required.");return}Er(e,r.terminal.interfacePeerId,r.terminal.interfaceVlanTag);return}let i=t.match(/^encapsulation\s+dot1q\s+(\d+)$/i);if(i){if(r.terminal.mode!=="interface"||!r.terminal.interfacePeerId){h("error","% Interface mode required.");return}let g=U(i[1]);if(!g){h("error",`% Invalid VLAN ID: ${i[1]}`);return}I();let y=pe(e,r.terminal.interfacePeerId,r.terminal.interfaceVlanTag);y.vlanTag=g,r.terminal.interfaceVlanTag=g,v().syncPanel(),v().render(),h("",`Encapsulation set to 802.1Q VLAN ${g}.`);return}if(n==="no encapsulation dot1q"||n==="no encapsulation"){if(r.terminal.mode!=="interface"||!r.terminal.interfacePeerId){h("error","% Interface mode required.");return}I();let g=pe(e,r.terminal.interfacePeerId,r.terminal.interfaceVlanTag);g.vlanTag=null,r.terminal.interfaceVlanTag=null,v().syncPanel(),v().render(),h("","Encapsulation removed.");return}if(n==="router rip"){if(r.terminal.mode!=="config"){h("error","% Configuration mode required.");return}I(),e.config=e.config||{},e.config.rip||(e.config.rip=ye(null)),e.config.rip.enabled=!0,r.terminal.mode="rip",v().syncPanel();return}if(n==="no router rip"){if(r.terminal.mode!=="config"){h("error","% Configuration mode required.");return}I(),e.config=e.config||{},e.config.rip=ye(null),v().syncPanel(),h("","RIP routing disabled. Learned routes cleared.");return}let l=t.match(/^network\s+(\S+)$/i);if(l){if(r.terminal.mode!=="rip"){h("error","% Enter router rip mode first.");return}let g=l[1],y=ie(g);if(!y){h("error",`% Invalid network: ${g}`);return}let w=y.prefixLength!=null?`${y.address}/${y.prefixLength}`:`${y.address}/24`;I(),e.config.rip.networks.includes(w)||e.config.rip.networks.push(w),v().syncPanel(),h("",`Added network ${w} to RIP.`);return}let a=t.match(/^no\s+network\s+(\S+)$/i);if(a){if(r.terminal.mode!=="rip"){h("error","% Enter router rip mode first.");return}let g=a[1],y=ie(g);if(!y){h("error",`% Invalid network: ${g}`);return}let w=y.prefixLength!=null?`${y.address}/${y.prefixLength}`:`${y.address}/24`;I(),e.config.rip.networks=e.config.rip.networks.filter(C=>C!==w),v().syncPanel(),h("",`Removed network ${w} from RIP.`);return}let c=t.match(/^passive-interface\s+(\S+)$/i);if(c){if(r.terminal.mode!=="rip"){h("error","% Enter router rip mode first.");return}let g=c[1];I(),e.config.rip.passiveInterfaces.includes(g)||e.config.rip.passiveInterfaces.push(g),v().syncPanel(),h("",`Set ${g} as passive (no RIP updates sent/received).`);return}let m=t.match(/^no\s+passive-interface\s+(\S+)$/i);if(m){if(r.terminal.mode!=="rip"){h("error","% Enter router rip mode first.");return}let g=m[1];I(),e.config.rip.passiveInterfaces=e.config.rip.passiveInterfaces.filter(y=>y!==g),v().syncPanel(),h("",`Removed ${g} from passive interfaces.`);return}let u=t.match(/^ip\s+route\s+(\S+)\s+(\S+)$/i);if(u){if(r.terminal.mode!=="config"){h("error","% Configuration mode required.");return}let g=u[1],y=u[2],w=ie(g);if(!w||w.prefixLength==null){h("error",`% Invalid network: ${g}. Use CIDR notation (e.g. 10.0.0.0/24).`);return}if(!P(y)){h("error",`% Invalid next-hop address: ${y}`);return}let C=`${w.address}/${w.prefixLength}`;I(),e.config=e.config||{};let B=ee(e.config.staticRoutes||[]);B.some($=>$.network===C&&$.nextHop===y)||B.push({network:C,nextHop:y}),e.config.staticRoutes=B,v().syncPanel(),h("",`Static route added: ${C} via ${y}`);return}let f=t.match(/^no\s+ip\s+route\s+(\S+)(?:\s+(\S+))?$/i);if(f){if(r.terminal.mode!=="config"){h("error","% Configuration mode required.");return}let g=f[1],y=f[2]||null,w=ie(g);if(!w){h("error",`% Invalid network: ${g}`);return}let C=w.prefixLength!=null?`${w.address}/${w.prefixLength}`:w.address;I(),e.config=e.config||{};let B=ee(e.config.staticRoutes||[]),$=B.length;e.config.staticRoutes=B.filter(T=>y?!(T.network===C&&T.nextHop===y):T.network!==C);let A=$-e.config.staticRoutes.length;v().syncPanel(),A>0?h("",`Removed ${A} static route(s) for ${C}.`):h("error",`% No matching static route found for ${C}.`);return}h("error",`% Unknown command: ${t}`)}function Mr(e,t){let n=t.toLowerCase();if(!e.config?.managed){h("error","This switch is unmanaged.");return}if(n==="?"||n==="help"){h("muted",["show interfaces status","show vlan brief","show mac","show running-config","config vlan add <vlan-id>","config vlan del <vlan-id>","config interface vlan add <EthernetN> <vlan-id>","config interface vlan remove <EthernetN>","config interface mode <EthernetN> access|trunk","config interface trunk native <EthernetN> <vlan-id>","config interface trunk allowed <EthernetN> add <vlan-id>","config interface trunk allowed <EthernetN> remove <vlan-id>","clear"].join(`
+`));return}if(n==="clear"){r.terminal.lines=[];return}if(n==="show interfaces status"||n==="show interface status"){h("",wr(e));return}if(n==="show vlan brief"||n==="show vlan"){h("",Ir(e));return}if(n==="show mac"||n==="show mac address-table"||n==="show mac-address-table"){h("",xr(e));return}if(n==="show running-config"||n==="show run"){h("",Ar(e));return}let o=t.match(/^config\s+vlan\s+add\s+(\d+)$/i);if(o){let f=br(e,o[1]);h(f.startsWith("Invalid")?"error":"",f);return}let s=t.match(/^config\s+vlan\s+(?:del|delete|remove)\s+(\d+)$/i);if(s){let f=kr(e,s[1]);h(f.startsWith("Invalid")?"error":"",f);return}let i=t.match(/^config\s+interface\s+vlan\s+add\s+(\S+)\s+(\d+)$/i);if(i){let f=Qt(e,i[1],i[2]);h(f.startsWith("Invalid")||f.startsWith("Unknown")?"error":"",f);return}let l=t.match(/^config\s+interface\s+vlan\s+(?:remove|del|delete)\s+(\S+)$/i);if(l){let f=Qt(e,l[1],"1");h(f.startsWith("Unknown")?"error":"",f);return}let a=t.match(/^config\s+interface\s+mode\s+(\S+)\s+(access|trunk)$/i);if(a){let f=Pr(e,a[1],a[2].toLowerCase());h(f.startsWith("Unknown")?"error":"",f);return}let c=t.match(/^config\s+interface\s+trunk\s+native\s+(\S+)\s+(\d+)$/i);if(c){let f=$r(e,c[1],c[2]);h(f.startsWith("Unknown")||f.startsWith("Invalid")?"error":"",f);return}let m=t.match(/^config\s+interface\s+trunk\s+allowed\s+(\S+)\s+add\s+(\d+)$/i);if(m){let f=en(e,m[1],m[2],"add");h(f.startsWith("Unknown")||f.startsWith("Invalid")?"error":"",f);return}let u=t.match(/^config\s+interface\s+trunk\s+allowed\s+(\S+)\s+(?:remove|del|delete)\s+(\d+)$/i);if(u){let f=en(e,u[1],u[2],"remove");h(f.startsWith("Unknown")||f.startsWith("Invalid")?"error":"",f);return}h("error",`% Unknown command: ${t}`)}function Tr(e){let t=x(r.terminal.deviceId),n=e.trim();if(!t||!["computer","router","switch"].includes(t.type)){h("error","No device is attached to this terminal.");return}if(!n)return;if(h("command",`${tn(t)} ${n}`),t.type==="router"){Cr(t,n);return}if(t.type==="switch"){Mr(t,n);return}let o=n.toLowerCase();if(o==="clear"){r.terminal.lines=[];return}if(o==="help"){h("muted",["Commands:","  ip addr show","  ip addr add <ipv4>/24 dev eth0","  ip addr flush dev eth0","  ip route show","  ip route add default via <ipv4> dev eth0","  arp -n","  ping <pc-name|ipv4>","  dhcp","  clear"].join(`
+`));return}if(o==="ip"||o==="ip addr"||o==="ip address"||o==="ip addr show"||o==="ip address show"||o==="ip addr show dev eth0"||o==="ip address show dev eth0"||o==="ip a"){h("",sr(t));return}if(o==="ip route"||o==="ip route show"||o==="ip route show default"||o==="ip r"||o==="route"||o==="route -n"){h("",ar(t));return}if(o==="arp"||o==="arp -a"||o==="arp -n"||o==="ip neigh"||o==="ip neigh show"||o==="ip neighbour"||o==="ip neighbour show"){h("",lr(t));return}if(n.match(/^ip\s+(?:addr|address)\s+flush\s+dev\s+eth0$/i)){h("",dr(t));return}let i=n.match(/^ip\s+(?:addr|address)\s+add\s+(\S+)\s+dev\s+eth0$/i)||n.match(/^ip\s+(?:addr|address)\s+(?:set|add)\s+(\S+)$/i)||n.match(/^set\s+ip\s+(\S+)$/i);if(i){let c=cr(t,i[1]);h(c.startsWith("Invalid")?"error":"",c);return}let l=n.match(/^ip\s+route\s+(?:add|replace|change|set)\s+default\s+via\s+(\S+)(?:\s+dev\s+eth0)?$/i)||n.match(/^set\s+gateway\s+(\S+)$/i);if(l){let c=pr(t,l[1]);h(c.startsWith("Invalid")?"error":"",c);return}if(o==="dhcp"||o==="dhclient"){let c=Wt(t);typeof c=="string"?h("error",c):(ot(c,t.id,"","dhcp"),p.terminalInput.disabled=!0);return}let a=n.match(/^ping(?:\s+-c\s+\d+)?\s+(.+)$/i);if(a){let c=a[1].trim(),m=Ot(t,c);if(typeof m=="string")h(m.startsWith("ping:")?"error":"",m);else{let u=Lr(c);ot(m,t.id,u),p.terminalInput.disabled=!0}return}h("error",`${n}: command not found`)}function Lr(e){return P(e)?e:r.devices.find(n=>n.type==="computer"&&n.name.toLowerCase()===e.toLowerCase())?.config?.ipv4Address||e}function We(e){!e||!["computer","router","switch"].includes(e.type)?(r.terminal.open=!0,r.terminal.deviceId=null,r.terminal.mode="exec",r.terminal.interfacePeerId=null,r.terminal.interfaceVlanTag=null,r.terminal.lines=[{kind:"error",text:"Select a PC, router, or managed switch to open its terminal."}]):e.poweredOff?(r.terminal.open=!0,r.terminal.deviceId=null,r.terminal.mode="exec",r.terminal.interfacePeerId=null,r.terminal.interfaceVlanTag=null,r.terminal.lines=[{kind:"error",text:`${e.name} is powered off.`}]):e.type==="switch"&&!e.config?.managed?(r.terminal.open=!0,r.terminal.deviceId=null,r.terminal.mode="exec",r.terminal.interfacePeerId=null,r.terminal.interfaceVlanTag=null,r.terminal.lines=[{kind:"error",text:"This switch is unmanaged. Enable managed mode to use a switch terminal."}]):(r.selectedId=e.id,r.terminal.open=!0,r.terminal.deviceId=e.id,r.terminal.mode="exec",r.terminal.interfacePeerId=null,r.terminal.interfaceVlanTag=null,r.terminal.lines=[{kind:"muted",text:`Connected to ${e.name}. Type "${e.type==="computer"?"help":"?"}" for commands.`}]),v().syncPanel(),V(),p.terminalInput.disabled||p.terminalInput.focus()}function st(){r.terminal.open=!1,V()}function V(){let e=x(r.terminal.deviceId);(!e||!["computer","router","switch"].includes(e.type))&&(r.terminal.deviceId=null,r.terminal.mode="exec",r.terminal.interfacePeerId=null,r.terminal.interfaceVlanTag=null,r.terminal.open&&(r.terminal.lines=[{kind:"error",text:"Select a PC, router, or managed switch before opening the terminal."}]));let t=x(r.terminal.deviceId);document.body.classList.toggle("terminal-closed",!r.terminal.open),p.terminalOpenButton.setAttribute("aria-expanded",String(r.terminal.open)),p.terminalTitle.textContent=t?`${t.name} terminal`:"Device terminal",p.terminalPrompt.textContent=t?tn(t):"device$",p.terminalInput.disabled=!t,p.terminalInput.placeholder=t?t.type==="router"?"?":"help":"Select a device",p.terminalOutput.innerHTML=r.terminal.lines.map(n=>`<p class="terminal-line ${b(n.kind||"")}">${b(n.text)}</p>`).join(""),p.terminalOutput.scrollTop=p.terminalOutput.scrollHeight,requestAnimationFrame(()=>v().resizeCanvas())}function nn(e){e.preventDefault();let t=p.terminalInput.value;if(p.terminalInput.value="",t.trim()){let n=r.terminal.history;(n.length===0||n[n.length-1]!==t)&&(n.push(t),n.length>100&&n.shift())}r.terminal.historyIndex=-1,Tr(t),V()}function rn(e){let t=r.terminal.history;if(e.key==="ArrowUp"){if(e.preventDefault(),t.length===0)return;r.terminal.historyIndex===-1?r.terminal.historyIndex=t.length-1:r.terminal.historyIndex>0&&r.terminal.historyIndex--,p.terminalInput.value=t[r.terminal.historyIndex]}else if(e.key==="ArrowDown"){if(e.preventDefault(),r.terminal.historyIndex===-1)return;r.terminal.historyIndex<t.length-1?(r.terminal.historyIndex++,p.terminalInput.value=t[r.terminal.historyIndex]):(r.terminal.historyIndex=-1,p.terminalInput.value="")}}function at(){p.showDeviceNames.checked=r.options.showDeviceNames,p.showIpAddresses.checked=r.options.showIpAddresses,p.showMacAddresses.checked=r.options.showMacAddresses,p.displayOptionsPanel.classList.toggle("closed",!r.options.displayOptionsOpen),p.displayOptionsButton.setAttribute("aria-expanded",String(r.options.displayOptionsOpen))}function lt(){document.body.classList.toggle("inspector-closed",!r.options.networkPanelOpen),p.inspectorOpenButton.setAttribute("aria-expanded",String(r.options.networkPanelOpen)),requestAnimationFrame(le)}function Ie(e){r.options.networkPanelOpen=e,lt()}function cn(){r.options.displayOptionsOpen=!r.options.displayOptionsOpen,at()}function ct(e){r.inspectorWidth=Math.min(520,Math.max(260,e)),document.documentElement.style.setProperty("--inspector-width",`${r.inspectorWidth}px`),requestAnimationFrame(le)}function dn(e){e.preventDefault(),r.inspectorResize={startX:e.clientX,startWidth:r.inspectorWidth},document.body.classList.add("resizing-inspector")}function pn(e){r.inspectorResize&&ct(r.inspectorResize.startWidth+r.inspectorResize.startX-e.clientX)}function dt(){r.inspectorResize&&(r.inspectorResize=null,document.body.classList.remove("resizing-inspector"))}function Rr(){let e=new Uint8Array(6);return crypto.getRandomValues(e),e[0]=e[0]&254|2,Array.from(e,t=>t.toString(16).padStart(2,"0").toUpperCase()).join(":")}function on(e){let t=X(e),n=!!e.config?.managed,o=z(e.id);return t.map((s,i)=>{let l=o[i],a=l?.peer,c=l?`
+      <button class="port-remove" data-link-id="${b(l.link.id)}" title="Remove link to ${b(a.name)}" aria-label="Remove link to ${b(a.name)}">
+        <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M18 6 6 18"></path><path d="m6 6 12 12"></path></svg>
+      </button>
+    `:"<span></span>",m=n?s.mode==="trunk"?`<span class="port-mode trunk">trunk</span><span class="port-vlan">native ${s.nativeVlan}</span>`:`<span class="port-mode">access</span><span class="port-vlan">VLAN ${s.vlan}</span>`:"";return`
+      <div class="port-row">
+        <span class="port-id">eth${i+1}</span>
+        ${m}
+        <span class="port-peer ${a?"":"empty"}">${b(a?.name||"Empty")}</span>
+        ${c}
+      </div>
+    `}).join("")}function sn(e){return`
+    <div class="interface-list">
+      ${N(e).map(n=>{let o=n.config.vlanTag!=null?` data-vlan-tag="${n.config.vlanTag}"`:"";return`
+          <div class="interface-row">
+            <span class="interface-name">${b(n.name)}</span>
+            <span class="interface-peer ${n.peer?"":"empty"}" title="${b(n.peer?.name||"Empty")}">${b(n.peer?.name||"Empty")}</span>
+            <input class="router-interface-ip" data-peer-id="${b(n.peerId)}"${o} ${n.peer?"":"disabled"} value="${b(n.config.ipv4Address||"")}" placeholder="192.168.1.1" autocomplete="off" inputmode="decimal">
+          </div>
+        `}).join("")}
+    </div>
+  `}function Dr(e){let t=Array.isArray(e.config?.arpTable)?e.config.arpTable:[];return`
+    <table class="data-table">
+      <thead>
+        <tr><th>IPv4</th><th>MAC</th></tr>
+      </thead>
+      <tbody>
+        ${t.length?t.map(n=>`
+          <tr>
+            <td>${b(n.ipv4Address||"")}</td>
+            <td>${b(n.macAddress||"")}</td>
+          </tr>
+        `).join(""):'<tr><td class="table-empty" colspan="2">Empty</td></tr>'}
+      </tbody>
+    </table>
+  `}function Br(e){let t=Array.isArray(e.config?.macTable)?e.config.macTable:[],n=!!e.config?.managed,o=n?4:3;return`
+    <table class="data-table">
+      <thead>
+        <tr>${n?"<th>VLAN</th>":""}<th>MAC Address</th><th>Type</th><th>Port</th></tr>
+      </thead>
+      <tbody>
+        ${t.length?t.map(s=>`
+          <tr>
+            ${n?`<td>${b(s.vlan||"")}</td>`:""}
+            <td>${b(s.macAddress||"")}</td>
+            <td>${b(s.type||"DYNAMIC")}</td>
+            <td>${b(s.port||"")}</td>
+          </tr>
+        `).join(""):`<tr><td class="table-empty" colspan="${o}">Empty</td></tr>`}
+      </tbody>
+    </table>
+  `}function an(){document.querySelectorAll(".port-remove").forEach(e=>{e.addEventListener("click",()=>{I(),r.links=r.links.filter(t=>t.id!==e.dataset.linkId),v().syncPanel(),v().render()})})}function O(){p.deviceCount.textContent=String(r.devices.filter(ne).length),p.linkCount.textContent=String(r.links.filter(n=>!n.hidden).length);let e=x(r.selectedId),t=e&&r.configuringId===e.id;if(!e&&r.selectedLinkId){let n=r.links.find(o=>o.id===r.selectedLinkId);if(n){let o=x(n.from),s=x(n.to),i=n.frameHistory||[];p.detailsPanel.innerHTML=`
+        <h2>Link</h2>
+        <div class="pill-row">
+          <span class="pill">${b(o?.name||n.from)}</span>
+          <span class="pill">${b(s?.name||n.to)}</span>
+        </div>
+        <div style="height: 12px"></div>
+        <div class="field">
+          <label>Frame History (${i.length})</label>
+          ${i.length?`
+            <div class="frame-history-list">
+              ${i.map(a=>{let c=x(a.fromDeviceId)?.name||a.fromDeviceId,m=Y(a.frame);return`<div class="frame-history-entry ${a.frame.etherType===2054?"arp":a.frame.payload?.payload?.type==="dhcp"?"dhcp":"icmp"}">
+                  <span class="frame-step">Step ${a.step}</span>
+                  <span class="frame-label">${b(m)}</span>
+                  <span class="frame-dir">${b(c)} &rarr;</span>
+                </div>`}).join("")}
+            </div>
+          `:'<p class="empty-state">No frames recorded.</p>'}
+        </div>
+        <button class="wide-button danger" id="clearLinkHistory">Clear history</button>
+      `;let l=document.getElementById("clearLinkHistory");l&&l.addEventListener("click",()=>{n.frameHistory=[],O()})}else p.detailsPanel.innerHTML=`
+        <h2>Selection</h2>
+        <p class="empty-state">No device selected.</p>
+      `}else if(!e)p.detailsPanel.innerHTML=`
+      <h2>Selection</h2>
+      <p class="empty-state">No device selected.</p>
+    `;else{let n=Be(e.id).map(k=>x(k)).filter(ne),o=e.type==="computer"?"Computer":e.type==="router"?"Router":e.type==="lan"?"LAN":"Switch",s=t&&e.type==="computer"?`
+      <div class="field">
+        <label for="selectedIpv4">IPv4 address</label>
+        <div class="input-with-button">
+          <input id="selectedIpv4" value="${b(e.config?.ipv4Address||"")}" placeholder="192.168.1.10" autocomplete="off" inputmode="decimal">
+          <button class="inline-button" id="clearIpv4" type="button" title="Clear IPv4 address">&times;</button>
+        </div>
+      </div>
+      <div class="field">
+        <label for="selectedGateway">Default gateway</label>
+        <div class="input-with-button">
+          <input id="selectedGateway" value="${b(e.config?.gatewayIpv4Address||"")}" placeholder="192.168.1.1" autocomplete="off" inputmode="decimal">
+          <button class="inline-button" id="clearGateway" type="button" title="Clear default gateway">&times;</button>
+        </div>
+      </div>
+      <div class="field">
+        <label for="selectedMac">MAC address</label>
+        <div class="input-with-button">
+          <input id="selectedMac" value="${b(e.config?.macAddress||"")}" placeholder="02:00:00:00:00:01" autocomplete="off">
+          <button class="inline-button" id="randomMac" type="button" title="Generate random MAC">Random</button>
+        </div>
+      </div>
+      <button class="wide-button danger" id="deleteSelected">
+        <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M3 6h18"></path><path d="M8 6V4h8v2"></path><path d="M19 6l-1 14H6L5 6"></path></svg>
+        Delete
+      </button>
+      <div style="height: 14px"></div>
+      <div class="field">
+        <label>ARP table</label>
+        ${Dr(e)}
+      </div>
+    `:"",i=t&&e.type==="switch"?`
+      <div class="field">
+        <label for="selectedManaged">Managed switch</label>
+        <input id="selectedManaged" type="checkbox" ${e.config?.managed?"checked":""}>
+      </div>
+      <div class="field">
+        <label for="selectedPorts">Ethernet ports</label>
+        <input id="selectedPorts" type="number" min="4" max="24" step="1" value="${b(e.config?.ethernetPorts||8)}">
+      </div>
+      <div class="field">
+        <label>Ports</label>
+        <div class="port-list" id="switchPortList">
+          ${on(e)}
+        </div>
+      </div>
+      <div class="field">
+        <label>MAC Address Table</label>
+        ${Br(e)}
+      </div>
+    `:"",l=t&&e.type==="router"?`
+      <div class="field">
+        <label for="selectedRouterEthernetPorts">Ethernet ports</label>
+        <input id="selectedRouterEthernetPorts" type="number" min="0" max="12" step="1" value="${b(e.config?.ethernetPorts??4)}">
+      </div>
+      <div class="field">
+        <label for="selectedRouterSerialPorts">Serial ports</label>
+        <input id="selectedRouterSerialPorts" type="number" min="0" max="12" step="1" value="${b(e.config?.serialPorts??4)}">
+      </div>
+      <div class="field">
+        <label>Interfaces</label>
+        <div id="routerInterfaceList">
+        ${sn(e)}
+        </div>
+      </div>
+    `:"";p.detailsPanel.innerHTML=`
+      <h2>${t?"Configure":"Selection"}</h2>
+      <div class="field">
+        <label for="selectedName">Name</label>
+        <input id="selectedName" value="${b(e.name)}" autocomplete="off">
+      </div>
+      ${e.type==="switch"?`
+        <button class="wide-button" id="collapseSelectedLan">
+          <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M6 9h12"></path><path d="M9 6l-3 3l3 3"></path><path d="M15 6l3 3l-3 3"></path><path d="M8 17h8"></path></svg>
+          Collapse LAN
+        </button>
+        <div style="height: 10px"></div>
+      `:""}
+      ${e.type==="lan"?`
+        <button class="wide-button" id="expandSelectedLan">
+          <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 9h16"></path><path d="M7 6l-3 3l3 3"></path><path d="M17 6l3 3l-3 3"></path><path d="M8 17h8"></path></svg>
+          Expand LAN
+        </button>
+        <div style="height: 10px"></div>
+      `:""}
+      ${e.type==="computer"||e.type==="router"||e.type==="switch"&&e.config?.managed?`
+        <button class="wide-button" id="openSelectedTerminal">
+          <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 17l6 -6l-6 -6"></path><path d="M12 19h8"></path></svg>
+          Terminal
+        </button>
+        <div style="height: 10px"></div>
+      `:""}
+      ${e.type!=="lan"?`
+        <button class="wide-button ${e.poweredOff?"":"danger"}" id="togglePower">
+          <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M7 6a7.75 7.75 0 1 0 10 0"></path><path d="M12 2v6"></path></svg>
+          ${e.poweredOff?"Power On":"Power Off"}
+        </button>
+        <div style="height: 10px"></div>
+      `:""}
+      ${e.type!=="lan"&&e.type!=="computer"?`
+        <button class="wide-button danger" id="deleteSelected">
+          <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M3 6h18"></path><path d="M8 6V4h8v2"></path><path d="M19 6l-1 14H6L5 6"></path></svg>
+          Delete
+        </button>
+        <div style="height: 14px"></div>
+      `:""}
+      ${s}
+      ${i}
+      ${l}
+      <div class="pill-row">
+        <span class="pill">${o}</span>
+        <span class="pill">${n.length} links</span>
+      </div>
+    `;let a=document.getElementById("selectedName");oe(a),a.addEventListener("input",k=>{e.name=k.target.value||e.name,ln(),V(),v().render()});let c=document.getElementById("selectedIpv4");c&&(oe(c),c.addEventListener("input",k=>{let S=k.target.value.trim();!P(S)&&S!==""?k.target.setCustomValidity("Enter a valid IPv4 address."):(k.target.setCustomValidity(""),e.config=e.config||{},e.config.ipv4Address=S,v().render())}));let m=document.getElementById("selectedGateway");m&&(oe(m),m.addEventListener("input",k=>{let S=k.target.value.trim();!P(S)&&S!==""?k.target.setCustomValidity("Enter a valid IPv4 address."):(k.target.setCustomValidity(""),e.config=e.config||R("computer"),e.config.gatewayIpv4Address=S)}));let u=document.getElementById("clearIpv4");u&&c&&u.addEventListener("click",()=>{I(),e.config=e.config||{},e.config.ipv4Address="",c.value="",c.setCustomValidity(""),v().render()});let f=document.getElementById("clearGateway");f&&m&&f.addEventListener("click",()=>{I(),e.config=e.config||R("computer"),e.config.gatewayIpv4Address="",m.value="",m.setCustomValidity("")});let g=document.getElementById("selectedMac");g&&(oe(g),g.addEventListener("input",k=>{let S=F(k.target.value);!Le(S)&&S!==""?k.target.setCustomValidity("Enter a valid MAC address."):(k.target.setCustomValidity(""),e.config=e.config||{},e.config.macAddress=S,k.target.value=S,v().render())}));let y=document.getElementById("randomMac");y&&g&&y.addEventListener("click",()=>{I();let k=Rr();e.config=e.config||{},e.config.macAddress=k,g.value=k,g.setCustomValidity(""),v().render()});let w=document.getElementById("selectedManaged");w&&w.addEventListener("change",k=>{I(),e.config=e.config||R("switch"),e.config.managed=k.target.checked,O(),v().render()});let C=document.getElementById("selectedPorts");C&&(oe(C),C.addEventListener("input",k=>{let S=Number(k.target.value);!Number.isInteger(S)||S<4||S>24?k.target.setCustomValidity("Enter a port count from 4 to 24."):(k.target.setCustomValidity(""),e.config=e.config||R("switch"),e.config.ethernetPorts=S,document.getElementById("switchPortList").innerHTML=on(e),an())})),document.querySelectorAll(".router-interface-ip").forEach(k=>{oe(k),k.addEventListener("input",S=>{if(!S.target.dataset.peerId)return;let J=S.target.value.trim();if(!P(J)&&J!==""){S.target.setCustomValidity("Enter a valid IPv4 address.");return}S.target.setCustomValidity("");let wn=S.target.dataset.vlanTag!=null?Number(S.target.dataset.vlanTag):void 0,In=pe(e,S.target.dataset.peerId,wn);In.ipv4Address=J})});let B=document.getElementById("selectedRouterEthernetPorts"),$=document.getElementById("selectedRouterSerialPorts");[B,$].filter(Boolean).forEach(k=>{oe(k),k.addEventListener("input",S=>{let J=Number(S.target.value);if(!Number.isInteger(J)||J<0||J>12){S.target.setCustomValidity("Enter a port count from 0 to 12.");return}S.target.setCustomValidity(""),e.config=e.config||R("router"),S.target.id==="selectedRouterEthernetPorts"?e.config.ethernetPorts=J:e.config.serialPorts=J,document.getElementById("routerInterfaceList").innerHTML=sn(e)})}),an();let A=document.getElementById("openSelectedTerminal");A&&A.addEventListener("click",()=>We(e));let T=document.getElementById("togglePower");T&&T.addEventListener("click",()=>{I(),e.poweredOff=!e.poweredOff,O(),v().render()});let H=document.getElementById("collapseSelectedLan");H&&H.addEventListener("click",()=>St(e));let Ue=document.getElementById("expandSelectedLan");Ue&&Ue.addEventListener("click",()=>Ke(e));let Me=document.getElementById("deleteSelected");Me&&Me.addEventListener("click",Re)}ln(),r.terminal.open&&V()}function ln(){if(!r.devices.length){p.deviceList.innerHTML="";return}let e=r.devices.filter(ne);p.deviceList.innerHTML=e.map(t=>`
+    <button class="device-row ${t.id===r.selectedId?"active":""}" data-id="${t.id}">
+      <span class="device-name">${b(t.name)}</span>
+      <span class="device-type">${t.type==="computer"?"Computer":t.type==="router"?"Router":t.type==="lan"?"LAN":"Switch"}</span>
+    </button>
+  `).join(""),[...p.deviceList.querySelectorAll(".device-row")].forEach(t=>{t.addEventListener("click",()=>{r.selectedId=t.dataset.id,r.selectedLinkId=null,r.configuringId&&r.configuringId!==r.selectedId&&(r.configuringId=null),O(),v().render()})})}function Nr(){return{version:1,devices:r.devices.map(({id:e,type:t,name:n,x:o,y:s,config:i,hidden:l,poweredOff:a,collapsedBy:c})=>({id:e,type:t,name:n,x:Math.round(o),y:Math.round(s),...l?{hidden:!0}:{},...a?{poweredOff:!0}:{},...c?{collapsedBy:c}:{},...t==="computer"?{config:{ipv4Address:i?.ipv4Address||"",gatewayIpv4Address:i?.gatewayIpv4Address||"",macAddress:i?.macAddress||"",arpTable:G(i?.arpTable||[])}}:{},...t==="switch"?{config:{managed:!!i?.managed,ethernetPorts:me(i?.ethernetPorts??8),macTable:se(i?.macTable||[]),...i?.managed?{vlans:Q(i?.vlans||[]),portVlans:D(i?.portVlans||{}),portModes:W(i?.portModes||{}),trunkAllowedVlans:K(i?.trunkAllowedVlans||{}),trunkNativeVlans:D(i?.trunkNativeVlans||{})}:{}}}:{},...t==="router"?{config:{ethernetPorts:Z(i?.ethernetPorts??4),serialPorts:Z(i?.serialPorts??4),interfaces:Vr({id:e,config:i}),...i?.staticRoutes?.length?{staticRoutes:i.staticRoutes}:{},...i?.rip?.enabled?{rip:i.rip}:{}}}:{},...t==="lan"?{config:{anchorId:i?.anchorId||"",members:Array.isArray(i?.members)?i.members:[],absorbedLans:Array.isArray(i?.absorbedLans)?i.absorbedLans:[]}}:{}})),links:r.links.map(({from:e,to:t,fromPort:n,toPort:o,hidden:s,collapsedBy:i,proxy:l})=>({from:e,to:t,...n!=null?{fromPort:n}:{},...o!=null?{toPort:o}:{},...s?{hidden:!0}:{},...i?{collapsedBy:i}:{},...l?{proxy:!0}:{}}))}}function Vr(e){let t=new Set(Be(e.id));return he(e.config?.interfaces||[]).filter(n=>!n.peerId||t.has(n.peerId))}async function fn(){let e=Xe(prompt("Save config name",Hr()));if(!e)return;await pt(),r.configStore.configs[e]=Nr();let t=JSON.stringify(be(r.configStore),null,2);try{await Fr(t),p.hint.textContent=`Saved "${e}" to config.json.`}catch(n){n.name!=="AbortError"&&(gn(t),p.hint.textContent=`Saved "${e}". Downloaded config.json because direct file write was unavailable.`)}O()}async function mn(){await pt(!0);let e=Object.keys(r.configStore.configs).sort((o,s)=>o.localeCompare(s));if(!e.length){p.hint.textContent="No configs found in config.json yet.";return}let t=Xe(prompt(`Load config:
+${e.join(`
+`)}`,e[0]));if(!t)return;let n=r.configStore.configs[t];if(!n){p.hint.textContent=`No config named "${t}" in config.json.`;return}try{Ce(te(n)),p.hint.textContent=`Loaded "${t}" from config.json.`}catch(o){p.hint.textContent=o.message}}function Hr(){let e="network";if(!r.configStore.configs[e])return e;let t=2;for(;r.configStore.configs[`${e}-${t}`];)t++;return`${e}-${t}`}async function pt(e=!1){if(r.configFileHandle){await un();return}try{let t=await fetch("./config.json",{cache:"no-store"});if(!t.ok)throw new Error("Missing config.json");r.configStore=be(await t.json())}catch{if(e&&"showOpenFilePicker"in window){let[t]=await window.showOpenFilePicker({types:[{description:"RouteSim config store",accept:{"application/json":[".json"]}}]});r.configFileHandle=t,await un();return}r.configStore=be(r.configStore)}}async function Fr(e){if("showSaveFilePicker"in window){r.configFileHandle||(r.configFileHandle=await window.showSaveFilePicker({suggestedName:"config.json",types:[{description:"RouteSim config store",accept:{"application/json":[".json"]}}]}));let t=await r.configFileHandle.createWritable();await t.write(e),await t.close();return}gn(e)}async function un(){let e=await r.configFileHandle.getFile();r.configStore=be(JSON.parse(await e.text()))}function gn(e){let t=new Blob([e],{type:"application/json"}),n=URL.createObjectURL(t),o=document.createElement("a");o.href=n,o.download="config.json",o.click(),URL.revokeObjectURL(n)}function Ce(e){I(),je(e)}function je(e){r.devices=e.devices,r.links=e.links,r.selectedId=e.devices[0]?.id||null,r.configuringId=null,r.terminal.open=!1,r.terminal.deviceId=null,r.terminal.mode="exec",r.terminal.interfacePeerId=null,r.terminal.interfaceVlanTag=null,r.terminal.lines=[],r.linkStartId=null,r.drag=null,r.panDrag=null,r.pointer=null,r.nextComputer=Ne("computer"),r.nextSwitch=Ne("switch"),r.nextRouter=Ne("router"),j("select"),He(),O(),V(),L()}function hn(e){try{e==="vlan-roas"?(Ce(te(vt)),p.hint.textContent="Loaded VLAN Router-on-a-Stick topology."):e==="router-mesh"?(Ce(te(wt)),p.hint.textContent="Loaded 5-Router Partial Mesh topology."):(Ce(te(xe)),p.hint.textContent="Loaded Basic Network topology.")}catch(t){p.hint.textContent=t.message}}async function yn(){await pt(),r.configStore.configs.default||(r.configStore.configs.default=xe),r.devices.length||r.links.length?Ce(te(r.configStore.configs.default)):je(te(r.configStore.configs.default)),p.hint.textContent="Loaded default topology from config.json."}function j(e){r.tool=e,r.linkStartId=null,p.toolButtons.forEach(t=>t.classList.toggle("active",t.dataset.tool===e)),p.modeLabel.textContent=Te[e][0],p.hint.textContent=Te[e][1],p.canvas.style.cursor=e==="select"?"default":e==="configure"?"pointer":"crosshair",L()}function qe(e){let t=p.canvas.getBoundingClientRect();return{x:e.clientX-t.left,y:e.clientY-t.top}}function ft(e){r.theme=e==="light"?"light":"dark",r.theme==="light"?document.documentElement.dataset.theme="light":delete document.documentElement.dataset.theme,p.themeButton.setAttribute("aria-pressed",String(r.theme==="light")),p.themeButton.title=r.theme==="light"?"Toggle dark mode":"Toggle light mode",p.themeButton.setAttribute("aria-label",p.themeButton.title),L()}function Or(){ft(r.theme==="light"?"dark":"light")}function ut(e,t){e.addEventListener("change",()=>{r.options[t]=e.checked,L()})}function vn(){p.toolButtons.forEach(e=>{e.addEventListener("click",()=>j(e.dataset.tool))}),p.canvas.addEventListener("pointerdown",e=>{p.canvas.setPointerCapture(e.pointerId);let t=qe(e),n=ve(t),o=De(n);if(r.tool==="computer"||r.tool==="switch"||r.tool==="router"){kt(r.tool,n.x,n.y);return}if(r.tool==="connect"){if(!o){r.linkStartId=null,L();return}r.selectedLinkId=null,r.linkStartId?(Ct(r.linkStartId,o.id),p.hint.textContent=Te.connect[1]):(r.linkStartId=o.id,r.selectedId=o.id,p.hint.textContent=`Connect ${o.name} to another device.`),O(),L();return}if(r.tool==="configure"){r.selectedLinkId=null,o?Je(o):(r.selectedId=null,r.configuringId=null,O(),L());return}if(o){r.selectedId=o.id,r.selectedLinkId=null,r.configuringId=null;let s=ce();r.drag={id:o.id,dx:n.x-o.x,dy:n.y-o.y,undoSnapshot:s},r.panDrag=null}else{let s=r.tool==="select"?Ge(n):null;s?(r.selectedId=null,r.selectedLinkId=s.id,r.configuringId=null,r.drag=null,r.panDrag=null,r.options.networkPanelOpen||Ie(!0)):(r.selectedId=null,r.selectedLinkId=null,r.configuringId=null,r.drag=null,r.panDrag={startX:t.x,startY:t.y,panX:r.pan.x,panY:r.pan.y},p.canvas.style.cursor="grabbing")}O(),L()}),p.canvas.addEventListener("pointermove",e=>{r.pointer=qe(e);let t=ve(r.pointer);if(r.drag){let o=x(r.drag.id);o&&(o.x=t.x-r.drag.dx,o.y=t.y-r.drag.dy,L());return}if(r.panDrag){r.pan.x=r.panDrag.panX+r.pointer.x-r.panDrag.startX,r.pan.y=r.panDrag.panY+r.pointer.y-r.panDrag.startY,p.canvas.style.cursor="grabbing",L();return}let n=De(t);if(r.tool==="select"){let o=n?null:Ge(t);p.canvas.style.cursor=n?"grab":o?"pointer":"move"}else r.tool==="connect"?p.canvas.style.cursor=n?"pointer":"crosshair":r.tool==="configure"&&(p.canvas.style.cursor=n?"pointer":"default");r.tool==="connect"&&r.linkStartId&&L()}),p.canvas.addEventListener("dblclick",e=>{let t=De(ve(qe(e)));t&&Je(t)}),p.canvas.addEventListener("pointerup",()=>{r.drag?.undoSnapshot&&r.drag.undoSnapshot!==ce()&&Ae(r.drag.undoSnapshot),r.drag=null,r.panDrag=null}),p.canvas.addEventListener("pointerleave",()=>{r.drag?.undoSnapshot&&r.drag.undoSnapshot!==ce()&&Ae(r.drag.undoSnapshot),r.pointer=null,r.drag=null,r.panDrag=null,r.tool==="connect"&&r.linkStartId&&L()}),p.canvas.addEventListener("wheel",e=>{e.preventDefault();let t=qe(e),n=Math.exp(-e.deltaY*.0015);Ut(r.scale*n,t)},{passive:!1}),window.addEventListener("keydown",e=>{if((e.metaKey||e.ctrlKey)&&e.key.toLowerCase()==="z"){e.preventDefault(),ze();return}if(!["INPUT","SELECT","TEXTAREA"].includes(e.target?.tagName)){if((e.key==="Delete"||e.key==="Backspace")&&Re(),e.key==="Escape"){if(r.portSelection){ke();return}r.configuringId=null,r.linkStartId=null,r.selectedLinkId=null,j("select")}e.key.toLowerCase()==="v"&&j("select"),e.key.toLowerCase()==="c"&&j("computer"),e.key.toLowerCase()==="s"&&j("switch"),e.key.toLowerCase()==="r"&&j("router"),e.key.toLowerCase()==="l"&&j("connect"),e.key.toLowerCase()==="w"&&j("configure")}}),p.loadButton.addEventListener("click",mn),p.saveButton.addEventListener("click",fn),p.undoButton.addEventListener("click",ze),p.clearButton.addEventListener("click",$t),p.topologyButton.addEventListener("click",()=>{let e=p.topologyMenu.classList.toggle("open");p.topologyButton.setAttribute("aria-expanded",String(e))}),p.topologyMenu.querySelectorAll(".topology-option").forEach(e=>{e.addEventListener("click",()=>{let t=e.dataset.topology||"basic";p.topologyMenu.classList.remove("open"),p.topologyButton.setAttribute("aria-expanded","false"),hn(t)})}),document.addEventListener("click",e=>{if(!p.topologyMenu.classList.contains("open"))return;let t=document.getElementById("topologyChooser");t&&!t.contains(e.target)&&(p.topologyMenu.classList.remove("open"),p.topologyButton.setAttribute("aria-expanded","false"))}),p.fitButton.addEventListener("click",He),p.themeButton.addEventListener("click",Or),p.terminalOpenButton.addEventListener("click",()=>We(x(r.selectedId))),p.terminalCloseButton.addEventListener("click",st),p.terminalForm.addEventListener("submit",nn),p.terminalInput.addEventListener("keydown",rn),p.inspectorOpenButton.addEventListener("click",()=>Ie(!r.options.networkPanelOpen)),p.inspectorCloseButton.addEventListener("click",()=>Ie(!1)),p.inspectorResizeHandle.addEventListener("pointerdown",dn),window.addEventListener("pointermove",pn),window.addEventListener("pointerup",dt),window.addEventListener("pointercancel",dt),p.displayOptionsButton.addEventListener("click",cn),ut(p.showDeviceNames,"showDeviceNames"),ut(p.showIpAddresses,"showIpAddresses"),ut(p.showMacAddresses,"showMacAddresses"),window.addEventListener("resize",le),p.simPlayPause.addEventListener("click",()=>{let e=r.simulation;e.status==="running"?Yt():e.status==="paused"&&_t()}),p.simStep.addEventListener("click",Gt),p.simStop.addEventListener("click",()=>{Xt(),p.terminalInput.disabled=!1}),p.simSpeed.addEventListener("input",()=>{r.simulation.speed=Number(p.simSpeed.value)||1e3}),p.simLogCloseButton.addEventListener("click",()=>{p.simLogPanel.classList.remove("active")}),p.portSelectionConfirm.addEventListener("click",Tt),p.portSelectionCancel.addEventListener("click",ke),p.portSelectionOverlay.addEventListener("click",e=>{e.target===p.portSelectionOverlay&&ke()})}gt({render:L,syncPanel:O,syncTerminal:V,resizeCanvas:le});Lt({setTool:j,setNetworkPanel:Ie});vn();async function Wr(){le(),ct(r.inspectorWidth),r.pan={x:p.canvas.getBoundingClientRect().width/2,y:p.canvas.getBoundingClientRect().height/2},Se(),ft("dark"),at(),lt(),V();try{await yn()}catch{je(te(xe)),p.hint.textContent="Loaded default topology."}O(),L()}Wr();})();
+
+  </script>
+</body>
+</html>

@@ -1,0 +1,350 @@
+import { describe, it, expect } from "bun:test";
+import {
+  normaliseArpTable, normaliseMacTable, normaliseVlans,
+  normalisePortVlans, normalisePortModes, normaliseTrunkAllowedVlans,
+  normaliseRouterInterfaces, normaliseDeviceConfig, normaliseConfig,
+  defaultDeviceConfig, normaliseConfigName, deviceSize,
+} from "../src/normalise";
+
+// ── ARP table ─────────────────────────────────────────────────────────────────
+
+describe("normaliseArpTable", () => {
+  it("returns empty array for empty input", () => {
+    expect(normaliseArpTable([])).toEqual([]);
+    expect(normaliseArpTable(null as any)).toEqual([]);
+    expect(normaliseArpTable(undefined as any)).toEqual([]);
+  });
+
+  it("preserves valid entries (normalises field names)", () => {
+    const entries = [{ ip: "192.168.1.1", mac: "02:00:00:00:01:01" }];
+    const result = normaliseArpTable(entries);
+    expect(result).toHaveLength(1);
+    expect(result[0].ipv4Address).toBe("192.168.1.1");
+    expect(result[0].macAddress).toBe("02:00:00:00:01:01");
+  });
+
+  it("drops entries with all empty fields", () => {
+    const entries = [{ ip: "", mac: "" }, { ip: "1.2.3.4", mac: "AA:BB:CC:DD:EE:FF" }];
+    const result = normaliseArpTable(entries);
+    expect(result).toHaveLength(1);
+    expect(result[0].ipv4Address).toBe("1.2.3.4");
+  });
+});
+
+// ── MAC table ─────────────────────────────────────────────────────────────────
+
+describe("normaliseMacTable", () => {
+  it("returns empty array for empty input", () => {
+    expect(normaliseMacTable([])).toEqual([]);
+  });
+
+  it("preserves valid entries with trimmed port", () => {
+    const entries = [{ mac: "02:00:00:00:01:01", port: " Ethernet1 ", vlan: 10 }];
+    const result = normaliseMacTable(entries);
+    expect(result).toHaveLength(1);
+    expect(result[0].port).toBe("Ethernet1");
+    expect(result[0].vlan).toBe("10");
+  });
+
+  it("drops entries with all empty fields", () => {
+    const entries = [{ mac: "", port: "", vlan: "" }];
+    const result = normaliseMacTable(entries);
+    // Entry has no meaningful data → filtered out
+    expect(result).toHaveLength(0);
+  });
+});
+
+// ── VLANs ─────────────────────────────────────────────────────────────────────
+
+describe("normaliseVlans", () => {
+  it("always includes VLAN 1 default", () => {
+    const result = normaliseVlans(null as any);
+    expect(result).toHaveLength(1);
+    expect(result[0]).toEqual({ id: 1, name: "default" });
+  });
+
+  it("preserves valid VLANs alongside default", () => {
+    const vlans = [{ id: 10, name: "Sales" }, { id: 20, name: "Engineering" }];
+    const result = normaliseVlans(vlans);
+    expect(result).toHaveLength(3); // VLAN 1 + 10 + 20
+    expect(result[0]).toEqual({ id: 1, name: "default" });
+    expect(result[1]).toEqual({ id: 10, name: "Sales" });
+    expect(result[2]).toEqual({ id: 20, name: "Engineering" });
+  });
+
+  it("drops out-of-range VLAN IDs", () => {
+    const vlans = [{ id: 0, name: "bad" }, { id: 10, name: "ok" }, { id: 5000, name: "bad" }];
+    const result = normaliseVlans(vlans);
+    expect(result).toHaveLength(2); // VLAN 1 default + 10
+    expect(result[1].id).toBe(10);
+  });
+
+  it("deduplicates VLAN IDs", () => {
+    const vlans = [{ id: 10, name: "first" }, { id: 10, name: "second" }];
+    const result = normaliseVlans(vlans);
+    expect(result).toHaveLength(2); // VLAN 1 default + one 10
+  });
+
+  it("does not duplicate VLAN 1 if passed in input", () => {
+    const vlans = [{ id: 1, name: "default" }, { id: 10, name: "Sales" }];
+    const result = normaliseVlans(vlans);
+    expect(result.filter(v => v.id === 1)).toHaveLength(1);
+  });
+});
+
+// ── Port VLANs ────────────────────────────────────────────────────────────────
+
+describe("normalisePortVlans", () => {
+  it("returns empty object for null", () => {
+    expect(normalisePortVlans(null as any)).toEqual({});
+  });
+
+  it("preserves valid port→VLAN mappings (filters VLAN 1)", () => {
+    const result = normalisePortVlans({ Ethernet1: 10, Ethernet2: 20 });
+    expect(result).toEqual({ Ethernet1: 10, Ethernet2: 20 });
+  });
+
+  it("filters out VLAN 1 (default)", () => {
+    const result = normalisePortVlans({ Ethernet1: 1, Ethernet2: 10 });
+    expect(Object.keys(result)).toHaveLength(1);
+    expect(result.Ethernet2).toBe(10);
+  });
+
+  it("filters non-valid VLAN IDs", () => {
+    const result = normalisePortVlans({ Ethernet1: "abc" });
+    expect(Object.keys(result)).toHaveLength(0);
+  });
+
+  it("filters empty keys", () => {
+    const result = normalisePortVlans({ "": 10, Ethernet1: 20 });
+    expect(Object.keys(result)).toHaveLength(1);
+    expect(result.Ethernet1).toBe(20);
+  });
+});
+
+// ── Port modes ────────────────────────────────────────────────────────────────
+
+describe("normalisePortModes", () => {
+  it("returns empty object for null", () => {
+    expect(normalisePortModes(null as any)).toEqual({});
+  });
+
+  it("preserves access and trunk modes", () => {
+    const result = normalisePortModes({ Ethernet1: "trunk", Ethernet2: "access" });
+    expect(result.Ethernet1).toBe("trunk");
+    expect(result.Ethernet2).toBe("access");
+  });
+
+  it("defaults invalid modes to access", () => {
+    const result = normalisePortModes({ Ethernet1: "bogus" });
+    expect(result.Ethernet1).toBe("access");
+  });
+});
+
+// ── Trunk allowed VLANs ───────────────────────────────────────────────────────
+
+describe("normaliseTrunkAllowedVlans", () => {
+  it("returns empty object for null", () => {
+    expect(normaliseTrunkAllowedVlans(null as any)).toEqual({});
+  });
+
+  it("preserves valid allowed VLAN lists", () => {
+    const result = normaliseTrunkAllowedVlans({ Ethernet1: [10, 20, 30] });
+    expect(result.Ethernet1).toEqual([10, 20, 30]);
+  });
+
+  it("filters out-of-range VLAN IDs", () => {
+    const result = normaliseTrunkAllowedVlans({ Ethernet1: [0, 10, 5000] });
+    expect(result.Ethernet1).toEqual([10]);
+  });
+
+  it("drops ports with empty resulting lists", () => {
+    const result = normaliseTrunkAllowedVlans({ Ethernet1: [0, 5000] });
+    expect(Object.keys(result)).toHaveLength(0);
+  });
+});
+
+// ── Router interfaces ─────────────────────────────────────────────────────────
+
+describe("normaliseRouterInterfaces", () => {
+  it("returns empty array for null", () => {
+    expect(normaliseRouterInterfaces(null as any)).toEqual([]);
+  });
+
+  it("generates deterministic MAC addresses", () => {
+    const interfaces = [
+      { peerId: "sw-1", type: "ethernet", ipv4Address: "192.168.1.1" },
+      { peerId: "sw-2", type: "ethernet", ipv4Address: "192.168.2.1" },
+    ];
+    const result = normaliseRouterInterfaces(interfaces, "rtr-1");
+    expect(result).toHaveLength(2);
+    // MAC format: 02:RR:00:00:II:01
+    expect(result[0].macAddress).toMatch(/^02:[0-9a-fA-F]{2}:00:00:[0-9a-fA-F]{2}:01$/);
+    expect(result[1].macAddress).toMatch(/^02:[0-9a-fA-F]{2}:00:00:[0-9a-fA-F]{2}:01$/);
+  });
+
+  it("preserves vlanTag when set", () => {
+    const interfaces = [
+      { peerId: "sw-1", type: "ethernet", ipv4Address: "192.168.10.1", vlanTag: 10 },
+    ];
+    const result = normaliseRouterInterfaces(interfaces);
+    expect(result[0].vlanTag).toBe(10);
+  });
+
+  it("sets vlanTag to null when not present", () => {
+    const interfaces = [
+      { peerId: "sw-1", type: "ethernet", ipv4Address: "192.168.1.1" },
+    ];
+    const result = normaliseRouterInterfaces(interfaces);
+    expect(result[0].vlanTag).toBeNull();
+  });
+
+  it("preserves entries with ipv4Address even if peerId is empty", () => {
+    const interfaces = [
+      { peerId: "", type: "ethernet", ipv4Address: "192.168.1.1" },
+      { peerId: "sw-1", type: "ethernet", ipv4Address: "192.168.2.1" },
+    ];
+    const result = normaliseRouterInterfaces(interfaces);
+    // Both entries have ipv4Address, so both are kept
+    expect(result).toHaveLength(2);
+  });
+});
+
+// ── Device config normalisation ───────────────────────────────────────────────
+
+describe("normaliseDeviceConfig", () => {
+  it("normalises computer config", () => {
+    const device = { type: "computer", config: { ipv4Address: "10.0.0.1", macAddress: "aa:bb:cc:dd:ee:ff" } };
+    const result = normaliseDeviceConfig(device as any);
+    expect(result.ipv4Address).toBe("10.0.0.1");
+    // MAC should be uppercased
+    expect(result.macAddress).toBe("AA:BB:CC:DD:EE:FF");
+  });
+
+  it("normalises managed switch config with VLAN fields", () => {
+    const device = {
+      type: "switch",
+      config: {
+        managed: true, ethernetPorts: 8,
+        vlans: [{ id: 10, name: "Sales" }],
+        portVlans: { Ethernet1: 10 },
+        portModes: { Ethernet1: "trunk" },
+      },
+    };
+    const result = normaliseDeviceConfig(device as any);
+    expect(result.managed).toBe(true);
+    // normaliseVlans always includes VLAN 1 default + the passed VLANs
+    expect(result.vlans).toHaveLength(2);
+    expect(result.portModes).toBeDefined();
+    expect(result.portModes.Ethernet1).toBe("trunk");
+    expect(result.trunkAllowedVlans).toBeDefined();
+    expect(result.trunkNativeVlans).toBeDefined();
+  });
+
+  it("normalises unmanaged switch config without VLAN fields", () => {
+    const device = { type: "switch", config: { managed: false, ethernetPorts: 8 } };
+    const result = normaliseDeviceConfig(device as any);
+    expect(result.managed).toBe(false);
+    expect(result.vlans).toBeUndefined();
+    expect(result.portModes).toBeUndefined();
+  });
+
+  it("normalises router config with interfaces", () => {
+    const device = {
+      type: "router",
+      config: {
+        ethernetPorts: 4, serialPorts: 2,
+        interfaces: [{ peerId: "sw-1", type: "ethernet", ipv4Address: "192.168.1.1", vlanTag: 10 }],
+      },
+    };
+    const result = normaliseDeviceConfig(device as any);
+    expect(result.interfaces).toHaveLength(1);
+    expect(result.interfaces[0].vlanTag).toBe(10);
+  });
+});
+
+// ── Full config normalisation ─────────────────────────────────────────────────
+
+describe("normaliseConfig", () => {
+  it("normalises a complete config", () => {
+    const config = {
+      version: 1,
+      devices: [
+        { id: "pc1", type: "computer", name: "PC-1", x: 0, y: 0, config: { ipv4Address: "10.0.0.1" } },
+        { id: "sw1", type: "switch", name: "SW-1", x: 100, y: 0, config: { ethernetPorts: 8 } },
+      ],
+      links: [{ from: "pc1", to: "sw1" }],
+    };
+    const result = normaliseConfig(config);
+    expect(result.devices).toHaveLength(2);
+    expect(result.devices[0].id).toBe("pc1");
+    expect(result.devices[0].width).toBeDefined();
+    expect(result.devices[0].height).toBeDefined();
+    expect(result.links).toHaveLength(1);
+  });
+
+  it("throws for empty config without arrays", () => {
+    expect(() => normaliseConfig({})).toThrow();
+  });
+
+  it("throws when link references missing device", () => {
+    const config = {
+      devices: [{ id: "pc1", type: "computer", name: "PC-1", x: 0, y: 0 }],
+      links: [{ from: "pc1", to: "nonexistent" }],
+    };
+    expect(() => normaliseConfig(config)).toThrow();
+  });
+});
+
+// ── Defaults ──────────────────────────────────────────────────────────────────
+
+describe("defaultDeviceConfig", () => {
+  it("returns computer config shape", () => {
+    const config = defaultDeviceConfig("computer");
+    expect(config).toHaveProperty("ipv4Address");
+    expect(config).toHaveProperty("macAddress");
+    expect(config).toHaveProperty("arpTable");
+  });
+
+  it("returns switch config shape", () => {
+    const config = defaultDeviceConfig("switch");
+    expect(config).toHaveProperty("managed");
+    expect(config).toHaveProperty("ethernetPorts");
+    expect(config).toHaveProperty("macTable");
+    expect(config).toHaveProperty("portModes");
+    expect(config).toHaveProperty("trunkAllowedVlans");
+  });
+
+  it("returns router config shape", () => {
+    const config = defaultDeviceConfig("router");
+    expect(config).toHaveProperty("ethernetPorts");
+    expect(config).toHaveProperty("serialPorts");
+    expect(config).toHaveProperty("interfaces");
+  });
+});
+
+// ── Device size ───────────────────────────────────────────────────────────────
+
+describe("deviceSize", () => {
+  it("returns correct sizes for each type", () => {
+    expect(deviceSize("computer")).toEqual({ width: 92, height: 68 });
+    expect(deviceSize("router")).toEqual({ width: 92, height: 70 });
+    expect(deviceSize("switch")).toEqual({ width: 104, height: 58 });
+  });
+});
+
+// ── Config name ───────────────────────────────────────────────────────────────
+
+describe("normaliseConfigName", () => {
+  it("trims whitespace", () => {
+    expect(normaliseConfigName("  MyConfig  ")).toBe("MyConfig");
+  });
+
+  it("replaces special characters with dashes", () => {
+    expect(normaliseConfigName("my<config>")).toBe("my-config-");
+  });
+
+  it("returns empty string for null", () => {
+    expect(normaliseConfigName(null as any)).toBe("");
+  });
+});

@@ -1,0 +1,19 @@
+{
+  "version": "0.0.1",
+  "configurations": [
+    {
+      "name": "routesim",
+      "runtimeExecutable": "python3",
+      "runtimeArgs": ["-m", "http.server", "8765", "--directory", "/Users/trevorandersen/dev/routesim"],
+      "port": 8765,
+      "autoPort": false
+    },
+    {
+      "name": "test-runner",
+      "runtimeExecutable": "bun",
+      "runtimeArgs": ["test-server.ts", "8767"],
+      "port": 8767,
+      "autoPort": false
+    }
+  ]
+}

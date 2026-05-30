@@ -1,0 +1,476 @@
+import { state, colors, deviceIcons } from "./state";
+import { dom } from "./dom";
+import { cssColor } from "./utils";
+import { getDevice, isVisibleDevice, routerInterfacesWithNames, linkedPortsFor } from "./devices";
+import { normalisePortModes } from "./normalise";
+import { getVlanForDevice } from "./simulation";
+import { frameLabel, frameColor } from "./frame";
+
+const VLAN_COLORS = [
+  "#94a3b8",  // VLAN 1 — slate (default, muted)
+  "#f59e0b",  // amber
+  "#3b82f6",  // blue
+  "#10b981",  // emerald
+  "#a78bfa",  // violet
+  "#f43f5e",  // rose
+  "#06b6d4",  // cyan
+];
+
+function vlanColor(vlanId: number): string {
+  if (vlanId <= 1) return VLAN_COLORS[0];
+  return VLAN_COLORS[((vlanId - 2) % (VLAN_COLORS.length - 1)) + 1];
+}
+
+const canvas = dom.canvas;
+const ctx = dom.ctx;
+
+export function resizeCanvas(): void {
+  const rect = canvas.getBoundingClientRect();
+  const dpr = Math.max(1, window.devicePixelRatio || 1);
+  canvas.width = Math.floor(rect.width * dpr);
+  canvas.height = Math.floor(rect.height * dpr);
+  ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+  render();
+}
+
+export function screenToWorld(point: { x: number; y: number }): { x: number; y: number } {
+  return {
+    x: (point.x - state.pan.x) / state.scale,
+    y: (point.y - state.pan.y) / state.scale
+  };
+}
+
+export function worldToScreen(point: { x: number; y: number }): { x: number; y: number } {
+  return {
+    x: point.x * state.scale + state.pan.x,
+    y: point.y * state.scale + state.pan.y
+  };
+}
+
+export function setZoom(nextScale: number, anchor: { x: number; y: number }): void {
+  const before = screenToWorld(anchor);
+  state.scale = Math.min(2.5, Math.max(0.25, nextScale));
+  state.pan.x = anchor.x - before.x * state.scale;
+  state.pan.y = anchor.y - before.y * state.scale;
+  syncZoomLevel();
+  render();
+}
+
+export function syncZoomLevel(): void {
+  dom.zoomLevel.textContent = `${Math.round(state.scale * 100)}%`;
+}
+
+export function linkColorFor(from: any, to: any): string {
+  if (from.type === "router" && to.type === "router") return cssColor("--link-router");
+  if (from.type === "switch" || to.type === "switch") {
+    if (from.type !== "computer" && to.type !== "computer") return cssColor("--link-switch");
+  }
+  return cssColor("--link-host");
+}
+
+export function devicePalette(type: string): { fill: string; stroke: string; accent: string; dark: string } {
+  if (type === "computer") {
+    return {
+      fill: cssColor("--pc-fill"),
+      stroke: cssColor("--pc-stroke"),
+      accent: cssColor("--pc-accent"),
+      dark: cssColor("--pc-icon")
+    };
+  }
+  if (type === "router") {
+    return {
+      fill: cssColor("--router-fill"),
+      stroke: cssColor("--router-stroke"),
+      accent: cssColor("--router-accent"),
+      dark: cssColor("--router-icon")
+    };
+  }
+  if (type === "lan") {
+    return {
+      fill: cssColor("--lan-fill"),
+      stroke: cssColor("--lan-stroke"),
+      accent: cssColor("--lan-accent"),
+      dark: cssColor("--lan-icon")
+    };
+  }
+  return {
+    fill: cssColor("--switch-fill"),
+    stroke: cssColor("--switch-stroke"),
+    accent: cssColor("--switch-accent"),
+    dark: cssColor("--switch-icon")
+  };
+}
+
+function isTrunkLink(from: any, to: any): boolean {
+  function hasTrunkPort(sw: any, peerId: string): boolean {
+    if (sw.type !== "switch" || !sw.config?.managed) return false;
+    const portModes = normalisePortModes(sw.config.portModes || {});
+    const ports = linkedPortsFor(sw.id);
+    const idx = ports.findIndex((p: any) => p.peer.id === peerId);
+    if (idx < 0) return false;
+    return (portModes[`Ethernet${idx + 1}`] || "access") === "trunk";
+  }
+  return hasTrunkPort(from, to.id) || hasTrunkPort(to, from.id);
+}
+
+export function drawLink(link: any): void {
+  const from = getDevice(link.from);
+  const to = getDevice(link.to);
+  if (!isVisibleDevice(from) || !isVisibleDevice(to) || link.hidden) return;
+  const linkSelected = state.selectedLinkId === link.id;
+  const active = linkSelected || state.selectedId === from.id || state.selectedId === to.id || state.linkStartId === from.id || state.linkStartId === to.id;
+  const linkColor = active ? cssColor("--link-active") : linkColorFor(from, to);
+  const dimmed = from.poweredOff || to.poweredOff;
+  const trunk = isTrunkLink(from, to);
+
+  ctx.save();
+  if (dimmed) ctx.globalAlpha = 0.3;
+  ctx.strokeStyle = linkColor;
+  ctx.lineWidth = active ? 3 : 2;
+
+  if (trunk) {
+    // Double line for trunk links
+    const dx = to.x - from.x;
+    const dy = to.y - from.y;
+    const len = Math.hypot(dx, dy) || 1;
+    const nx = -dy / len * 2.5;
+    const ny = dx / len * 2.5;
+    ctx.beginPath();
+    ctx.moveTo(from.x + nx, from.y + ny);
+    ctx.lineTo(to.x + nx, to.y + ny);
+    ctx.stroke();
+    ctx.beginPath();
+    ctx.moveTo(from.x - nx, from.y - ny);
+    ctx.lineTo(to.x - nx, to.y - ny);
+    ctx.stroke();
+  } else {
+    ctx.beginPath();
+    ctx.moveTo(from.x, from.y);
+    ctx.lineTo(to.x, to.y);
+    ctx.stroke();
+  }
+
+  const midX = (from.x + to.x) / 2;
+  const midY = (from.y + to.y) / 2;
+  ctx.fillStyle = active ? linkColor : cssColor("--canvas-bg");
+  ctx.strokeStyle = linkColor;
+  ctx.lineWidth = 2;
+  ctx.beginPath();
+  ctx.arc(midX, midY, 5, 0, Math.PI * 2);
+  ctx.fill();
+  ctx.stroke();
+  ctx.restore();
+}
+
+export function drawIconDevice(device: any, palette: any, iconName: string, radius = 10, iconStrokeWidth = 1.7): void {
+  const x = device.x - device.width / 2;
+  const y = device.y - device.height / 2;
+  ctx.fillStyle = palette.fill;
+  ctx.strokeStyle = palette.stroke;
+  ctx.lineWidth = 2;
+  roundRect(x, y, device.width, device.height, radius);
+  ctx.fill();
+  ctx.stroke();
+
+  ctx.fillStyle = palette.accent;
+  roundRect(x + 10, y + 10, device.width - 20, device.height - 20, Math.max(5, radius - 3));
+  ctx.fill();
+
+  drawTablerIcon(device.x, device.y, iconName, palette.dark, Math.min(device.width, device.height) - 22, iconStrokeWidth);
+}
+
+export function drawTablerIcon(centerX: number, centerY: number, iconName: string, color: string, size: number, strokeWidth = 1.7): void {
+  const scale = size / 24;
+  ctx.save();
+  ctx.translate(centerX - size / 2, centerY - size / 2);
+  ctx.scale(scale, scale);
+  ctx.strokeStyle = color;
+  ctx.lineWidth = strokeWidth;
+  ctx.lineCap = "round";
+  ctx.lineJoin = "round";
+  ctx.fillStyle = "transparent";
+  deviceIcons[iconName].forEach(path => {
+    ctx.stroke(new Path2D(path));
+  });
+  ctx.restore();
+}
+
+export function drawComputer(device: any, palette: any): void {
+  drawIconDevice(device, palette, "computer", 10);
+}
+
+export function drawSwitch(device: any, palette: any): void {
+  drawIconDevice(device, palette, "switch", 8);
+  if (device.config?.managed) drawManagedBadge(device, palette);
+}
+
+export function drawManagedBadge(device: any, palette: any): void {
+  const x = device.x + device.width / 2 - 18;
+  const y = device.y - device.height / 2 + 18;
+  ctx.save();
+  ctx.fillStyle = cssColor("--panel");
+  ctx.strokeStyle = palette.stroke;
+  ctx.lineWidth = 1.6;
+  ctx.beginPath();
+  ctx.arc(x, y, 10, 0, Math.PI * 2);
+  ctx.fill();
+  ctx.stroke();
+
+  ctx.strokeStyle = palette.dark;
+  ctx.lineWidth = 1.2;
+  ctx.lineCap = "round";
+  ctx.lineJoin = "round";
+  for (let i = 0; i < 8; i++) {
+    const angle = i * Math.PI / 4;
+    ctx.beginPath();
+    ctx.moveTo(x + Math.cos(angle) * 6, y + Math.sin(angle) * 6);
+    ctx.lineTo(x + Math.cos(angle) * 8, y + Math.sin(angle) * 8);
+    ctx.stroke();
+  }
+  ctx.beginPath();
+  ctx.arc(x, y, 4, 0, Math.PI * 2);
+  ctx.stroke();
+  ctx.restore();
+}
+
+export function drawRouter(device: any, palette: any): void {
+  drawIconDevice(device, palette, "router", 12, 0.77);
+}
+
+function drawDeviceIcon(device: any): void {
+  if (device.hidden) return;
+  const selected = state.selectedId === device.id;
+  const linking = state.linkStartId === device.id;
+  const palette = devicePalette(device.type);
+
+  ctx.save();
+  if (device.poweredOff) ctx.globalAlpha = 0.35;
+  if (selected || linking) {
+    ctx.strokeStyle = selected ? colors.selected : cssColor("--link-active");
+    ctx.lineWidth = 4;
+    ctx.setLineDash(selected ? [] : [7, 5]);
+    roundRect(device.x - device.width / 2 - 7, device.y - device.height / 2 - 7, device.width + 14, device.height + 14, 12);
+    ctx.stroke();
+    ctx.setLineDash([]);
+  }
+
+  if (device.type === "computer") {
+    drawComputer(device, palette);
+  } else if (device.type === "router") {
+    drawRouter(device, palette);
+  } else if (device.type === "lan") {
+    drawIconDevice(device, palette, "lan", 14);
+  } else {
+    drawSwitch(device, palette);
+  }
+  ctx.restore();
+}
+
+export function drawDevice(device: any): void {
+  if (device.hidden) return;
+
+  ctx.save();
+  if (device.poweredOff) ctx.globalAlpha = 0.35;
+
+  ctx.textAlign = "center";
+  ctx.textBaseline = "top";
+  let labelY = device.y + device.height / 2 + 10;
+  if (state.options.showDeviceNames) {
+    ctx.fillStyle = cssColor("--label-primary");
+    ctx.font = "700 13px Inter, system-ui, sans-serif";
+    const label = clampText(device.name, device.width + 10);
+    ctx.fillText(label, device.x, labelY);
+    labelY += 17;
+  }
+  if (device.type === "computer" && state.options.showIpAddresses && device.config?.ipv4Address) {
+    ctx.fillStyle = cssColor("--label-ip");
+    ctx.font = "600 11px Inter, system-ui, sans-serif";
+    ctx.fillText(device.config.ipv4Address, device.x, labelY);
+    labelY += 15;
+  }
+  if (device.type === "computer" && state.options.showMacAddresses && device.config?.macAddress) {
+    ctx.fillStyle = cssColor("--label-mac");
+    ctx.font = "600 10px Inter, system-ui, sans-serif";
+    ctx.fillText(device.config.macAddress, device.x, labelY);
+    labelY += 13;
+  }
+  // VLAN label for computers
+  if (device.type === "computer" && state.options.showIpAddresses) {
+    const vlan = getVlanForDevice(device.id);
+    if (vlan > 1) {
+      const color = vlanColor(vlan);
+      ctx.fillStyle = color;
+      ctx.beginPath();
+      ctx.arc(device.x - ctx.measureText(`VLAN ${vlan}`).width / 2 - 8, labelY + 5, 4, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.font = "600 10px Inter, system-ui, sans-serif";
+      ctx.fillText(`VLAN ${vlan}`, device.x + 2, labelY);
+      labelY += 13;
+    }
+  }
+  // VLAN dots for managed switches
+  if (device.type === "switch" && device.config?.managed && state.options.showIpAddresses) {
+    const vlans = (device.config.vlans || []).filter((v: any) => v.id !== 1);
+    if (vlans.length > 0) {
+      const dotRadius = 3.5;
+      const dotSpacing = 12;
+      const totalWidth = vlans.length * dotSpacing - (dotSpacing - dotRadius * 2);
+      let dotX = device.x - totalWidth / 2 + dotRadius;
+      for (const vlan of vlans) {
+        ctx.fillStyle = vlanColor(vlan.id);
+        ctx.beginPath();
+        ctx.arc(dotX, labelY + 5, dotRadius, 0, Math.PI * 2);
+        ctx.fill();
+        dotX += dotSpacing;
+      }
+      labelY += 14;
+    }
+  }
+  if (device.type === "router") {
+    const ifaces = routerInterfacesWithNames(device);
+    for (const iface of ifaces) {
+      if (!iface.peer) continue;
+      if (state.options.showIpAddresses && iface.config.ipv4Address) {
+        ctx.fillStyle = cssColor("--label-ip");
+        ctx.font = "600 11px Inter, system-ui, sans-serif";
+        ctx.fillText(`${iface.name}: ${iface.config.ipv4Address}`, device.x, labelY);
+        labelY += 15;
+      }
+      if (state.options.showMacAddresses && iface.config.macAddress) {
+        ctx.fillStyle = cssColor("--label-mac");
+        ctx.font = "600 10px Inter, system-ui, sans-serif";
+        ctx.fillText(iface.config.macAddress, device.x, labelY);
+        labelY += 13;
+      }
+    }
+  }
+  ctx.restore();
+}
+
+export function clampText(text: string, maxWidth: number): string {
+  if (ctx.measureText(text).width <= maxWidth) return text;
+  let next = text;
+  while (next.length > 1 && ctx.measureText(`${next}...`).width > maxWidth) {
+    next = next.slice(0, -1);
+  }
+  return `${next}...`;
+}
+
+export function roundRect(x: number, y: number, width: number, height: number, radius: number): void {
+  const r = Math.min(radius, width / 2, height / 2);
+  ctx.beginPath();
+  ctx.moveTo(x + r, y);
+  ctx.arcTo(x + width, y, x + width, y + height, r);
+  ctx.arcTo(x + width, y + height, x, y + height, r);
+  ctx.arcTo(x, y + height, x, y, r);
+  ctx.arcTo(x, y, x + width, y, r);
+  ctx.closePath();
+}
+
+export function render(): void {
+  const rect = canvas.getBoundingClientRect();
+  ctx.clearRect(0, 0, rect.width, rect.height);
+  ctx.save();
+  ctx.translate(state.pan.x, state.pan.y);
+  ctx.scale(state.scale, state.scale);
+
+  canvas.style.backgroundPosition = `${state.pan.x}px ${state.pan.y}px`;
+  const gridMajor = 80 * state.scale;
+  const gridMinor = 20 * state.scale;
+  canvas.style.backgroundSize = `${gridMajor}px ${gridMajor}px, ${gridMajor}px ${gridMajor}px, ${gridMinor}px ${gridMinor}px, ${gridMinor}px ${gridMinor}px`;
+
+  state.links.forEach(drawLink);
+  if (state.tool === "connect" && state.linkStartId && state.pointer) {
+    const from = getDevice(state.linkStartId);
+    const to = screenToWorld(state.pointer);
+    if (from) {
+      ctx.strokeStyle = cssColor("--link-active");
+      ctx.lineWidth = 2;
+      ctx.setLineDash([8, 6]);
+      ctx.beginPath();
+      ctx.moveTo(from.x, from.y);
+      ctx.lineTo(to.x, to.y);
+      ctx.stroke();
+      ctx.setLineDash([]);
+    }
+  }
+  drawFrameTransits();
+  state.devices.forEach(drawDeviceIcon);
+  state.devices.forEach(drawDevice);
+  ctx.restore();
+}
+
+function drawFrameTransits(): void {
+  const transits = state.simulation.transits;
+  if (!transits || transits.length === 0) return;
+
+  for (const transit of transits) {
+    const fromDevice = getDevice(transit.fromDeviceId);
+    const toDevice = getDevice(transit.toDeviceId);
+    if (!fromDevice || !toDevice) continue;
+
+    const t = transit.progress;
+    const x = fromDevice.x + (toDevice.x - fromDevice.x) * t;
+    const y = fromDevice.y + (toDevice.y - fromDevice.y) * t;
+
+    const color = frameColor(transit.frame);
+    const label = frameLabel(transit.frame);
+
+    // Glow effect
+    ctx.save();
+    ctx.shadowColor = color;
+    ctx.shadowBlur = 8;
+
+    // Draw dot
+    ctx.fillStyle = color;
+    ctx.beginPath();
+    ctx.arc(x, y, 7, 0, Math.PI * 2);
+    ctx.fill();
+
+    // White inner dot
+    ctx.shadowBlur = 0;
+    ctx.fillStyle = "#ffffff";
+    ctx.beginPath();
+    ctx.arc(x, y, 3, 0, Math.PI * 2);
+    ctx.fill();
+
+    // Label above
+    ctx.fillStyle = color;
+    ctx.font = "bold 10px Inter, system-ui, sans-serif";
+    ctx.textAlign = "center";
+    ctx.textBaseline = "bottom";
+    ctx.fillText(label, x, y - 12);
+
+    ctx.restore();
+  }
+}
+
+export function fitNetwork(): void {
+  const rect = canvas.getBoundingClientRect();
+  const visibleDevices = state.devices.filter(isVisibleDevice);
+  if (!visibleDevices.length) {
+    state.pan = { x: rect.width / 2, y: rect.height / 2 };
+    state.scale = 1;
+    syncZoomLevel();
+    render();
+    return;
+  }
+
+  const bounds = visibleDevices.reduce((acc, device) => ({
+    minX: Math.min(acc.minX, device.x - device.width / 2),
+    minY: Math.min(acc.minY, device.y - device.height / 2),
+    maxX: Math.max(acc.maxX, device.x + device.width / 2),
+    maxY: Math.max(acc.maxY, device.y + device.height / 2)
+  }), { minX: Infinity, minY: Infinity, maxX: -Infinity, maxY: -Infinity });
+
+  const width = bounds.maxX - bounds.minX;
+  const height = bounds.maxY - bounds.minY;
+  const scale = Math.min(1.2, rect.width / Math.max(width + 180, 1), rect.height / Math.max(height + 180, 1));
+  state.scale = Math.max(0.55, scale);
+  state.pan = {
+    x: rect.width / 2 - ((bounds.minX + width / 2) * state.scale),
+    y: rect.height / 2 - ((bounds.minY + height / 2) * state.scale)
+  };
+  syncZoomLevel();
+  render();
+}

@@ -1,0 +1,409 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>RouteSim — Benchmarks</title>
+<style>
+:root {
+  --bg: #0f1117;
+  --surface: #1a1d27;
+  --border: #2a2d3a;
+  --text: #e4e4e7;
+  --muted: #71717a;
+  --accent: #8b5cf6;
+  --green: #22c55e;
+  --red: #ef4444;
+  --amber: #f59e0b;
+  --font: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+  --mono: "SF Mono", "Fira Code", "Cascadia Code", monospace;
+}
+
+* { margin: 0; padding: 0; box-sizing: border-box; }
+
+body {
+  font-family: var(--font);
+  background: var(--bg);
+  color: var(--text);
+  min-height: 100vh;
+  display: grid;
+  grid-template-columns: 260px 1fr;
+  grid-template-rows: auto 1fr;
+}
+
+header {
+  grid-column: 1 / -1;
+  padding: 16px 24px;
+  border-bottom: 1px solid var(--border);
+  display: flex;
+  align-items: center;
+  gap: 16px;
+}
+
+header h1 {
+  font-size: 18px;
+  font-weight: 600;
+}
+
+header .badge {
+  font-size: 12px;
+  padding: 2px 8px;
+  border-radius: 10px;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  color: var(--muted);
+}
+
+.run-all {
+  margin-left: auto;
+  padding: 8px 16px;
+  background: var(--accent);
+  color: white;
+  border: none;
+  border-radius: 6px;
+  font-size: 13px;
+  font-weight: 500;
+  cursor: pointer;
+  transition: opacity 0.15s;
+}
+.run-all:hover { opacity: 0.85; }
+.run-all:disabled { opacity: 0.5; cursor: not-allowed; }
+
+aside {
+  border-right: 1px solid var(--border);
+  padding: 16px;
+  overflow-y: auto;
+}
+
+aside h2 {
+  font-size: 11px;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+  color: var(--muted);
+  margin-bottom: 12px;
+}
+
+.bench-group {
+  margin-bottom: 8px;
+}
+
+.bench-item {
+  font-size: 13px;
+  padding: 8px 10px;
+  border-radius: 6px;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  transition: background 0.1s;
+}
+.bench-item:hover { background: var(--surface); }
+
+.bench-item .icon {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: var(--border);
+  flex-shrink: 0;
+}
+.bench-item .icon.pass { background: var(--green); }
+.bench-item .icon.fail { background: var(--red); }
+.bench-item .icon.running { background: var(--amber); animation: pulse 1s infinite; }
+
+@keyframes pulse { 50% { opacity: 0.4; } }
+
+.bench-item .label {
+  flex: 1;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+main {
+  padding: 24px;
+  overflow: auto;
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+
+.status-bar {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 12px 16px;
+  background: var(--surface);
+  border-radius: 8px;
+  border: 1px solid var(--border);
+}
+
+.status-bar .label {
+  font-size: 13px;
+  color: var(--muted);
+}
+
+.status-bar .value {
+  font-size: 13px;
+  font-weight: 600;
+}
+
+.status-bar .pass { color: var(--green); }
+.status-bar .fail { color: var(--red); }
+.status-bar .running { color: var(--amber); }
+
+.results-table {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  overflow: hidden;
+}
+
+.results-table table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 12px;
+  font-family: var(--mono);
+}
+
+.results-table th {
+  text-align: left;
+  padding: 10px 12px;
+  background: rgba(255,255,255,0.03);
+  font-size: 11px;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+  color: var(--muted);
+  border-bottom: 1px solid var(--border);
+}
+
+.results-table td {
+  padding: 8px 12px;
+  border-bottom: 1px solid var(--border);
+}
+
+.results-table tr:last-child td { border-bottom: none; }
+.results-table tr:hover td { background: rgba(255,255,255,0.02); }
+
+.results-table .name { color: var(--text); }
+.results-table .ops { color: var(--accent); text-align: right; }
+.results-table .p50, .results-table .p99 { text-align: right; }
+.results-table .budget { text-align: right; color: var(--muted); }
+.results-table .status-pass { color: var(--green); text-align: center; }
+.results-table .status-fail { color: var(--red); text-align: center; }
+
+.output {
+  flex: 1;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 16px;
+  font-family: var(--mono);
+  font-size: 12px;
+  line-height: 1.6;
+  white-space: pre-wrap;
+  overflow: auto;
+  color: var(--muted);
+  min-height: 200px;
+}
+
+.output .pass-line { color: var(--green); }
+.output .fail-line { color: var(--red); }
+.output .heading { color: var(--accent); font-weight: 600; }
+.output .table-line { color: var(--text); }
+
+.placeholder {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  height: 100%;
+  color: var(--muted);
+  font-family: var(--font);
+  font-size: 14px;
+}
+
+#tableContainer { display: none; }
+</style>
+</head>
+<body>
+<header>
+  <h1>RouteSim Benchmarks</h1>
+  <span class="badge">p99 budgets for ~2 GHz CPU</span>
+  <button class="run-all" id="runAll">Run All Benchmarks</button>
+</header>
+
+<aside>
+  <h2>Benchmark Suites</h2>
+  <div id="benchList"></div>
+</aside>
+
+<main>
+  <div class="status-bar">
+    <span class="label">Status:</span>
+    <span class="value" id="statusText">Ready</span>
+    <span class="label" style="margin-left: auto;">Duration:</span>
+    <span class="value" id="duration">—</span>
+  </div>
+  <div class="results-table" id="tableContainer">
+    <table>
+      <thead>
+        <tr>
+          <th>Benchmark</th>
+          <th style="text-align:right">ops/sec</th>
+          <th style="text-align:right">p50 (us)</th>
+          <th style="text-align:right">p99 (us)</th>
+          <th style="text-align:right">budget (us)</th>
+          <th style="text-align:center">status</th>
+        </tr>
+      </thead>
+      <tbody id="tableBody"></tbody>
+    </table>
+  </div>
+  <div class="output" id="output">
+    <div class="placeholder">Select a benchmark suite or click "Run All Benchmarks"</div>
+  </div>
+</main>
+
+<script>
+const API = '';
+const SUITES = [
+  { id: 'getDevice', name: 'Device Lookup', pattern: 'bench: getDevice' },
+  { id: 'linkedPortsFor', name: 'Port Resolution', pattern: 'bench: linkedPortsFor' },
+  { id: 'processAtSwitch', name: 'Switch Processing', pattern: 'bench: processAtSwitch' },
+  { id: 'routing', name: 'Routing', pattern: 'bench: routing' },
+  { id: 'rip', name: 'RIP Convergence', pattern: 'bench: RIP convergence' },
+];
+
+function renderSidebar() {
+  const container = document.getElementById('benchList');
+  container.innerHTML = SUITES.map(s => `
+    <div class="bench-group">
+      <div class="bench-item" onclick="runSuite('${s.id}', '${s.pattern}')">
+        <span class="icon" id="icon-${s.id}"></span>
+        <span class="label">${s.name}</span>
+      </div>
+    </div>
+  `).join('');
+}
+
+async function runSuite(id, pattern) {
+  setStatus('running', `Running ${pattern}…`);
+  setIcon(id, 'running');
+  const start = Date.now();
+
+  const params = new URLSearchParams({ file: 'bench.test.ts', pattern });
+  try {
+    const res = await fetch(`${API}/api/run?${params}`);
+    const data = await res.json();
+    const elapsed = ((Date.now() - start) / 1000).toFixed(1);
+    document.getElementById('duration').textContent = `${elapsed}s`;
+
+    renderOutput(data.output);
+    parseAndShowTable(data.output);
+
+    const status = data.ok ? 'pass' : 'fail';
+    setStatus(status, data.ok ? `${pattern} — all passed` : `${pattern} — failed`);
+    setIcon(id, status);
+  } catch (e) {
+    setStatus('fail', 'Connection error');
+    setIcon(id, 'fail');
+  }
+}
+
+async function runAll() {
+  setStatus('running', 'Running all benchmarks…');
+  SUITES.forEach(s => setIcon(s.id, 'running'));
+  const start = Date.now();
+
+  try {
+    const res = await fetch(`${API}/api/run?file=bench.test.ts`);
+    const data = await res.json();
+    const elapsed = ((Date.now() - start) / 1000).toFixed(1);
+    document.getElementById('duration').textContent = `${elapsed}s`;
+
+    renderOutput(data.output);
+    parseAndShowTable(data.output);
+
+    const status = data.ok ? 'pass' : 'fail';
+    setStatus(status, data.ok ? 'All benchmarks passed' : 'Some benchmarks failed');
+    SUITES.forEach(s => setIcon(s.id, status));
+  } catch (e) {
+    setStatus('fail', 'Connection error');
+    document.getElementById('output').innerHTML =
+      '<div class="fail-line">Failed to connect to test server.\n\nMake sure the server is running:\n\n  python3 test-server.py</div>';
+  }
+}
+
+function parseAndShowTable(text) {
+  // Parse benchmark output lines like:
+  // "getDevice — 5 devices       1.2M    0.5    1.8    2    ✓"
+  const lines = text.split('\n');
+  const results = [];
+
+  for (const line of lines) {
+    // Match lines with benchmark results (contain ops/sec numbers and ✓/✗)
+    const match = line.match(/^(.+?)\s{2,}([\d.]+[MK]?)\s+([\d.]+)\s+([\d.]+)\s+([\d.]+)\s+(✓|✗)/);
+    if (match) {
+      results.push({
+        name: match[1].trim(),
+        ops: match[2],
+        p50: match[3],
+        p99: match[4],
+        budget: match[5],
+        passed: match[6] === '✓'
+      });
+    }
+  }
+
+  const container = document.getElementById('tableContainer');
+  const tbody = document.getElementById('tableBody');
+
+  if (results.length === 0) {
+    container.style.display = 'none';
+    return;
+  }
+
+  container.style.display = 'block';
+  tbody.innerHTML = results.map(r => `
+    <tr>
+      <td class="name">${esc(r.name)}</td>
+      <td class="ops">${r.ops}</td>
+      <td class="p50">${r.p50}</td>
+      <td class="p99">${r.p99}</td>
+      <td class="budget">${r.budget}</td>
+      <td class="${r.passed ? 'status-pass' : 'status-fail'}">${r.passed ? '✓' : '✗'}</td>
+    </tr>
+  `).join('');
+}
+
+function renderOutput(text) {
+  const el = document.getElementById('output');
+  const lines = text.split('\n').map(line => {
+    if (/✓/.test(line)) return `<span class="pass-line">${esc(line)}</span>`;
+    if (/✗|fail/i.test(line)) return `<span class="fail-line">${esc(line)}</span>`;
+    if (/^─|Benchmark|ops\/sec/.test(line)) return `<span class="heading">${esc(line)}</span>`;
+    if (/\d+[MK]?\s/.test(line) && /\d+\.\d/.test(line)) return `<span class="table-line">${esc(line)}</span>`;
+    return esc(line);
+  });
+  el.innerHTML = lines.join('\n');
+}
+
+function setStatus(type, text) {
+  const el = document.getElementById('statusText');
+  el.textContent = text;
+  el.className = 'value ' + type;
+}
+
+function setIcon(id, status) {
+  const icon = document.getElementById(`icon-${id}`);
+  if (icon) icon.className = 'icon ' + status;
+}
+
+function esc(s) {
+  return s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+}
+
+document.getElementById('runAll').addEventListener('click', runAll);
+renderSidebar();
+</script>
+</body>
+</html>

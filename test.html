@@ -1,0 +1,341 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>RouteSim — Test Runner</title>
+<style>
+:root {
+  --bg: #0f1117;
+  --surface: #1a1d27;
+  --border: #2a2d3a;
+  --text: #e4e4e7;
+  --muted: #71717a;
+  --accent: #3b82f6;
+  --green: #22c55e;
+  --red: #ef4444;
+  --amber: #f59e0b;
+  --font: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+  --mono: "SF Mono", "Fira Code", "Cascadia Code", monospace;
+}
+
+* { margin: 0; padding: 0; box-sizing: border-box; }
+
+body {
+  font-family: var(--font);
+  background: var(--bg);
+  color: var(--text);
+  min-height: 100vh;
+  display: grid;
+  grid-template-columns: 280px 1fr;
+  grid-template-rows: auto 1fr;
+}
+
+header {
+  grid-column: 1 / -1;
+  padding: 16px 24px;
+  border-bottom: 1px solid var(--border);
+  display: flex;
+  align-items: center;
+  gap: 16px;
+}
+
+header h1 {
+  font-size: 18px;
+  font-weight: 600;
+}
+
+header .badge {
+  font-size: 12px;
+  padding: 2px 8px;
+  border-radius: 10px;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  color: var(--muted);
+}
+
+.run-all {
+  margin-left: auto;
+  padding: 8px 16px;
+  background: var(--accent);
+  color: white;
+  border: none;
+  border-radius: 6px;
+  font-size: 13px;
+  font-weight: 500;
+  cursor: pointer;
+  transition: opacity 0.15s;
+}
+.run-all:hover { opacity: 0.85; }
+.run-all:disabled { opacity: 0.5; cursor: not-allowed; }
+
+aside {
+  border-right: 1px solid var(--border);
+  padding: 16px;
+  overflow-y: auto;
+}
+
+aside h2 {
+  font-size: 11px;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+  color: var(--muted);
+  margin-bottom: 12px;
+}
+
+.file-group {
+  margin-bottom: 16px;
+}
+
+.file-name {
+  font-size: 13px;
+  font-weight: 600;
+  padding: 6px 8px;
+  border-radius: 4px;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  transition: background 0.1s;
+}
+.file-name:hover { background: var(--surface); }
+
+.file-name .icon {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: var(--border);
+  flex-shrink: 0;
+}
+.file-name .icon.pass { background: var(--green); }
+.file-name .icon.fail { background: var(--red); }
+.file-name .icon.running { background: var(--amber); animation: pulse 1s infinite; }
+
+@keyframes pulse { 50% { opacity: 0.4; } }
+
+.describes {
+  margin-left: 16px;
+  margin-top: 4px;
+}
+
+.describe-item {
+  font-size: 12px;
+  padding: 4px 8px;
+  color: var(--muted);
+  cursor: pointer;
+  border-radius: 3px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.describe-item:hover { color: var(--text); background: var(--surface); }
+
+main {
+  padding: 24px;
+  overflow: auto;
+  display: flex;
+  flex-direction: column;
+}
+
+.status-bar {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  margin-bottom: 16px;
+  padding: 12px 16px;
+  background: var(--surface);
+  border-radius: 8px;
+  border: 1px solid var(--border);
+}
+
+.status-bar .label {
+  font-size: 13px;
+  color: var(--muted);
+}
+
+.status-bar .value {
+  font-size: 13px;
+  font-weight: 600;
+}
+
+.status-bar .pass { color: var(--green); }
+.status-bar .fail { color: var(--red); }
+.status-bar .running { color: var(--amber); }
+
+.output {
+  flex: 1;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 16px;
+  font-family: var(--mono);
+  font-size: 12px;
+  line-height: 1.6;
+  white-space: pre-wrap;
+  overflow: auto;
+  color: var(--muted);
+  min-height: 300px;
+}
+
+.output .pass-line { color: var(--green); }
+.output .fail-line { color: var(--red); }
+.output .info-line { color: var(--text); }
+.output .heading { color: var(--accent); font-weight: 600; }
+
+.placeholder {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  height: 100%;
+  color: var(--muted);
+  font-family: var(--font);
+  font-size: 14px;
+}
+</style>
+</head>
+<body>
+<header>
+  <h1>RouteSim Tests</h1>
+  <span class="badge" id="totalBadge">—</span>
+  <button class="run-all" id="runAll">Run All Tests</button>
+</header>
+
+<aside id="sidebar">
+  <h2>Test Files</h2>
+  <div id="fileList"></div>
+</aside>
+
+<main>
+  <div class="status-bar">
+    <span class="label">Status:</span>
+    <span class="value" id="statusText">Ready</span>
+    <span class="label" style="margin-left: auto;">Last run:</span>
+    <span class="value" id="lastRun">—</span>
+  </div>
+  <div class="output" id="output">
+    <div class="placeholder">Select a test file or click "Run All Tests" to begin</div>
+  </div>
+</main>
+
+<script>
+const API = '';
+let testFiles = {};
+
+async function loadTests() {
+  try {
+    const res = await fetch(`${API}/api/tests`);
+    const data = await res.json();
+    testFiles = data.tests;
+    renderSidebar();
+  } catch (e) {
+    document.getElementById('output').innerHTML =
+      '<div class="fail-line">Failed to connect to test server.\n\nMake sure the server is running:\n\n  python3 test-server.py</div>';
+  }
+}
+
+function renderSidebar() {
+  const container = document.getElementById('fileList');
+  // Exclude bench.test.ts — that's for benchmark.html
+  const files = Object.entries(testFiles).filter(([name]) => name !== 'bench.test.ts');
+  container.innerHTML = files.map(([name, describes]) => `
+    <div class="file-group" data-file="${name}">
+      <div class="file-name" onclick="runFile('${name}')">
+        <span class="icon" id="icon-${name}"></span>
+        ${name.replace('.test.ts', '')}
+      </div>
+      <div class="describes">
+        ${describes.map(d => `<div class="describe-item" onclick="runPattern('${name}', '${d.replace(/'/g, "\\'")}')" title="${d}">${d}</div>`).join('')}
+      </div>
+    </div>
+  `).join('');
+
+  const total = files.reduce((n, [, d]) => n + d.length, 0);
+  document.getElementById('totalBadge').textContent = `${files.length} files · ${total} suites`;
+}
+
+async function runFile(file) {
+  await runTests(file, null, file);
+}
+
+async function runPattern(file, pattern) {
+  await runTests(file, pattern, `${file} → ${pattern}`);
+}
+
+async function runAll() {
+  // Run all except bench
+  const files = Object.keys(testFiles).filter(f => f !== 'bench.test.ts');
+  setStatus('running', 'Running all tests…');
+  files.forEach(f => setFileIcon(f, 'running'));
+
+  try {
+    // Run them all together (no file filter, bun runs all)
+    const res = await fetch(`${API}/api/run`);
+    const data = await res.json();
+    renderOutput(data.output);
+    if (data.ok) {
+      setStatus('pass', 'All tests passed');
+      files.forEach(f => setFileIcon(f, 'pass'));
+    } else {
+      setStatus('fail', 'Some tests failed');
+      files.forEach(f => setFileIcon(f, 'fail'));
+    }
+    document.getElementById('lastRun').textContent = new Date().toLocaleTimeString();
+  } catch (e) {
+    setStatus('fail', 'Connection error');
+  }
+}
+
+async function runTests(file, pattern, label) {
+  setStatus('running', `Running ${label}…`);
+  setFileIcon(file, 'running');
+
+  const params = new URLSearchParams();
+  if (file) params.set('file', file);
+  if (pattern) params.set('pattern', pattern);
+
+  try {
+    const res = await fetch(`${API}/api/run?${params}`);
+    const data = await res.json();
+    renderOutput(data.output);
+    const status = data.ok ? 'pass' : 'fail';
+    setStatus(status, data.ok ? `${label} — passed` : `${label} — failed`);
+    setFileIcon(file, status);
+    document.getElementById('lastRun').textContent = new Date().toLocaleTimeString();
+  } catch (e) {
+    setStatus('fail', 'Connection error');
+    setFileIcon(file, 'fail');
+  }
+}
+
+function renderOutput(text) {
+  const el = document.getElementById('output');
+  const lines = text.split('\n').map(line => {
+    if (/✓|pass/i.test(line)) return `<span class="pass-line">${esc(line)}</span>`;
+    if (/✗|fail|error/i.test(line)) return `<span class="fail-line">${esc(line)}</span>`;
+    if (/^─|describe|bench:/i.test(line)) return `<span class="heading">${esc(line)}</span>`;
+    if (/\d+ pass|\d+ fail|expect\(\)/.test(line)) return `<span class="info-line">${esc(line)}</span>`;
+    return esc(line);
+  });
+  el.innerHTML = lines.join('\n');
+}
+
+function setStatus(type, text) {
+  const el = document.getElementById('statusText');
+  el.textContent = text;
+  el.className = 'value ' + type;
+}
+
+function setFileIcon(file, status) {
+  const icon = document.getElementById(`icon-${file}`);
+  if (icon) icon.className = 'icon ' + status;
+}
+
+function esc(s) {
+  return s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+}
+
+document.getElementById('runAll').addEventListener('click', runAll);
+loadTests();
+</script>
+</body>
+</html>

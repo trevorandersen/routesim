@@ -9,6 +9,7 @@
 
 # Stray manual backups
 *.backup.html
+CLAUDE.md.bak
 
 # Local Claude settings (keep launch.json tracked)
 .claude/settings.local.json

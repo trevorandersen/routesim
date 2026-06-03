@@ -117,7 +117,7 @@ Bun.serve({
     }
 
     // Static file serving
-    const filePath = path === "/" ? "/index.html" : path;
+    const filePath = path === "/" ? "/rs-main.html" : path;
     const resolved = `${ROOT}${filePath}`;
 
     // Prevent directory traversal

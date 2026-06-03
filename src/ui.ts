@@ -8,6 +8,7 @@ import { saveConfig, loadConfig, loadTopology, loadDefaultConfig, applyConfigWit
 import { normaliseConfig } from "./normalise";
 import { defaultConfig } from "./state";
 import { pauseSimulation, resumeSimulation, stepOnce, stopSimulation, updateSimControls, syncSimLog } from "./engine";
+import { READONLY } from "./env";
 
 export function setTool(tool: string): void {
   state.tool = tool;
@@ -230,7 +231,11 @@ export function setupUI(): void {
   });
 
   dom.loadButton.addEventListener("click", loadConfig);
-  dom.saveButton.addEventListener("click", saveConfig);
+  if (READONLY) {
+    dom.saveButton.style.display = "none";
+  } else {
+    dom.saveButton.addEventListener("click", saveConfig);
+  }
   dom.undoButton.addEventListener("click", undo);
   dom.clearButton.addEventListener("click", clearNetwork);
   dom.topologyButton.addEventListener("click", () => {

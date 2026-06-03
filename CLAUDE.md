@@ -6,7 +6,7 @@ Interactive network topology simulator. Canvas-based editor with discrete frame-
 
 RouteSim is a teaching tool: it makes the invisible parts of a network visible by simulating real Ethernet frames (ARP, ICMP, DHCP) and watching them hop through switches and routers. Design decisions follow from a few principles:
 
-- **Zero-install, single file.** The whole app builds to one portable `index.html` (~160 KB) that runs offline by opening it in a browser — no server, no bundled assets, no runtime network requests.
+- **Zero-install, single file.** The whole app builds to portable single-file HTML (`rs-main.html` / `rs-web.html`) that runs offline by opening it in a browser — no server, no bundled assets, no runtime network requests beyond fetching `config.json`.
 - **Minimal toolchain.** Only two binaries: `esbuild` (bundle) and `bun` (run, test, serve, inline). No Node.js, no npm, no `package.json`, no `node_modules`, no Python. Hard constraint — see Build.
 - **Faithful to the protocols.** Simulated behaviour should match how real ARP, switching, routing, RIP, and DHCP work — down to frame fields and the order of operations. Correctness over shortcuts.
 - **Typed, tested, and small.** Prefer concrete types over `any`, keep per-device handlers focused, and cover new behaviour with tests.
@@ -16,11 +16,24 @@ RouteSim is a teaching tool: it makes the invisible parts of a network visible b
 ## Build
 
 ```bash
-bash build.sh          # dev build → index.html (single file, ~160 KB)
+bash build.sh          # dev build  → rs-main.html + rs-web.html
 bash build.sh --minify # minified build
 ```
 
-The project uses only two tools: `esbuild` (bundler) and `bun` (runtime, test runner, test server, build inlining). The build bundles TypeScript into an IIFE via esbuild, then `bun build-inline.ts` inlines the JS + CSS into `template.html` → `index.html`. The output is a single portable HTML file.
+The project uses only two tools: `esbuild` (bundler) and `bun` (runtime, test runner, test server, build inlining). For each variant the build bundles TypeScript into an IIFE via esbuild, then `bun build-inline.ts <output>` inlines the JS + CSS into `template.html`. Each output is a single portable HTML file.
+
+### Build variants
+
+`build.sh` emits two variants from the same source, differing only by the compile-time flag `__BUILD_READONLY__` (injected via esbuild `--define`, read through `src/env.ts`):
+
+| Output | `__BUILD_READONLY__` | config.json | Use |
+|--------|----------------------|-------------|-----|
+| `rs-main.html` | `false` | read **and** write | Local use (full editor) |
+| `rs-web.html` | `true` | read only (Save button hidden) | Hosting on a web server |
+
+`src/env.ts` exports `READONLY`, which defaults to `false` in dev/test (bun runs the TS directly, without the `--define`). Guard any write-only capability behind `READONLY` and hide its UI in `setupUI()` — see `saveConfig()` in `config.ts` and the Save button wiring in `ui.ts`. To add a variant, add one `build_variant <flag> <output>` line in `build.sh`.
+
+**`build-inline.ts` gotcha:** it inserts CSS/JS via `String.replace` **replacer functions**, not string replacements — a string replacement would interpret `` $` ``/`$'`/`$&`/`$$` in the bundle as special patterns and corrupt the output.
 
 **Do not introduce any other tooling or runtime dependencies.** No `npm`, no `package.json`, no `node_modules`, no Node.js, no Python. The entire toolchain is `esbuild` (single binary) + `bun` (single binary). This constraint is intentional and must be preserved.
 
@@ -51,7 +64,7 @@ bun test-server.ts          # default port 8767
 bun test-server.ts 8765     # custom port
 ```
 
-Open `http://localhost:8767/index.html` for the main app, `/test.html` for the test runner, `/benchmark.html` for benchmarks. The File System Access API (save/load config.json) requires HTTPS or localhost.
+Open `http://localhost:8767/rs-main.html` for the local app (`/` redirects there), `/rs-web.html` for the read-only variant, `/test.html` for the test runner, `/benchmark.html` for benchmarks. The File System Access API (save/load config.json) requires HTTPS or localhost.
 
 ## Architecture
 
@@ -100,9 +113,10 @@ Both are wired in `app.ts` at startup.
 | `inspector.ts` | Right panel. Device selection shows config fields; link selection shows frame history (color-coded ARP/ICMP entries with step numbers). |
 | `devices.ts` | CRUD, hit testing (`findDeviceAt`, `findLinkAt`), port/interface enumeration, LAN collapse/expand (groups devices into a single node). |
 | `normalise.ts` | Defensive normalisation for all config shapes. `normaliseRouterInterfaces` auto-generates deterministic MACs (`02:RR:00:00:II:01`). |
-| `config.ts` | Persistence via File System Access API. Falls back to download. Config store holds named topologies in a single `config.json`. |
-| `test-server.ts` | Dev server (Bun). Serves static files + `/api/tests` (list test suites) + `/api/run` (execute `bun test` with optional file/pattern filters). Powers `test.html` and `benchmark.html`. |
-| `build-inline.ts` | Inlines CSS + bundled JS into `template.html` → `index.html`. Called by `build.sh` after esbuild. |
+| `config.ts` | Persistence via File System Access API. Falls back to download. Config store holds named topologies in a single `config.json`. `saveConfig()` is a no-op in read-only builds (`READONLY`). |
+| `env.ts` | Build-time flags. Exports `READONLY` from the `__BUILD_READONLY__` esbuild define; defaults to `false` in dev/test. |
+| `test-server.ts` | Dev server (Bun). Serves static files (`/` → `rs-main.html`) + `/api/tests` (list test suites) + `/api/run` (execute `bun test` with optional file/pattern filters). Powers `test.html` and `benchmark.html`. |
+| `build-inline.ts` | Inlines CSS + bundled JS into `template.html` → named output file. Uses replacer functions to avoid `$`-pattern corruption. Called by `build.sh` per variant. |
 
 ## Simulation model
 

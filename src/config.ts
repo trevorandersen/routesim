@@ -1,5 +1,6 @@
 import { state, pushUndo } from "./state";
 import { dom } from "./dom";
+import { READONLY } from "./env";
 import { clampPortCount, clampRouterPortCount } from "./utils";
 import {
   normaliseArpTable, normaliseMacTable, normaliseVlans, normalisePortVlans,
@@ -83,6 +84,11 @@ export function routerInterfacesForPayload(device: any): any[] {
 }
 
 export async function saveConfig(): Promise<void> {
+  if (READONLY) {
+    dom.hint.textContent = "Read-only build — saving to config.json is disabled.";
+    return;
+  }
+
   const name = normaliseConfigName(prompt("Save config name", suggestedConfigName()));
   if (!name) return;
 

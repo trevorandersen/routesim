@@ -2,7 +2,7 @@ import type { Device } from "./types";
 import { state, sync, pushUndo } from "./state";
 import { dom } from "./dom";
 import { escapeHtml, isValidIpv4, ipv4Network24, normaliseMacAddress, isValidMac, parseIpv4Token, normaliseVlanId } from "./utils";
-import { normaliseArpTable, normaliseMacTable, normaliseDhcpLeases, normaliseVlans, normalisePortVlans, normalisePortModes, normaliseTrunkAllowedVlans, normaliseRouterInterfaces, normaliseStaticRoutes, normaliseRipConfig, defaultDeviceConfig } from "./normalise";
+import { normaliseArpTable, normaliseMacTable, normaliseDhcpLeases, normaliseVlans, normalisePortVlans, normalisePortModes, normaliseTrunkAllowedVlans, normaliseRouterInterfaces, normaliseStaticRoutes, normaliseRipConfig, ensureConfig } from "./normalise";
 import { getDevice, routerInterfacesWithNames, routerInterfaceFor, routerInterfaceByName, switchInterfacesWithNames, linkedPortsFor } from "./devices";
 import { buildPingEvents, buildDhcpEvents } from "./simulation";
 import { startSimulation, buildRoutingTable, runRipConvergence } from "./engine";
@@ -51,7 +51,7 @@ export function setHostIp(device: Device, address: string): string {
   const parsed = parseIpv4Token(address);
   if (!parsed) return `Invalid IPv4 address: ${address}`;
   pushUndo();
-  device.config = device.config || defaultDeviceConfig("computer");
+  ensureConfig(device);
   device.config.ipv4Address = parsed.address;
   sync().syncPanel();
   sync().render();
@@ -61,7 +61,7 @@ export function setHostIp(device: Device, address: string): string {
 export function flushHostIp(device: Device): string {
   if (!device.config?.ipv4Address) return "No IPv4 address configured on eth0.";
   pushUndo();
-  device.config = device.config || defaultDeviceConfig("computer");
+  ensureConfig(device);
   device.config.ipv4Address = "";
   device.config.arpTable = [];
   sync().syncPanel();
@@ -73,7 +73,7 @@ export function setHostGateway(device: Device, address: string): string {
   const parsed = parseIpv4Token(address);
   if (!parsed) return `Invalid IPv4 address: ${address}`;
   pushUndo();
-  device.config = device.config || defaultDeviceConfig("computer");
+  ensureConfig(device);
   device.config.gatewayIpv4Address = parsed.address;
   sync().syncPanel();
   sync().render();
@@ -272,7 +272,7 @@ export function addSwitchVlan(device: Device, vlanId: string): string {
   const id = normaliseVlanId(vlanId);
   if (!id) return `Invalid VLAN ID: ${vlanId}`;
   pushUndo();
-  device.config = device.config || defaultDeviceConfig("switch");
+  ensureConfig(device);
   const vlans = normaliseVlans(device.config.vlans || []);
   if (!vlans.some((vlan: any) => vlan.id === id)) vlans.push({ id, name: id === 1 ? "default" : `Vlan${id}` });
   device.config.vlans = vlans.sort((a: any, b: any) => a.id - b.id);
@@ -284,7 +284,7 @@ export function removeSwitchVlan(device: Device, vlanId: string): string {
   const id = normaliseVlanId(vlanId);
   if (!id || id === 1) return `Invalid VLAN ID: ${vlanId}`;
   pushUndo();
-  device.config = device.config || defaultDeviceConfig("switch");
+  ensureConfig(device);
   device.config.vlans = normaliseVlans(device.config.vlans || []).filter((vlan: any) => vlan.id !== id);
   const portVlans = normalisePortVlans(device.config.portVlans || {});
   Object.keys(portVlans).forEach(port => {
@@ -301,7 +301,7 @@ export function setSwitchPortVlan(device: Device, portName: string, vlanId: stri
   if (!iface) return `Unknown interface ${portName}.`;
   if (!id) return `Invalid VLAN ID: ${vlanId}`;
   pushUndo();
-  device.config = device.config || defaultDeviceConfig("switch");
+  ensureConfig(device);
   const vlans = normaliseVlans(device.config.vlans || []);
   if (!vlans.some((vlan: any) => vlan.id === id)) vlans.push({ id, name: id === 1 ? "default" : `Vlan${id}` });
   const portVlans = normalisePortVlans(device.config.portVlans || {});
@@ -320,7 +320,7 @@ export function setSwitchPortMode(device: Device, portName: string, mode: string
   const iface = switchInterfacesWithNames(device).find((port: any) => port.name.toLowerCase() === String(portName || "").toLowerCase());
   if (!iface) return `Unknown interface ${portName}.`;
   pushUndo();
-  device.config = device.config || defaultDeviceConfig("switch");
+  ensureConfig(device);
   const portModes = normalisePortModes(device.config.portModes || {});
   if (mode === "access") {
     delete portModes[iface.name];
@@ -339,7 +339,7 @@ export function setSwitchTrunkNative(device: Device, portName: string, vlanId: s
   if (!iface) return `Unknown interface ${portName}.`;
   if (!id) return `Invalid VLAN ID: ${vlanId}`;
   pushUndo();
-  device.config = device.config || defaultDeviceConfig("switch");
+  ensureConfig(device);
   const trunkNativeVlans = normalisePortVlans(device.config.trunkNativeVlans || {});
   if (id === 1) {
     delete trunkNativeVlans[iface.name];
@@ -357,7 +357,7 @@ export function modifySwitchTrunkAllowed(device: Device, portName: string, vlanI
   if (!iface) return `Unknown interface ${portName}.`;
   if (!id) return `Invalid VLAN ID: ${vlanId}`;
   pushUndo();
-  device.config = device.config || defaultDeviceConfig("switch");
+  ensureConfig(device);
   const trunkAllowed = normaliseTrunkAllowedVlans(device.config.trunkAllowedVlans || {});
   if (!trunkAllowed[iface.name]) trunkAllowed[iface.name] = [];
   if (action === "add") {

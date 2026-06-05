@@ -1,7 +1,7 @@
 import type { PortOption, Device, Link, DeviceType } from "./types";
 import { state, sync, pushUndo, networkSnapshot } from "./state";
 import { dom } from "./dom";
-import { deviceSize, defaultDeviceConfig, normaliseRouterInterfaces, normalisePortVlans, normalisePortModes } from "./normalise";
+import { deviceSize, defaultDeviceConfig, ensureConfig, normaliseRouterInterfaces, normalisePortVlans, normalisePortModes } from "./normalise";
 import { clampPortCount, clampRouterPortCount, escapeHtml } from "./utils";
 
 export function addDevice(type: DeviceType, x: number, y: number, name?: string): Device {
@@ -405,7 +405,7 @@ export function expandLan(lan: any): void {
 }
 
 export function routerInterfaceFor(router: any, peerId: string, vlanTag?: number | null): any {
-  router.config = router.config || defaultDeviceConfig("router");
+  ensureConfig(router);
   router.config.interfaces = normaliseRouterInterfaces(router.config.interfaces || []);
   let iface: any;
   if (vlanTag != null) {

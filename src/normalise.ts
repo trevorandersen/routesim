@@ -264,6 +264,13 @@ export function normaliseConfigName(value: unknown): string {
   return String(value || "").trim().replace(/[<>:"/\\|?*]/g, "-");
 }
 
+// Ensures a device has a config object, creating the type-appropriate default
+// if absent. Replaces the repeated `device.config = device.config || ...` guard.
+export function ensureConfig(device: Device): DeviceConfig {
+  if (!device.config) device.config = defaultDeviceConfig(device.type);
+  return device.config;
+}
+
 export function defaultDeviceConfig(type: DeviceType): DeviceConfig {
   if (type === "computer") return { ipv4Address: "", gatewayIpv4Address: "", macAddress: "", arpTable: [] };
   if (type === "switch") return { managed: false, ethernetPorts: 8, macTable: [], vlans: [], portVlans: {}, portModes: {}, trunkAllowedVlans: {}, trunkNativeVlans: {} };

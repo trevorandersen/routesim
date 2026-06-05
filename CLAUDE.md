@@ -104,6 +104,17 @@ Two registration patterns break circular dependencies:
 
 Both are wired in `app.ts` at startup.
 
+**Sync convention after a mutation:** call `sync().syncPanel()` when inspector
+content changes; additionally call `sync().render()` only when the change
+affects the canvas (device/link add/remove/move, power, port mode/trunk
+lines). Pure inspector-data edits (e.g. adding a VLAN) need only `syncPanel()`.
+Reassigning `state.devices`/`state.links` always implies a `render()`.
+
+**HTML safety:** all user-controlled text (device/port/peer names, terminal
+command text, config values) must pass through `escapeHtml()` before being
+placed in an `innerHTML` template. Only system-generated ids, numbers, and
+fixed enums may be interpolated raw.
+
 ## Key files
 
 | File | Purpose |

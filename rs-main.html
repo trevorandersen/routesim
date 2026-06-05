@@ -2338,6 +2338,10 @@
   function normaliseConfigName(value) {
     return String(value || "").trim().replace(/[<>:"/\\|?*]/g, "-");
   }
+  function ensureConfig(device) {
+    if (!device.config) device.config = defaultDeviceConfig(device.type);
+    return device.config;
+  }
   function defaultDeviceConfig(type) {
     if (type === "computer") return { ipv4Address: "", gatewayIpv4Address: "", macAddress: "", arpTable: [] };
     if (type === "switch") return { managed: false, ethernetPorts: 8, macTable: [], vlans: [], portVlans: {}, portModes: {}, trunkAllowedVlans: {}, trunkNativeVlans: {} };
@@ -2703,7 +2707,7 @@
     dom.hint.textContent = `Expanded ${lan.name}.`;
   }
   function routerInterfaceFor(router, peerId, vlanTag) {
-    router.config = router.config || defaultDeviceConfig("router");
+    ensureConfig(router);
     router.config.interfaces = normaliseRouterInterfaces(router.config.interfaces || []);
     let iface;
     if (vlanTag != null) {
@@ -4484,7 +4488,7 @@ APIPA: assigned link-local ${apipaIp}`);
     const parsed = parseIpv4Token(address);
     if (!parsed) return `Invalid IPv4 address: ${address}`;
     pushUndo();
-    device.config = device.config || defaultDeviceConfig("computer");
+    ensureConfig(device);
     device.config.ipv4Address = parsed.address;
     sync().syncPanel();
     sync().render();
@@ -4493,7 +4497,7 @@ APIPA: assigned link-local ${apipaIp}`);
   function flushHostIp(device) {
     if (!device.config?.ipv4Address) return "No IPv4 address configured on eth0.";
     pushUndo();
-    device.config = device.config || defaultDeviceConfig("computer");
+    ensureConfig(device);
     device.config.ipv4Address = "";
     device.config.arpTable = [];
     sync().syncPanel();
@@ -4504,7 +4508,7 @@ APIPA: assigned link-local ${apipaIp}`);
     const parsed = parseIpv4Token(address);
     if (!parsed) return `Invalid IPv4 address: ${address}`;
     pushUndo();
-    device.config = device.config || defaultDeviceConfig("computer");
+    ensureConfig(device);
     device.config.gatewayIpv4Address = parsed.address;
     sync().syncPanel();
     sync().render();
@@ -4694,7 +4698,7 @@ ${lines.join("\n")}
     const id = normaliseVlanId(vlanId);
     if (!id) return `Invalid VLAN ID: ${vlanId}`;
     pushUndo();
-    device.config = device.config || defaultDeviceConfig("switch");
+    ensureConfig(device);
     const vlans = normaliseVlans(device.config.vlans || []);
     if (!vlans.some((vlan) => vlan.id === id)) vlans.push({ id, name: id === 1 ? "default" : `Vlan${id}` });
     device.config.vlans = vlans.sort((a, b) => a.id - b.id);
@@ -4705,7 +4709,7 @@ ${lines.join("\n")}
     const id = normaliseVlanId(vlanId);
     if (!id || id === 1) return `Invalid VLAN ID: ${vlanId}`;
     pushUndo();
-    device.config = device.config || defaultDeviceConfig("switch");
+    ensureConfig(device);
     device.config.vlans = normaliseVlans(device.config.vlans || []).filter((vlan) => vlan.id !== id);
     const portVlans = normalisePortVlans(device.config.portVlans || {});
     Object.keys(portVlans).forEach((port) => {
@@ -4721,7 +4725,7 @@ ${lines.join("\n")}
     if (!iface) return `Unknown interface ${portName}.`;
     if (!id) return `Invalid VLAN ID: ${vlanId}`;
     pushUndo();
-    device.config = device.config || defaultDeviceConfig("switch");
+    ensureConfig(device);
     const vlans = normaliseVlans(device.config.vlans || []);
     if (!vlans.some((vlan) => vlan.id === id)) vlans.push({ id, name: id === 1 ? "default" : `Vlan${id}` });
     const portVlans = normalisePortVlans(device.config.portVlans || {});
@@ -4739,7 +4743,7 @@ ${lines.join("\n")}
     const iface = switchInterfacesWithNames(device).find((port) => port.name.toLowerCase() === String(portName || "").toLowerCase());
     if (!iface) return `Unknown interface ${portName}.`;
     pushUndo();
-    device.config = device.config || defaultDeviceConfig("switch");
+    ensureConfig(device);
     const portModes = normalisePortModes(device.config.portModes || {});
     if (mode === "access") {
       delete portModes[iface.name];
@@ -4757,7 +4761,7 @@ ${lines.join("\n")}
     if (!iface) return `Unknown interface ${portName}.`;
     if (!id) return `Invalid VLAN ID: ${vlanId}`;
     pushUndo();
-    device.config = device.config || defaultDeviceConfig("switch");
+    ensureConfig(device);
     const trunkNativeVlans = normalisePortVlans(device.config.trunkNativeVlans || {});
     if (id === 1) {
       delete trunkNativeVlans[iface.name];
@@ -4774,7 +4778,7 @@ ${lines.join("\n")}
     if (!iface) return `Unknown interface ${portName}.`;
     if (!id) return `Invalid VLAN ID: ${vlanId}`;
     pushUndo();
-    device.config = device.config || defaultDeviceConfig("switch");
+    ensureConfig(device);
     const trunkAllowed = normaliseTrunkAllowedVlans(device.config.trunkAllowedVlans || {});
     if (!trunkAllowed[iface.name]) trunkAllowed[iface.name] = [];
     if (action === "add") {
@@ -5878,7 +5882,7 @@ ${lines.join("\n")}
             event.target.setCustomValidity("Enter a valid IPv4 address.");
           } else {
             event.target.setCustomValidity("");
-            selected.config = selected.config || defaultDeviceConfig("computer");
+            ensureConfig(selected);
             selected.config.gatewayIpv4Address = value;
           }
         });
@@ -5898,7 +5902,7 @@ ${lines.join("\n")}
       if (clearGatewayBtn && gatewayInput) {
         clearGatewayBtn.addEventListener("click", () => {
           pushUndo();
-          selected.config = selected.config || defaultDeviceConfig("computer");
+          ensureConfig(selected);
           selected.config.gatewayIpv4Address = "";
           gatewayInput.value = "";
           gatewayInput.setCustomValidity("");
@@ -5936,7 +5940,7 @@ ${lines.join("\n")}
       if (managedInput) {
         managedInput.addEventListener("change", (event) => {
           pushUndo();
-          selected.config = selected.config || defaultDeviceConfig("switch");
+          ensureConfig(selected);
           selected.config.managed = event.target.checked;
           syncPanel();
           sync().render();
@@ -5951,7 +5955,7 @@ ${lines.join("\n")}
             event.target.setCustomValidity("Enter a port count from 4 to 24.");
           } else {
             event.target.setCustomValidity("");
-            selected.config = selected.config || defaultDeviceConfig("switch");
+            ensureConfig(selected);
             selected.config.ethernetPorts = value;
             document.getElementById("switchPortList").innerHTML = renderSwitchPorts(selected);
             bindPortRemoveButtons();
@@ -5985,7 +5989,7 @@ ${lines.join("\n")}
             return;
           }
           event.target.setCustomValidity("");
-          selected.config = selected.config || defaultDeviceConfig("router");
+          ensureConfig(selected);
           if (event.target.id === "selectedRouterEthernetPorts") {
             selected.config.ethernetPorts = value;
           } else {

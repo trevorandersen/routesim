@@ -2,7 +2,7 @@ import type { Link } from "./types";
 import { state, sync, pushUndo, captureUndoOnFocus } from "./state";
 import { dom } from "./dom";
 import { escapeHtml, isValidIpv4, isValidMac, normaliseMacAddress } from "./utils";
-import { defaultDeviceConfig, normaliseVlans } from "./normalise";
+import { ensureConfig, normaliseVlans } from "./normalise";
 import {
   getDevice, isVisibleDevice, connectedIds, linkedPortsFor,
   routerInterfacesWithNames, routerInterfaceFor, switchInterfacesWithNames,
@@ -462,7 +462,7 @@ export function syncPanel(): void {
           event.target.setCustomValidity("Enter a valid IPv4 address.");
         } else {
           event.target.setCustomValidity("");
-          selected.config = selected.config || defaultDeviceConfig("computer");
+          ensureConfig(selected);
           selected.config.gatewayIpv4Address = value;
         }
       });
@@ -482,7 +482,7 @@ export function syncPanel(): void {
     if (clearGatewayBtn && gatewayInput) {
       clearGatewayBtn.addEventListener("click", () => {
         pushUndo();
-        selected.config = selected.config || defaultDeviceConfig("computer");
+        ensureConfig(selected);
         selected.config.gatewayIpv4Address = "";
         gatewayInput.value = "";
         gatewayInput.setCustomValidity("");
@@ -520,7 +520,7 @@ export function syncPanel(): void {
     if (managedInput) {
       managedInput.addEventListener("change", (event: any) => {
         pushUndo();
-        selected.config = selected.config || defaultDeviceConfig("switch");
+        ensureConfig(selected);
         selected.config.managed = event.target.checked;
         syncPanel();
         sync().render();
@@ -535,7 +535,7 @@ export function syncPanel(): void {
           event.target.setCustomValidity("Enter a port count from 4 to 24.");
         } else {
           event.target.setCustomValidity("");
-          selected.config = selected.config || defaultDeviceConfig("switch");
+          ensureConfig(selected);
           selected.config.ethernetPorts = value;
           document.getElementById("switchPortList")!.innerHTML = renderSwitchPorts(selected);
           bindPortRemoveButtons();
@@ -569,7 +569,7 @@ export function syncPanel(): void {
           return;
         }
         event.target.setCustomValidity("");
-        selected.config = selected.config || defaultDeviceConfig("router");
+        ensureConfig(selected);
         if (event.target.id === "selectedRouterEthernetPorts") {
           selected.config.ethernetPorts = value;
         } else {

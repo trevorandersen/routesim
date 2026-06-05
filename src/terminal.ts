@@ -421,9 +421,20 @@ export function runRouterTerminalCommand(router: Device, command: string): void 
     ].join("\n"));
     return;
   }
+  if (routerSessionCommand(lower)) return;
+  if (routerShowCommand(router, lower)) return;
+  if (routerInterfaceCommand(router, command, lower)) return;
+  if (routerRipCommand(router, command, lower)) return;
+  if (routerStaticRouteCommand(router, command)) return;
+  terminalLine("error", `% Unknown command: ${command}`);
+}
+
+// Handles session/mode control: `clear`, `exit`, `end`, `enable`,
+// `configure terminal`. Returns true if the command matched.
+function routerSessionCommand(lower: string): boolean {
   if (lower === "clear") {
     state.terminal.lines = [];
-    return;
+    return true;
   }
   if (lower === "exit") {
     if (state.terminal.mode === "interface") {
@@ -439,19 +450,19 @@ export function runRouterTerminalCommand(router: Device, command: string): void 
     } else {
       closeTerminal();
     }
-    return;
+    return true;
   }
   if (lower === "end") {
     state.terminal.mode = "privileged";
     state.terminal.interfacePeerId = null;
     state.terminal.interfaceVlanTag = null;
-    return;
+    return true;
   }
   if (lower === "enable") {
     state.terminal.mode = "privileged";
     state.terminal.interfacePeerId = null;
     state.terminal.interfaceVlanTag = null;
-    return;
+    return true;
   }
   if (lower === "configure terminal" || lower === "conf t") {
     if (state.terminal.mode === "exec") {
@@ -461,96 +472,107 @@ export function runRouterTerminalCommand(router: Device, command: string): void 
       state.terminal.interfacePeerId = null;
       state.terminal.interfaceVlanTag = null;
     }
-    return;
+    return true;
   }
+  return false;
+}
+
+// Handles read-only `show ...` commands plus `clear ip rip database` and
+// `write memory`. Returns true if the command matched.
+function routerShowCommand(router: Device, lower: string): boolean {
   if (lower === "show ip interface brief" || lower === "show interface brief") {
     terminalLine("", showRouterInterfaceBrief(router));
-    return;
+    return true;
   }
   if (lower === "show ip route" || lower === "show route") {
     terminalLine("", showRouterRoute(router));
-    return;
+    return true;
   }
   if (lower === "show ip arp" || lower === "show arp") {
     terminalLine("", showRouterArp(router));
-    return;
+    return true;
   }
   if (lower === "show ip dhcp binding" || lower === "show ip dhcp pool") {
     terminalLine("", showRouterDhcpBindings(router));
-    return;
+    return true;
   }
   if (lower === "show ip rip") {
     terminalLine("", showRouterRip(router));
-    return;
+    return true;
   }
   if (lower === "show ip rip database") {
     terminalLine("", showRouterRipDatabase(router));
-    return;
+    return true;
   }
   if (lower === "show running-config" || lower === "show run") {
     terminalLine("", showRouterRunningConfig(router));
-    return;
+    return true;
   }
   if (lower === "clear ip rip database") {
     if (!router.config?.rip?.enabled) {
       terminalLine("error", "% RIP is not enabled on this router.");
-      return;
+      return true;
     }
     pushUndo();
     router.config.rip.learnedRoutes = [];
     sync().syncPanel();
     terminalLine("", "RIP learned routes cleared.");
-    return;
+    return true;
   }
   if (lower === "write memory" || lower === "copy running-config startup-config") {
     terminalLine("", "Building configuration...\n[OK]");
-    return;
+    return true;
   }
+  return false;
+}
+
+// Handles interface-mode commands: `interface`, `ip address`, `no ip address`,
+// `encapsulation dot1q`. Returns true if the command matched.
+function routerInterfaceCommand(router: Device, command: string, lower: string): boolean {
   const interfaceMatch = command.match(/^interface\s+(\S+)$/i);
   if (interfaceMatch) {
     if (state.terminal.mode !== "config") {
       terminalLine("error", "% Enter configuration mode first.");
-      return;
+      return true;
     }
     const iface = routerInterfaceByName(router, interfaceMatch[1]);
     if (!iface) {
       terminalLine("error", `% Unknown interface ${interfaceMatch[1]}`);
-      return;
+      return true;
     }
     state.terminal.mode = "interface";
     state.terminal.interfacePeerId = iface.peerId;
     state.terminal.interfaceVlanTag = iface.config?.vlanTag ?? null;
-    return;
+    return true;
   }
   const ipAddressMatch = command.match(/^ip\s+address\s+(\S+)$/i);
   if (ipAddressMatch) {
     if (state.terminal.mode !== "interface" || !state.terminal.interfacePeerId) {
       terminalLine("error", "% Interface mode required.");
-      return;
+      return true;
     }
     const result = setRouterInterfaceIp(router, state.terminal.interfacePeerId, ipAddressMatch[1], state.terminal.interfaceVlanTag);
     if (result) terminalLine("error", result);
-    return;
+    return true;
   }
   if (lower === "no ip address") {
     if (state.terminal.mode !== "interface" || !state.terminal.interfacePeerId) {
       terminalLine("error", "% Interface mode required.");
-      return;
+      return true;
     }
     clearRouterInterfaceIp(router, state.terminal.interfacePeerId, state.terminal.interfaceVlanTag);
-    return;
+    return true;
   }
-  // encapsulation dot1q <vlan-id>
   const encapMatch = command.match(/^encapsulation\s+dot1q\s+(\d+)$/i);
   if (encapMatch) {
     if (state.terminal.mode !== "interface" || !state.terminal.interfacePeerId) {
       terminalLine("error", "% Interface mode required.");
-      return;
+      return true;
     }
     const vlanId = normaliseVlanId(encapMatch[1]);
     if (!vlanId) {
       terminalLine("error", `% Invalid VLAN ID: ${encapMatch[1]}`);
-      return;
+      return true;
     }
     pushUndo();
     const iface = routerInterfaceFor(router, state.terminal.interfacePeerId, state.terminal.interfaceVlanTag);
@@ -559,12 +581,12 @@ export function runRouterTerminalCommand(router: Device, command: string): void 
     sync().syncPanel();
     sync().render();
     terminalLine("", `Encapsulation set to 802.1Q VLAN ${vlanId}.`);
-    return;
+    return true;
   }
   if (lower === "no encapsulation dot1q" || lower === "no encapsulation") {
     if (state.terminal.mode !== "interface" || !state.terminal.interfacePeerId) {
       terminalLine("error", "% Interface mode required.");
-      return;
+      return true;
     }
     pushUndo();
     const iface = routerInterfaceFor(router, state.terminal.interfacePeerId, state.terminal.interfaceVlanTag);
@@ -573,13 +595,18 @@ export function runRouterTerminalCommand(router: Device, command: string): void 
     sync().syncPanel();
     sync().render();
     terminalLine("", "Encapsulation removed.");
-    return;
+    return true;
   }
-  // router rip — enter RIP configuration mode
+  return false;
+}
+
+// Handles `router rip` / `no router rip` and the RIP sub-mode commands
+// (network, passive-interface). Returns true if the command matched.
+function routerRipCommand(router: Device, command: string, lower: string): boolean {
   if (lower === "router rip") {
     if (state.terminal.mode !== "config") {
       terminalLine("error", "% Configuration mode required.");
-      return;
+      return true;
     }
     pushUndo();
     router.config = router.config || {};
@@ -587,32 +614,31 @@ export function runRouterTerminalCommand(router: Device, command: string): void 
     router.config.rip.enabled = true;
     state.terminal.mode = "rip";
     sync().syncPanel();
-    return;
+    return true;
   }
   if (lower === "no router rip") {
     if (state.terminal.mode !== "config") {
       terminalLine("error", "% Configuration mode required.");
-      return;
+      return true;
     }
     pushUndo();
     router.config = router.config || {};
     router.config.rip = normaliseRipConfig(null);
     sync().syncPanel();
     terminalLine("", "RIP routing disabled. Learned routes cleared.");
-    return;
+    return true;
   }
-  // RIP sub-mode commands: network, passive-interface
   const networkMatch = command.match(/^network\s+(\S+)$/i);
   if (networkMatch) {
     if (state.terminal.mode !== "rip") {
       terminalLine("error", "% Enter router rip mode first.");
-      return;
+      return true;
     }
     const networkToken = networkMatch[1];
     const parsed = parseIpv4Token(networkToken);
     if (!parsed) {
       terminalLine("error", `% Invalid network: ${networkToken}`);
-      return;
+      return true;
     }
     const network = parsed.prefixLength != null ? `${parsed.address}/${parsed.prefixLength}` : `${parsed.address}/24`;
     pushUndo();
@@ -621,32 +647,32 @@ export function runRouterTerminalCommand(router: Device, command: string): void 
     }
     sync().syncPanel();
     terminalLine("", `Added network ${network} to RIP.`);
-    return;
+    return true;
   }
   const noNetworkMatch = command.match(/^no\s+network\s+(\S+)$/i);
   if (noNetworkMatch) {
     if (state.terminal.mode !== "rip") {
       terminalLine("error", "% Enter router rip mode first.");
-      return;
+      return true;
     }
     const networkToken = noNetworkMatch[1];
     const parsed = parseIpv4Token(networkToken);
     if (!parsed) {
       terminalLine("error", `% Invalid network: ${networkToken}`);
-      return;
+      return true;
     }
     const network = parsed.prefixLength != null ? `${parsed.address}/${parsed.prefixLength}` : `${parsed.address}/24`;
     pushUndo();
     router.config.rip!.networks = router.config.rip!.networks.filter((n: string) => n !== network);
     sync().syncPanel();
     terminalLine("", `Removed network ${network} from RIP.`);
-    return;
+    return true;
   }
   const passiveMatch = command.match(/^passive-interface\s+(\S+)$/i);
   if (passiveMatch) {
     if (state.terminal.mode !== "rip") {
       terminalLine("error", "% Enter router rip mode first.");
-      return;
+      return true;
     }
     const ifaceName = passiveMatch[1];
     pushUndo();
@@ -655,38 +681,42 @@ export function runRouterTerminalCommand(router: Device, command: string): void 
     }
     sync().syncPanel();
     terminalLine("", `Set ${ifaceName} as passive (no RIP updates sent/received).`);
-    return;
+    return true;
   }
   const noPassiveMatch = command.match(/^no\s+passive-interface\s+(\S+)$/i);
   if (noPassiveMatch) {
     if (state.terminal.mode !== "rip") {
       terminalLine("error", "% Enter router rip mode first.");
-      return;
+      return true;
     }
     const ifaceName = noPassiveMatch[1];
     pushUndo();
     router.config.rip!.passiveInterfaces = router.config.rip!.passiveInterfaces.filter((n: string) => n !== ifaceName);
     sync().syncPanel();
     terminalLine("", `Removed ${ifaceName} from passive interfaces.`);
-    return;
+    return true;
   }
-  // ip route <network/prefix> <next-hop-ip>
+  return false;
+}
+
+// Handles `ip route` / `no ip route`. Returns true if the command matched.
+function routerStaticRouteCommand(router: Device, command: string): boolean {
   const ipRouteMatch = command.match(/^ip\s+route\s+(\S+)\s+(\S+)$/i);
   if (ipRouteMatch) {
     if (state.terminal.mode !== "config") {
       terminalLine("error", "% Configuration mode required.");
-      return;
+      return true;
     }
     const networkToken = ipRouteMatch[1];
     const nextHop = ipRouteMatch[2];
     const parsedNetwork = parseIpv4Token(networkToken);
     if (!parsedNetwork || parsedNetwork.prefixLength == null) {
       terminalLine("error", `% Invalid network: ${networkToken}. Use CIDR notation (e.g. 10.0.0.0/24).`);
-      return;
+      return true;
     }
     if (!isValidIpv4(nextHop)) {
       terminalLine("error", `% Invalid next-hop address: ${nextHop}`);
-      return;
+      return true;
     }
     const network = `${parsedNetwork.address}/${parsedNetwork.prefixLength}`;
     pushUndo();
@@ -698,21 +728,20 @@ export function runRouterTerminalCommand(router: Device, command: string): void 
     router.config.staticRoutes = statics;
     sync().syncPanel();
     terminalLine("", `Static route added: ${network} via ${nextHop}`);
-    return;
+    return true;
   }
-  // no ip route <network/prefix> [next-hop]
   const noIpRouteMatch = command.match(/^no\s+ip\s+route\s+(\S+)(?:\s+(\S+))?$/i);
   if (noIpRouteMatch) {
     if (state.terminal.mode !== "config") {
       terminalLine("error", "% Configuration mode required.");
-      return;
+      return true;
     }
     const networkToken = noIpRouteMatch[1];
     const nextHop = noIpRouteMatch[2] || null;
     const parsedNetwork = parseIpv4Token(networkToken);
     if (!parsedNetwork) {
       terminalLine("error", `% Invalid network: ${networkToken}`);
-      return;
+      return true;
     }
     const network = parsedNetwork.prefixLength != null
       ? `${parsedNetwork.address}/${parsedNetwork.prefixLength}`
@@ -732,9 +761,9 @@ export function runRouterTerminalCommand(router: Device, command: string): void 
     } else {
       terminalLine("error", `% No matching static route found for ${network}.`);
     }
-    return;
+    return true;
   }
-  terminalLine("error", `% Unknown command: ${command}`);
+  return false;
 }
 
 export function runSwitchTerminalCommand(device: Device, command: string): void {

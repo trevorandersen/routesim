@@ -1,3 +1,4 @@
+import type { Link } from "./types";
 import { state, sync, pushUndo, captureUndoOnFocus } from "./state";
 import { dom } from "./dom";
 import { escapeHtml, isValidIpv4, isValidMac, normaliseMacAddress } from "./utils";
@@ -240,6 +241,45 @@ export function bindSwitchPortControls(device: any): void {
   });
 }
 
+// Renders the inspector panel for a selected link (frame history + clear).
+function renderLinkPanel(link: Link): void {
+  const fromDev = getDevice(link.from);
+  const toDev = getDevice(link.to);
+  const history = link.frameHistory || [];
+  dom.detailsPanel.innerHTML = `
+    <h2>Link</h2>
+    <div class="pill-row">
+      <span class="pill">${escapeHtml(fromDev?.name || link.from)}</span>
+      <span class="pill">${escapeHtml(toDev?.name || link.to)}</span>
+    </div>
+    <div style="height: 12px"></div>
+    <div class="field">
+      <label>Frame History (${history.length})</label>
+      ${history.length ? `
+        <div class="frame-history-list">
+          ${history.map((entry: any) => {
+            const dir = getDevice(entry.fromDeviceId)?.name || entry.fromDeviceId;
+            const label = frameLabel(entry.frame);
+            const kind = entry.frame.etherType === 0x0806 ? "arp"
+              : ((entry.frame.payload as any)?.payload?.type === "dhcp" ? "dhcp" : "icmp");
+            return `<div class="frame-history-entry ${kind}">
+              <span class="frame-step">Step ${entry.step}</span>
+              <span class="frame-label">${escapeHtml(label)}</span>
+              <span class="frame-dir">${escapeHtml(dir)} &rarr;</span>
+            </div>`;
+          }).join("")}
+        </div>
+      ` : `<p class="empty-state">No frames recorded.</p>`}
+    </div>
+    <button class="wide-button danger" id="clearLinkHistory">Clear history</button>
+  `;
+  const clearBtn = document.getElementById("clearLinkHistory");
+  if (clearBtn) clearBtn.addEventListener("click", () => {
+    link.frameHistory = [];
+    syncPanel();
+  });
+}
+
 export function syncPanel(): void {
   dom.deviceCount.textContent = String(state.devices.filter(isVisibleDevice).length);
   dom.linkCount.textContent = String(state.links.filter(link => !link.hidden).length);
@@ -249,41 +289,7 @@ export function syncPanel(): void {
   if (!selected && state.selectedLinkId) {
     const link = state.links.find(l => l.id === state.selectedLinkId);
     if (link) {
-      const fromDev = getDevice(link.from);
-      const toDev = getDevice(link.to);
-      const history = link.frameHistory || [];
-      dom.detailsPanel.innerHTML = `
-        <h2>Link</h2>
-        <div class="pill-row">
-          <span class="pill">${escapeHtml(fromDev?.name || link.from)}</span>
-          <span class="pill">${escapeHtml(toDev?.name || link.to)}</span>
-        </div>
-        <div style="height: 12px"></div>
-        <div class="field">
-          <label>Frame History (${history.length})</label>
-          ${history.length ? `
-            <div class="frame-history-list">
-              ${history.map((entry: any) => {
-                const dir = getDevice(entry.fromDeviceId)?.name || entry.fromDeviceId;
-                const label = frameLabel(entry.frame);
-                const kind = entry.frame.etherType === 0x0806 ? "arp"
-                  : ((entry.frame.payload as any)?.payload?.type === "dhcp" ? "dhcp" : "icmp");
-                return `<div class="frame-history-entry ${kind}">
-                  <span class="frame-step">Step ${entry.step}</span>
-                  <span class="frame-label">${escapeHtml(label)}</span>
-                  <span class="frame-dir">${escapeHtml(dir)} &rarr;</span>
-                </div>`;
-              }).join("")}
-            </div>
-          ` : `<p class="empty-state">No frames recorded.</p>`}
-        </div>
-        <button class="wide-button danger" id="clearLinkHistory">Clear history</button>
-      `;
-      const clearBtn = document.getElementById("clearLinkHistory");
-      if (clearBtn) clearBtn.addEventListener("click", () => {
-        link.frameHistory = [];
-        syncPanel();
-      });
+      renderLinkPanel(link);
     } else {
       dom.detailsPanel.innerHTML = `
         <h2>Selection</h2>

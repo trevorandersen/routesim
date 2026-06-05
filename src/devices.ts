@@ -1,12 +1,12 @@
-import type { PortOption, Device, Link } from "./types";
+import type { PortOption, Device, Link, DeviceType } from "./types";
 import { state, sync, pushUndo, networkSnapshot } from "./state";
 import { dom } from "./dom";
 import { deviceSize, defaultDeviceConfig, normaliseRouterInterfaces, normalisePortVlans, normalisePortModes } from "./normalise";
 import { clampPortCount, clampRouterPortCount, escapeHtml } from "./utils";
 
-export function addDevice(type: string, x: number, y: number, name?: string): Device {
+export function addDevice(type: DeviceType, x: number, y: number, name?: string): Device {
   pushUndo();
-  const device = {
+  const device: Device = {
     id: crypto.randomUUID ? crypto.randomUUID() : `${Date.now()}-${Math.random()}`,
     type,
     name: name || nextName(type),
@@ -110,7 +110,7 @@ export function clearNetwork(): void {
 export function findDeviceAt(point: { x: number; y: number }): Device | null {
   for (let i = state.devices.length - 1; i >= 0; i--) {
     const device = state.devices[i];
-    if ((device as any).hidden) continue;
+    if (device.hidden) continue;
     if (
       point.x >= device.x - device.width / 2 &&
       point.x <= device.x + device.width / 2 &&
@@ -191,8 +191,8 @@ export function getDevice(id: string | null): Device | undefined {
   return id == null ? undefined : deviceIndex().get(id);
 }
 
-export function isVisibleDevice(device: Device): boolean {
-  return device && !device.hidden;
+export function isVisibleDevice(device: Device | undefined | null): device is Device {
+  return !!device && !device.hidden;
 }
 
 export function connectedIds(id: string): string[] {
@@ -331,26 +331,26 @@ export function collapseLan(anchor: any): void {
     if (absorbedLanSet.has(link.from) || absorbedLanSet.has(link.to)) {
       (link as any).visibleBeforeParentCollapse = !link.hidden;
       link.hidden = true;
-      (link as any).collapsedBy = lanId;
+      link.collapsedBy = lanId;
       return;
     }
     const fromMember = memberSet.has(link.from);
     const toMember = memberSet.has(link.to);
     if (!fromMember && !toMember) return;
     link.hidden = true;
-    (link as any).collapsedBy = lanId;
+    link.collapsedBy = lanId;
     const outsideId = fromMember ? link.to : link.from;
     const outside = getDevice(outsideId);
     if (outside && outside.type === "router" && !outside.hidden) boundaryIds.add(outside.id);
   });
   memberDevices.forEach(device => {
-    (device as any).hidden = true;
-    (device as any).collapsedBy = lanId;
+    device.hidden = true;
+    device.collapsedBy = lanId;
   });
   state.devices.forEach(device => {
     if (absorbedLanSet.has(device.id)) {
-      (device as any).hidden = true;
-      (device as any).collapsedBy = lanId;
+      device.hidden = true;
+      device.collapsedBy = lanId;
     }
   });
   boundaryIds.forEach(routerId => {
@@ -377,22 +377,22 @@ export function expandLan(lan: any): void {
   const lanId = lan.id;
   const absorbedLanSet = new Set(lan.config?.absorbedLans || []);
   state.devices.forEach(device => {
-    if ((device as any).collapsedBy === lanId) {
-      (device as any).hidden = false;
-      delete (device as any).collapsedBy;
+    if (device.collapsedBy === lanId) {
+      device.hidden = false;
+      delete device.collapsedBy;
       if (absorbedLanSet.has(device.id)) return;
     }
   });
-  state.links = state.links.filter(link => !link.proxy || (link as any).collapsedBy !== lanId);
+  state.links = state.links.filter(link => !link.proxy || link.collapsedBy !== lanId);
   state.links.forEach(link => {
-    if ((link as any).collapsedBy === lanId) {
+    if (link.collapsedBy === lanId) {
       if (absorbedLanSet.has(link.from) || absorbedLanSet.has(link.to)) {
         link.hidden = !(link as any).visibleBeforeParentCollapse;
       } else {
         link.hidden = false;
       }
       delete (link as any).visibleBeforeParentCollapse;
-      delete (link as any).collapsedBy;
+      delete link.collapsedBy;
     }
   });
   state.devices = state.devices.filter(device => device.id !== lanId);
@@ -434,7 +434,7 @@ export function routerInterfacesWithNames(router: any): any[] {
     // Find ALL configured interfaces for this peer (supports sub-interfaces)
     const allConfigs = configured.filter((entry: any) => entry.peerId === port.peer.id);
     if (allConfigs.length === 0) {
-      allConfigs.push({ peerId: port.peer.id, type, ipv4Address: "", vlanTag: null });
+      allConfigs.push({ peerId: port.peer.id, type, name: "", ipv4Address: "", macAddress: "", arpTable: [], dhcpLeases: [], vlanTag: null });
     }
     return { peer: port.peer, peerId: port.peer.id, type: allConfigs[0].type || type, configs: allConfigs };
   });

@@ -71,6 +71,65 @@ export interface RouteEntry {
   metric: number;        // 0=connected, 1=static, 2+=RIP
 }
 
+export interface StaticRoute {
+  network: string;
+  nextHop: string;
+}
+
+export interface RipRoute {
+  network: string;
+  nextHop: string;
+  interface?: string;
+  metric: number;
+}
+
+export interface RipConfig {
+  enabled: boolean;
+  networks: string[];
+  passiveInterfaces: string[];
+  learnedRoutes: RipRoute[];
+}
+
+// --- Per-device config shapes (see normalise.ts) ---
+
+export interface ComputerConfig {
+  ipv4Address: string;
+  gatewayIpv4Address: string;
+  macAddress: string;
+  arpTable: ArpEntry[];
+}
+
+export interface SwitchConfig {
+  managed: boolean;
+  ethernetPorts: number;
+  macTable: MacTableEntry[];
+  vlans?: Vlan[];
+  portVlans?: Record<string, number>;
+  portModes?: Record<string, PortMode>;
+  trunkAllowedVlans?: Record<string, number[]>;
+  trunkNativeVlans?: Record<string, number>;
+}
+
+export interface RouterConfig {
+  ethernetPorts: number;
+  serialPorts: number;
+  interfaces: RouterInterface[];
+  staticRoutes?: StaticRoute[];
+  rip?: RipConfig;
+}
+
+export interface LanConfig {
+  anchorId?: string;
+  members: string[];
+  absorbedLans?: string[];
+}
+
+// Permissive superset (every field optional) so existing `device.config?.x`
+// access sites compile unchanged, while typos and wrong field types are caught.
+// The strict per-type interfaces above type the normalise layer and the
+// asComputer/asSwitch/asRouter/asLan accessors.
+export type DeviceConfig = Partial<ComputerConfig & SwitchConfig & RouterConfig & LanConfig>;
+
 export interface DragState {
   id: string;
   dx: number;
@@ -98,7 +157,7 @@ export interface Device {
   y: number;
   width: number;
   height: number;
-  config: any;
+  config: DeviceConfig;
   hidden?: boolean;
   poweredOff?: boolean;
   collapsedBy?: string;

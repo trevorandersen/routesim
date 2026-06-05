@@ -45,7 +45,10 @@ The project uses only two tools: `esbuild` (bundler) and `bun` (runtime, test ru
 bun test                        # all tests
 bun test tests/engine.test.ts   # specific file
 bun test tests/bench.test.ts    # benchmark suite (p99 budgets in µs)
+bunx tsc --noEmit               # type-check (the codebase is kept tsc-clean)
 ```
+
+esbuild does not type-check, so run `bunx tsc --noEmit` to catch type errors (it pulls TypeScript into bun's cache transiently — nothing is added to the repo). Keep it at zero errors.
 
 Test infrastructure:
 
@@ -192,7 +195,7 @@ Every link records frames that traverse it (`link.frameHistory[]`). Click a link
 ## Style notes
 
 - **Commonwealth English** in all code and documentation. Use `-ise`/`-isation` (e.g. `normalise`, `initialise`), not `-ize`/`-ization`.
-- **Prefer concrete types over `any`.** Function parameters take real types (`Device`, `Link`, …). The few intentional `any` exceptions — `Device.config` (discriminated-union refactor deferred), the File System Access API, and DOM `dataset` extensions — are documented where they occur.
+- **Prefer concrete types over `any`.** Function parameters take real types (`Device`, `Link`, …). `Device.config` is `DeviceConfig` — a permissive superset of the per-type `ComputerConfig`/`SwitchConfig`/`RouterConfig`/`LanConfig` shapes (every field optional) so `device.config?.x` access stays ergonomic while typos are caught; the strict per-type interfaces type the `normalise.ts` layer. The codebase is **tsc-clean** (`bunx tsc --noEmit`) — keep it that way. Remaining intentional `any`: the File System Access API and DOM `dataset` extensions, documented where they occur.
 - **Keep handlers focused.** When a `processAt*` or convergence function grows large, extract private helpers rather than inlining everything (e.g. `handleRouterArp`, `routeIpv4Frame`, `buildRipAdvertisements`).
 - **Cover new behaviour with tests.** Add or extend a `tests/*.test.ts` suite when changing simulation logic.
 - **Benchmark hot paths.** Add a `bench:` case in `tests/bench.test.ts` (with a p99 budget via `tests/bench-harness.ts`) for any new performance-sensitive code, and keep existing benchmarks within budget. Favour allocation-free, tight implementations on the simulation critical path.

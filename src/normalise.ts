@@ -1,7 +1,10 @@
-import type { PortMode } from "./types";
+import type {
+  PortMode, ArpEntry, DhcpLease, MacTableEntry, Vlan, RouterInterface,
+  RipConfig, StaticRoute, DeviceConfig, DeviceType, Device, Link
+} from "./types";
 import { normaliseMacAddress, isValidMac, isValidIpv4, clampPortCount, clampRouterPortCount, normaliseVlanId } from "./utils";
 
-export function normaliseArpTable(entries: any[]): any[] {
+export function normaliseArpTable(entries: unknown): ArpEntry[] {
   if (!Array.isArray(entries)) return [];
   return entries.map(entry => ({
     ipv4Address: String(entry.ipv4Address || entry.ip || "").trim(),
@@ -9,7 +12,7 @@ export function normaliseArpTable(entries: any[]): any[] {
   })).filter(entry => entry.ipv4Address || entry.macAddress);
 }
 
-export function normaliseDhcpLeases(entries: any[]): any[] {
+export function normaliseDhcpLeases(entries: unknown): DhcpLease[] {
   if (!Array.isArray(entries)) return [];
   return entries.map(entry => ({
     macAddress: normaliseMacAddress(entry.macAddress || entry.mac || ""),
@@ -17,7 +20,7 @@ export function normaliseDhcpLeases(entries: any[]): any[] {
   })).filter(entry => entry.macAddress && entry.ipv4Address);
 }
 
-export function normaliseMacTable(entries: any[]): any[] {
+export function normaliseMacTable(entries: unknown): MacTableEntry[] {
   if (!Array.isArray(entries)) return [];
   return entries.map(entry => {
     const vlan = entry.vlan == null ? "" : String(entry.vlan).trim();
@@ -29,10 +32,10 @@ export function normaliseMacTable(entries: any[]): any[] {
   }).filter(entry => entry.vlan || entry.macAddress || entry.type || entry.port);
 }
 
-export function normaliseVlans(entries: any): any[] {
+export function normaliseVlans(entries: unknown): Vlan[] {
   const source = Array.isArray(entries) ? entries : [];
   const seen = new Set<number>();
-  const vlans: any[] = [{ id: 1, name: "default" }];
+  const vlans: Vlan[] = [{ id: 1, name: "default" }];
   source.forEach(entry => {
     const id = normaliseVlanId(typeof entry === "object" ? entry.id : entry);
     if (!id || seen.has(id) || id === 1) return;
@@ -42,14 +45,14 @@ export function normaliseVlans(entries: any): any[] {
   return vlans.sort((a, b) => a.id - b.id);
 }
 
-export function normalisePortVlans(portVlans: any): Record<string, any> {
+export function normalisePortVlans(portVlans: unknown): Record<string, number> {
   if (!portVlans || typeof portVlans !== "object") return {};
   return Object.fromEntries(Object.entries(portVlans)
     .map(([port, vlan]) => [String(port).trim(), normaliseVlanId(vlan)])
-    .filter(([port, vlan]) => port && vlan && vlan !== 1));
+    .filter(([port, vlan]) => port && vlan && vlan !== 1)) as Record<string, number>;
 }
 
-export function normalisePortModes(portModes: any): Record<string, PortMode> {
+export function normalisePortModes(portModes: unknown): Record<string, PortMode> {
   if (!portModes || typeof portModes !== "object") return {};
   const valid = new Set<string>(["access", "trunk"]);
   return Object.fromEntries(
@@ -59,7 +62,7 @@ export function normalisePortModes(portModes: any): Record<string, PortMode> {
   ) as Record<string, PortMode>;
 }
 
-export function normaliseTrunkAllowedVlans(allowed: any): Record<string, number[]> {
+export function normaliseTrunkAllowedVlans(allowed: unknown): Record<string, number[]> {
   if (!allowed || typeof allowed !== "object") return {};
   return Object.fromEntries(
     Object.entries(allowed)
@@ -71,7 +74,7 @@ export function normaliseTrunkAllowedVlans(allowed: any): Record<string, number[
   );
 }
 
-export function normaliseRouterInterfaces(entries: any[], routerId?: string): any[] {
+export function normaliseRouterInterfaces(entries: unknown, routerId?: string): RouterInterface[] {
   if (!Array.isArray(entries)) return [];
   return entries.map((entry, index) => ({
     peerId: String(entry.peerId || entry.peer || entry.linkedDeviceId || "").trim(),
@@ -85,7 +88,7 @@ export function normaliseRouterInterfaces(entries: any[], routerId?: string): an
   })).filter(entry => entry.peerId || entry.name || entry.ipv4Address || entry.arpTable.length);
 }
 
-export function normaliseRipConfig(rip: any): any {
+export function normaliseRipConfig(rip: any): RipConfig {
   if (!rip || typeof rip !== "object") return { enabled: false, networks: [], passiveInterfaces: [], learnedRoutes: [] };
   return {
     enabled: Boolean(rip.enabled),
@@ -100,7 +103,7 @@ export function normaliseRipConfig(rip: any): any {
   };
 }
 
-export function normaliseStaticRoutes(routes: any[]): any[] {
+export function normaliseStaticRoutes(routes: unknown): StaticRoute[] {
   if (!Array.isArray(routes)) return [];
   return routes
     .filter(r => r && r.network && r.nextHop)
@@ -121,7 +124,7 @@ function generateRouterIfaceMac(routerId: string, ifaceIndex: number): string {
   return `02:${rr}:00:00:${ii}:01`;
 }
 
-export function normaliseDeviceConfig(device: any): any {
+export function normaliseDeviceConfig(device: any): DeviceConfig {
   if (device.type === "switch") {
     const ethernetPorts = clampPortCount(device.config?.ethernetPorts ?? device.ethernetPorts ?? 8);
     const managed = Boolean(device.config?.managed ?? device.managed ?? false);
@@ -187,7 +190,7 @@ export function normaliseDeviceConfig(device: any): any {
   };
 }
 
-export function normaliseConfig(parsed: any): any {
+export function normaliseConfig(parsed: any): { devices: Device[]; links: Link[] } {
   if (!parsed || !Array.isArray(parsed.devices) || !Array.isArray(parsed.links)) {
     throw new Error("Config needs devices and links arrays.");
   }
@@ -223,7 +226,7 @@ export function normaliseConfig(parsed: any): any {
     };
   });
 
-  const links: any[] = [];
+  const links: Link[] = [];
   const seenLinks = new Set<string>();
   parsed.links.forEach((link: any, index: number) => {
     if (!link || !seenIds.has(String(link.from)) || !seenIds.has(String(link.to))) {
@@ -257,11 +260,11 @@ export function normaliseConfigStore(store: any): any {
   };
 }
 
-export function normaliseConfigName(value: any): string {
+export function normaliseConfigName(value: unknown): string {
   return String(value || "").trim().replace(/[<>:"/\\|?*]/g, "-");
 }
 
-export function defaultDeviceConfig(type: string): any {
+export function defaultDeviceConfig(type: DeviceType): DeviceConfig {
   if (type === "computer") return { ipv4Address: "", gatewayIpv4Address: "", macAddress: "", arpTable: [] };
   if (type === "switch") return { managed: false, ethernetPorts: 8, macTable: [], vlans: [], portVlans: {}, portModes: {}, trunkAllowedVlans: {}, trunkNativeVlans: {} };
   if (type === "router") return { ethernetPorts: 4, serialPorts: 4, interfaces: [] };

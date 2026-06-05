@@ -616,8 +616,8 @@ export function runRouterTerminalCommand(router: Device, command: string): void 
     }
     const network = parsed.prefixLength != null ? `${parsed.address}/${parsed.prefixLength}` : `${parsed.address}/24`;
     pushUndo();
-    if (!router.config.rip.networks.includes(network)) {
-      router.config.rip.networks.push(network);
+    if (!router.config.rip!.networks.includes(network)) {
+      router.config.rip!.networks.push(network);
     }
     sync().syncPanel();
     terminalLine("", `Added network ${network} to RIP.`);
@@ -637,7 +637,7 @@ export function runRouterTerminalCommand(router: Device, command: string): void 
     }
     const network = parsed.prefixLength != null ? `${parsed.address}/${parsed.prefixLength}` : `${parsed.address}/24`;
     pushUndo();
-    router.config.rip.networks = router.config.rip.networks.filter((n: string) => n !== network);
+    router.config.rip!.networks = router.config.rip!.networks.filter((n: string) => n !== network);
     sync().syncPanel();
     terminalLine("", `Removed network ${network} from RIP.`);
     return;
@@ -650,8 +650,8 @@ export function runRouterTerminalCommand(router: Device, command: string): void 
     }
     const ifaceName = passiveMatch[1];
     pushUndo();
-    if (!router.config.rip.passiveInterfaces.includes(ifaceName)) {
-      router.config.rip.passiveInterfaces.push(ifaceName);
+    if (!router.config.rip!.passiveInterfaces.includes(ifaceName)) {
+      router.config.rip!.passiveInterfaces.push(ifaceName);
     }
     sync().syncPanel();
     terminalLine("", `Set ${ifaceName} as passive (no RIP updates sent/received).`);
@@ -665,7 +665,7 @@ export function runRouterTerminalCommand(router: Device, command: string): void 
     }
     const ifaceName = noPassiveMatch[1];
     pushUndo();
-    router.config.rip.passiveInterfaces = router.config.rip.passiveInterfaces.filter((n: string) => n !== ifaceName);
+    router.config.rip!.passiveInterfaces = router.config.rip!.passiveInterfaces.filter((n: string) => n !== ifaceName);
     sync().syncPanel();
     terminalLine("", `Removed ${ifaceName} from passive interfaces.`);
     return;
@@ -948,7 +948,7 @@ function resolvePingTargetIp(targetText: string): string {
   return target?.config?.ipv4Address || targetText;
 }
 
-export function openTerminalFor(device: Device): void {
+export function openTerminalFor(device: Device | undefined): void {
   if (!device || !["computer", "router", "switch"].includes(device.type)) {
     state.terminal.open = true;
     state.terminal.deviceId = null;

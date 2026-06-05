@@ -2522,7 +2522,7 @@
     return id == null ? void 0 : deviceIndex().get(id);
   }
   function isVisibleDevice(device) {
-    return device && !device.hidden;
+    return !!device && !device.hidden;
   }
   function connectedIds(id) {
     return linksFor(id).filter((link) => !link.hidden).map((link) => link.from === id ? link.to : link.from);
@@ -2727,7 +2727,7 @@
       const type = port.peer.type === "router" ? "serial" : "ethernet";
       const allConfigs = configured.filter((entry) => entry.peerId === port.peer.id);
       if (allConfigs.length === 0) {
-        allConfigs.push({ peerId: port.peer.id, type, ipv4Address: "", vlanTag: null });
+        allConfigs.push({ peerId: port.peer.id, type, name: "", ipv4Address: "", macAddress: "", arpTable: [], dhcpLeases: [], vlanTag: null });
       }
       return { peer: port.peer, peerId: port.peer.id, type: allConfigs[0].type || type, configs: allConfigs };
     });
@@ -3812,7 +3812,7 @@
         if (arp.targetIp === config.ipv4Address) {
           learnArp(config, arp.senderIp, arp.senderMac);
           logStep(device, "sim-arp", `Received ARP Request for ${arp.targetIp} \u2014 sending ARP Reply`);
-          const reply = createArpReply(config.macAddress, config.ipv4Address, arp.senderMac, arp.senderIp, frame.vlanTag);
+          const reply = createArpReply(config.macAddress || "", config.ipv4Address || "", arp.senderMac, arp.senderIp, frame.vlanTag);
           if (fromDeviceId) outgoing.push({ frame: reply, toDeviceId: fromDeviceId });
         } else {
           logStep(device, "sim-arp", `Received ARP Request for ${arp.targetIp} \u2014 not our IP, ignoring`);
@@ -3837,9 +3837,9 @@
         if (ipv4.payload.icmpType === 8) {
           logStep(device, "sim-icmp", `Received ICMP Echo Request from ${ipv4.srcIp} \u2014 sending Reply`);
           const reply = createIcmpEchoReply(
-            config.macAddress,
+            config.macAddress || "",
             frame.srcMac,
-            config.ipv4Address,
+            config.ipv4Address || "",
             ipv4.srcIp,
             64,
             frame.vlanTag,
@@ -4099,7 +4099,7 @@
     const outgoing = [];
     const selfIface = ifaces.find((iface) => iface.ipv4Address === ipv4.dstIp);
     if (selfIface) {
-      if (ipv4.payload.icmpType === 8) {
+      if (ipv4.payload.type === "icmp" && ipv4.payload.icmpType === 8) {
         logStep(device, "sim-icmp", `Received ICMP Echo Request for self (${ipv4.dstIp}) \u2014 sending Reply`);
         const reply = createIcmpEchoReply(
           ingressIface.macAddress,
@@ -4364,10 +4364,11 @@ APIPA: assigned link-local ${apipaIp}`);
   function applyRipUpdates(neighbor, neighborIface, neighborIfaces, advertisements, egressIfaceName, egressIfaceIp) {
     let changed = false;
     let exchanged = 0;
+    const neighborRip = neighbor.config.rip;
     for (const ad of advertisements) {
       if (ad.sourceInterface === egressIfaceName && ad.metric > 1) continue;
       if (ad.metric > 15) continue;
-      const existingRoutes = neighbor.config.rip.learnedRoutes || [];
+      const existingRoutes = neighborRip.learnedRoutes || [];
       const existing = existingRoutes.find((r) => r.network === ad.network);
       if (existing) {
         if (ad.metric < existing.metric) {
@@ -4385,8 +4386,8 @@ APIPA: assigned link-local ${apipaIp}`);
           return `${parts[0]}.${parts[1]}.${parts[2]}.0/24` === ad.network;
         });
         if (neighborConnected) continue;
-        if (!neighbor.config.rip.learnedRoutes) neighbor.config.rip.learnedRoutes = [];
-        neighbor.config.rip.learnedRoutes.push({
+        if (!neighborRip.learnedRoutes) neighborRip.learnedRoutes = [];
+        neighborRip.learnedRoutes.push({
           network: ad.network,
           nextHop: egressIfaceIp,
           interface: neighborIface.name,
@@ -4418,10 +4419,11 @@ APIPA: assigned link-local ${apipaIp}`);
       iterations = iter + 1;
       for (const router of ripRouters) {
         const ifaces = ifacesFor(router);
-        const ripNetworks = router.config.rip.networks || [];
-        const learnedRoutes = router.config.rip.learnedRoutes || [];
+        const rip = router.config.rip;
+        const ripNetworks = rip.networks || [];
+        const learnedRoutes = rip.learnedRoutes || [];
         const advertisements = buildRipAdvertisements(ifaces, ripNetworks, learnedRoutes);
-        const passiveInterfaces = router.config.rip.passiveInterfaces || [];
+        const passiveInterfaces = rip.passiveInterfaces || [];
         for (const iface of ifaces) {
           if (!iface.peer || !iface.config?.ipv4Address) continue;
           if (passiveInterfaces.includes(iface.name)) continue;

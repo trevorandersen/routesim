@@ -236,7 +236,7 @@ export function processAtComputer(device: Device, frame: EthernetFrame, fromDevi
         logStep(device, "sim-arp", `Received ARP Request for ${arp.targetIp} — sending ARP Reply`);
 
         // Send ARP reply back
-        const reply = createArpReply(config.macAddress, config.ipv4Address, arp.senderMac, arp.senderIp, frame.vlanTag);
+        const reply = createArpReply(config.macAddress || "", config.ipv4Address || "", arp.senderMac, arp.senderIp, frame.vlanTag);
         if (fromDeviceId) outgoing.push({ frame: reply, toDeviceId: fromDeviceId });
       } else {
         logStep(device, "sim-arp", `Received ARP Request for ${arp.targetIp} — not our IP, ignoring`);
@@ -267,8 +267,8 @@ export function processAtComputer(device: Device, frame: EthernetFrame, fromDevi
         // ICMP Echo Request — send reply
         logStep(device, "sim-icmp", `Received ICMP Echo Request from ${ipv4.srcIp} — sending Reply`);
         const reply = createIcmpEchoReply(
-          config.macAddress, frame.srcMac,
-          config.ipv4Address, ipv4.srcIp,
+          config.macAddress || "", frame.srcMac,
+          config.ipv4Address || "", ipv4.srcIp,
           64, frame.vlanTag, ipv4.payload.sequence
         );
         if (fromDeviceId) outgoing.push({ frame: reply, toDeviceId: fromDeviceId });
@@ -586,7 +586,7 @@ function routeIpv4Frame(device: Device, frame: EthernetFrame, ifaces: any[], ing
   // Check if it's for the router itself (e.g., ping the router's interface IP)
   const selfIface = ifaces.find((iface: any) => iface.ipv4Address === ipv4.dstIp);
   if (selfIface) {
-    if (ipv4.payload.icmpType === 8) {
+    if (ipv4.payload.type === "icmp" && ipv4.payload.icmpType === 8) {
       logStep(device, "sim-icmp", `Received ICMP Echo Request for self (${ipv4.dstIp}) — sending Reply`);
       const reply = createIcmpEchoReply(
         ingressIface.macAddress, frame.srcMac,
@@ -909,6 +909,8 @@ function applyRipUpdates(
 ): { changed: boolean; exchanged: number } {
   let changed = false;
   let exchanged = 0;
+  // Caller only invokes this for RIP-enabled neighbors, so rip is present.
+  const neighborRip = neighbor.config.rip!;
 
   for (const ad of advertisements) {
     // Split horizon: don't re-advertise a route back toward the interface it was learned from
@@ -916,7 +918,7 @@ function applyRipUpdates(
     if (ad.metric > 15) continue; // unreachable
 
     // Check if neighbor already knows this route with equal or better metric
-    const existingRoutes: any[] = neighbor.config.rip.learnedRoutes || [];
+    const existingRoutes: any[] = neighborRip.learnedRoutes || [];
     const existing = existingRoutes.find((r: any) => r.network === ad.network);
 
     if (existing) {
@@ -937,8 +939,8 @@ function applyRipUpdates(
       });
       if (neighborConnected) continue;
 
-      if (!neighbor.config.rip.learnedRoutes) neighbor.config.rip.learnedRoutes = [];
-      neighbor.config.rip.learnedRoutes.push({
+      if (!neighborRip.learnedRoutes) neighborRip.learnedRoutes = [];
+      neighborRip.learnedRoutes.push({
         network: ad.network,
         nextHop: egressIfaceIp,
         interface: neighborIface.name,
@@ -979,12 +981,13 @@ export function runRipConvergence(): { iterations: number; routesExchanged: numb
 
     for (const router of ripRouters) {
       const ifaces = ifacesFor(router);
-      const ripNetworks: string[] = router.config.rip.networks || [];
-      const learnedRoutes = router.config.rip.learnedRoutes || [];
+      const rip = router.config.rip!;  // ripRouters filter guarantees rip.enabled
+      const ripNetworks: string[] = rip.networks || [];
+      const learnedRoutes = rip.learnedRoutes || [];
       const advertisements = buildRipAdvertisements(ifaces, ripNetworks, learnedRoutes);
 
       // Send advertisements to each RIP-enabled neighbor
-      const passiveInterfaces: string[] = router.config.rip.passiveInterfaces || [];
+      const passiveInterfaces: string[] = rip.passiveInterfaces || [];
       for (const iface of ifaces) {
         if (!iface.peer || !iface.config?.ipv4Address) continue;
         if (passiveInterfaces.includes(iface.name)) continue;

@@ -805,6 +805,72 @@
       font-weight: 600;
     }
 
+    .port-row select {
+      flex: 0 0 auto;
+      height: 26px;
+      border-radius: 6px;
+      border: 1px solid var(--line);
+      background: var(--panel);
+      color: var(--text);
+      font-size: 11px;
+      font-weight: 700;
+      padding: 0 4px;
+      cursor: pointer;
+      outline: none;
+    }
+    .port-row select:focus {
+      border-color: var(--accent);
+    }
+    .port-mode-select { max-width: 76px; }
+    .port-vlan-select, .port-native-select { max-width: 96px; }
+
+    .vlan-list {
+      display: flex;
+      flex-wrap: wrap;
+      align-items: center;
+      gap: 6px;
+      margin: 2px 0 4px;
+    }
+    .vlan-chip {
+      display: inline-flex;
+      align-items: center;
+      gap: 4px;
+      padding: 3px 8px;
+      border-radius: 999px;
+      border: 1px solid var(--line);
+      background: var(--panel-soft);
+      color: var(--text);
+      font-size: 11px;
+      font-weight: 700;
+    }
+    .vlan-remove {
+      border: none;
+      background: none;
+      color: var(--muted);
+      cursor: pointer;
+      font-size: 14px;
+      line-height: 1;
+      padding: 0 0 0 2px;
+    }
+    .vlan-remove:hover { color: var(--danger); }
+    .vlan-add {
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+    }
+    .vlan-add input {
+      width: 92px;
+      height: 30px;
+      border-radius: 8px;
+      border: 1px solid var(--line);
+      padding: 0 8px;
+      color: var(--text);
+      background: var(--panel-soft);
+      outline: none;
+    }
+    .vlan-add input:focus { border-color: var(--accent); }
+    .vlan-add .inline-button { height: 30px; }
+
     .data-table {
       width: 100%;
       margin: 2px 0 13px;

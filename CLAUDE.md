@@ -6,7 +6,7 @@ Interactive network topology simulator. Canvas-based editor with discrete frame-
 
 RouteSim is a teaching tool: it makes the invisible parts of a network visible by simulating real Ethernet frames (ARP, ICMP, DHCP) and watching them hop through switches and routers. Design decisions follow from a few principles:
 
-- **Zero-install, single file.** The whole app builds to portable single-file HTML (`rs-main.html` / `rs-web.html`) that runs offline by opening it in a browser — no server, no bundled assets, no runtime network requests beyond fetching `config.json`.
+- **Zero-install, single file.** The whole app builds to portable single-file HTML that runs offline by opening it in a browser. `rs-web.html` embeds `config.json` too, so it makes zero runtime requests; `rs-main.html` fetches `config.json` at runtime (it reads/writes that file locally).
 - **Minimal toolchain.** Only two binaries: `esbuild` (bundle) and `bun` (run, test, serve, inline). No Node.js, no npm, no `package.json`, no `node_modules`, no Python. Hard constraint — see Build.
 - **Faithful to the protocols.** Simulated behaviour should match how real ARP, switching, routing, RIP, and DHCP work — down to frame fields and the order of operations. Correctness over shortcuts.
 - **Typed, tested, and small.** Prefer concrete types over `any`, keep per-device handlers focused, and cover new behaviour with tests.
@@ -28,12 +28,14 @@ The project uses only two tools: `esbuild` (bundler) and `bun` (runtime, test ru
 
 | Output | `__BUILD_READONLY__` | config.json | Use |
 |--------|----------------------|-------------|-----|
-| `rs-main.html` | `false` | read **and** write | Local use (full editor) |
-| `rs-web.html` | `true` | read only (Save button hidden) | Hosting on a web server |
+| `rs-main.html` | `false` | fetched at runtime; read **and** write | Local use (full editor) |
+| `rs-web.html` | `true` | **embedded** at build time; read only (Save hidden) | Self-contained one-file web host |
 
-`src/env.ts` exports `READONLY`, which defaults to `false` in dev/test (bun runs the TS directly, without the `--define`). Guard any write-only capability behind `READONLY` and hide its UI in `setupUI()` — see `saveConfig()` in `config.ts` and the Save button wiring in `ui.ts`. To add a variant, add one `build_variant <flag> <output>` line in `build.sh`.
+`src/env.ts` exports `READONLY`, which defaults to `false` in dev/test (bun runs the TS directly, without the `--define`). Guard any write-only capability behind `READONLY` and hide its UI in `setupUI()` — see `saveConfig()` in `config.ts` and the Save button wiring in `ui.ts`. To add a variant, add one `build_variant <flag> <output> [extra build-inline args]` line in `build.sh`.
 
-**`build-inline.ts` gotcha:** it inserts CSS/JS via `String.replace` **replacer functions**, not string replacements — a string replacement would interpret `` $` ``/`$'`/`$&`/`$$` in the bundle as special patterns and corrupt the output.
+**Embedded config (web variant):** `build.sh` passes `--embed-config` to `build-inline.ts` for `rs-web.html`, which inlines `config.json` into a `<script id="embeddedConfig" type="application/json">` block (the `{{CONFIG}}` slot in `template.html`; left empty for `rs-main.html`). At startup `refreshConfigStore()` (config.ts) calls `readEmbeddedConfigStore()` and uses the embedded store if present, otherwise falls back to `fetch("./config.json")`. So `rs-web.html` is a true single file — no runtime requests.
+
+**`build-inline.ts` gotcha:** it inserts CSS/JS/config via `String.replace` **replacer functions**, not string replacements — a string replacement would interpret `` $` ``/`$'`/`$&`/`$$` in the inserted content as special patterns and corrupt the output.
 
 **Do not introduce any other tooling or runtime dependencies.** No `npm`, no `package.json`, no `node_modules`, no Node.js, no Python. The entire toolchain is `esbuild` (single binary) + `bun` (single binary). This constraint is intentional and must be preserved.
 
@@ -113,7 +115,7 @@ Both are wired in `app.ts` at startup.
 | `inspector.ts` | Right panel. Device selection shows config fields; link selection shows frame history (color-coded ARP/ICMP entries with step numbers). |
 | `devices.ts` | CRUD, hit testing (`findDeviceAt`, `findLinkAt`), port/interface enumeration, LAN collapse/expand (groups devices into a single node). |
 | `normalise.ts` | Defensive normalisation for all config shapes. `normaliseRouterInterfaces` auto-generates deterministic MACs (`02:RR:00:00:II:01`). |
-| `config.ts` | Persistence via File System Access API. Falls back to download. Config store holds named topologies in a single `config.json`. `saveConfig()` is a no-op in read-only builds (`READONLY`). |
+| `config.ts` | Persistence via File System Access API. Falls back to download. Config store holds named topologies in a single `config.json`. `refreshConfigStore()` prefers an embedded store (`readEmbeddedConfigStore()`) before fetching. `saveConfig()` is a no-op in read-only builds (`READONLY`). |
 | `env.ts` | Build-time flags. Exports `READONLY` from the `__BUILD_READONLY__` esbuild define; defaults to `false` in dev/test. |
 | `test-server.ts` | Dev server (Bun). Serves static files (`/` → `rs-main.html`) + `/api/tests` (list test suites) + `/api/run` (execute `bun test` with optional file/pattern filters). Powers `test.html` and `benchmark.html`. |
 | `build-inline.ts` | Inlines CSS + bundled JS into `template.html` → named output file. Uses replacer functions to avoid `$`-pattern corruption. Called by `build.sh` per variant. |

@@ -210,18 +210,22 @@ export function setupUI(): void {
       undo();
       return;
     }
-    if (["INPUT", "SELECT", "TEXTAREA"].includes((event.target as HTMLElement)?.tagName)) return;
-    if (event.key === "Delete" || event.key === "Backspace") deleteSelection();
+    // Escape is handled before the input guard so it also works while a field
+    // is focused (it blurs the field and reverts to the select tool).
     if (event.key === "Escape") {
       if (state.portSelection) {
         cancelPortSelection();
         return;
       }
+      (document.activeElement as HTMLElement)?.blur?.();
       state.configuringId = null;
       state.linkStartId = null;
       state.selectedLinkId = null;
       setTool("select");
+      return;
     }
+    if (["INPUT", "SELECT", "TEXTAREA"].includes((event.target as HTMLElement)?.tagName)) return;
+    if (event.key === "Delete" || event.key === "Backspace") deleteSelection();
     if (event.key.toLowerCase() === "v") setTool("select");
     if (event.key.toLowerCase() === "c") setTool("computer");
     if (event.key.toLowerCase() === "s") setTool("switch");

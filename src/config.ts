@@ -141,9 +141,25 @@ export function suggestedConfigName(): string {
   return `${base}-${index}`;
 }
 
+export function readEmbeddedConfigStore(): any | null {
+  const text = document.getElementById("embeddedConfig")?.textContent?.trim();
+  if (!text) return null;
+  try {
+    return normaliseConfigStore(JSON.parse(text));
+  } catch {
+    return null;
+  }
+}
+
 export async function refreshConfigStore(pickIfNeeded = false): Promise<void> {
   if (state.configFileHandle) {
     await readConfigStoreFromHandle();
+    return;
+  }
+
+  const embedded = readEmbeddedConfigStore();
+  if (embedded) {
+    state.configStore = embedded;
     return;
   }
 

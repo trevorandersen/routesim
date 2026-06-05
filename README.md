@@ -4,8 +4,8 @@ A portable, single-file network topology simulator. Build a network of PCs, swit
 
 The app builds into self-contained single-file HTML variants — no server, no runtime dependencies, just open the file in a browser:
 
-- **`rs-main.html`** — for local use; can read **and** write `config.json`.
-- **`rs-web.html`** — for hosting read-only on a web server; reads `config.json` but the Save action is removed.
+- **`rs-main.html`** — for local use; fetches `config.json` at runtime and can read **and** write it.
+- **`rs-web.html`** — for hosting read-only on a web server; `config.json` is **embedded at build time**, so it's a true single file with no runtime requests, and the Save action is removed.
 
 ## Quick start
 
@@ -59,10 +59,10 @@ routesim/
 The build uses only esbuild + bun (no Node.js, npm, or Python). For each variant:
 
 1. **esbuild** bundles all TypeScript modules in `src/` into a single IIFE (`.bundle.js`), injecting the build flag `__BUILD_READONLY__` via `--define`
-2. **`bun build-inline.ts <output>`** reads `template.html` and inlines the CSS from `styles.css` and the JS bundle, writing the named output file
+2. **`bun build-inline.ts <output> [--embed-config]`** reads `template.html` and inlines the CSS from `styles.css` and the JS bundle (and, with `--embed-config`, the contents of `config.json`), writing the named output file
 3. The temporary `.bundle.js` is deleted
 
-`build.sh` runs this twice — `__BUILD_READONLY__=false` → `rs-main.html`, `__BUILD_READONLY__=true` → `rs-web.html`. The read-only flag defaults to `false` in dev/test (where bun runs the TypeScript directly), so the Save action is only stripped in `rs-web.html`. Each result is a single HTML file with everything inlined — styles in a `<style>` tag, script in a `<script>` tag.
+`build.sh` runs this twice — `__BUILD_READONLY__=false` → `rs-main.html`, and `__BUILD_READONLY__=true --embed-config` → `rs-web.html`. The read-only flag defaults to `false` in dev/test (where bun runs the TypeScript directly), so the Save action is only stripped in `rs-web.html`. The web variant also embeds `config.json` into an inert `<script type="application/json">` block, which the app reads before falling back to a runtime `fetch` — making `rs-web.html` a true single file. Each result has everything inlined — styles in a `<style>` tag, script in a `<script>` tag.
 
 ## Module architecture
 

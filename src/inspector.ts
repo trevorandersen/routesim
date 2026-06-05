@@ -1,13 +1,16 @@
 import { state, sync, pushUndo, captureUndoOnFocus } from "./state";
 import { dom } from "./dom";
 import { escapeHtml, isValidIpv4, isValidMac, normaliseMacAddress } from "./utils";
-import { defaultDeviceConfig } from "./normalise";
+import { defaultDeviceConfig, normaliseVlans } from "./normalise";
 import {
   getDevice, isVisibleDevice, connectedIds, linkedPortsFor,
   routerInterfacesWithNames, routerInterfaceFor, switchInterfacesWithNames,
   deleteSelection, collapseLan, expandLan, configureDevice
 } from "./devices";
-import { openTerminalFor, syncTerminal } from "./terminal";
+import {
+  openTerminalFor, syncTerminal,
+  addSwitchVlan, removeSwitchVlan, setSwitchPortVlan, setSwitchPortMode, setSwitchTrunkNative
+} from "./terminal";
 import { resizeCanvas } from "./canvas";
 import { frameLabel } from "./frame";
 
@@ -68,6 +71,34 @@ function randomMac(): string {
   return Array.from(bytes, b => b.toString(16).padStart(2, "0").toUpperCase()).join(":");
 }
 
+function vlanOptions(device: any, current: number): string {
+  const vlans = normaliseVlans(device.config?.vlans || []);
+  if (!vlans.some((v: any) => v.id === current)) vlans.push({ id: current, name: current === 1 ? "default" : `Vlan${current}` });
+  return vlans
+    .sort((a: any, b: any) => a.id - b.id)
+    .map((v: any) => `<option value="${v.id}" ${v.id === current ? "selected" : ""}>VLAN ${v.id}</option>`)
+    .join("");
+}
+
+export function renderSwitchVlans(device: any): string {
+  const vlans = normaliseVlans(device.config?.vlans || []);
+  const chips = vlans.map((v: any) => `
+    <span class="vlan-chip">
+      ${v.id} ${escapeHtml(v.name)}
+      ${v.id !== 1 ? `<button class="vlan-remove" data-vlan="${v.id}" type="button" title="Remove VLAN ${v.id}" aria-label="Remove VLAN ${v.id}">&times;</button>` : ""}
+    </span>
+  `).join("");
+  return `
+    <div class="vlan-list">
+      ${chips}
+      <span class="vlan-add">
+        <input id="addVlanId" type="number" min="2" max="4094" step="1" placeholder="VLAN ID" autocomplete="off">
+        <button class="inline-button" id="addVlanBtn" type="button">Add</button>
+      </span>
+    </div>
+  `;
+}
+
 export function renderSwitchPorts(device: any): string {
   const interfaces = switchInterfacesWithNames(device);
   const isManaged = Boolean(device.config?.managed);
@@ -80,15 +111,19 @@ export function renderSwitchPorts(device: any): string {
         <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M18 6 6 18"></path><path d="m6 6 12 12"></path></svg>
       </button>
     ` : `<span></span>`;
-    const modeInfo = isManaged ? (
-      iface.mode === "trunk"
-        ? `<span class="port-mode trunk">trunk</span><span class="port-vlan">native ${iface.nativeVlan}</span>`
-        : `<span class="port-mode">access</span><span class="port-vlan">VLAN ${iface.vlan}</span>`
-    ) : "";
+    const modeControl = isManaged ? `
+      <select class="port-mode-select" data-port="${escapeHtml(iface.name)}" title="Port mode">
+        <option value="access" ${iface.mode === "trunk" ? "" : "selected"}>access</option>
+        <option value="trunk" ${iface.mode === "trunk" ? "selected" : ""}>trunk</option>
+      </select>
+      ${iface.mode === "trunk"
+        ? `<select class="port-native-select" data-port="${escapeHtml(iface.name)}" title="Native VLAN">${vlanOptions(device, iface.nativeVlan)}</select>`
+        : `<select class="port-vlan-select" data-port="${escapeHtml(iface.name)}" title="Access VLAN">${vlanOptions(device, iface.vlan)}</select>`}
+    ` : "";
     return `
       <div class="port-row">
         <span class="port-id">eth${index + 1}</span>
-        ${modeInfo}
+        ${modeControl}
         <span class="port-peer ${peer ? "" : "empty"}">${escapeHtml(peer?.name || "Empty")}</span>
         ${removeButton}
       </div>
@@ -167,6 +202,44 @@ export function bindPortRemoveButtons(): void {
   });
 }
 
+// Wires the managed-switch VLAN/mode controls. Each handler delegates to the
+// terminal mutators, which validate, pushUndo(), and sync().syncPanel() —
+// re-rendering the panel (so no manual rebind is needed afterwards).
+export function bindSwitchPortControls(device: any): void {
+  document.querySelectorAll(".port-mode-select").forEach(el => {
+    el.addEventListener("change", (event: any) => {
+      setSwitchPortMode(device, event.target.dataset.port, event.target.value);
+    });
+  });
+  document.querySelectorAll(".port-vlan-select").forEach(el => {
+    el.addEventListener("change", (event: any) => {
+      setSwitchPortVlan(device, event.target.dataset.port, event.target.value);
+    });
+  });
+  document.querySelectorAll(".port-native-select").forEach(el => {
+    el.addEventListener("change", (event: any) => {
+      setSwitchTrunkNative(device, event.target.dataset.port, event.target.value);
+    });
+  });
+  const addVlanBtn = document.getElementById("addVlanBtn");
+  const addVlanId = document.getElementById("addVlanId") as HTMLInputElement;
+  if (addVlanBtn && addVlanId) {
+    const add = () => {
+      if (!addVlanId.value.trim()) return;
+      addSwitchVlan(device, addVlanId.value);
+    };
+    addVlanBtn.addEventListener("click", add);
+    addVlanId.addEventListener("keydown", (event: any) => {
+      if (event.key === "Enter") { event.preventDefault(); add(); }
+    });
+  }
+  document.querySelectorAll(".vlan-remove").forEach(el => {
+    el.addEventListener("click", (event: any) => {
+      removeSwitchVlan(device, event.target.dataset.vlan);
+    });
+  });
+}
+
 export function syncPanel(): void {
   dom.deviceCount.textContent = String(state.devices.filter(isVisibleDevice).length);
   dom.linkCount.textContent = String(state.links.filter(link => !link.hidden).length);
@@ -225,7 +298,7 @@ export function syncPanel(): void {
   } else {
     const neighbors = connectedIds(selected.id).map((id: string) => getDevice(id)).filter(isVisibleDevice);
     const selectedType = selected.type === "computer" ? "Computer" : selected.type === "router" ? "Router" : selected.type === "lan" ? "LAN" : "Switch";
-    const pcConfigFields = isConfiguring && selected.type === "computer" ? `
+    const pcConfigFields = selected.type === "computer" ? `
       <div class="field">
         <label for="selectedIpv4">IPv4 address</label>
         <div class="input-with-button">
@@ -257,7 +330,7 @@ export function syncPanel(): void {
         ${renderArpTable(selected)}
       </div>
     ` : "";
-    const switchConfigFields = isConfiguring && selected.type === "switch" ? `
+    const switchConfigFields = selected.type === "switch" ? `
       <div class="field">
         <label for="selectedManaged">Managed switch</label>
         <input id="selectedManaged" type="checkbox" ${selected.config?.managed ? "checked" : ""}>
@@ -266,6 +339,14 @@ export function syncPanel(): void {
         <label for="selectedPorts">Ethernet ports</label>
         <input id="selectedPorts" type="number" min="4" max="24" step="1" value="${escapeHtml(selected.config?.ethernetPorts || 8)}">
       </div>
+      ${selected.config?.managed ? `
+      <div class="field">
+        <label>VLANs</label>
+        <div id="switchVlanList">
+          ${renderSwitchVlans(selected)}
+        </div>
+      </div>
+      ` : ""}
       <div class="field">
         <label>Ports</label>
         <div class="port-list" id="switchPortList">
@@ -277,7 +358,7 @@ export function syncPanel(): void {
         ${renderMacAddressTable(selected)}
       </div>
     ` : "";
-    const routerConfigFields = isConfiguring && selected.type === "router" ? `
+    const routerConfigFields = selected.type === "router" ? `
       <div class="field">
         <label for="selectedRouterEthernetPorts">Ethernet ports</label>
         <input id="selectedRouterEthernetPorts" type="number" min="0" max="12" step="1" value="${escapeHtml(selected.config?.ethernetPorts ?? 4)}">
@@ -452,6 +533,7 @@ export function syncPanel(): void {
           selected.config.ethernetPorts = value;
           document.getElementById("switchPortList")!.innerHTML = renderSwitchPorts(selected);
           bindPortRemoveButtons();
+          bindSwitchPortControls(selected);
         }
       });
     }
@@ -491,6 +573,7 @@ export function syncPanel(): void {
       });
     });
     bindPortRemoveButtons();
+    bindSwitchPortControls(selected);
     const terminalButton = document.getElementById("openSelectedTerminal");
     if (terminalButton) terminalButton.addEventListener("click", () => openTerminalFor(selected));
     const powerButton = document.getElementById("togglePower");

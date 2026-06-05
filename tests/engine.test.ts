@@ -307,6 +307,55 @@ describe("processAtRouter", () => {
   });
 });
 
+describe("processAtRouter — self-destined frames", () => {
+  beforeEach(() => resetState());
+
+  it("replies to an ICMP echo request for its own interface IP", () => {
+    const topo = routedTopology();
+    state.devices = topo.devices as any;
+    state.links = topo.links as any;
+    const rtr = state.devices.find(d => d.id === "rtr")!;
+    const frame = createIcmpEchoRequest(
+      "02:00:00:00:10:10", "02:01:00:00:01:01",
+      "192.168.10.10", "192.168.10.1", 64
+    );
+    const outgoing = processAtRouter(rtr, frame, "sw-a");
+    const reply = outgoing.find(o =>
+      o.frame.payload.type === "ipv4" &&
+      (o.frame.payload as any).payload.type === "icmp" &&
+      (o.frame.payload as any).payload.icmpType === 0
+    );
+    expect(reply).toBeDefined();
+  });
+
+  it("does NOT treat a DHCP packet destined to its interface IP as an ICMP self-ping", () => {
+    // Regression for the payload-type narrowing fix: routeIpv4Frame's self-IP
+    // branch must check payload.type === "icmp" before reading icmpType.
+    const topo = routedTopology();
+    state.devices = topo.devices as any;
+    state.links = topo.links as any;
+    const rtr = state.devices.find(d => d.id === "rtr")!;
+    const dhcpToRouter: any = {
+      id: "dhcp-unicast",
+      srcMac: "02:00:00:00:10:10",
+      dstMac: "02:01:00:00:01:01",
+      etherType: 0x0800,
+      vlanTag: null,
+      payload: {
+        type: "ipv4", srcIp: "192.168.10.10", dstIp: "192.168.10.1", ttl: 64, protocol: 17,
+        payload: { type: "dhcp", messageType: "request", transactionId: "t1",
+          clientMac: "02:00:00:00:10:10", requestedIp: "192.168.10.50", serverIp: "192.168.10.1" },
+      },
+    };
+    const outgoing = processAtRouter(rtr, dhcpToRouter, "sw-a");
+    const icmpReply = outgoing.some(o =>
+      o.frame.payload.type === "ipv4" &&
+      (o.frame.payload as any).payload.type === "icmp"
+    );
+    expect(icmpReply).toBe(false);
+  });
+});
+
 describe("processAtRouter — sub-interfaces (VLAN)", () => {
   beforeEach(() => resetState());
 

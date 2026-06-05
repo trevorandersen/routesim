@@ -3,7 +3,7 @@ import {
   normaliseArpTable, normaliseMacTable, normaliseVlans,
   normalisePortVlans, normalisePortModes, normaliseTrunkAllowedVlans,
   normaliseRouterInterfaces, normaliseDeviceConfig, normaliseConfig,
-  defaultDeviceConfig, normaliseConfigName, deviceSize,
+  defaultDeviceConfig, normaliseConfigName, deviceSize, ensureConfig,
 } from "../src/normalise";
 
 // ── ARP table ─────────────────────────────────────────────────────────────────
@@ -346,5 +346,23 @@ describe("normaliseConfigName", () => {
 
   it("returns empty string for null", () => {
     expect(normaliseConfigName(null as any)).toBe("");
+  });
+});
+
+describe("ensureConfig", () => {
+  it("creates the type-appropriate default when config is absent", () => {
+    for (const type of ["computer", "switch", "router", "lan"] as const) {
+      const device = { id: "d", type, name: "D", x: 0, y: 0, width: 0, height: 0, config: undefined } as any;
+      ensureConfig(device);
+      expect(device.config).toEqual(defaultDeviceConfig(type));
+    }
+  });
+
+  it("is idempotent — does not overwrite an existing config", () => {
+    const device = { id: "d", type: "computer", name: "D", x: 0, y: 0, width: 0, height: 0,
+      config: { ipv4Address: "10.0.0.1", gatewayIpv4Address: "", macAddress: "", arpTable: [] } } as any;
+    const same = ensureConfig(device);
+    expect(same).toBe(device.config);
+    expect(device.config.ipv4Address).toBe("10.0.0.1");
   });
 });

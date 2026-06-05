@@ -1,6 +1,6 @@
 import { describe, it, expect, beforeAll, beforeEach } from "bun:test";
 import { state } from "../src/state";
-import { addDevice, addLink, deleteSelection, findDeviceAt, getDevice } from "../src/devices";
+import { addDevice, addLink, deleteSelection, clearNetwork, findDeviceAt, getDevice, connectedIds, linkedPortsFor } from "../src/devices";
 import { registerNoopCallbacks, resetState } from "./helpers";
 
 beforeAll(() => {
@@ -122,6 +122,83 @@ describe("getDevice", () => {
 
   it("returns undefined for null ID", () => {
     expect(getDevice(null)).toBeUndefined();
+  });
+});
+
+describe("connectedIds", () => {
+  beforeEach(() => resetState());
+
+  it("returns the peers a device is linked to", () => {
+    const sw = addDevice("switch", 0, 0);
+    const pc1 = addDevice("computer", 100, 0);
+    const pc2 = addDevice("computer", 200, 0);
+    addLink(sw.id, pc1.id);
+    addLink(sw.id, pc2.id);
+    expect(connectedIds(sw.id).sort()).toEqual([pc1.id, pc2.id].sort());
+    expect(connectedIds(pc1.id)).toEqual([sw.id]);
+  });
+
+  it("excludes hidden links", () => {
+    const sw = addDevice("switch", 0, 0);
+    const pc = addDevice("computer", 100, 0);
+    addLink(sw.id, pc.id);
+    state.links[0].hidden = true;
+    expect(connectedIds(sw.id)).toEqual([]);
+  });
+});
+
+describe("linkedPortsFor", () => {
+  beforeEach(() => resetState());
+
+  it("assigns implicit ports in link order", () => {
+    const sw = addDevice("switch", 0, 0);
+    const pc1 = addDevice("computer", 100, 0);
+    const pc2 = addDevice("computer", 200, 0);
+    addLink(sw.id, pc1.id);
+    addLink(sw.id, pc2.id);
+    const ports = linkedPortsFor(sw.id);
+    expect(ports[0].peer.id).toBe(pc1.id);
+    expect(ports[1].peer.id).toBe(pc2.id);
+  });
+
+  it("places an explicit port at its index", () => {
+    const sw = addDevice("switch", 0, 0);
+    const pc = addDevice("computer", 100, 0);
+    addLink(sw.id, pc.id, 4, 1); // fromPort 4 → index 3
+    const ports = linkedPortsFor(sw.id);
+    expect(ports[3].peer.id).toBe(pc.id);
+  });
+});
+
+// The lazy device/link indexes (deviceIndex / linksFor) rebuild on an array
+// identity+length change. These exercise that invalidation across mutations.
+describe("index invalidation", () => {
+  beforeEach(() => resetState());
+
+  it("getDevice reflects add → delete → clear → add", () => {
+    const a = addDevice("computer", 0, 0);
+    expect(getDevice(a.id)).toBeDefined();           // built from a push
+    const b = addDevice("computer", 100, 0);
+    expect(getDevice(b.id)).toBeDefined();            // length changed → rebuilt
+    state.selectedId = b.id;
+    deleteSelection();                                // reassigns state.devices
+    expect(getDevice(b.id)).toBeUndefined();
+    expect(getDevice(a.id)).toBeDefined();
+    clearNetwork();                                   // reassigns to []
+    expect(getDevice(a.id)).toBeUndefined();
+    const c = addDevice("router", 0, 0);              // new array, same length as before clear
+    expect(getDevice(c.id)).toBeDefined();
+  });
+
+  it("link adjacency reflects addLink then deleteSelection", () => {
+    const sw = addDevice("switch", 0, 0);
+    const pc = addDevice("computer", 100, 0);
+    addLink(sw.id, pc.id);
+    expect(linkedPortsFor(sw.id)).toHaveLength(1);    // adjacency built
+    state.selectedId = pc.id;
+    deleteSelection();                                // removes pc and its link
+    expect(connectedIds(sw.id)).toEqual([]);          // adjacency rebuilt
+    expect(linkedPortsFor(sw.id)).toHaveLength(0);
   });
 });
 

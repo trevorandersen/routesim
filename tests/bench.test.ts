@@ -10,6 +10,7 @@
 import { describe, it, expect, beforeAll, beforeEach } from "bun:test";
 import { state } from "../src/state";
 import { getDevice, linkedPortsFor, connectedIds } from "../src/devices";
+import { l2Reachable } from "../src/simulation";
 import { processAtSwitch, processAtRouter, buildRoutingTable, runRipConvergence } from "../src/engine";
 import { createArpRequest, createArpReply, createIcmpEchoRequest, BROADCAST_MAC } from "../src/frame";
 import { registerNoopCallbacks, resetState } from "./helpers";
@@ -144,6 +145,38 @@ describe("bench: connectedIds", () => {
     results.push(bench("connectedIds — 50-link topo", () => {
       connectedIds("sw-0");
     }, { budget: 100 }));
+    expect(results[results.length - 1].passed).toBe(true);
+  });
+
+  it("prints results", () => {
+    if (results.length) printResults(results);
+  });
+});
+
+// ── 2c. L2 reachability (BFS over the link index) ───────────────────────────
+
+describe("bench: l2Reachable", () => {
+  const results: BenchResult[] = [];
+
+  beforeEach(() => resetState());
+
+  it("l2Reachable — 20 hosts on a segment", () => {
+    const topo = smallLinear(20);
+    state.devices = topo.devices as any;
+    state.links = topo.links as any;
+    results.push(bench("l2Reachable — 20-host segment", () => {
+      l2Reachable("pc-0", "pc-19", null);
+    }, { budget: 60 }));
+    expect(results[results.length - 1].passed).toBe(true);
+  });
+
+  it("l2Reachable — 50 hosts on a segment", () => {
+    const topo = smallLinear(50);
+    state.devices = topo.devices as any;
+    state.links = topo.links as any;
+    results.push(bench("l2Reachable — 50-host segment", () => {
+      l2Reachable("pc-0", "pc-49", null);
+    }, { budget: 150 }));
     expect(results[results.length - 1].passed).toBe(true);
   });
 

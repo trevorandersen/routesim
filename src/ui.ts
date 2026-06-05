@@ -54,6 +54,37 @@ export function bindOptionToggle(input: HTMLInputElement, optionKey: string): vo
   });
 }
 
+// Global keyboard shortcuts. Extracted from setupUI() so it can be unit-tested.
+export function handleGlobalKeydown(event: KeyboardEvent): void {
+  if ((event.metaKey || event.ctrlKey) && event.key.toLowerCase() === "z") {
+    event.preventDefault();
+    undo();
+    return;
+  }
+  // Escape is handled before the input guard so it also works while a field
+  // is focused (it blurs the field and reverts to the select tool).
+  if (event.key === "Escape") {
+    if (state.portSelection) {
+      cancelPortSelection();
+      return;
+    }
+    (document.activeElement as HTMLElement)?.blur?.();
+    state.configuringId = null;
+    state.linkStartId = null;
+    state.selectedLinkId = null;
+    setTool("select");
+    return;
+  }
+  if (["INPUT", "SELECT", "TEXTAREA"].includes((event.target as HTMLElement)?.tagName)) return;
+  if (event.key === "Delete" || event.key === "Backspace") deleteSelection();
+  if (event.key.toLowerCase() === "v") setTool("select");
+  if (event.key.toLowerCase() === "c") setTool("computer");
+  if (event.key.toLowerCase() === "s") setTool("switch");
+  if (event.key.toLowerCase() === "r") setTool("router");
+  if (event.key.toLowerCase() === "l") setTool("connect");
+  if (event.key.toLowerCase() === "w") setTool("configure");
+}
+
 export function setupUI(): void {
   dom.toolButtons.forEach(button => {
     button.addEventListener("click", () => setTool((button as HTMLElement).dataset.tool!));
@@ -206,35 +237,7 @@ export function setupUI(): void {
     setZoom(state.scale * factor, pointer);
   }, { passive: false });
 
-  window.addEventListener("keydown", (event: KeyboardEvent) => {
-    if ((event.metaKey || event.ctrlKey) && event.key.toLowerCase() === "z") {
-      event.preventDefault();
-      undo();
-      return;
-    }
-    // Escape is handled before the input guard so it also works while a field
-    // is focused (it blurs the field and reverts to the select tool).
-    if (event.key === "Escape") {
-      if (state.portSelection) {
-        cancelPortSelection();
-        return;
-      }
-      (document.activeElement as HTMLElement)?.blur?.();
-      state.configuringId = null;
-      state.linkStartId = null;
-      state.selectedLinkId = null;
-      setTool("select");
-      return;
-    }
-    if (["INPUT", "SELECT", "TEXTAREA"].includes((event.target as HTMLElement)?.tagName)) return;
-    if (event.key === "Delete" || event.key === "Backspace") deleteSelection();
-    if (event.key.toLowerCase() === "v") setTool("select");
-    if (event.key.toLowerCase() === "c") setTool("computer");
-    if (event.key.toLowerCase() === "s") setTool("switch");
-    if (event.key.toLowerCase() === "r") setTool("router");
-    if (event.key.toLowerCase() === "l") setTool("connect");
-    if (event.key.toLowerCase() === "w") setTool("configure");
-  });
+  window.addEventListener("keydown", handleGlobalKeydown);
 
   dom.loadButton.addEventListener("click", loadConfig);
   if (READONLY) {

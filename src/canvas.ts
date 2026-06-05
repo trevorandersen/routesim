@@ -374,6 +374,7 @@ export function roundRect(x: number, y: number, width: number, height: number, r
 }
 
 export function render(): void {
+  if (!ctx) return;  // no 2D context (e.g. headless/test) — nothing to draw
   const rect = canvas.getBoundingClientRect();
   ctx.clearRect(0, 0, rect.width, rect.height);
   ctx.save();

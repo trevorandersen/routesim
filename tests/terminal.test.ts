@@ -3,7 +3,7 @@ import { state } from "../src/state";
 import { showHostIp, showHostRoute, showHostArp, setHostIp, flushHostIp, setHostGateway } from "../src/terminal";
 import { showRouterInterfaceBrief, showRouterRoute, showRouterArp } from "../src/terminal";
 import { showSwitchInterfaces, showSwitchVlans, showSwitchMacTable } from "../src/terminal";
-import { addSwitchVlan, removeSwitchVlan, setSwitchPortVlan, setSwitchPortMode } from "../src/terminal";
+import { addSwitchVlan, removeSwitchVlan, setSwitchPortVlan, setSwitchPortMode, setSwitchTrunkNative, modifySwitchTrunkAllowed } from "../src/terminal";
 import { registerNoopCallbacks, resetState } from "./helpers";
 import { basicTopology, routedTopology, vlanTopology } from "./fixtures";
 
@@ -270,5 +270,53 @@ describe("setSwitchPortMode", () => {
     const sw = state.devices.find(d => d.id === "msw")!;
     setSwitchPortMode(sw, "Ethernet2", "trunk");
     expect(sw.config.portModes.Ethernet2).toBe("trunk");
+  });
+});
+
+function loadManagedSwitch() {
+  const topo = vlanTopology();
+  state.devices = topo.devices as any;
+  state.links = topo.links as any;
+  return state.devices.find(d => d.id === "msw")!;
+}
+
+describe("setSwitchTrunkNative", () => {
+  beforeEach(() => resetState());
+
+  it("sets the native VLAN on a trunk port", () => {
+    const sw = loadManagedSwitch();
+    setSwitchTrunkNative(sw, "Ethernet1", "99");
+    expect(sw.config.trunkNativeVlans.Ethernet1).toBe(99);
+  });
+
+  it("clears the entry when set back to VLAN 1", () => {
+    const sw = loadManagedSwitch();
+    setSwitchTrunkNative(sw, "Ethernet1", "99");
+    setSwitchTrunkNative(sw, "Ethernet1", "1");
+    expect(sw.config.trunkNativeVlans.Ethernet1).toBeUndefined();
+  });
+
+  it("rejects an unknown interface", () => {
+    const sw = loadManagedSwitch();
+    const result = setSwitchTrunkNative(sw, "Ethernet99", "10");
+    expect(result).toContain("Unknown interface");
+  });
+});
+
+describe("modifySwitchTrunkAllowed", () => {
+  beforeEach(() => resetState());
+
+  it("adds VLANs to the allowed list (sorted)", () => {
+    const sw = loadManagedSwitch();
+    modifySwitchTrunkAllowed(sw, "Ethernet1", "30", "add");
+    modifySwitchTrunkAllowed(sw, "Ethernet1", "20", "add");
+    expect(sw.config.trunkAllowedVlans.Ethernet1).toEqual([20, 30]);
+  });
+
+  it("removes a VLAN and prunes the empty entry", () => {
+    const sw = loadManagedSwitch();
+    modifySwitchTrunkAllowed(sw, "Ethernet1", "30", "add");
+    modifySwitchTrunkAllowed(sw, "Ethernet1", "30", "remove");
+    expect(sw.config.trunkAllowedVlans.Ethernet1).toBeUndefined();
   });
 });

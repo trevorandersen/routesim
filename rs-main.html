@@ -2098,8 +2098,17 @@
     if (!Number.isInteger(id) || id < 1 || id > 4094) return null;
     return id;
   }
+  var cssColorCache = /* @__PURE__ */ new Map();
   function cssColor(name) {
-    return getComputedStyle(document.documentElement).getPropertyValue(name).trim();
+    let value = cssColorCache.get(name);
+    if (value === void 0) {
+      value = getComputedStyle(document.documentElement).getPropertyValue(name).trim();
+      cssColorCache.set(name, value);
+    }
+    return value;
+  }
+  function clearCssColorCache() {
+    cssColorCache.clear();
   }
 
   // src/normalise.ts
@@ -2477,17 +2486,49 @@
     t = Math.max(0, Math.min(1, t));
     return Math.hypot(px - (ax + t * dx), py - (ay + t * dy));
   }
+  var _deviceIndex = /* @__PURE__ */ new Map();
+  var _deviceRef = null;
+  var _deviceLen = -1;
+  function deviceIndex() {
+    if (_deviceRef !== state.devices || _deviceLen !== state.devices.length) {
+      _deviceIndex = new Map(state.devices.map((device) => [device.id, device]));
+      _deviceRef = state.devices;
+      _deviceLen = state.devices.length;
+    }
+    return _deviceIndex;
+  }
+  var _linkAdjacency = /* @__PURE__ */ new Map();
+  var _linkRef = null;
+  var _linkLen = -1;
+  function linksFor(id) {
+    if (_linkRef !== state.links || _linkLen !== state.links.length) {
+      const adjacency = /* @__PURE__ */ new Map();
+      const add = (key, link) => {
+        const list = adjacency.get(key);
+        if (list) list.push(link);
+        else adjacency.set(key, [link]);
+      };
+      for (const link of state.links) {
+        add(link.from, link);
+        add(link.to, link);
+      }
+      _linkAdjacency = adjacency;
+      _linkRef = state.links;
+      _linkLen = state.links.length;
+    }
+    return _linkAdjacency.get(id) ?? [];
+  }
   function getDevice(id) {
-    return state.devices.find((device) => device.id === id);
+    return id == null ? void 0 : deviceIndex().get(id);
   }
   function isVisibleDevice(device) {
     return device && !device.hidden;
   }
   function connectedIds(id) {
-    return state.links.filter((link) => !link.hidden && (link.from === id || link.to === id)).map((link) => link.from === id ? link.to : link.from);
+    return linksFor(id).filter((link) => !link.hidden).map((link) => link.from === id ? link.to : link.from);
   }
   function linkedPortsFor(id) {
-    const entries = state.links.filter((link) => !link.hidden && (link.from === id || link.to === id)).map((link) => {
+    const entries = linksFor(id).filter((link) => !link.hidden).map((link) => {
       const isFrom = link.from === id;
       const portNum = isFrom ? link.fromPort : link.toPort;
       return {
@@ -3016,11 +3057,9 @@
 
   // src/simulation.ts
   function getVlanForDevice(deviceId) {
-    for (const link of state.links) {
+    for (const link of linksFor(deviceId)) {
       if (link.hidden) continue;
       const isFrom = link.from === deviceId;
-      const isTo = link.to === deviceId;
-      if (!isFrom && !isTo) continue;
       const switchId = isFrom ? link.to : link.from;
       const sw = getDevice(switchId);
       if (!sw || sw.type !== "switch" || !sw.config?.managed) continue;
@@ -3165,11 +3204,9 @@
     };
   }
   function findFirstHop(source) {
-    for (const link of state.links) {
+    for (const link of linksFor(source.id)) {
       if (link.hidden) continue;
       const isFrom = link.from === source.id;
-      const isTo = link.to === source.id;
-      if (!isFrom && !isTo) continue;
       const peerId = isFrom ? link.to : link.from;
       const peer = getDevice(peerId);
       if (peer && !peer.hidden && !peer.poweredOff) return { peerId: peer.id, linkId: link.id };
@@ -3198,6 +3235,10 @@
     if (vlanId <= 1) return VLAN_COLORS[0];
     return VLAN_COLORS[(vlanId - 2) % (VLAN_COLORS.length - 1) + 1];
   }
+  var FONT_LABEL = "700 13px Inter, system-ui, sans-serif";
+  var FONT_SECONDARY = "600 11px Inter, system-ui, sans-serif";
+  var FONT_SMALL = "600 10px Inter, system-ui, sans-serif";
+  var FONT_TRANSIT = "bold 10px Inter, system-ui, sans-serif";
   var canvas = dom.canvas;
   var ctx = dom.ctx;
   function resizeCanvas() {
@@ -3420,20 +3461,20 @@
     let labelY = device.y + device.height / 2 + 10;
     if (state.options.showDeviceNames) {
       ctx.fillStyle = cssColor("--label-primary");
-      ctx.font = "700 13px Inter, system-ui, sans-serif";
+      ctx.font = FONT_LABEL;
       const label = clampText(device.name, device.width + 10);
       ctx.fillText(label, device.x, labelY);
       labelY += 17;
     }
     if (device.type === "computer" && state.options.showIpAddresses && device.config?.ipv4Address) {
       ctx.fillStyle = cssColor("--label-ip");
-      ctx.font = "600 11px Inter, system-ui, sans-serif";
+      ctx.font = FONT_SECONDARY;
       ctx.fillText(device.config.ipv4Address, device.x, labelY);
       labelY += 15;
     }
     if (device.type === "computer" && state.options.showMacAddresses && device.config?.macAddress) {
       ctx.fillStyle = cssColor("--label-mac");
-      ctx.font = "600 10px Inter, system-ui, sans-serif";
+      ctx.font = FONT_SMALL;
       ctx.fillText(device.config.macAddress, device.x, labelY);
       labelY += 13;
     }
@@ -3445,7 +3486,7 @@
         ctx.beginPath();
         ctx.arc(device.x - ctx.measureText(`VLAN ${vlan}`).width / 2 - 8, labelY + 5, 4, 0, Math.PI * 2);
         ctx.fill();
-        ctx.font = "600 10px Inter, system-ui, sans-serif";
+        ctx.font = FONT_SMALL;
         ctx.fillText(`VLAN ${vlan}`, device.x + 2, labelY);
         labelY += 13;
       }
@@ -3473,13 +3514,13 @@
         if (!iface.peer) continue;
         if (state.options.showIpAddresses && iface.config.ipv4Address) {
           ctx.fillStyle = cssColor("--label-ip");
-          ctx.font = "600 11px Inter, system-ui, sans-serif";
+          ctx.font = FONT_SECONDARY;
           ctx.fillText(`${iface.name}: ${iface.config.ipv4Address}`, device.x, labelY);
           labelY += 15;
         }
         if (state.options.showMacAddresses && iface.config.macAddress) {
           ctx.fillStyle = cssColor("--label-mac");
-          ctx.font = "600 10px Inter, system-ui, sans-serif";
+          ctx.font = FONT_SMALL;
           ctx.fillText(iface.config.macAddress, device.x, labelY);
           labelY += 13;
         }
@@ -3560,7 +3601,7 @@
       ctx.arc(x, y, 3, 0, Math.PI * 2);
       ctx.fill();
       ctx.fillStyle = color;
-      ctx.font = "bold 10px Inter, system-ui, sans-serif";
+      ctx.font = FONT_TRANSIT;
       ctx.textAlign = "center";
       ctx.textBaseline = "bottom";
       ctx.fillText(label, x, y - 12);
@@ -4363,11 +4404,20 @@ APIPA: assigned link-local ${apipaIp}`);
     let totalExchanged = 0;
     let iterations = 0;
     const MAX_ITERATIONS = 15;
+    const ifacesByRouter = /* @__PURE__ */ new Map();
+    const ifacesFor = (router) => {
+      let ifaces = ifacesByRouter.get(router.id);
+      if (!ifaces) {
+        ifaces = routerInterfacesWithNames(router);
+        ifacesByRouter.set(router.id, ifaces);
+      }
+      return ifaces;
+    };
     for (let iter = 0; iter < MAX_ITERATIONS; iter++) {
       let changed = false;
       iterations = iter + 1;
       for (const router of ripRouters) {
-        const ifaces = routerInterfacesWithNames(router);
+        const ifaces = ifacesFor(router);
         const ripNetworks = router.config.rip.networks || [];
         const learnedRoutes = router.config.rip.learnedRoutes || [];
         const advertisements = buildRipAdvertisements(ifaces, ripNetworks, learnedRoutes);
@@ -4377,7 +4427,7 @@ APIPA: assigned link-local ${apipaIp}`);
           if (passiveInterfaces.includes(iface.name)) continue;
           const neighbor = getDevice(iface.peer.id);
           if (!neighbor || neighbor.type !== "router" || !neighbor.config?.rip?.enabled) continue;
-          const neighborIfaces = routerInterfacesWithNames(neighbor);
+          const neighborIfaces = ifacesFor(neighbor);
           const neighborIface = neighborIfaces.find((ni) => ni.peer && ni.peer.id === router.id);
           if (!neighborIface || !neighborIface.config?.ipv4Address) continue;
           const neighborPassive = neighbor.config.rip.passiveInterfaces || [];
@@ -6236,6 +6286,7 @@ ${names.join("\n")}`, names[0]));
     dom.themeButton.setAttribute("aria-pressed", String(state.theme === "light"));
     dom.themeButton.title = state.theme === "light" ? "Toggle dark mode" : "Toggle light mode";
     dom.themeButton.setAttribute("aria-label", dom.themeButton.title);
+    clearCssColorCache();
     render();
   }
   function toggleTheme() {

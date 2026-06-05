@@ -2,6 +2,7 @@ import { state, toolCopy, networkSnapshot, pushUndoSnapshot, undo } from "./stat
 import { dom } from "./dom";
 import { addDevice, addLink, deleteSelection, clearNetwork, findDeviceAt, findLinkAt, getDevice, configureDevice, openPortSelectionModal, confirmPortSelection, cancelPortSelection } from "./devices";
 import { render, resizeCanvas, screenToWorld, setZoom, syncZoomLevel, fitNetwork } from "./canvas";
+import { clearCssColorCache } from "./utils";
 import { syncPanel, syncOptionControls, syncNetworkPanel, setNetworkPanel, toggleDisplayOptions, setInspectorWidth, startInspectorResize, moveInspectorResize, stopInspectorResize } from "./inspector";
 import { openTerminalFor, closeTerminal, syncTerminal, submitTerminalCommand, handleTerminalKeydown } from "./terminal";
 import { saveConfig, loadConfig, loadTopology, loadDefaultConfig, applyConfigWithoutUndo } from "./config";
@@ -38,6 +39,7 @@ export function setTheme(theme: string): void {
   dom.themeButton.setAttribute("aria-pressed", String(state.theme === "light"));
   dom.themeButton.title = state.theme === "light" ? "Toggle dark mode" : "Toggle light mode";
   dom.themeButton.setAttribute("aria-label", dom.themeButton.title);
+  clearCssColorCache();
   render();
 }
 

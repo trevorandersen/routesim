@@ -146,8 +146,49 @@ function pointToSegmentDistance(px: number, py: number, ax: number, ay: number, 
   return Math.hypot(px - (ax + t * dx), py - (ay + t * dy));
 }
 
+// --- O(1) lookup indexes, lazily rebuilt when state.devices/state.links change.
+// Staleness is detected by array identity + length: every add/remove either
+// reassigns the array (filter/=) or pushes (length change), and device ids /
+// link endpoints are stable. In-place field changes (config, hidden, port) are
+// seen through the cached object references, so they need no invalidation —
+// which is why the adjacency keeps ALL links and callers filter `hidden`.
+let _deviceIndex = new Map<string, Device>();
+let _deviceRef: Device[] | null = null;
+let _deviceLen = -1;
+
+function deviceIndex(): Map<string, Device> {
+  if (_deviceRef !== state.devices || _deviceLen !== state.devices.length) {
+    _deviceIndex = new Map(state.devices.map(device => [device.id, device]));
+    _deviceRef = state.devices;
+    _deviceLen = state.devices.length;
+  }
+  return _deviceIndex;
+}
+
+let _linkAdjacency = new Map<string, Link[]>();
+let _linkRef: Link[] | null = null;
+let _linkLen = -1;
+
+export function linksFor(id: string): Link[] {
+  if (_linkRef !== state.links || _linkLen !== state.links.length) {
+    const adjacency = new Map<string, Link[]>();
+    const add = (key: string, link: Link) => {
+      const list = adjacency.get(key);
+      if (list) list.push(link); else adjacency.set(key, [link]);
+    };
+    for (const link of state.links) {
+      add(link.from, link);
+      add(link.to, link);
+    }
+    _linkAdjacency = adjacency;
+    _linkRef = state.links;
+    _linkLen = state.links.length;
+  }
+  return _linkAdjacency.get(id) ?? [];
+}
+
 export function getDevice(id: string | null): Device | undefined {
-  return state.devices.find(device => device.id === id);
+  return id == null ? undefined : deviceIndex().get(id);
 }
 
 export function isVisibleDevice(device: Device): boolean {
@@ -155,21 +196,21 @@ export function isVisibleDevice(device: Device): boolean {
 }
 
 export function connectedIds(id: string): string[] {
-  return state.links
-    .filter(link => !link.hidden && (link.from === id || link.to === id))
+  return linksFor(id)
+    .filter(link => !link.hidden)
     .map(link => link.from === id ? link.to : link.from);
 }
 
 export function linkedDevicesFor(id: string): any[] {
-  return state.links
-    .filter(link => !link.hidden && (link.from === id || link.to === id))
+  return linksFor(id)
+    .filter(link => !link.hidden)
     .map(link => getDevice(link.from === id ? link.to : link.from))
     .filter(isVisibleDevice);
 }
 
 export function linkedPortsFor(id: string): any[] {
-  const entries = state.links
-    .filter(link => !link.hidden && (link.from === id || link.to === id))
+  const entries = linksFor(id)
+    .filter(link => !link.hidden)
     .map(link => {
       const isFrom = link.from === id;
       const portNum = isFrom ? link.fromPort : link.toPort;

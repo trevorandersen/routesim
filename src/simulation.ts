@@ -1,6 +1,6 @@
 import type { SimEvent, EthernetFrame } from "./types";
 import { state } from "./state";
-import { getDevice, linkedPortsFor } from "./devices";
+import { getDevice, linkedPortsFor, linksFor } from "./devices";
 import { normalisePortVlans, normalisePortModes, normaliseTrunkAllowedVlans, normaliseStaticRoutes } from "./normalise";
 import { isValidIpv4, sameSubnet24, ipv4ToInt } from "./utils";
 import { createArpRequest, createIcmpEchoRequest, createDhcpDiscover } from "./frame";
@@ -18,11 +18,9 @@ export function l2Reachable(fromId: string, toId: string, vlanId: number | null)
   while (queue.length) {
     const id = queue.shift()!;
     if (id === toId) return true;
-    for (const link of state.links) {
+    for (const link of linksFor(id)) {
       if (link.hidden) continue;
       const isFrom = link.from === id;
-      const isTo = link.to === id;
-      if (!isFrom && !isTo) continue;
       const nextId = isFrom ? link.to : link.from;
       if (seen.has(nextId)) continue;
       const next = getDevice(nextId);
@@ -71,11 +69,9 @@ export function devicesHavePath(fromId: string, toId: string): boolean {
 }
 
 export function getVlanForDevice(deviceId: string): number {
-  for (const link of state.links) {
+  for (const link of linksFor(deviceId)) {
     if (link.hidden) continue;
     const isFrom = link.from === deviceId;
-    const isTo = link.to === deviceId;
-    if (!isFrom && !isTo) continue;
     const switchId = isFrom ? link.to : link.from;
     const sw = getDevice(switchId);
     if (!sw || sw.type !== "switch" || !sw.config?.managed) continue;
@@ -244,11 +240,9 @@ export function buildDhcpEvents(source: any): PingSetup | string {
 }
 
 function findFirstHop(source: any): { peerId: string; linkId: string } | null {
-  for (const link of state.links) {
+  for (const link of linksFor(source.id)) {
     if (link.hidden) continue;
     const isFrom = link.from === source.id;
-    const isTo = link.to === source.id;
-    if (!isFrom && !isTo) continue;
     const peerId = isFrom ? link.to : link.from;
     const peer = getDevice(peerId);
     if (peer && !peer.hidden && !peer.poweredOff) return { peerId: peer.id, linkId: link.id };

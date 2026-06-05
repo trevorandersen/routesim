@@ -960,12 +960,25 @@ export function runRipConvergence(): { iterations: number; routesExchanged: numb
   let iterations = 0;
   const MAX_ITERATIONS = 15;
 
+  // Interface lists (name/peer/ipv4) are stable across convergence — only
+  // learnedRoutes change, which routerInterfacesWithNames does not read.
+  // Memoise per router to avoid re-normalising every iteration.
+  const ifacesByRouter = new Map<string, any[]>();
+  const ifacesFor = (router: any): any[] => {
+    let ifaces = ifacesByRouter.get(router.id);
+    if (!ifaces) {
+      ifaces = routerInterfacesWithNames(router);
+      ifacesByRouter.set(router.id, ifaces);
+    }
+    return ifaces;
+  };
+
   for (let iter = 0; iter < MAX_ITERATIONS; iter++) {
     let changed = false;
     iterations = iter + 1;
 
     for (const router of ripRouters) {
-      const ifaces = routerInterfacesWithNames(router);
+      const ifaces = ifacesFor(router);
       const ripNetworks: string[] = router.config.rip.networks || [];
       const learnedRoutes = router.config.rip.learnedRoutes || [];
       const advertisements = buildRipAdvertisements(ifaces, ripNetworks, learnedRoutes);
@@ -979,7 +992,7 @@ export function runRipConvergence(): { iterations: number; routesExchanged: numb
         const neighbor = getDevice(iface.peer.id);
         if (!neighbor || neighbor.type !== "router" || !neighbor.config?.rip?.enabled) continue;
 
-        const neighborIfaces = routerInterfacesWithNames(neighbor);
+        const neighborIfaces = ifacesFor(neighbor);
         const neighborIface = neighborIfaces.find((ni: any) => ni.peer && ni.peer.id === router.id);
         if (!neighborIface || !neighborIface.config?.ipv4Address) continue;
 

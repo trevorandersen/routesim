@@ -9,7 +9,7 @@
  */
 import { describe, it, expect, beforeAll, beforeEach } from "bun:test";
 import { state } from "../src/state";
-import { getDevice, linkedPortsFor } from "../src/devices";
+import { getDevice, linkedPortsFor, connectedIds } from "../src/devices";
 import { processAtSwitch, processAtRouter, buildRoutingTable, runRipConvergence } from "../src/engine";
 import { createArpRequest, createArpReply, createIcmpEchoRequest, BROADCAST_MAC } from "../src/frame";
 import { registerNoopCallbacks, resetState } from "./helpers";
@@ -112,6 +112,38 @@ describe("bench: linkedPortsFor", () => {
     results.push(bench("linkedPortsFor — 50-link topo", () => {
       linkedPortsFor(swId);
     }, { budget: 200 }));
+    expect(results[results.length - 1].passed).toBe(true);
+  });
+
+  it("prints results", () => {
+    if (results.length) printResults(results);
+  });
+});
+
+// ── 2b. Connected-id lookup (link adjacency index) ──────────────────────────
+
+describe("bench: connectedIds", () => {
+  const results: BenchResult[] = [];
+
+  beforeEach(() => resetState());
+
+  it("connectedIds — 20-link topo", () => {
+    const topo = mediumStar(20);
+    state.devices = topo.devices as any;
+    state.links = topo.links as any;
+    results.push(bench("connectedIds — 20-link topo", () => {
+      connectedIds("rtr-0");
+    }, { budget: 40 }));
+    expect(results[results.length - 1].passed).toBe(true);
+  });
+
+  it("connectedIds — 50-link topo", () => {
+    const topo = largeMesh(50);
+    state.devices = topo.devices as any;
+    state.links = topo.links as any;
+    results.push(bench("connectedIds — 50-link topo", () => {
+      connectedIds("sw-0");
+    }, { budget: 100 }));
     expect(results[results.length - 1].passed).toBe(true);
   });
 

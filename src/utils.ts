@@ -69,6 +69,20 @@ export function normaliseVlanId(value: any): number | null {
   return id;
 }
 
+// cssColor is called many times per device/link/frame in the render loop, and
+// getComputedStyle forces a style recalc. Cache resolved values and clear the
+// cache when the theme changes (see clearCssColorCache, called from setTheme).
+const cssColorCache = new Map<string, string>();
+
 export function cssColor(name: string): string {
-  return getComputedStyle(document.documentElement).getPropertyValue(name).trim();
+  let value = cssColorCache.get(name);
+  if (value === undefined) {
+    value = getComputedStyle(document.documentElement).getPropertyValue(name).trim();
+    cssColorCache.set(name, value);
+  }
+  return value;
+}
+
+export function clearCssColorCache(): void {
+  cssColorCache.clear();
 }

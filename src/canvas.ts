@@ -21,6 +21,12 @@ function vlanColor(vlanId: number): string {
   return VLAN_COLORS[((vlanId - 2) % (VLAN_COLORS.length - 1)) + 1];
 }
 
+// Hoisted font strings — set on ctx.font many times per frame in the draw loop.
+const FONT_LABEL = "700 13px Inter, system-ui, sans-serif";
+const FONT_SECONDARY = "600 11px Inter, system-ui, sans-serif";
+const FONT_SMALL = "600 10px Inter, system-ui, sans-serif";
+const FONT_TRANSIT = "bold 10px Inter, system-ui, sans-serif";
+
 const canvas = dom.canvas;
 const ctx = dom.ctx;
 
@@ -277,20 +283,20 @@ export function drawDevice(device: any): void {
   let labelY = device.y + device.height / 2 + 10;
   if (state.options.showDeviceNames) {
     ctx.fillStyle = cssColor("--label-primary");
-    ctx.font = "700 13px Inter, system-ui, sans-serif";
+    ctx.font = FONT_LABEL;
     const label = clampText(device.name, device.width + 10);
     ctx.fillText(label, device.x, labelY);
     labelY += 17;
   }
   if (device.type === "computer" && state.options.showIpAddresses && device.config?.ipv4Address) {
     ctx.fillStyle = cssColor("--label-ip");
-    ctx.font = "600 11px Inter, system-ui, sans-serif";
+    ctx.font = FONT_SECONDARY;
     ctx.fillText(device.config.ipv4Address, device.x, labelY);
     labelY += 15;
   }
   if (device.type === "computer" && state.options.showMacAddresses && device.config?.macAddress) {
     ctx.fillStyle = cssColor("--label-mac");
-    ctx.font = "600 10px Inter, system-ui, sans-serif";
+    ctx.font = FONT_SMALL;
     ctx.fillText(device.config.macAddress, device.x, labelY);
     labelY += 13;
   }
@@ -303,7 +309,7 @@ export function drawDevice(device: any): void {
       ctx.beginPath();
       ctx.arc(device.x - ctx.measureText(`VLAN ${vlan}`).width / 2 - 8, labelY + 5, 4, 0, Math.PI * 2);
       ctx.fill();
-      ctx.font = "600 10px Inter, system-ui, sans-serif";
+      ctx.font = FONT_SMALL;
       ctx.fillText(`VLAN ${vlan}`, device.x + 2, labelY);
       labelY += 13;
     }
@@ -332,13 +338,13 @@ export function drawDevice(device: any): void {
       if (!iface.peer) continue;
       if (state.options.showIpAddresses && iface.config.ipv4Address) {
         ctx.fillStyle = cssColor("--label-ip");
-        ctx.font = "600 11px Inter, system-ui, sans-serif";
+        ctx.font = FONT_SECONDARY;
         ctx.fillText(`${iface.name}: ${iface.config.ipv4Address}`, device.x, labelY);
         labelY += 15;
       }
       if (state.options.showMacAddresses && iface.config.macAddress) {
         ctx.fillStyle = cssColor("--label-mac");
-        ctx.font = "600 10px Inter, system-ui, sans-serif";
+        ctx.font = FONT_SMALL;
         ctx.fillText(iface.config.macAddress, device.x, labelY);
         labelY += 13;
       }
@@ -436,7 +442,7 @@ function drawFrameTransits(): void {
 
     // Label above
     ctx.fillStyle = color;
-    ctx.font = "bold 10px Inter, system-ui, sans-serif";
+    ctx.font = FONT_TRANSIT;
     ctx.textAlign = "center";
     ctx.textBaseline = "bottom";
     ctx.fillText(label, x, y - 12);

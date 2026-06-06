@@ -10,6 +10,7 @@ It is a single-page app with **no framework and no runtime dependencies** — it
 - **[build.md](build.md)** — how source becomes `rs-main.html` / `rs-web.html`, the build variants, and the embedded-config mechanism.
 - **[testing.md](testing.md)** — the Bun test suite, DOM mocking, fixtures, and how to run/write tests.
 - **[benchmarking.md](benchmarking.md)** — the micro-benchmark harness, p99 budgets, and when to add a benchmark.
+- **[scripting.md](scripting.md)** — the text-command interface: the console panel, the `window.routesim` JS API, the full command reference, and topology round-trip.
 - **[src/](src/)** — one document per source file, each a high-level overview of what the module does and how it fits into the whole.
 
 ## Per-file documentation
@@ -26,7 +27,9 @@ It is a single-page app with **no framework and no runtime dependencies** — it
 | `src/terminal.ts` | [terminal.md](src/terminal.md) | Per-device CLI: parsing, command handlers, rendering |
 | `src/devices.ts` | [devices.md](src/devices.md) | Device/link CRUD, hit-testing, lookup indexes, LAN grouping |
 | `src/config.ts` | [config.md](src/config.md) | Save/load `config.json`, built-in + embedded configs |
-| `src/engine.ts` | [engine.md](src/engine.md) | The simulation engine: per-device frame processing, routing, RIP |
+| `src/engine.ts` | [engine.md](src/engine.md) | The simulation engine: per-device frame processing, routing, RIP, headless runs |
+| `src/commands.ts` | [scripting.md](scripting.md) | The text-command engine (parser, verb registry, topology export) |
+| `src/console.ts` | [scripting.md](scripting.md) | The command console panel UI |
 | `src/simulation.ts` | [simulation.md](src/simulation.md) | Ping/DHCP event setup, L2 reachability, routing helpers |
 | `src/frame.ts` | [frame.md](src/frame.md) | Ethernet frame factories + label/colour helpers |
 | `src/normalise.ts` | [normalise.md](src/normalise.md) | Defensive config normalisation + defaults |

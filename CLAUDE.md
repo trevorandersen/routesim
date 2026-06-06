@@ -131,6 +131,8 @@ fixed enums may be interpolated raw.
 | `normalise.ts` | Defensive normalisation for all config shapes. `normaliseRouterInterfaces` auto-generates deterministic MACs (`02:RR:00:00:II:01`). |
 | `config.ts` | Persistence via File System Access API. Falls back to download. Config store holds named topologies in a single `config.json`. `refreshConfigStore()` prefers an embedded store (`readEmbeddedConfigStore()`) before fetching. `saveConfig()` is a no-op in read-only builds (`READONLY`). |
 | `env.ts` | Build-time flags. Exports `READONLY` from the `__BUILD_READONLY__` esbuild define; defaults to `false` in dev/test. |
+| `commands.ts` | Text-command engine: parses a line, resolves device refs, dispatches to the action functions. `runConsoleCommand`/`runConsoleScript`/`exportTopologyScript`. Pure (no panel UI) so it's reused by the console, `window.routesim`, and tests. See `docs/scripting.md`. |
+| `console.ts` | The command console panel UI (distinct from per-device terminals); drives `commands.ts`. |
 | `test-server.ts` | Dev server (Bun). Serves static files (`/` → `rs-main.html`) + `/api/tests` (list test suites) + `/api/run` (execute `bun test` with optional file/pattern filters). Powers `test.html` and `benchmark.html`. |
 | `build-inline.ts` | Inlines CSS + bundled JS into `template.html` → named output file. Uses replacer functions to avoid `$`-pattern corruption. Called by `build.sh` per variant. |
 
@@ -200,6 +202,8 @@ Every link records frames that traverse it (`link.frameHistory[]`). Click a link
 **Adding a terminal command**: `runTerminalCommand()` in `terminal.ts` is the top-level dispatcher — it routes to `runRouterTerminalCommand()` for routers and `runSwitchTerminalCommand()` for switches. Computer commands (`ping`, `ip addr`, `arp`, `dhcp`) are handled inline in `runTerminalCommand()` itself.
 
 **Adding a simulation protocol**: Create frame factories in `frame.ts`, handle in the appropriate `processAt*` function in `engine.ts`, update `frameLabel`/`frameColor` for display.
+
+**Adding a console command**: Add a handler to the `COMMANDS` registry (and a `HELP` entry) in `commands.ts`, reusing existing action functions. It's automatically available in the console panel, `window.routesim`, and scripts. For commands that build/observe state, prefer the headless `runSimulationHeadless` (engine.ts) over the animated path. See `docs/scripting.md`.
 
 **Built-in topologies**: The topology chooser dropdown (`loadTopology` in `config.ts`) offers three built-in topologies: Basic Network, VLAN Router-on-a-Stick, and 5-Router Partial Mesh.
 

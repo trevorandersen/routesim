@@ -5,6 +5,7 @@ import { normaliseConfig } from "./normalise";
 import { render, resizeCanvas, screenToWorld, syncZoomLevel, fitNetwork } from "./canvas";
 import { syncPanel, syncOptionControls, syncNetworkPanel, setNetworkPanel, setInspectorWidth } from "./inspector";
 import { syncTerminal } from "./terminal";
+import { syncConsole } from "./console";
 import { setupUI, setTool, setTheme } from "./ui";
 import { loadDefaultConfig, applyConfigWithoutUndo } from "./config";
 import { runConsoleCommand, runConsoleScript, exportTopologyScript } from "./commands";
@@ -45,6 +46,7 @@ async function initialiseApp() {
   syncOptionControls();
   syncNetworkPanel();
   syncTerminal();
+  syncConsole();
   try {
     await loadDefaultConfig();
   } catch (error) {

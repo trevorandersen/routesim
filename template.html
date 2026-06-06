@@ -51,6 +51,9 @@
         <button class="icon-button" id="terminalOpenButton" title="Device terminal" aria-label="Open device terminal" aria-controls="terminalPanel" aria-expanded="false">
           <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 17l6 -6l-6 -6"></path><path d="M12 19h8"></path></svg>
         </button>
+        <button class="icon-button" id="consoleButton" title="Command console" aria-label="Open command console" aria-controls="consolePanel" aria-expanded="false">
+          <svg viewBox="0 0 24 24" aria-hidden="true"><rect x="3" y="4" width="18" height="16" rx="2"></rect><path d="M7 9l3 3l-3 3"></path><path d="M13 15h4"></path></svg>
+        </button>
         <button class="icon-button" id="inspectorOpenButton" title="Network panel" aria-label="Toggle network panel" aria-controls="networkInspector" aria-expanded="false">
           <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 21v-7"></path><path d="M4 10V3"></path><path d="M12 21v-9"></path><path d="M12 8V3"></path><path d="M20 21v-5"></path><path d="M20 12V3"></path><path d="M2 14h4"></path><path d="M10 8h4"></path><path d="M18 16h4"></path></svg>
         </button>
@@ -114,6 +117,20 @@
     <form class="terminal-input-row" id="terminalForm" autocomplete="off">
       <span id="terminalPrompt">pc$</span>
       <input id="terminalInput" spellcheck="false" placeholder="help">
+    </form>
+  </section>
+
+  <section class="console-panel" id="consolePanel" aria-label="Command console">
+    <div class="terminal-titlebar">
+      <span>Command console</span>
+      <button class="panel-toggle" id="consoleCloseButton" type="button" title="Close console" aria-label="Close console">
+        <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M18 6 6 18"></path><path d="m6 6 12 12"></path></svg>
+      </button>
+    </div>
+    <div class="terminal-output" id="consoleOutput" aria-live="polite"></div>
+    <form class="terminal-input-row" id="consoleForm" autocomplete="off">
+      <span id="consolePrompt">routesim&gt;</span>
+      <input id="consoleInput" spellcheck="false" placeholder="help">
     </form>
   </section>
 

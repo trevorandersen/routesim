@@ -5,6 +5,7 @@ import { render, resizeCanvas, screenToWorld, setZoom, syncZoomLevel, fitNetwork
 import { clearCssColorCache } from "./utils";
 import { syncPanel, syncOptionControls, syncNetworkPanel, setNetworkPanel, toggleDisplayOptions, setInspectorWidth, startInspectorResize, moveInspectorResize, stopInspectorResize } from "./inspector";
 import { openTerminalFor, closeTerminal, syncTerminal, submitTerminalCommand, handleTerminalKeydown } from "./terminal";
+import { openConsole, closeConsole, submitConsoleCommand, handleConsoleKeydown } from "./console";
 import { saveConfig, loadConfig, loadTopology, loadDefaultConfig, applyConfigWithoutUndo } from "./config";
 import { normaliseConfig } from "./normalise";
 import { defaultConfig } from "./state";
@@ -269,10 +270,15 @@ export function setupUI(): void {
   });
   dom.fitButton.addEventListener("click", fitNetwork);
   dom.themeButton.addEventListener("click", toggleTheme);
-  dom.terminalOpenButton.addEventListener("click", () => openTerminalFor(getDevice(state.selectedId)));
+  // The terminal and console share the bottom slot — opening one closes the other.
+  dom.terminalOpenButton.addEventListener("click", () => { closeConsole(); openTerminalFor(getDevice(state.selectedId)); });
   dom.terminalCloseButton.addEventListener("click", closeTerminal);
   dom.terminalForm.addEventListener("submit", submitTerminalCommand);
   dom.terminalInput.addEventListener("keydown", handleTerminalKeydown);
+  dom.consoleButton.addEventListener("click", () => { closeTerminal(); openConsole(); });
+  dom.consoleCloseButton.addEventListener("click", closeConsole);
+  dom.consoleForm.addEventListener("submit", submitConsoleCommand);
+  dom.consoleInput.addEventListener("keydown", handleConsoleKeydown);
   dom.inspectorOpenButton.addEventListener("click", () => setNetworkPanel(!state.options.networkPanelOpen));
   dom.inspectorCloseButton.addEventListener("click", () => setNetworkPanel(false));
   dom.inspectorResizeHandle.addEventListener("pointerdown", startInspectorResize as any);

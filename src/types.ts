@@ -22,6 +22,13 @@ export interface TerminalState {
   historyIndex: number;
 }
 
+export interface ConsoleState {
+  open: boolean;
+  lines: TerminalLine[];
+  history: string[];
+  historyIndex: number;
+}
+
 export interface DisplayOptions {
   showDeviceNames: boolean;
   showIpAddresses: boolean;
@@ -315,6 +322,7 @@ export interface AppState {
   inspectorWidth: number;
   inspectorResize: InspectorResizeState | null;
   terminal: TerminalState;
+  console: ConsoleState;
   options: DisplayOptions;
   nextComputer: number;
   nextSwitch: number;

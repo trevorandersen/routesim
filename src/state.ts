@@ -43,6 +43,12 @@ export const state: AppState = {
     history: [],
     historyIndex: -1
   },
+  console: {
+    open: false,
+    lines: [],
+    history: [],
+    historyIndex: -1
+  },
   options: {
     showDeviceNames: true,
     showIpAddresses: true,

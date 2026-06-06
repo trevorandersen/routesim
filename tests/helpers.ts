@@ -55,4 +55,5 @@ export function resetState(): void {
     history: [],
     historyIndex: -1,
   } as any;
+  state.console = { open: false, lines: [], history: [], historyIndex: -1 } as any;
 }

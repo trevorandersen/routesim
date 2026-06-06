@@ -79,6 +79,63 @@ export function stepOnce(): void {
   updateSimControls();
 }
 
+export interface SimResult {
+  success: boolean;
+  ttl?: number;
+  assignedIp?: string | null;
+  assignedGateway?: string | null;
+  log: SimLogEntry[];
+  steps: number;
+}
+
+// Runs a simulation to completion synchronously — no animation / requestAnimationFrame —
+// and returns the result plus the hop-by-hop log. Reuses the same process handlers as
+// the animated path; powers the console `run` command, window.routesim, and tests.
+export function runSimulationHeadless(
+  setup: PingSetup, originDeviceId: string, targetIp: string, mode: "ping" | "dhcp" = "ping"
+): SimResult {
+  runRipConvergence();
+  const sim = state.simulation;
+  sim.status = "running";
+  sim.mode = mode;
+  sim.events = setup.events;
+  sim.log = [];
+  sim.transits = [];
+  sim.pendingArp = { ...setup.pendingArp };
+  sim.stepIndex = 0;
+  sim.originDeviceId = originDeviceId;
+  sim.pingTargetIp = targetIp;
+  sim.pingSuccess = false;
+  sim.pingTtl = 64;
+  sim.dhcpSuccess = false;
+  sim.dhcpAssignedIp = null;
+  sim.dhcpAssignedGateway = null;
+
+  // Drain the event queue, completing each batch of transits instantly. processNextStep
+  // recurses internally while status === "running" and events have no transits, and calls
+  // finishSimulation() once fully drained. The guard caps pathological loops (routing loops).
+  const MAX_STEPS = 10000;
+  let guard = 0;
+  processNextStep();
+  while (sim.transits.length > 0 && sim.status === "running" && guard++ < MAX_STEPS) {
+    for (const t of sim.transits) t.progress = 1;
+    deliverCompletedTransits();
+    processNextStep();
+  }
+  // `sim.status` is mutated inside processNextStep/finishSimulation; the cast
+  // stops TS from over-narrowing it to the literal assigned above.
+  if ((sim.status as string) !== "done") finishSimulation();
+
+  return {
+    success: mode === "dhcp" ? sim.dhcpSuccess : sim.pingSuccess,
+    ttl: sim.pingTtl,
+    assignedIp: sim.dhcpAssignedIp,
+    assignedGateway: sim.dhcpAssignedGateway,
+    log: sim.log,
+    steps: sim.stepIndex,
+  };
+}
+
 // ─── Animation loop ──────────────────────────────────────────────────────────
 
 let animFrameId: number | null = null;

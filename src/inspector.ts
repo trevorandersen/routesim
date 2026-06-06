@@ -1,7 +1,7 @@
 import type { Link } from "./types";
 import { state, sync, pushUndo, captureUndoOnFocus } from "./state";
 import { dom } from "./dom";
-import { escapeHtml, isValidIpv4, isValidMac, normaliseMacAddress } from "./utils";
+import { escapeHtml, isValidIpv4, isValidMac, normaliseMacAddress, randomMac } from "./utils";
 import { ensureConfig, normaliseVlans } from "./normalise";
 import {
   getDevice, isVisibleDevice, connectedIds, linkedPortsFor,
@@ -63,13 +63,6 @@ export function stopInspectorResize(): void {
   if (!state.inspectorResize) return;
   state.inspectorResize = null;
   document.body.classList.remove("resizing-inspector");
-}
-
-function randomMac(): string {
-  const bytes = new Uint8Array(6);
-  crypto.getRandomValues(bytes);
-  bytes[0] = (bytes[0] & 0xfe) | 0x02; // locally administered, unicast
-  return Array.from(bytes, b => b.toString(16).padStart(2, "0").toUpperCase()).join(":");
 }
 
 function vlanOptions(device: any, current: number): string {

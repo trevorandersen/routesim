@@ -1,6 +1,7 @@
 import { describe, it, expect, beforeAll, beforeEach } from "bun:test";
 import { state } from "../src/state";
-import { processAtSwitch, processAtRouter, processAtComputer } from "../src/engine";
+import { processAtSwitch, processAtRouter, processAtComputer, runSimulationHeadless } from "../src/engine";
+import { buildPingEvents } from "../src/simulation";
 import { createArpRequest, createArpReply, createIcmpEchoRequest, createIcmpEchoReply, createDhcpOffer, createDhcpAck, BROADCAST_MAC } from "../src/frame";
 import { registerNoopCallbacks, resetState } from "./helpers";
 import { basicTopology, routedTopology, vlanTopology, trunkTopology } from "./fixtures";
@@ -560,5 +561,37 @@ describe("processAtComputer", () => {
     const frame = createArpRequest("02:00:00:00:01:20", "192.168.1.20", "192.168.1.10");
     const outgoing = processAtComputer(pc1, frame, "sw1");
     expect(outgoing).toHaveLength(0);
+  });
+});
+
+describe("runSimulationHeadless", () => {
+  beforeEach(() => resetState());
+
+  it("reports success + a hop log for a reachable same-subnet ping", () => {
+    const topo = basicTopology();
+    state.devices = topo.devices as any;
+    state.links = topo.links as any;
+    const pc1 = state.devices.find(d => d.id === "pc1")!;
+    const setup = buildPingEvents(pc1, "192.168.1.20");
+    expect(typeof setup).not.toBe("string");
+    const result = runSimulationHeadless(setup as any, "pc1", "192.168.1.20");
+    expect(result.success).toBe(true);
+    expect(result.log.length).toBeGreaterThan(0);
+    expect(state.simulation.status).toBe("done");
+  });
+
+  it("reports failure when the destination host does not reply (powered off)", () => {
+    // Cross-subnet ping: validation only checks source→gateway L2 reachability, so
+    // buildPingEvents succeeds, but the powered-off destination never answers ICMP.
+    const topo = routedTopology();
+    state.devices = topo.devices as any;
+    state.links = topo.links as any;
+    const pcB = state.devices.find(d => d.id === "pc-b")!;
+    (pcB as any).poweredOff = true;
+    const pcA = state.devices.find(d => d.id === "pc-a")!;
+    const setup = buildPingEvents(pcA, "192.168.20.10");
+    expect(typeof setup).not.toBe("string");
+    const result = runSimulationHeadless(setup as any, "pc-a", "192.168.20.10");
+    expect(result.success).toBe(false);
   });
 });

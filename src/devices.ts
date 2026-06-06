@@ -2,7 +2,7 @@ import type { PortOption, Device, Link, DeviceType } from "./types";
 import { state, sync, pushUndo, networkSnapshot } from "./state";
 import { dom } from "./dom";
 import { deviceSize, defaultDeviceConfig, ensureConfig, normaliseRouterInterfaces, normalisePortVlans, normalisePortModes } from "./normalise";
-import { clampPortCount, clampRouterPortCount, escapeHtml } from "./utils";
+import { clampPortCount, clampRouterPortCount, escapeHtml, randomMac } from "./utils";
 
 export function addDevice(type: DeviceType, x: number, y: number, name?: string): Device {
   pushUndo();
@@ -16,6 +16,8 @@ export function addDevice(type: DeviceType, x: number, y: number, name?: string)
     height: deviceSize(type).height,
     config: defaultDeviceConfig(type)
   };
+  // A new computer gets a NIC MAC so it can communicate immediately (GUI + scripts).
+  if (type === "computer") (device.config as any).macAddress = randomMac();
   state.devices.push(device as any);
   state.selectedId = device.id;
   sync().syncPanel();
@@ -104,6 +106,12 @@ export function clearNetwork(): void {
   state.nextRouter = 1;
   sync().syncPanel();
   sync().syncTerminal();
+  sync().render();
+}
+
+export function moveDevice(device: Device, x: number, y: number): void {
+  device.x = x;
+  device.y = y;
   sync().render();
 }
 

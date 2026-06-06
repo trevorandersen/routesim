@@ -1,0 +1,537 @@
+/**
+ * Command engine — the text-command interface that can drive the whole app.
+ *
+ * Pure dispatcher: it parses a line, resolves device references, and calls the
+ * existing action functions. It does NOT touch the console panel UI, so it is
+ * reused by the panel (`console.ts`), the `window.routesim` API (`app.ts`), and
+ * tests. See docs/scripting.md for the command reference.
+ */
+import type { Device, DeviceType } from "./types";
+import { state, undo, sync } from "./state";
+import { dom } from "./dom";
+import {
+  addDevice, addLink, deleteSelection, clearNetwork, collapseLan, expandLan,
+  getDevice, moveDevice,
+} from "./devices";
+import {
+  startSimulation, stopSimulation, pauseSimulation, resumeSimulation, stepOnce,
+  runSimulationHeadless,
+} from "./engine";
+import { buildPingEvents, buildDhcpEvents, findPingTarget } from "./simulation";
+import {
+  setHostIp, setHostGateway, setRouterInterfaceIp, addSwitchVlan, removeSwitchVlan,
+  setSwitchPortVlan, setSwitchPortMode, setSwitchTrunkNative, modifySwitchTrunkAllowed,
+  runTerminalCommand,
+} from "./terminal";
+import { buildConfigPayload, applyConfig, loadTopology } from "./config";
+import { normaliseConfig, normaliseStaticRoutes, ensureConfig } from "./normalise";
+import { setTool, setTheme } from "./ui";
+import { setZoom, fitNetwork } from "./canvas";
+import { isValidMac, normaliseMacAddress } from "./utils";
+
+export interface CommandResult {
+  ok: boolean;
+  output: string[];
+  data?: unknown;
+}
+
+const ok = (...output: string[]): CommandResult => ({ ok: true, output });
+const err = (...output: string[]): CommandResult => ({ ok: false, output });
+
+// ── Helpers ──────────────────────────────────────────────────────────────────
+
+function resolveDevice(ref: string): Device | string {
+  if (!ref) return "Missing device reference.";
+  const byId = getDevice(ref);
+  if (byId) return byId;
+  const lower = ref.toLowerCase();
+  const matches = state.devices.filter(d => d.name.toLowerCase() === lower);
+  if (matches.length === 1) return matches[0];
+  if (matches.length > 1) return `Ambiguous device "${ref}" (${matches.length} matches).`;
+  return `No device named "${ref}".`;
+}
+
+function spawnPosition(): { x: number; y: number } {
+  const n = state.devices.filter(d => d.type !== "lan").length;
+  return { x: 120 + (n % 6) * 130, y: 120 + Math.floor(n / 6) * 120 };
+}
+
+function targetIpFor(ref: string): string {
+  return findPingTarget(ref)?.config?.ipv4Address || ref;
+}
+
+// ── Command handlers ─────────────────────────────────────────────────────────
+
+function cmdAdd(args: string[]): CommandResult {
+  const type = (args[0] || "").toLowerCase();
+  if (!["computer", "switch", "router"].includes(type)) {
+    return err(`add: type must be computer|switch|router.`);
+  }
+  let name: string | undefined;
+  let pos = spawnPosition();
+  const atIdx = args.indexOf("at");
+  if (atIdx >= 0) {
+    pos = { x: Number(args[atIdx + 1]), y: Number(args[atIdx + 2]) };
+    if (!Number.isFinite(pos.x) || !Number.isFinite(pos.y)) return err(`add: invalid "at <x> <y>".`);
+    if (atIdx >= 2) name = args[1];
+  } else if (args[1]) {
+    name = args[1];
+  }
+  const device = addDevice(type as DeviceType, pos.x, pos.y, name);
+  return ok(`Added ${type} ${device.name} at ${Math.round(device.x)},${Math.round(device.y)}.`);
+}
+
+function cmdRemove(args: string[]): CommandResult {
+  const device = resolveDevice(args[0]);
+  if (typeof device === "string") return err(device);
+  state.selectedId = device.id;
+  deleteSelection();
+  return ok(`Removed ${device.name}.`);
+}
+
+function cmdLink(args: string[]): CommandResult {
+  const a = resolveDevice(args[0]);
+  if (typeof a === "string") return err(a);
+  const b = resolveDevice(args[1]);
+  if (typeof b === "string") return err(b);
+  const fromPort = args[2] ? Number(args[2]) : undefined;
+  const toPort = args[3] ? Number(args[3]) : undefined;
+  addLink(a.id, b.id, fromPort, toPort);
+  return ok(`Linked ${a.name} ↔ ${b.name}.`);
+}
+
+function cmdUnlink(args: string[]): CommandResult {
+  const a = resolveDevice(args[0]);
+  if (typeof a === "string") return err(a);
+  const b = resolveDevice(args[1]);
+  if (typeof b === "string") return err(b);
+  const before = state.links.length;
+  state.links = state.links.filter(l =>
+    !((l.from === a.id && l.to === b.id) || (l.from === b.id && l.to === a.id)));
+  if (state.links.length === before) return err(`No link between ${a.name} and ${b.name}.`);
+  sync().syncPanel();
+  sync().render();
+  return ok(`Unlinked ${a.name} ↔ ${b.name}.`);
+}
+
+function cmdMove(args: string[]): CommandResult {
+  const device = resolveDevice(args[0]);
+  if (typeof device === "string") return err(device);
+  const x = Number(args[1]); const y = Number(args[2]);
+  if (!Number.isFinite(x) || !Number.isFinite(y)) return err(`move: invalid coordinates.`);
+  moveDevice(device, x, y);
+  return ok(`Moved ${device.name} to ${x},${y}.`);
+}
+
+function cmdRename(args: string[]): CommandResult {
+  const device = resolveDevice(args[0]);
+  if (typeof device === "string") return err(device);
+  const name = args[1];
+  if (!name) return err(`rename: missing new name.`);
+  device.name = name;
+  sync().syncPanel(); sync().syncTerminal(); sync().render();
+  return ok(`Renamed to ${name}.`);
+}
+
+function cmdClear(): CommandResult { clearNetwork(); return ok("Cleared network."); }
+
+function cmdCollapse(args: string[]): CommandResult {
+  const device = resolveDevice(args[0]);
+  if (typeof device === "string") return err(device);
+  collapseLan(device);
+  return ok(`Collapsed LAN at ${device.name}.`);
+}
+
+function cmdExpand(args: string[]): CommandResult {
+  const device = resolveDevice(args[0]);
+  if (typeof device === "string") return err(device);
+  expandLan(device);
+  return ok(`Expanded ${device.name}.`);
+}
+
+// ── Config verbs (call the exported mutators directly — no mode machine) ──────
+
+function hostMutator(args: string[], fn: (d: Device, v: string) => string): CommandResult {
+  const device = resolveDevice(args[0]);
+  if (typeof device === "string") return err(device);
+  const msg = fn(device, args[1]);
+  return msg.startsWith("Invalid") ? err(msg) : ok(msg);
+}
+
+function cmdIp(args: string[]): CommandResult { return hostMutator(args, setHostIp); }
+function cmdGateway(args: string[]): CommandResult { return hostMutator(args, setHostGateway); }
+
+function cmdMac(args: string[]): CommandResult {
+  const device = resolveDevice(args[0]);
+  if (typeof device === "string") return err(device);
+  const mac = normaliseMacAddress(args[1] || "");
+  if (!isValidMac(mac)) return err(`Invalid MAC address: ${args[1]}`);
+  ensureConfig(device);
+  device.config.macAddress = mac;
+  sync().render();
+  return ok(`Set ${device.name} MAC to ${mac}.`);
+}
+
+function cmdInterface(args: string[]): CommandResult {
+  // interface <router> <peerRef> ip <addr> [vlan <tag>]
+  const router = resolveDevice(args[0]);
+  if (typeof router === "string") return err(router);
+  const peer = resolveDevice(args[1]);
+  if (typeof peer === "string") return err(peer);
+  const ipIdx = args.indexOf("ip");
+  if (ipIdx < 0 || !args[ipIdx + 1]) return err(`interface: expected "ip <addr>".`);
+  const vlanIdx = args.indexOf("vlan");
+  const vlanTag = vlanIdx >= 0 ? Number(args[vlanIdx + 1]) : null;
+  const msg = setRouterInterfaceIp(router, peer.id, args[ipIdx + 1], vlanTag);
+  return msg.startsWith("Invalid") ? err(msg) : ok(msg);
+}
+
+function cmdRoute(args: string[]): CommandResult {
+  // route <router> <network/prefix> <nextHop>
+  const router = resolveDevice(args[0]);
+  if (typeof router === "string") return err(router);
+  const network = args[1]; const nextHop = args[2];
+  if (!network || !nextHop) return err(`route: expected "<network/prefix> <nextHop>".`);
+  ensureConfig(router);
+  const routes = router.config.staticRoutes || [];
+  routes.push({ network, nextHop });
+  router.config.staticRoutes = normaliseStaticRoutes(routes);
+  sync().syncPanel(); sync().render();
+  return ok(`Added static route ${network} via ${nextHop} on ${router.name}.`);
+}
+
+function cmdVlan(args: string[]): CommandResult {
+  const sw = resolveDevice(args[0]);
+  if (typeof sw === "string") return err(sw);
+  const action = (args[1] || "").toLowerCase();
+  const id = args[2];
+  if (action === "add") return ok(addSwitchVlan(sw, id));
+  if (["del", "delete", "remove"].includes(action)) return ok(removeSwitchVlan(sw, id));
+  return err(`vlan: expected "add|del <id>".`);
+}
+
+function cmdPort(args: string[]): CommandResult {
+  // port <sw> <EthN> vlan <id> | mode <access|trunk> | native <id> | allowed add|remove <id>
+  const sw = resolveDevice(args[0]);
+  if (typeof sw === "string") return err(sw);
+  const port = args[1]; const sub = (args[2] || "").toLowerCase();
+  if (sub === "vlan") return ok(setSwitchPortVlan(sw, port, args[3]));
+  if (sub === "mode") return ok(setSwitchPortMode(sw, port, (args[3] || "").toLowerCase()));
+  if (sub === "native") return ok(setSwitchTrunkNative(sw, port, args[3]));
+  if (sub === "allowed") {
+    const act = (args[3] || "").toLowerCase();
+    if (act !== "add" && act !== "remove") return err(`port allowed: expected "add|remove <id>".`);
+    return ok(modifySwitchTrunkAllowed(sw, port, args[4], act));
+  }
+  return err(`port: expected "vlan|mode|native|allowed ...".`);
+}
+
+function cmdCli(args: string[], rest: string): CommandResult {
+  const device = resolveDevice(args[0]);
+  if (typeof device === "string") return err(device);
+  const line = rest.slice(args[0].length).trim();
+  if (!line) return err(`cli: missing command.`);
+  if (state.terminal.deviceId !== device.id) {
+    state.terminal.deviceId = device.id;
+    state.terminal.mode = "exec";
+    state.terminal.interfacePeerId = null;
+    state.terminal.interfaceVlanTag = null;
+  }
+  const before = state.terminal.lines.length;
+  runTerminalCommand(line);
+  return ok(...state.terminal.lines.slice(before).map(l => l.text));
+}
+
+// ── Simulation ───────────────────────────────────────────────────────────────
+
+function cmdPing(args: string[]): CommandResult {
+  const src = resolveDevice(args[0]);
+  if (typeof src === "string") return err(src);
+  const dst = args[1];
+  if (!dst) return err(`ping: missing target.`);
+  const setup = buildPingEvents(src, dst);
+  if (typeof setup === "string") return err(setup);
+  startSimulation(setup, src.id, targetIpFor(dst), "ping");
+  return ok(`Ping ${src.name} → ${dst} started.`);
+}
+
+function cmdDhcp(args: string[]): CommandResult {
+  const host = resolveDevice(args[0]);
+  if (typeof host === "string") return err(host);
+  const setup = buildDhcpEvents(host);
+  if (typeof setup === "string") return err(setup);
+  startSimulation(setup, host.id, "", "dhcp");
+  return ok(`DHCP on ${host.name} started.`);
+}
+
+function cmdRun(args: string[]): CommandResult {
+  const mode = (args[0] || "").toLowerCase();
+  if (mode === "ping") {
+    const src = resolveDevice(args[1]);
+    if (typeof src === "string") return err(src);
+    const dst = args[2];
+    if (!dst) return err(`run ping: missing target.`);
+    const setup = buildPingEvents(src, dst);
+    if (typeof setup === "string") return err(setup);
+    const r = runSimulationHeadless(setup, src.id, targetIpFor(dst), "ping");
+    return { ok: r.success, data: r,
+      output: [`ping ${dst}: ${r.success ? `reachable (ttl=${r.ttl})` : "unreachable"} — ${r.steps} steps`] };
+  }
+  if (mode === "dhcp") {
+    const host = resolveDevice(args[1]);
+    if (typeof host === "string") return err(host);
+    const setup = buildDhcpEvents(host);
+    if (typeof setup === "string") return err(setup);
+    const r = runSimulationHeadless(setup, host.id, "", "dhcp");
+    return { ok: r.success, data: r,
+      output: [r.success ? `dhcp: assigned ${r.assignedIp} (gw ${r.assignedGateway})` : "dhcp: no response"] };
+  }
+  return err(`run: expected "ping <src> <dst>" or "dhcp <host>".`);
+}
+
+function cmdPlay(): CommandResult { resumeSimulation(); return ok("Resumed."); }
+function cmdPause(): CommandResult { pauseSimulation(); return ok("Paused."); }
+function cmdStep(): CommandResult { stepOnce(); return ok(`Stepped (step ${state.simulation.stepIndex}).`); }
+function cmdStop(): CommandResult { stopSimulation(); return ok("Stopped."); }
+function cmdSpeed(args: string[]): CommandResult {
+  const ms = Number(args[0]);
+  if (!Number.isFinite(ms) || ms <= 0) return err(`speed: expected a positive number of ms.`);
+  state.simulation.speed = ms;
+  return ok(`Speed set to ${ms} ms/hop.`);
+}
+
+// ── Management ───────────────────────────────────────────────────────────────
+
+function cmdTopology(args: string[]): CommandResult {
+  const name = (args[0] || "").toLowerCase();
+  if (!["basic", "vlan-roas", "router-mesh"].includes(name)) {
+    return err(`topology: expected basic|vlan-roas|router-mesh.`);
+  }
+  loadTopology(name);
+  return ok(`Loaded topology "${name}".`);
+}
+
+function cmdSave(args: string[]): CommandResult {
+  const name = args[0];
+  if (!name) return err(`save: missing name.`);
+  state.configStore.configs[name] = buildConfigPayload();
+  return ok(`Saved current topology as "${name}".`);
+}
+
+function cmdLoad(args: string[]): CommandResult {
+  const name = args[0];
+  const stored = state.configStore.configs[name];
+  if (!stored) return err(`No saved config named "${name}".`);
+  applyConfig(normaliseConfig(stored));
+  return ok(`Loaded "${name}".`);
+}
+
+function cmdUndo(): CommandResult { undo(); return ok("Undone."); }
+
+function cmdExport(): CommandResult {
+  const script = exportTopologyScript();
+  return { ok: true, output: script.split("\n"), data: script };
+}
+
+// ── Query ────────────────────────────────────────────────────────────────────
+
+function cmdList(args: string[]): CommandResult {
+  if ((args[0] || "").toLowerCase() === "links") {
+    if (!state.links.length) return ok("(no links)");
+    return ok(...state.links.map(l => {
+      const f = getDevice(l.from)?.name || l.from;
+      const t = getDevice(l.to)?.name || l.to;
+      return `${f} ↔ ${t}`;
+    }));
+  }
+  const devices = state.devices.filter(d => d.type !== "lan" || true);
+  if (!devices.length) return ok("(no devices)");
+  return ok(...devices.map(d => `${d.name} (${d.type}) at ${Math.round(d.x)},${Math.round(d.y)}`));
+}
+
+function cmdShow(args: string[]): CommandResult {
+  const device = resolveDevice(args[0]);
+  if (typeof device === "string") return err(device);
+  const c: any = device.config || {};
+  const lines = [`${device.name} (${device.type})`];
+  if (device.type === "computer") {
+    lines.push(`  ip: ${c.ipv4Address || "(unset)"}`, `  gateway: ${c.gatewayIpv4Address || "(unset)"}`, `  mac: ${c.macAddress || "(unset)"}`);
+  } else if (device.type === "switch") {
+    lines.push(`  managed: ${Boolean(c.managed)}`, `  ports: ${c.ethernetPorts ?? 8}`);
+    if (c.managed && c.vlans?.length) lines.push(`  vlans: ${c.vlans.map((v: any) => v.id).join(", ")}`);
+  } else if (device.type === "router") {
+    for (const i of (c.interfaces || [])) lines.push(`  iface → ${getDevice(i.peerId)?.name || i.peerId}: ${i.ipv4Address || "(unset)"}`);
+    if (c.staticRoutes?.length) lines.push(`  routes: ${c.staticRoutes.map((r: any) => `${r.network}→${r.nextHop}`).join(", ")}`);
+    if (c.rip?.enabled) lines.push(`  rip: enabled`);
+  }
+  return ok(...lines);
+}
+
+function cmdStatus(): CommandResult {
+  const sim = state.simulation;
+  const lines = [`simulation: ${sim.status}`];
+  if (sim.mode === "dhcp") lines.push(`dhcp: ${sim.dhcpSuccess ? `assigned ${sim.dhcpAssignedIp}` : "no result"}`);
+  else lines.push(`ping: ${sim.pingSuccess ? `success (ttl=${sim.pingTtl})` : "no result"}`);
+  lines.push(`devices: ${state.devices.length}, links: ${state.links.length}`);
+  return ok(...lines);
+}
+
+function cmdLog(): CommandResult {
+  const log = state.simulation.log;
+  if (!log.length) return ok("(no simulation log)");
+  return ok(...log.map(e => `[${e.step}] ${e.deviceName}: ${e.summary || e.action}`));
+}
+
+// ── View ─────────────────────────────────────────────────────────────────────
+
+function cmdSelect(args: string[]): CommandResult {
+  const device = resolveDevice(args[0]);
+  if (typeof device === "string") return err(device);
+  state.selectedId = device.id;
+  state.selectedLinkId = null;
+  sync().syncPanel(); sync().render();
+  return ok(`Selected ${device.name}.`);
+}
+
+function cmdTool(args: string[]): CommandResult {
+  const tool = (args[0] || "").toLowerCase();
+  if (!["select", "computer", "switch", "router", "connect", "configure"].includes(tool)) {
+    return err(`tool: expected select|computer|switch|router|connect|configure.`);
+  }
+  setTool(tool);
+  return ok(`Tool: ${tool}.`);
+}
+
+function cmdTheme(args: string[]): CommandResult {
+  const theme = (args[0] || "").toLowerCase();
+  if (theme !== "dark" && theme !== "light") return err(`theme: expected dark|light.`);
+  setTheme(theme);
+  return ok(`Theme: ${theme}.`);
+}
+
+function cmdZoom(args: string[]): CommandResult {
+  const scale = Number(args[0]);
+  if (!Number.isFinite(scale)) return err(`zoom: expected a scale number.`);
+  const rect = dom.canvas.getBoundingClientRect();
+  setZoom(scale, { x: rect.width / 2, y: rect.height / 2 });
+  return ok(`Zoom: ${Math.round(state.scale * 100)}%.`);
+}
+
+function cmdFit(): CommandResult { fitNetwork(); return ok("Fit to view."); }
+
+// ── Meta ─────────────────────────────────────────────────────────────────────
+
+function cmdHelp(args: string[]): CommandResult {
+  if (args[0] && HELP[args[0].toLowerCase()]) return ok(`${args[0]} — ${HELP[args[0].toLowerCase()]}`);
+  return ok("Commands:", ...Object.keys(COMMANDS).sort().map(v => `  ${v} — ${HELP[v] || ""}`));
+}
+
+// ── Registry ─────────────────────────────────────────────────────────────────
+
+type Handler = (args: string[], rest: string) => CommandResult;
+
+const COMMANDS: Record<string, Handler> = {
+  add: cmdAdd, remove: cmdRemove, delete: cmdRemove, link: cmdLink, unlink: cmdUnlink,
+  move: cmdMove, rename: cmdRename, clear: cmdClear, collapse: cmdCollapse, expand: cmdExpand,
+  ip: cmdIp, gateway: cmdGateway, mac: cmdMac, interface: cmdInterface, route: cmdRoute,
+  vlan: cmdVlan, port: cmdPort, cli: cmdCli,
+  ping: cmdPing, dhcp: cmdDhcp, run: cmdRun, play: cmdPlay, pause: cmdPause, step: cmdStep,
+  stop: cmdStop, speed: cmdSpeed,
+  topology: cmdTopology, save: cmdSave, load: cmdLoad, undo: cmdUndo, export: cmdExport,
+  list: cmdList, show: cmdShow, status: cmdStatus, log: cmdLog,
+  select: cmdSelect, tool: cmdTool, theme: cmdTheme, zoom: cmdZoom, fit: cmdFit,
+  help: cmdHelp,
+};
+
+const HELP: Record<string, string> = {
+  add: "add <computer|switch|router> [name] [at <x> <y>]",
+  remove: "remove <device>", link: "link <a> <b> [portA portB]", unlink: "unlink <a> <b>",
+  move: "move <device> <x> <y>", rename: "rename <device> <name>", clear: "remove all devices",
+  collapse: "collapse <switch> into a LAN", expand: "expand <lan>",
+  ip: "ip <host> <addr/prefix>", gateway: "gateway <host> <ip>", mac: "mac <host> <addr>",
+  interface: "interface <router> <peer> ip <addr> [vlan <tag>]", route: "route <router> <net/prefix> <nextHop>",
+  vlan: "vlan <switch> add|del <id>", port: "port <switch> <EthN> vlan|mode|native|allowed ...",
+  cli: "cli <device> <raw CLI command>",
+  ping: "ping <src> <dst> (animated)", dhcp: "dhcp <host> (animated)",
+  run: "run ping <src> <dst> | run dhcp <host> (headless, returns result)",
+  play: "resume", pause: "pause", step: "advance one hop", stop: "stop", speed: "speed <ms-per-hop>",
+  topology: "topology basic|vlan-roas|router-mesh", save: "save <name>", load: "load <name>",
+  undo: "undo", export: "export topology as a reproducible script",
+  list: "list [links]", show: "show <device>", status: "simulation status + last result", log: "hop-by-hop log",
+  select: "select <device>", tool: "tool <name>", theme: "theme dark|light", zoom: "zoom <scale>", fit: "fit to view",
+  help: "help [command]",
+};
+
+// ── Entry points ─────────────────────────────────────────────────────────────
+
+export function runConsoleCommand(line: string): CommandResult {
+  const trimmed = (line || "").trim();
+  if (!trimmed || trimmed.startsWith("#")) return ok();
+  const tokens = trimmed.split(/\s+/);
+  const verb = tokens[0].toLowerCase();
+  const handler = COMMANDS[verb];
+  if (!handler) return err(`Unknown command: ${verb}. Try "help".`);
+  const rest = trimmed.slice(tokens[0].length).trim();
+  try {
+    return handler(tokens.slice(1), rest);
+  } catch (e: any) {
+    return err(`Error: ${e?.message || String(e)}`);
+  }
+}
+
+export function runConsoleScript(text: string): CommandResult[] {
+  return (text || "")
+    .split("\n")
+    .map(l => l.trim())
+    .filter(l => l && !l.startsWith("#"))
+    .map(runConsoleCommand);
+}
+
+/**
+ * Serialises the current topology to a reproducible command script. Running the
+ * output through runConsoleScript() recreates the topology (round-trip).
+ */
+export function exportTopologyScript(): string {
+  const payload: any = buildConfigPayload();
+  const idToName = new Map<string, string>(payload.devices.map((d: any) => [d.id, d.name]));
+  const lines: string[] = ["clear"];
+
+  for (const d of payload.devices) {
+    if (d.type === "lan") continue;
+    lines.push(`add ${d.type} ${d.name} at ${Math.round(d.x)} ${Math.round(d.y)}`);
+  }
+
+  for (const d of payload.devices) {
+    const c = d.config || {};
+    if (d.type === "computer") {
+      if (c.ipv4Address) lines.push(`ip ${d.name} ${c.ipv4Address}`);
+      if (c.gatewayIpv4Address) lines.push(`gateway ${d.name} ${c.gatewayIpv4Address}`);
+      if (c.macAddress) lines.push(`mac ${d.name} ${c.macAddress}`);
+    } else if (d.type === "switch" && c.managed) {
+      for (const v of (c.vlans || [])) if (v.id !== 1) lines.push(`vlan ${d.name} add ${v.id}`);
+      for (const [port, mode] of Object.entries(c.portModes || {})) lines.push(`port ${d.name} ${port} mode ${mode}`);
+      for (const [port, id] of Object.entries(c.portVlans || {})) lines.push(`port ${d.name} ${port} vlan ${id}`);
+      for (const [port, id] of Object.entries(c.trunkNativeVlans || {})) lines.push(`port ${d.name} ${port} native ${id}`);
+      for (const [port, ids] of Object.entries(c.trunkAllowedVlans || {})) {
+        for (const id of (ids as number[])) lines.push(`port ${d.name} ${port} allowed add ${id}`);
+      }
+    } else if (d.type === "router") {
+      for (const i of (c.interfaces || [])) {
+        const peer = idToName.get(i.peerId);
+        if (peer && i.ipv4Address) {
+          lines.push(`interface ${d.name} ${peer} ip ${i.ipv4Address}${i.vlanTag != null ? ` vlan ${i.vlanTag}` : ""}`);
+        }
+      }
+      for (const r of (c.staticRoutes || [])) lines.push(`route ${d.name} ${r.network} ${r.nextHop}`);
+    }
+  }
+
+  for (const l of payload.links) {
+    const f = idToName.get(l.from); const t = idToName.get(l.to);
+    if (!f || !t) continue;
+    const ports = (l.fromPort != null || l.toPort != null) ? ` ${l.fromPort ?? 1} ${l.toPort ?? 1}` : "";
+    lines.push(`link ${f} ${t}${ports}`);
+  }
+
+  return lines.join("\n");
+}

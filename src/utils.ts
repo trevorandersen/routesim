@@ -86,3 +86,11 @@ export function cssColor(name: string): string {
 export function clearCssColorCache(): void {
   cssColorCache.clear();
 }
+
+// Generates a random locally-administered unicast MAC (02:..).
+export function randomMac(): string {
+  const bytes = new Uint8Array(6);
+  crypto.getRandomValues(bytes);
+  bytes[0] = (bytes[0] & 0xfe) | 0x02; // locally administered, unicast
+  return Array.from(bytes, b => b.toString(16).padStart(2, "0").toUpperCase()).join(":");
+}

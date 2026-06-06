@@ -1,0 +1,27 @@
+# `src/engine.ts` — The simulation engine
+
+The largest and most important module. Drives a ping/DHCP simulation through two phases — **process** (dequeue an event, run the per-device handler, collect outgoing frames) and **animate** (interpolate transit dots, deliver on arrival) — and implements per-device packet processing, routing, and RIP.
+
+## Public API (lifecycle)
+- **`startSimulation(setup, sourceId, targetIp, mode?)`** — seeds the queue from a `PingSetup`/DHCP setup and starts the rAF animation loop.
+- **`stopSimulation`, `pauseSimulation`, `resumeSimulation`, `stepOnce`** — sim controls (wired to the on-canvas play/pause/step buttons).
+- **`syncSimLog()`** — rebuilds the floating sim-log panel.
+
+> Because `startSimulation` starts a `requestAnimationFrame` loop, it must **not** be called in unit tests (the test stub makes rAF synchronous → infinite recursion). Tests call the `processAt*` handlers directly. See [testing.md](../testing.md).
+
+## Per-device processing
+Each handler takes a device, an incoming frame, and the ingress peer id, and returns `OutgoingFrame[]`:
+
+- **`processAtComputer`** — answers ARP for its own IP, replies to ICMP echo requests, marks ping success on echo reply, and drives the DHCP client (Discover→Offer→Request→Ack, assigning IP/gateway and learning the router MAC on Ack).
+- **`processAtSwitch`** — MAC-learns on ingress, then forwards (known unicast) or floods (broadcast/unknown). Managed switches enforce 802.1Q VLANs: access ports tag/untag, trunk ports carry allowed VLANs with a native VLAN.
+- **`processAtRouter`** — matches the ingress interface by peer, then dispatches: ARP → `handleRouterArp`, broadcast DHCP → `handleRouterDhcp` (allocates a lease, sends Offer/Ack), otherwise → `routeIpv4Frame`. Routing decrements TTL, rewrites L2 headers, and ARP-resolves on egress (buffering the frame in `pendingArp` on a miss). The self-IP branch answers ICMP echo to the router's own interface IP — and narrows on `payload.type === "icmp"` so a DHCP packet addressed to the router IP isn't mistaken for a self-ping.
+
+`processAtRouter` is decomposed into `handleRouterArp` / `handleRouterDhcp` / `routeIpv4Frame` for clarity; the orchestrator just matches the ingress interface and dispatches.
+
+## Routing & RIP
+- **`buildRoutingTable(router)`** — merges three route sources by priority: connected (metric 0), static (metric 1), RIP-learned (metric 2+). Returns `RouteEntry[]`. A longest-/24-match lookup resolves the egress interface.
+- **`runRipConvergence()`** — runs automatically before each simulation. Iterates up to 15 rounds exchanging advertisements between RIP-enabled routers until no route changes. Implements split-horizon (don't advertise a route back out the interface it was learned on) and metric 16 = unreachable. Decomposed into advertisement-building and update-applying helpers. Router interface normalisation is **memoised per run** for performance, and the whole thing is benchmarked.
+
+## How it fits
+
+`engine.ts` sits at the centre of the simulation: it consumes `simulation.ts`'s event setup, creates response frames via `frame.ts`, reads/writes device config (ARP/MAC/DHCP tables) on `state`, and calls `sync().render()`/`syncSimLog()` to animate. Forwarding decisions reuse `devices.ts` (interface enumeration) and `simulation.ts`/`utils.ts` (subnet maths).

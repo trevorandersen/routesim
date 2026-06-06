@@ -28,6 +28,7 @@ import { normaliseConfig, normaliseStaticRoutes, ensureConfig } from "./normalis
 import { setTool, setTheme } from "./ui";
 import { setZoom, fitNetwork } from "./canvas";
 import { isValidMac, normaliseMacAddress } from "./utils";
+import { SCENARIOS, getScenario, loadScenario, checkScenario } from "./scenarios";
 
 export interface CommandResult {
   ok: boolean;
@@ -419,6 +420,34 @@ function cmdZoom(args: string[]): CommandResult {
 
 function cmdFit(): CommandResult { fitNetwork(); return ok("Fit to view."); }
 
+// ── Scenarios ────────────────────────────────────────────────────────────────
+
+function cmdScenario(args: string[]): CommandResult {
+  const sub = (args[0] || "").toLowerCase();
+  if (sub === "list") {
+    return ok(...SCENARIOS.map(s => `${s.id} — ${s.name}`));
+  }
+  if (sub === "load") {
+    return loadScenario(args[1]) ? ok(`Loaded scenario "${args[1]}".`) : err(`No scenario "${args[1]}".`);
+  }
+  const active = getScenario(state.activeScenarioId);
+  if (sub === "goal") {
+    if (!active) return err("No active scenario. Try `scenario load <id>`.");
+    return ok(active.objective, ...active.checks.map(c => `  - ${c.label}`));
+  }
+  if (sub === "check") {
+    if (!active) return err("No active scenario. Try `scenario load <id>`.");
+    const r = checkScenario(active);
+    return {
+      ok: r.passed,
+      data: r,
+      output: [...r.checks.map(c => `${c.passed ? "✓" : "✗"} ${c.label}`),
+        r.passed ? "Scenario complete!" : "Not yet — keep going."],
+    };
+  }
+  return err("scenario: expected list|load <id>|goal|check.");
+}
+
 // ── Meta ─────────────────────────────────────────────────────────────────────
 
 function cmdHelp(args: string[]): CommandResult {
@@ -440,6 +469,7 @@ const COMMANDS: Record<string, Handler> = {
   topology: cmdTopology, save: cmdSave, load: cmdLoad, undo: cmdUndo, export: cmdExport,
   list: cmdList, show: cmdShow, status: cmdStatus, log: cmdLog,
   select: cmdSelect, tool: cmdTool, theme: cmdTheme, zoom: cmdZoom, fit: cmdFit,
+  scenario: cmdScenario,
   help: cmdHelp,
 };
 
@@ -459,6 +489,7 @@ const HELP: Record<string, string> = {
   undo: "undo", export: "export topology as a reproducible script",
   list: "list [links]", show: "show <device>", status: "simulation status + last result", log: "hop-by-hop log",
   select: "select <device>", tool: "tool <name>", theme: "theme dark|light", zoom: "zoom <scale>", fit: "fit to view",
+  scenario: "scenario list | load <id> | goal | check",
   help: "help [command]",
 };
 

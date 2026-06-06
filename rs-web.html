@@ -1123,6 +1123,55 @@
       box-shadow: 0 4px 16px rgba(0,0,0,.3);
     }
 
+    .scenario-panel {
+      display: none;
+      position: absolute;
+      top: 14px;
+      left: 14px;
+      width: 280px;
+      max-width: calc(100% - 28px);
+      background: var(--panel);
+      border: 1px solid var(--border);
+      border-radius: 12px;
+      padding: 12px 14px;
+      z-index: 10;
+      box-shadow: 0 6px 20px rgba(0,0,0,.3);
+    }
+    body.scenario-active .scenario-panel { display: block; }
+
+    .scenario-titlebar {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 10px;
+    }
+    .scenario-name { font-weight: 800; font-size: 13px; color: var(--text); }
+    .scenario-objective {
+      margin: 6px 0 10px;
+      font-size: 12px;
+      line-height: 1.45;
+      color: var(--muted);
+    }
+    .scenario-checks { list-style: none; margin: 0 0 10px; padding: 0; display: grid; gap: 5px; }
+    .scenario-check {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      font-size: 12px;
+      color: var(--muted);
+    }
+    .scenario-check .mark { width: 14px; text-align: center; font-weight: 800; }
+    .scenario-check.pass { color: var(--text); }
+    .scenario-check.pass .mark { color: #22c55e; }
+    .scenario-check.fail .mark { color: var(--danger); }
+    .scenario-check.pending .mark { color: var(--muted); }
+
+    .scenario-footer { display: flex; align-items: center; gap: 10px; }
+    .scenario-footer .wide-button { flex: 0 0 auto; width: auto; padding: 7px 14px; }
+    .scenario-status { font-size: 12px; font-weight: 700; }
+    .scenario-status.pass { color: #22c55e; }
+    .scenario-status.fail { color: var(--muted); }
+
     .sim-controls.active {
       display: flex;
     }
@@ -1453,6 +1502,12 @@
             <button class="topology-option" data-topology="router-mesh">5-Router Mesh</button>
           </div>
         </div>
+        <div class="topology-chooser" id="scenarioChooser">
+          <button class="icon-button" id="scenarioButton" title="Load scenario" aria-label="Load scenario" aria-expanded="false">
+            <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 4v16"></path><path d="M4 5h13l-2 3l2 3H4"></path></svg>
+          </button>
+          <div class="topology-menu" id="scenarioMenu"></div>
+        </div>
         <button class="icon-button" id="loadButton" title="Load config from config.json" aria-label="Load config from config.json">
           <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 21V9"></path><path d="M7 14l5-5 5 5"></path><path d="M5 3h14"></path></svg>
         </button>
@@ -1466,6 +1521,20 @@
     </header>
     <section class="canvas-wrap">
       <canvas id="networkCanvas" aria-label="Network canvas"></canvas>
+      <div class="scenario-panel" id="scenarioPanel" aria-label="Scenario goal">
+        <div class="scenario-titlebar">
+          <span class="scenario-name" id="scenarioName">Scenario</span>
+          <button class="panel-toggle" id="scenarioCloseButton" type="button" title="Dismiss scenario" aria-label="Dismiss scenario">
+            <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M18 6 6 18"></path><path d="m6 6 12 12"></path></svg>
+          </button>
+        </div>
+        <p class="scenario-objective" id="scenarioObjective"></p>
+        <ul class="scenario-checks" id="scenarioChecks"></ul>
+        <div class="scenario-footer">
+          <button class="wide-button" id="scenarioCheckButton" type="button">Check goal</button>
+          <span class="scenario-status" id="scenarioStatus"></span>
+        </div>
+      </div>
       <div class="sim-controls" id="simControls">
         <button class="sim-btn" id="simPlayPause" title="Play / Pause" aria-label="Play or pause simulation">▶</button>
         <button class="sim-btn" id="simStep" title="Next step" aria-label="Next simulation step">⏭</button>
@@ -1817,6 +1886,7 @@
       history: [],
       historyIndex: -1
     },
+    activeScenarioId: null,
     options: {
       showDeviceNames: true,
       showIpAddresses: true,
@@ -2259,6 +2329,15 @@
     consoleOutput: document.getElementById("consoleOutput"),
     consoleForm: document.getElementById("consoleForm"),
     consoleInput: document.getElementById("consoleInput"),
+    scenarioButton: document.getElementById("scenarioButton"),
+    scenarioMenu: document.getElementById("scenarioMenu"),
+    scenarioPanel: document.getElementById("scenarioPanel"),
+    scenarioName: document.getElementById("scenarioName"),
+    scenarioObjective: document.getElementById("scenarioObjective"),
+    scenarioChecks: document.getElementById("scenarioChecks"),
+    scenarioStatus: document.getElementById("scenarioStatus"),
+    scenarioCheckButton: document.getElementById("scenarioCheckButton"),
+    scenarioCloseButton: document.getElementById("scenarioCloseButton"),
     themeButton: document.getElementById("themeButton"),
     loadButton: document.getElementById("loadButton"),
     saveButton: document.getElementById("saveButton"),
@@ -6322,6 +6401,132 @@ ${lines.join("\n")}
   // src/env.ts
   var READONLY = true ? true : false;
 
+  // src/scenarios.ts
+  var connectLan = {
+    id: "connect-lan",
+    name: "Connect a LAN",
+    objective: "Link PC-A and PC-B to Switch-1, then ping PC-B from PC-A.",
+    topology: {
+      version: 1,
+      devices: [
+        {
+          id: "s1-pc-a",
+          type: "computer",
+          name: "PC-A",
+          x: -220,
+          y: -110,
+          config: { ipv4Address: "192.168.1.10", gatewayIpv4Address: "", macAddress: "02:00:00:00:00:0A", arpTable: [] }
+        },
+        {
+          id: "s1-sw",
+          type: "switch",
+          name: "Switch-1",
+          x: 0,
+          y: 0,
+          config: { managed: false, ethernetPorts: 8, macTable: [] }
+        },
+        {
+          id: "s1-pc-b",
+          type: "computer",
+          name: "PC-B",
+          x: -220,
+          y: 110,
+          config: { ipv4Address: "192.168.1.20", gatewayIpv4Address: "", macAddress: "02:00:00:00:00:0B", arpTable: [] }
+        }
+      ],
+      links: []
+    },
+    checks: [
+      { kind: "link", a: "PC-A", b: "Switch-1", label: "PC-A linked to Switch-1" },
+      { kind: "link", a: "PC-B", b: "Switch-1", label: "PC-B linked to Switch-1" },
+      { kind: "ping", from: "PC-A", to: "PC-B", label: "PC-A can ping PC-B" }
+    ]
+  };
+  var SCENARIOS = [connectLan];
+  function getScenario(id) {
+    return SCENARIOS.find((s) => s.id === id);
+  }
+  function loadScenario(id) {
+    const scenario = getScenario(id);
+    if (!scenario) return false;
+    applyConfig(normaliseConfig(scenario.topology));
+    state.activeScenarioId = id;
+    sync().syncScenarioPanel();
+    return true;
+  }
+  function resolve(ref) {
+    const byId = getDevice(ref);
+    if (byId) return byId;
+    const lower = ref.toLowerCase();
+    return state.devices.find((d) => d.name.toLowerCase() === lower);
+  }
+  function linkExists(aId, bId) {
+    return state.links.some((l) => !l.hidden && (l.from === aId && l.to === bId || l.from === bId && l.to === aId));
+  }
+  function evaluate(check) {
+    if (check.kind === "link") {
+      const a = resolve(check.a);
+      const b = resolve(check.b);
+      return !!a && !!b && linkExists(a.id, b.id);
+    }
+    if (check.kind === "config") {
+      const d = resolve(check.device);
+      return !!d && d.config?.[check.field] === check.equals;
+    }
+    if (check.kind === "ping") {
+      const from = resolve(check.from);
+      if (!from) return false;
+      const setup = buildPingEvents(from, check.to);
+      if (typeof setup === "string") return false;
+      return runSimulationHeadless(setup, from.id, check.to, "ping").success;
+    }
+    if (check.kind === "dhcp") {
+      const host = resolve(check.host);
+      if (!host) return false;
+      const setup = buildDhcpEvents(host);
+      if (typeof setup === "string") return false;
+      return runSimulationHeadless(setup, host.id, "", "dhcp").success;
+    }
+    return false;
+  }
+  function checkScenario(scenario) {
+    const checks = scenario.checks.map((c) => ({ label: c.label, passed: evaluate(c) }));
+    return { id: scenario.id, name: scenario.name, passed: checks.every((c) => c.passed), checks };
+  }
+
+  // src/scenario-ui.ts
+  var lastResult = null;
+  function syncScenarioPanel() {
+    const scenario = getScenario(state.activeScenarioId);
+    document.body.classList.toggle("scenario-active", !!scenario);
+    if (!scenario) {
+      lastResult = null;
+      return;
+    }
+    if (lastResult && lastResult.id !== scenario.id) lastResult = null;
+    dom.scenarioName.textContent = scenario.name;
+    dom.scenarioObjective.textContent = scenario.objective;
+    dom.scenarioChecks.innerHTML = scenario.checks.map((c, i) => {
+      const res = lastResult?.checks[i];
+      const mark = res == null ? "\u25CB" : res.passed ? "\u2713" : "\u2717";
+      const cls = res == null ? "pending" : res.passed ? "pass" : "fail";
+      return `<li class="scenario-check ${cls}"><span class="mark">${mark}</span>${escapeHtml(c.label)}</li>`;
+    }).join("");
+    dom.scenarioStatus.textContent = lastResult ? lastResult.passed ? "Scenario complete \u{1F389}" : "Not yet \u2014 keep going." : "";
+    dom.scenarioStatus.className = "scenario-status" + (lastResult ? lastResult.passed ? " pass" : " fail" : "");
+  }
+  function runActiveScenarioCheck() {
+    const scenario = getScenario(state.activeScenarioId);
+    if (!scenario) return;
+    lastResult = checkScenario(scenario);
+    syncScenarioPanel();
+  }
+  function dismissScenario() {
+    state.activeScenarioId = null;
+    lastResult = null;
+    syncScenarioPanel();
+  }
+
   // src/ui.ts
   function setTool(tool) {
     state.tool = tool;
@@ -6555,6 +6760,29 @@ ${lines.join("\n")}
         dom.topologyButton.setAttribute("aria-expanded", "false");
       }
     });
+    dom.scenarioMenu.innerHTML = SCENARIOS.map((s) => `<button class="topology-option" data-scenario="${s.id}">${s.name}</button>`).join("");
+    dom.scenarioButton.addEventListener("click", () => {
+      const open = dom.scenarioMenu.classList.toggle("open");
+      dom.scenarioButton.setAttribute("aria-expanded", String(open));
+    });
+    dom.scenarioMenu.querySelectorAll(".topology-option").forEach((btn) => {
+      btn.addEventListener("click", () => {
+        const id = btn.dataset.scenario;
+        dom.scenarioMenu.classList.remove("open");
+        dom.scenarioButton.setAttribute("aria-expanded", "false");
+        loadScenario(id);
+      });
+    });
+    document.addEventListener("click", (event) => {
+      if (!dom.scenarioMenu.classList.contains("open")) return;
+      const chooser = document.getElementById("scenarioChooser");
+      if (chooser && !chooser.contains(event.target)) {
+        dom.scenarioMenu.classList.remove("open");
+        dom.scenarioButton.setAttribute("aria-expanded", "false");
+      }
+    });
+    dom.scenarioCheckButton.addEventListener("click", runActiveScenarioCheck);
+    dom.scenarioCloseButton.addEventListener("click", dismissScenario);
     dom.fitButton.addEventListener("click", fitNetwork);
     dom.themeButton.addEventListener("click", toggleTheme);
     dom.terminalOpenButton.addEventListener("click", () => {
@@ -6813,10 +7041,12 @@ ${names.join("\n")}`, names[0]));
     state.nextComputer = nextDeviceNumber("computer");
     state.nextSwitch = nextDeviceNumber("switch");
     state.nextRouter = nextDeviceNumber("router");
+    state.activeScenarioId = null;
     setTool("select");
     fitNetwork();
     syncPanel();
     syncTerminal();
+    sync().syncScenarioPanel();
     render();
   }
   function loadTopology(name) {
@@ -7214,6 +7444,33 @@ ${names.join("\n")}`, names[0]));
     fitNetwork();
     return ok("Fit to view.");
   }
+  function cmdScenario(args) {
+    const sub = (args[0] || "").toLowerCase();
+    if (sub === "list") {
+      return ok(...SCENARIOS.map((s) => `${s.id} \u2014 ${s.name}`));
+    }
+    if (sub === "load") {
+      return loadScenario(args[1]) ? ok(`Loaded scenario "${args[1]}".`) : err(`No scenario "${args[1]}".`);
+    }
+    const active = getScenario(state.activeScenarioId);
+    if (sub === "goal") {
+      if (!active) return err("No active scenario. Try `scenario load <id>`.");
+      return ok(active.objective, ...active.checks.map((c) => `  - ${c.label}`));
+    }
+    if (sub === "check") {
+      if (!active) return err("No active scenario. Try `scenario load <id>`.");
+      const r = checkScenario(active);
+      return {
+        ok: r.passed,
+        data: r,
+        output: [
+          ...r.checks.map((c) => `${c.passed ? "\u2713" : "\u2717"} ${c.label}`),
+          r.passed ? "Scenario complete!" : "Not yet \u2014 keep going."
+        ]
+      };
+    }
+    return err("scenario: expected list|load <id>|goal|check.");
+  }
   function cmdHelp(args) {
     if (args[0] && HELP[args[0].toLowerCase()]) return ok(`${args[0]} \u2014 ${HELP[args[0].toLowerCase()]}`);
     return ok("Commands:", ...Object.keys(COMMANDS).sort().map((v) => `  ${v} \u2014 ${HELP[v] || ""}`));
@@ -7259,6 +7516,7 @@ ${names.join("\n")}`, names[0]));
     theme: cmdTheme,
     zoom: cmdZoom,
     fit: cmdFit,
+    scenario: cmdScenario,
     help: cmdHelp
   };
   var HELP = {
@@ -7301,6 +7559,7 @@ ${names.join("\n")}`, names[0]));
     theme: "theme dark|light",
     zoom: "zoom <scale>",
     fit: "fit to view",
+    scenario: "scenario list | load <id> | goal | check",
     help: "help [command]"
   };
   function runConsoleCommand(line) {
@@ -7439,7 +7698,8 @@ ${names.join("\n")}`, names[0]));
     render,
     syncPanel,
     syncTerminal,
-    resizeCanvas
+    resizeCanvas,
+    syncScenarioPanel
   });
   registerDeviceCallbacks({
     setTool,
@@ -7462,6 +7722,7 @@ ${names.join("\n")}`, names[0]));
     syncNetworkPanel();
     syncTerminal();
     syncConsole();
+    syncScenarioPanel();
     try {
       await loadDefaultConfig2();
     } catch (error) {

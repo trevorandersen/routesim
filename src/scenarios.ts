@@ -1,0 +1,115 @@
+/**
+ * Scenarios — guided challenges. Each scenario provides an initial topology and
+ * a goal (a set of checks). The learner edits the network to satisfy the goal,
+ * then verifies it. Goal evaluation reuses the headless simulation runner and the
+ * topology system. See docs/scenarios.md.
+ */
+import type { Device } from "./types";
+import { state, sync } from "./state";
+import { getDevice } from "./devices";
+import { applyConfig } from "./config";
+import { normaliseConfig } from "./normalise";
+import { buildPingEvents, buildDhcpEvents } from "./simulation";
+import { runSimulationHeadless } from "./engine";
+
+export type ScenarioCheck =
+  | { kind: "link"; a: string; b: string; label: string }
+  | { kind: "config"; device: string; field: string; equals: unknown; label: string }
+  | { kind: "ping"; from: string; to: string; label: string }
+  | { kind: "dhcp"; host: string; label: string };
+
+export interface Scenario {
+  id: string;
+  name: string;
+  objective: string;
+  topology: any;            // { version, devices, links } — same shape as built-in topologies
+  checks: ScenarioCheck[];
+}
+
+export interface CheckResult { label: string; passed: boolean }
+export interface ScenarioResult { id: string; name: string; passed: boolean; checks: CheckResult[] }
+
+// ── Registry ─────────────────────────────────────────────────────────────────
+
+const connectLan: Scenario = {
+  id: "connect-lan",
+  name: "Connect a LAN",
+  objective: "Link PC-A and PC-B to Switch-1, then ping PC-B from PC-A.",
+  topology: {
+    version: 1,
+    devices: [
+      { id: "s1-pc-a", type: "computer", name: "PC-A", x: -220, y: -110,
+        config: { ipv4Address: "192.168.1.10", gatewayIpv4Address: "", macAddress: "02:00:00:00:00:0A", arpTable: [] } },
+      { id: "s1-sw", type: "switch", name: "Switch-1", x: 0, y: 0,
+        config: { managed: false, ethernetPorts: 8, macTable: [] } },
+      { id: "s1-pc-b", type: "computer", name: "PC-B", x: -220, y: 110,
+        config: { ipv4Address: "192.168.1.20", gatewayIpv4Address: "", macAddress: "02:00:00:00:00:0B", arpTable: [] } },
+    ],
+    links: [],
+  },
+  checks: [
+    { kind: "link", a: "PC-A", b: "Switch-1", label: "PC-A linked to Switch-1" },
+    { kind: "link", a: "PC-B", b: "Switch-1", label: "PC-B linked to Switch-1" },
+    { kind: "ping", from: "PC-A", to: "PC-B", label: "PC-A can ping PC-B" },
+  ],
+};
+
+export const SCENARIOS: Scenario[] = [connectLan];
+
+export function getScenario(id: string | null): Scenario | undefined {
+  return SCENARIOS.find(s => s.id === id);
+}
+
+// ── Loading & evaluation ─────────────────────────────────────────────────────
+
+export function loadScenario(id: string): boolean {
+  const scenario = getScenario(id);
+  if (!scenario) return false;
+  applyConfig(normaliseConfig(scenario.topology));
+  state.activeScenarioId = id;
+  sync().syncScenarioPanel();
+  return true;
+}
+
+function resolve(ref: string): Device | undefined {
+  const byId = getDevice(ref);
+  if (byId) return byId;
+  const lower = ref.toLowerCase();
+  return state.devices.find(d => d.name.toLowerCase() === lower);
+}
+
+function linkExists(aId: string, bId: string): boolean {
+  return state.links.some(l =>
+    !l.hidden && ((l.from === aId && l.to === bId) || (l.from === bId && l.to === aId)));
+}
+
+function evaluate(check: ScenarioCheck): boolean {
+  if (check.kind === "link") {
+    const a = resolve(check.a); const b = resolve(check.b);
+    return !!a && !!b && linkExists(a.id, b.id);
+  }
+  if (check.kind === "config") {
+    const d = resolve(check.device);
+    return !!d && (d.config as any)?.[check.field] === check.equals;
+  }
+  if (check.kind === "ping") {
+    const from = resolve(check.from);
+    if (!from) return false;
+    const setup = buildPingEvents(from, check.to);
+    if (typeof setup === "string") return false;
+    return runSimulationHeadless(setup, from.id, check.to, "ping").success;
+  }
+  if (check.kind === "dhcp") {
+    const host = resolve(check.host);
+    if (!host) return false;
+    const setup = buildDhcpEvents(host);
+    if (typeof setup === "string") return false;
+    return runSimulationHeadless(setup, host.id, "", "dhcp").success;
+  }
+  return false;
+}
+
+export function checkScenario(scenario: Scenario): ScenarioResult {
+  const checks = scenario.checks.map(c => ({ label: c.label, passed: evaluate(c) }));
+  return { id: scenario.id, name: scenario.name, passed: checks.every(c => c.passed), checks };
+}

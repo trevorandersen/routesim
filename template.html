@@ -70,6 +70,12 @@
             <button class="topology-option" data-topology="router-mesh">5-Router Mesh</button>
           </div>
         </div>
+        <div class="topology-chooser" id="scenarioChooser">
+          <button class="icon-button" id="scenarioButton" title="Load scenario" aria-label="Load scenario" aria-expanded="false">
+            <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 4v16"></path><path d="M4 5h13l-2 3l2 3H4"></path></svg>
+          </button>
+          <div class="topology-menu" id="scenarioMenu"></div>
+        </div>
         <button class="icon-button" id="loadButton" title="Load config from config.json" aria-label="Load config from config.json">
           <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 21V9"></path><path d="M7 14l5-5 5 5"></path><path d="M5 3h14"></path></svg>
         </button>
@@ -83,6 +89,20 @@
     </header>
     <section class="canvas-wrap">
       <canvas id="networkCanvas" aria-label="Network canvas"></canvas>
+      <div class="scenario-panel" id="scenarioPanel" aria-label="Scenario goal">
+        <div class="scenario-titlebar">
+          <span class="scenario-name" id="scenarioName">Scenario</span>
+          <button class="panel-toggle" id="scenarioCloseButton" type="button" title="Dismiss scenario" aria-label="Dismiss scenario">
+            <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M18 6 6 18"></path><path d="m6 6 12 12"></path></svg>
+          </button>
+        </div>
+        <p class="scenario-objective" id="scenarioObjective"></p>
+        <ul class="scenario-checks" id="scenarioChecks"></ul>
+        <div class="scenario-footer">
+          <button class="wide-button" id="scenarioCheckButton" type="button">Check goal</button>
+          <span class="scenario-status" id="scenarioStatus"></span>
+        </div>
+      </div>
       <div class="sim-controls" id="simControls">
         <button class="sim-btn" id="simPlayPause" title="Play / Pause" aria-label="Play or pause simulation">▶</button>
         <button class="sim-btn" id="simStep" title="Next step" aria-label="Next simulation step">⏭</button>

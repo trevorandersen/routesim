@@ -6,6 +6,7 @@ import { render, resizeCanvas, screenToWorld, syncZoomLevel, fitNetwork } from "
 import { syncPanel, syncOptionControls, syncNetworkPanel, setNetworkPanel, setInspectorWidth } from "./inspector";
 import { syncTerminal } from "./terminal";
 import { syncConsole } from "./console";
+import { syncScenarioPanel } from "./scenario-ui";
 import { setupUI, setTool, setTheme } from "./ui";
 import { loadDefaultConfig, applyConfigWithoutUndo } from "./config";
 import { runConsoleCommand, runConsoleScript, exportTopologyScript } from "./commands";
@@ -15,7 +16,8 @@ registerCallbacks({
   render,
   syncPanel,
   syncTerminal,
-  resizeCanvas
+  resizeCanvas,
+  syncScenarioPanel
 });
 
 // Register UI callbacks that devices.ts needs without circular imports
@@ -47,6 +49,7 @@ async function initialiseApp() {
   syncNetworkPanel();
   syncTerminal();
   syncConsole();
+  syncScenarioPanel();
   try {
     await loadDefaultConfig();
   } catch (error) {

@@ -1,4 +1,4 @@
-import { state, pushUndo } from "./state";
+import { state, pushUndo, sync } from "./state";
 import { dom } from "./dom";
 import { READONLY } from "./env";
 import { clampPortCount, clampRouterPortCount } from "./utils";
@@ -252,10 +252,13 @@ export function applyConfigWithoutUndo(config: any): void {
   state.nextComputer = nextDeviceNumber("computer");
   state.nextSwitch = nextDeviceNumber("switch");
   state.nextRouter = nextDeviceNumber("router");
+  // Replacing the network drops any active scenario; loadScenario re-sets it after.
+  state.activeScenarioId = null;
   setTool("select");
   fitNetwork();
   syncPanel();
   syncTerminal();
+  sync().syncScenarioPanel();
   render();
 }
 

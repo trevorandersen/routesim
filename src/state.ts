@@ -5,6 +5,7 @@ export type SyncCallbacks = {
   syncPanel: () => void;
   syncTerminal: () => void;
   resizeCanvas: () => void;
+  syncScenarioPanel: () => void;
 };
 
 let _cb: SyncCallbacks;
@@ -49,6 +50,7 @@ export const state: AppState = {
     history: [],
     historyIndex: -1
   },
+  activeScenarioId: null,
   options: {
     showDeviceNames: true,
     showIpAddresses: true,

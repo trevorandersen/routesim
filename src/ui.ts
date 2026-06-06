@@ -6,6 +6,8 @@ import { clearCssColorCache } from "./utils";
 import { syncPanel, syncOptionControls, syncNetworkPanel, setNetworkPanel, toggleDisplayOptions, setInspectorWidth, startInspectorResize, moveInspectorResize, stopInspectorResize } from "./inspector";
 import { openTerminalFor, closeTerminal, syncTerminal, submitTerminalCommand, handleTerminalKeydown } from "./terminal";
 import { openConsole, closeConsole, submitConsoleCommand, handleConsoleKeydown } from "./console";
+import { SCENARIOS, loadScenario } from "./scenarios";
+import { runActiveScenarioCheck, dismissScenario } from "./scenario-ui";
 import { saveConfig, loadConfig, loadTopology, loadDefaultConfig, applyConfigWithoutUndo } from "./config";
 import { normaliseConfig } from "./normalise";
 import { defaultConfig } from "./state";
@@ -268,6 +270,33 @@ export function setupUI(): void {
       dom.topologyButton.setAttribute("aria-expanded", "false");
     }
   });
+  // Scenarios chooser — populated from the registry, mirrors the topology menu.
+  dom.scenarioMenu.innerHTML = SCENARIOS
+    .map(s => `<button class="topology-option" data-scenario="${s.id}">${s.name}</button>`)
+    .join("");
+  dom.scenarioButton.addEventListener("click", () => {
+    const open = dom.scenarioMenu.classList.toggle("open");
+    dom.scenarioButton.setAttribute("aria-expanded", String(open));
+  });
+  dom.scenarioMenu.querySelectorAll(".topology-option").forEach((btn: Element) => {
+    btn.addEventListener("click", () => {
+      const id = (btn as HTMLElement).dataset.scenario!;
+      dom.scenarioMenu.classList.remove("open");
+      dom.scenarioButton.setAttribute("aria-expanded", "false");
+      loadScenario(id);
+    });
+  });
+  document.addEventListener("click", (event) => {
+    if (!dom.scenarioMenu.classList.contains("open")) return;
+    const chooser = document.getElementById("scenarioChooser");
+    if (chooser && !chooser.contains(event.target as Node)) {
+      dom.scenarioMenu.classList.remove("open");
+      dom.scenarioButton.setAttribute("aria-expanded", "false");
+    }
+  });
+  dom.scenarioCheckButton.addEventListener("click", runActiveScenarioCheck);
+  dom.scenarioCloseButton.addEventListener("click", dismissScenario);
+
   dom.fitButton.addEventListener("click", fitNetwork);
   dom.themeButton.addEventListener("click", toggleTheme);
   // The terminal and console share the bottom slot — opening one closes the other.

@@ -133,6 +133,7 @@ fixed enums may be interpolated raw.
 | `env.ts` | Build-time flags. Exports `READONLY` from the `__BUILD_READONLY__` esbuild define; defaults to `false` in dev/test. |
 | `commands.ts` | Text-command engine: parses a line, resolves device refs, dispatches to the action functions. `runConsoleCommand`/`runConsoleScript`/`exportTopologyScript`. Pure (no panel UI) so it's reused by the console, `window.routesim`, and tests. See `docs/scripting.md`. |
 | `console.ts` | The command console panel UI (distinct from per-device terminals); drives `commands.ts`. |
+| `scenarios.ts` | Guided-challenge scenarios: data model, `SCENARIOS` registry, `loadScenario`, and `checkScenario` (goal evaluation reusing `runSimulationHeadless`). `scenario-ui.ts` renders the goal banner. See `docs/scenarios.md`. |
 | `test-server.ts` | Dev server (Bun). Serves static files (`/` → `rs-main.html`) + `/api/tests` (list test suites) + `/api/run` (execute `bun test` with optional file/pattern filters). Powers `test.html` and `benchmark.html`. |
 | `build-inline.ts` | Inlines CSS + bundled JS into `template.html` → named output file. Uses replacer functions to avoid `$`-pattern corruption. Called by `build.sh` per variant. |
 
@@ -204,6 +205,8 @@ Every link records frames that traverse it (`link.frameHistory[]`). Click a link
 **Adding a simulation protocol**: Create frame factories in `frame.ts`, handle in the appropriate `processAt*` function in `engine.ts`, update `frameLabel`/`frameColor` for display.
 
 **Adding a console command**: Add a handler to the `COMMANDS` registry (and a `HELP` entry) in `commands.ts`, reusing existing action functions. It's automatically available in the console panel, `window.routesim`, and scripts. For commands that build/observe state, prefer the headless `runSimulationHeadless` (engine.ts) over the animated path. See `docs/scripting.md`.
+
+**Adding a scenario**: Append a `Scenario` (initial `topology` + a `checks` goal) to `SCENARIOS` in `scenarios.ts`. It appears automatically in the chooser, the console (`scenario list/load/check`), and the goal banner. Checks reuse the headless runner. See `docs/scenarios.md`.
 
 **Built-in topologies**: The topology chooser dropdown (`loadTopology` in `config.ts`) offers three built-in topologies: Basic Network, VLAN Router-on-a-Stick, and 5-Router Partial Mesh.
 

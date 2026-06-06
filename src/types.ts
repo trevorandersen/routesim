@@ -323,6 +323,7 @@ export interface AppState {
   inspectorResize: InspectorResizeState | null;
   terminal: TerminalState;
   console: ConsoleState;
+  activeScenarioId: string | null;
   options: DisplayOptions;
   nextComputer: number;
   nextSwitch: number;

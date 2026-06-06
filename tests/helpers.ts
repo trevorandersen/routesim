@@ -13,6 +13,7 @@ export function registerNoopCallbacks(): void {
     syncPanel: () => {},
     syncTerminal: () => {},
     resizeCanvas: () => {},
+    syncScenarioPanel: () => {},
   });
 }
 
@@ -56,4 +57,5 @@ export function resetState(): void {
     historyIndex: -1,
   } as any;
   state.console = { open: false, lines: [], history: [], historyIndex: -1 } as any;
+  state.activeScenarioId = null;
 }

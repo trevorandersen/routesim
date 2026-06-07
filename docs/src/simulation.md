@@ -5,14 +5,14 @@ Turns a user request (`ping <target>` or `dhcp`) into the initial queue of simul
 ## Key exports
 
 ### Event builders
-- **`buildPingEvents(source, targetText)`** — validates a ping: resolves the target (name or IP), checks connectivity, decides same-subnet (L2) vs cross-subnet (route via gateway). Returns either an error string (`"ping: cannot resolve …"`, `"… Network is unreachable …"`) or a `PingSetup` (`{ events, pendingArp }`) — an ARP request (if the MAC is unknown) plus a deferred ICMP held in `pendingArp` until the ARP resolves.
+- **`buildPingEvents(source, targetText)`** — validates a ping and decides same-subnet (L2) vs cross-subnet (via the default gateway). Returns either an error string (`"ping: cannot resolve …"` only for an unresolvable *hostname*; `"… Network is unreachable …"` for a local config error like a missing/off-subnet gateway) or a `PingSetup` (`{ events, pendingArp }`) — an ARP request (if the MAC is unknown) plus a deferred ICMP held in `pendingArp` until the ARP resolves. **It does not pre-compute reachability:** a bare destination IP that belongs to no device still emits a real ARP (to the target on-subnet, or to the gateway off-subnet), and the *simulation* decides the outcome — a flooded ARP with no reply or a router's "No route" drop both time out as 100% packet loss. The router's own routing table (`routingLookup`, `engine.ts`) is the single source of truth for cross-subnet reachability.
 - **`buildDhcpEvents(source)`** — validates a DHCP request and returns the initial DHCP Discover event (or an error string).
 
 ### Reachability & routing helpers
 - **`l2Reachable(fromId, toId, vlanId)`** — VLAN-aware BFS across switches: does a frame on `vlanId` reach `toId` at layer 2? Stops at routers and respects access/trunk port membership. Runs on every ping/DHCP validation, so it goes through the `linksFor` adjacency index and is **benchmarked**.
 - **`devicesHavePath`** — coarse connectivity check.
 - **`getVlanForDevice(deviceId)`** — the VLAN a host sits in (via its switch's access-port assignment).
-- **`findRouterBetweenSubnets`, `findPingTarget`** — locate the routing device between two subnets / resolve a ping target device.
+- **`findPingTarget(value)`** — resolve a ping target to a device by name or IP (returns `undefined` for a bare IP that belongs to no device, so the ping still ARPs and times out).
 
 ## How it fits
 

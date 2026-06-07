@@ -580,6 +580,32 @@ describe("runSimulationHeadless", () => {
     expect(state.simulation.status).toBe("done");
   });
 
+  it("issues an ARP request (not an instant error) when pinging an unknown same-subnet IP", () => {
+    const topo = basicTopology();
+    state.devices = topo.devices as any;
+    state.links = topo.links as any;
+    const pc1 = state.devices.find(d => d.id === "pc1")!;
+    // 192.168.1.99 belongs to no device but is on PC1's subnet.
+    const setup = buildPingEvents(pc1, "192.168.1.99");
+    // Regression: this previously returned an instant "cannot resolve" string
+    // without ever emitting a frame.
+    expect(typeof setup).not.toBe("string");
+    const result = runSimulationHeadless(setup as any, "pc1", "192.168.1.99");
+    expect(result.success).toBe(false);
+    // An ARP request really was broadcast and processed by other hosts.
+    expect(result.log.some(l => /ARP Request/i.test(l.summary))).toBe(true);
+  });
+
+  it("still rejects a target that is neither a device nor a valid IP", () => {
+    const topo = basicTopology();
+    state.devices = topo.devices as any;
+    state.links = topo.links as any;
+    const pc1 = state.devices.find(d => d.id === "pc1")!;
+    const setup = buildPingEvents(pc1, "not-a-host");
+    expect(typeof setup).toBe("string");
+    expect(setup as string).toContain("cannot resolve");
+  });
+
   it("reports failure when the destination host does not reply (powered off)", () => {
     // Cross-subnet ping: validation only checks source→gateway L2 reachability, so
     // buildPingEvents succeeds, but the powered-off destination never answers ICMP.
@@ -593,5 +619,21 @@ describe("runSimulationHeadless", () => {
     expect(typeof setup).not.toBe("string");
     const result = runSimulationHeadless(setup as any, "pc-a", "192.168.20.10");
     expect(result.success).toBe(false);
+  });
+
+  it("ARPs the gateway and lets the router drop a cross-subnet unrouteable IP", () => {
+    const topo = routedTopology();
+    state.devices = topo.devices as any;
+    state.links = topo.links as any;
+    const pcA = state.devices.find(d => d.id === "pc-a")!;
+    // 192.168.99.99 is off-subnet with no route on the router.
+    const setup = buildPingEvents(pcA, "192.168.99.99");
+    // Regression: this used to short-circuit to an instant loss string with no ARP.
+    expect(typeof setup).not.toBe("string");
+    const result = runSimulationHeadless(setup as any, "pc-a", "192.168.99.99");
+    expect(result.success).toBe(false);
+    // The host ARPed its gateway and the router made the drop decision.
+    expect(result.log.some(l => /ARP Request/i.test(l.summary))).toBe(true);
+    expect(result.log.some(l => /No route/i.test(l.summary))).toBe(true);
   });
 });

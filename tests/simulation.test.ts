@@ -1,6 +1,6 @@
 import { describe, it, expect, beforeAll, beforeEach } from "bun:test";
 import { state } from "../src/state";
-import { getVlanForDevice, l2Reachable, findRouterBetweenSubnets, buildPingEvents, buildDhcpEvents } from "../src/simulation";
+import { getVlanForDevice, l2Reachable, buildPingEvents, buildDhcpEvents } from "../src/simulation";
 import { registerNoopCallbacks, resetState } from "./helpers";
 import { basicTopology, routedTopology, vlanTopology, trunkTopology } from "./fixtures";
 
@@ -114,62 +114,6 @@ describe("l2Reachable", () => {
   });
 });
 
-// ── findRouterBetweenSubnets ─────────────────────────────────────────────────
-
-describe("findRouterBetweenSubnets", () => {
-  beforeEach(() => resetState());
-
-  it("finds router connecting two subnets", () => {
-    const topo = routedTopology();
-    state.devices = topo.devices as any;
-    state.links = topo.links as any;
-    const result = findRouterBetweenSubnets("192.168.10.10", "192.168.20.10");
-    expect(result).not.toBeNull();
-    expect(result.router.id).toBe("rtr");
-    expect(result.sourceIface.ipv4Address).toBe("192.168.10.1");
-    expect(result.destIface.ipv4Address).toBe("192.168.20.1");
-  });
-
-  it("returns null when no router bridges subnets", () => {
-    const topo = basicTopology();
-    state.devices = topo.devices as any;
-    state.links = topo.links as any;
-    const result = findRouterBetweenSubnets("192.168.1.10", "10.0.0.1");
-    expect(result).toBeNull();
-  });
-
-  it("skips powered-off routers", () => {
-    const topo = routedTopology();
-    const rtr = topo.devices.find(d => d.id === "rtr")!;
-    (rtr as any).poweredOff = true;
-    state.devices = topo.devices as any;
-    state.links = topo.links as any;
-    const result = findRouterBetweenSubnets("192.168.10.10", "192.168.20.10");
-    expect(result).toBeNull();
-  });
-
-  it("skips hidden routers", () => {
-    const topo = routedTopology();
-    const rtr = topo.devices.find(d => d.id === "rtr")!;
-    (rtr as any).hidden = true;
-    state.devices = topo.devices as any;
-    state.links = topo.links as any;
-    const result = findRouterBetweenSubnets("192.168.10.10", "192.168.20.10");
-    expect(result).toBeNull();
-  });
-
-  it("finds correct interfaces for VLAN router", () => {
-    const topo = vlanTopology();
-    state.devices = topo.devices as any;
-    state.links = topo.links as any;
-    const result = findRouterBetweenSubnets("192.168.10.10", "192.168.20.10");
-    expect(result).not.toBeNull();
-    expect(result.router.id).toBe("rtr-v");
-    expect(result.sourceIface.vlanTag).toBe(10);
-    expect(result.destIface.vlanTag).toBe(20);
-  });
-});
-
 // ── buildPingEvents ──────────────────────────────────────────────────────────
 
 describe("buildPingEvents", () => {
@@ -195,13 +139,18 @@ describe("buildPingEvents", () => {
     expect(result as string).toContain("no MAC address");
   });
 
-  it("returns error when target not found", () => {
+  it("returns 'cannot resolve' only for an unresolvable hostname (not a bare IP)", () => {
     const topo = basicTopology();
     state.devices = topo.devices as any;
     state.links = topo.links as any;
-    const result = buildPingEvents(topo.devices[0], "99.99.99.99");
-    expect(typeof result).toBe("string");
-    expect(result as string).toContain("cannot resolve");
+    // An unresolvable name still errors out instantly.
+    const named = buildPingEvents(topo.devices[0], "no-such-host");
+    expect(typeof named).toBe("string");
+    expect(named as string).toContain("cannot resolve");
+    // A valid IP that belongs to no device must NOT be "cannot resolve" — it
+    // should attempt the ping (ARP first) and let the simulation time out.
+    const byIp = buildPingEvents(topo.devices[0], "192.168.1.99");
+    expect(typeof byIp).not.toBe("string");
   });
 
   it("creates ARP event for same-subnet ping (no ARP cache)", () => {

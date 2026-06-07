@@ -1,8 +1,8 @@
 import type { SimEvent, EthernetFrame } from "./types";
 import { state } from "./state";
 import { getDevice, linkedPortsFor, linksFor } from "./devices";
-import { normalisePortVlans, normalisePortModes, normaliseTrunkAllowedVlans, normaliseStaticRoutes } from "./normalise";
-import { isValidIpv4, sameSubnet24, ipv4ToInt } from "./utils";
+import { normalisePortVlans, normalisePortModes, normaliseTrunkAllowedVlans } from "./normalise";
+import { isValidIpv4, sameSubnet24 } from "./utils";
 import { createArpRequest, createIcmpEchoRequest, createDhcpDiscover } from "./frame";
 
 export interface PingSetup {
@@ -85,44 +85,6 @@ export function getVlanForDevice(deviceId: string): number {
   return 1;
 }
 
-function routeCoversSubnet(destIp: string, network: string): boolean {
-  const slash = network.indexOf("/");
-  const netIp = slash >= 0 ? network.slice(0, slash) : network;
-  if (!isValidIpv4(netIp) || !isValidIpv4(destIp)) return false;
-  return (ipv4ToInt(destIp) >>> 8) === (ipv4ToInt(netIp) >>> 8);
-}
-
-export function findRouterBetweenSubnets(sourceIp: string, destIp: string): any {
-  for (const device of state.devices) {
-    if (device.type !== "router" || device.hidden || device.poweredOff) continue;
-    const ifaces = device.config?.interfaces;
-    if (!Array.isArray(ifaces)) continue;
-    let sourceIface: any = null;
-    let destIface: any = null;
-    for (const iface of ifaces) {
-      const ip = iface.ipv4Address;
-      if (!ip || !isValidIpv4(ip)) continue;
-      if (sameSubnet24(ip, sourceIp)) sourceIface = iface;
-      if (sameSubnet24(ip, destIp)) destIface = iface;
-    }
-    if (sourceIface && destIface) {
-      return { router: device, sourceIface, destIface };
-    }
-    // Fallback: source interface is connected, but dest might be reachable via static/RIP route
-    if (sourceIface && !destIface) {
-      const statics = normaliseStaticRoutes(device.config?.staticRoutes || []);
-      const hasStaticRoute = statics.some(r => routeCoversSubnet(destIp, r.network));
-      const ripRoutes = device.config?.rip?.enabled && Array.isArray(device.config.rip.learnedRoutes)
-        ? device.config.rip.learnedRoutes : [];
-      const hasRipRoute = ripRoutes.some((r: any) => routeCoversSubnet(destIp, r.network));
-      if (hasStaticRoute || hasRipRoute) {
-        return { router: device, sourceIface, destIface: sourceIface };
-      }
-    }
-  }
-  return null;
-}
-
 export function findPingTarget(value: string): any {
   const target = String(value || "").trim().toLowerCase();
   return state.devices.find(device =>
@@ -143,16 +105,26 @@ export function buildPingEvents(source: any, targetText: string): PingSetup | st
   if (!source.config?.ipv4Address) return `${source.name}: eth0 has no IPv4 address.`;
   if (!source.config?.macAddress) return `${source.name}: eth0 has no MAC address.`;
 
-  const target = findPingTarget(targetText);
-  if (!target) return `ping: cannot resolve ${targetText}`;
-
   const srcIp = source.config.ipv4Address;
   const srcMac = source.config.macAddress;
-  const dstIp = target.config?.ipv4Address;
-  if (!dstIp) return `${target.name}: eth0 has no IPv4 address.`;
+
+  // Resolve the destination IP. The target may be a known device (matched by
+  // name or IP) or a bare IP address that belongs to no device. In the latter
+  // case we still emit a real ARP request and let it time out, rather than
+  // "magically" reporting the host as unreachable before any frame is sent.
+  const target = findPingTarget(targetText);
+  let dstIp: string;
+  if (target) {
+    if (!target.config?.ipv4Address) return `${target.name}: eth0 has no IPv4 address.`;
+    dstIp = target.config.ipv4Address;
+  } else if (isValidIpv4(targetText.trim())) {
+    dstIp = targetText.trim();
+  } else {
+    return `ping: cannot resolve ${targetText}`;
+  }
 
   // Self-ping: instant
-  if (target.id === source.id) {
+  if (target && target.id === source.id) {
     return `PING ${srcIp}\n64 bytes from ${srcIp}: icmp_seq=1 ttl=64 time=0.1 ms\n\n--- ${srcIp} ping statistics ---\n1 packets transmitted, 1 received, 0% packet loss`;
   }
 
@@ -192,10 +164,11 @@ export function buildPingEvents(source: any, targetText: string): PingSetup | st
   const gwIp = source.config.gatewayIpv4Address;
   if (!sameSubnet24(gwIp, srcIp)) return `ping: connect: Network is unreachable (gateway not on source subnet)`;
 
-  const routeInfo = findRouterBetweenSubnets(srcIp, dstIp);
-  if (!routeInfo) return `PING ${dstIp}\n\n--- ${dstIp} ping statistics ---\n1 packets transmitted, 0 received, 100% packet loss`;
-  if (gwIp !== routeInfo.sourceIface.ipv4Address) return `PING ${dstIp}\n\n--- ${dstIp} ping statistics ---\n1 packets transmitted, 0 received, 100% packet loss`;
-
+  // Always hand the packet to the default gateway via an ARP (unless the gateway
+  // MAC is already cached). Whether the destination is actually routable is then
+  // decided by the simulation — the router forwards it or drops it ("No route"),
+  // and a non-existent gateway/host makes the ARP or routed packet time out.
+  // We deliberately do NOT pre-check reachability here, so the ARP is always seen.
   const gwArpEntry = (source.config.arpTable || []).find((e: any) => e.ipv4Address === gwIp);
   let initialFrame;
   if (gwArpEntry) {

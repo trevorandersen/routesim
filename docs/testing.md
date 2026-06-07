@@ -78,7 +78,7 @@ describe("setSwitchPortVlan", () => {
 | `tests/engine.test.ts` | `processAtComputer/Switch/Router`, routing, sub-interfaces, self-destined frames |
 | `tests/terminal.test.ts` | Terminal display + mutator helpers (host/router/switch, VLAN, trunk) |
 | `tests/terminal-commands.test.ts` | The command **dispatchers** + router mode state machine |
-| `tests/simulation.test.ts` | `l2Reachable`, `getVlanForDevice`, `findRouterBetweenSubnets`, `buildPing/DhcpEvents` |
+| `tests/simulation.test.ts` | `l2Reachable`, `getVlanForDevice`, `buildPing/DhcpEvents` |
 | `tests/frame.test.ts` | Frame factories, `frameLabel`/`frameColor` |
 | `tests/normalise.test.ts` | All normalisers, `ensureConfig`, `defaultDeviceConfig`, `deviceSize` |
 | `tests/devices.test.ts` | CRUD, hit-testing, lookup indexes + invalidation |

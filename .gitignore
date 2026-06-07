@@ -11,5 +11,9 @@
 *.backup.html
 CLAUDE.md.bak
 
+# Manual context dumps
+context-*.txt
+context-*.txt.gz
+
 # Local Claude settings (keep launch.json tracked)
 .claude/settings.local.json

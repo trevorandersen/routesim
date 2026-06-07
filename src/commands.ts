@@ -7,7 +7,7 @@
  * tests. See docs/scripting.md for the command reference.
  */
 import type { Device, DeviceType } from "./types";
-import { state, undo, sync } from "./state";
+import { state, undo, sync, THEMES } from "./state";
 import { dom } from "./dom";
 import {
   addDevice, addLink, deleteSelection, clearNetwork, collapseLan, expandLan,
@@ -404,8 +404,11 @@ function cmdTool(args: string[]): CommandResult {
 }
 
 function cmdTheme(args: string[]): CommandResult {
-  const theme = (args[0] || "").toLowerCase();
-  if (theme !== "dark" && theme !== "light") return err(`theme: expected dark|light.`);
+  const raw = (args[0] || "").toLowerCase();
+  const theme = raw === "light" ? "warm-light" : raw; // back-compat alias
+  if (!THEMES.some(t => t.id === theme)) {
+    return err(`theme: expected ${THEMES.map(t => t.id).join("|")}.`);
+  }
   setTheme(theme);
   return ok(`Theme: ${theme}.`);
 }
@@ -488,7 +491,7 @@ const HELP: Record<string, string> = {
   topology: "topology basic|vlan-roas|router-mesh", save: "save <name>", load: "load <name>",
   undo: "undo", export: "export topology as a reproducible script",
   list: "list [links]", show: "show <device>", status: "simulation status + last result", log: "hop-by-hop log",
-  select: "select <device>", tool: "tool <name>", theme: "theme dark|light", zoom: "zoom <scale>", fit: "fit to view",
+  select: "select <device>", tool: "tool <name>", theme: "theme warm-light|dark|blueprint", zoom: "zoom <scale>", fit: "fit to view",
   scenario: "scenario list | load <id> | goal | check",
   help: "help [command]",
 };

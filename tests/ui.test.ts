@@ -4,11 +4,48 @@
  * event-shaped objects.
  */
 import { describe, it, expect, beforeAll, beforeEach } from "bun:test";
-import { state } from "../src/state";
-import { handleGlobalKeydown } from "../src/ui";
+import { state, THEMES, DEFAULT_THEME } from "../src/state";
+import { handleGlobalKeydown, setTheme, toggleTheme } from "../src/ui";
 import { registerNoopCallbacks, resetState } from "./helpers";
 
 beforeAll(() => registerNoopCallbacks());
+
+describe("themes", () => {
+  beforeEach(() => resetState());
+
+  it("registers three themes with warm-light as the default", () => {
+    expect(THEMES.map(t => t.id)).toEqual(["warm-light", "dark", "blueprint"]);
+    expect(DEFAULT_THEME).toBe("warm-light");
+  });
+
+  it("setTheme applies each id to state + the html data-theme attribute", () => {
+    for (const { id } of THEMES) {
+      setTheme(id);
+      expect(state.theme).toBe(id);
+      expect(document.documentElement.dataset.theme).toBe(id);
+    }
+  });
+
+  it("treats 'light' as a back-compat alias for warm-light", () => {
+    setTheme("light");
+    expect(state.theme).toBe("warm-light");
+  });
+
+  it("falls back to the default theme for an unknown id", () => {
+    setTheme("nope");
+    expect(state.theme).toBe(DEFAULT_THEME);
+  });
+
+  it("toggleTheme cycles through the registry in order", () => {
+    setTheme("warm-light");
+    toggleTheme();
+    expect(state.theme).toBe("dark");
+    toggleTheme();
+    expect(state.theme).toBe("blueprint");
+    toggleTheme();
+    expect(state.theme).toBe("warm-light");
+  });
+});
 
 const key = (k: string, target: any = {}) => ({ key: k, target } as any);
 

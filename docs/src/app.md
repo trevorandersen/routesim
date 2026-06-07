@@ -8,7 +8,7 @@ The bundle's entry point (esbuild bundles `app.ts` and everything it transitivel
    - `registerCallbacks({ render, syncPanel, syncTerminal, resizeCanvas })` (from `state.ts`).
    - `registerDeviceCallbacks({ setTool, setNetworkPanel })` (from `devices.ts`).
 2. **`setupUI()`** (`ui.ts`) — attaches all DOM event listeners.
-3. **`initialiseApp()`** — sizes the canvas, sets the inspector width, centres the pan, applies the light theme (the default; toggle to dark in the View tab), syncs the panels, then `loadDefaultConfig()` to load the built-in Basic Network. Finishes with `syncPanel()` + `render()`. No network request.
+3. **`initialiseApp()`** — sizes the canvas, sets the inspector width, centres the pan, applies the default Warm Light theme (switch to Dark or Blueprint in the View tab), syncs the panels, then `loadDefaultConfig()` to load the built-in Basic Network. Finishes with `syncPanel()` + `render()`. No network request.
 
 It also exposes the `window.routesim` API (`exec`/`run`/`export`/`snapshot` + the io import/export functions) for automation.
 

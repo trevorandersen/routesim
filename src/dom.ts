@@ -37,7 +37,7 @@ export const dom = {
   scenarioStatus: document.getElementById("scenarioStatus")!,
   scenarioCheckButton: document.getElementById("scenarioCheckButton")!,
   scenarioCloseButton: document.getElementById("scenarioCloseButton")!,
-  themeButton: document.getElementById("themeButton")!,
+  themeButtons: Array.from(document.querySelectorAll<HTMLElement>("[data-theme-id]")),
   ribbonScenarioList: document.getElementById("ribbonScenarioList")!,
   coordReadout: document.getElementById("coordReadout")!,
   simPlayPause: document.getElementById("simPlayPause")!,

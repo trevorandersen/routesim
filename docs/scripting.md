@@ -75,7 +75,7 @@ routesim.snapshot()                             // { devices, links, simulation 
 | `log` | The hop-by-hop log of the last/current simulation. |
 
 ### View
-`select <ref>` · `tool <name>` · `theme <dark\|light>` · `zoom <scale>` · `fit` · `help [command]`
+`select <ref>` · `tool <name>` · `theme <warm-light\|dark\|blueprint>` · `zoom <scale>` · `fit` · `help [command]`
 
 ## Examples
 

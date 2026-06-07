@@ -10,6 +10,16 @@ export type SyncCallbacks = {
   syncCoordReadout: () => void;
 };
 
+// Available colour themes. The id is written to `<html data-theme>` and matched
+// by a CSS block in styles.css; the first entry is the default (applied at boot).
+export interface ThemeOption { id: string; label: string }
+export const THEMES: ThemeOption[] = [
+  { id: "warm-light", label: "Warm Light" },
+  { id: "dark", label: "Dark" },
+  { id: "blueprint", label: "Blueprint" },
+];
+export const DEFAULT_THEME = THEMES[0].id;
+
 let _cb: SyncCallbacks;
 
 export function registerCallbacks(cb: SyncCallbacks) {
@@ -33,7 +43,7 @@ export const state: AppState = {
   panDrag: null,
   pan: { x: 0, y: 0 },
   scale: 1,
-  theme: "light",
+  theme: DEFAULT_THEME,
   inspectorWidth: 320,
   inspectorResize: null,
   terminal: {

@@ -21,7 +21,7 @@ Small, dependency-free utility functions used everywhere. All are pure except th
 - **`cssColor(name)`** — resolves a CSS custom property (e.g. `--pc-fill`) to its value.
 - **`clearCssColorCache()`** — clears the cache.
 
-> **Performance:** `cssColor` is called many times per device/link/frame in the render loop, and `getComputedStyle` forces a style recalc. The result is **memoised** in a `Map`; `clearCssColorCache()` is called from `setTheme` (`ui.ts`) so colours refresh when the dark/light theme changes. This avoids per-frame reflows.
+> **Performance:** `cssColor` is called many times per device/link/frame in the render loop, and `getComputedStyle` forces a style recalc. The result is **memoised** in a `Map`; `clearCssColorCache()` is called from `setTheme` (`ui.ts`) so colours refresh when the theme changes (Warm Light / Dark / Blueprint). This avoids per-frame reflows.
 
 ## How it fits
 

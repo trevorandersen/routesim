@@ -14,8 +14,9 @@ The ribbon is **markup-driven**: `template.html` holds the tabs and panels, and 
 - `data-tool` → `setTool` (the drawing tools, folded into the Edit tab).
 - `data-topology` → `loadTopology` (File tab).
 - `data-scenario` → `loadScenario` (dynamic, Scenarios tab).
-- `data-action` → a small action map in `setupUI` (new/undo/delete, import-*/export-* via `io.ts`, panel toggles, theme/fit, scenario check/dismiss, help).
+- `data-theme-id` → `setTheme` (View tab; the three theme buttons).
+- `data-action` → a small action map in `setupUI` (new/undo/delete, import-*/export-* via `io.ts`, panel toggles, fit, scenario check/dismiss, help).
 
-A few buttons keep ids because sync functions read them (`undoButton`, `themeButton`, `terminalOpenButton`/`consoleButton`/`inspectorOpenButton` for aria, `simPlayPause`/`simStep`/`simStop`/`simSpeed`). `ribbon.ts` itself only owns tab switching and the scenario-button rendering; all click behaviour lives in `ui.ts`.
+A few buttons keep ids because sync functions read them (`undoButton`, `terminalOpenButton`/`consoleButton`/`inspectorOpenButton` for aria, `simPlayPause`/`simStep`/`simStop`/`simSpeed`). The theme buttons are looked up by `[data-theme-id]` (`dom.themeButtons`) so the active one can be highlighted. `ribbon.ts` itself only owns tab switching and the scenario-button rendering; all click behaviour lives in `ui.ts`.
 
 The Edit/View/Simulate/Scenarios tabs surface the drawing tools, panel toggles + display options + theme, the simulation controls, and scenario load/check. The mode label and zoom readout sit on the tab row; the bottom-right cursor/selected-device coordinate readout is `#coordReadout` (see [ui.md](ui.md)).

@@ -1,4 +1,4 @@
-import { state, registerCallbacks } from "./state";
+import { state, registerCallbacks, DEFAULT_THEME } from "./state";
 import { registerDeviceCallbacks } from "./devices";
 import { dom } from "./dom";
 import { render, resizeCanvas, syncZoomLevel } from "./canvas";
@@ -49,7 +49,7 @@ function initialiseApp(): void {
   setInspectorWidth(state.inspectorWidth);
   state.pan = { x: dom.canvas.getBoundingClientRect().width / 2, y: dom.canvas.getBoundingClientRect().height / 2 };
   syncZoomLevel();
-  setTheme("light");
+  setTheme(DEFAULT_THEME);
   syncOptionControls();
   syncNetworkPanel();
   syncTerminal();

@@ -100,6 +100,7 @@ mock.module("../src/dom", () => ({
   dom: new Proxy({} as any, {
     get(_target, prop) {
       if (prop === "toolButtons") return [];
+      if (prop === "themeButtons") return [];
       if (prop === "ctx") return null;
       return el;
     },

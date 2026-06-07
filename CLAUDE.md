@@ -174,7 +174,8 @@ Every link records frames that traverse it (`link.frameHistory[]`). Click a link
 - **Scenario goal banner** — floats top-left when a scenario is active (`scenario-ui.ts`).
 - **Port selection modal** — `openPortSelectionModal()` (`devices.ts`) for choosing ports when connecting switches/routers.
 - **About modal** — Help → About (`openAbout`/`closeAbout` in `ui.ts`): project blurb + CC0 dedication. Draggable by its header; dismiss via close button, backdrop click, or Escape.
-- **Modals** use a solid `--modal-bg` background (`#BBBBBB` light / `#222222` dark), never transparent. The app boots in **light** theme by default (toggle in View).
+- **Modals** use a solid per-theme `--modal-bg` background, never transparent.
+- **Themes** — a named registry (`THEMES` in `state.ts`): **Warm Light** (default), **Dark**, **Blueprint**. Switched via three `data-theme-id` buttons in the View tab or the `theme` console command; `setTheme(id)` (`ui.ts`) writes `<html data-theme>` and clears the `cssColor` cache. Each theme is a full CSS custom-property block in `styles.css`; add a new theme by appending to `THEMES` + a matching `:root[data-theme="…"]` block (define every colour var, including the `--pc/-switch/-router/-lan-*` device vars the canvas reads). The app boots in Warm Light.
 
 ## Keyboard shortcuts
 

@@ -1,4 +1,4 @@
-import { state, toolCopy, networkSnapshot, pushUndoSnapshot, undo } from "./state";
+import { state, toolCopy, networkSnapshot, pushUndoSnapshot, undo, THEMES, DEFAULT_THEME } from "./state";
 import { dom } from "./dom";
 import { addDevice, addLink, deleteSelection, clearNetwork, findDeviceAt, findLinkAt, getDevice, configureDevice, openPortSelectionModal, confirmPortSelection, cancelPortSelection } from "./devices";
 import { render, resizeCanvas, screenToWorld, setZoom, syncZoomLevel, fitNetwork } from "./canvas";
@@ -48,21 +48,24 @@ export function pointerFromEvent(event: MouseEvent): { x: number; y: number } {
 }
 
 export function setTheme(theme: string): void {
-  state.theme = theme === "light" ? "light" : "dark";
-  if (state.theme === "light") {
-    document.documentElement.dataset.theme = "light";
-  } else {
-    delete document.documentElement.dataset.theme;
+  // "light" is a back-compat alias for the default warm-light theme.
+  const id = theme === "light" ? "warm-light" : theme;
+  const known = THEMES.find(t => t.id === id) ? id : DEFAULT_THEME;
+  state.theme = known;
+  document.documentElement.dataset.theme = known;
+  for (const btn of dom.themeButtons) {
+    const active = btn.dataset.themeId === known;
+    btn.classList.toggle("active", active);
+    btn.setAttribute("aria-pressed", String(active));
   }
-  dom.themeButton.setAttribute("aria-pressed", String(state.theme === "light"));
-  dom.themeButton.title = state.theme === "light" ? "Toggle dark mode" : "Toggle light mode";
-  dom.themeButton.setAttribute("aria-label", dom.themeButton.title);
   clearCssColorCache();
   render();
 }
 
+// Cycle to the next theme in the registry (used by non-button callers).
 export function toggleTheme(): void {
-  setTheme(state.theme === "light" ? "dark" : "light");
+  const i = THEMES.findIndex(t => t.id === state.theme);
+  setTheme(THEMES[(i + 1) % THEMES.length].id);
 }
 
 export function bindOptionToggle(input: HTMLInputElement, optionKey: string): void {
@@ -325,7 +328,6 @@ export function setupUI(): void {
     "panel-terminal": () => { closeConsole(); openTerminalFor(getDevice(state.selectedId)); },
     "panel-console": () => { closeTerminal(); openConsole(); },
     "panel-simlog": () => dom.simLogPanel.classList.toggle("active"),
-    "theme": toggleTheme,
     "fit": fitNetwork,
     "scenario-check": runActiveScenarioCheck,
     "scenario-dismiss": dismissScenario,
@@ -334,10 +336,11 @@ export function setupUI(): void {
     "help-about": openAbout,
   };
   document.addEventListener("click", (event) => {
-    const el = (event.target as HTMLElement)?.closest?.("[data-action],[data-topology],[data-scenario]") as HTMLElement | null;
+    const el = (event.target as HTMLElement)?.closest?.("[data-action],[data-topology],[data-scenario],[data-theme-id]") as HTMLElement | null;
     if (!el) return;
     if (el.dataset.topology) { loadTopology(el.dataset.topology); return; }
     if (el.dataset.scenario) { loadScenario(el.dataset.scenario); return; }
+    if (el.dataset.themeId) { setTheme(el.dataset.themeId); return; }
     if (el.dataset.action) ribbonActions[el.dataset.action]?.();
   });
 

@@ -156,4 +156,14 @@ describe("commands — query & view", () => {
     exec("tool router");
     expect(state.tool).toBe("router");
   });
+
+  it("theme accepts each registered id (and the light alias) and rejects others", () => {
+    expect(exec("theme blueprint").ok).toBe(true);
+    expect(state.theme).toBe("blueprint");
+    expect(exec("theme dark").ok).toBe(true);
+    expect(state.theme).toBe("dark");
+    expect(exec("theme light").ok).toBe(true); // back-compat alias
+    expect(state.theme).toBe("warm-light");
+    expect(exec("theme chartreuse").ok).toBe(false);
+  });
 });

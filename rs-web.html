@@ -61,53 +61,104 @@
       --terminal-height: 280px;
     }
 
-    :root[data-theme="light"] {
+    :root[data-theme="warm-light"] {
       color-scheme: light;
-      --theme: light;
-      --bg: #eef1f4;
-      --panel: #ffffff;
-      --panel-soft: #f7f9fb;
-      --line: #cfd7df;
-      --line-strong: #8b98a5;
-      --text: #17212b;
-      --muted: #667381;
-      --modal-bg: #BBBBBB;
-      --accent-soft: #dff4f0;
+      --theme: warm-light;
+      --bg: #f3efe6;
+      --panel: #fffdf7;
+      --panel-soft: #f6f1e7;
+      --line: #ddd3c2;
+      --line-strong: #b3a890;
+      --text: #2a2520;
+      --muted: #7c7264;
+      --modal-bg: #cdbfa3;
+      --accent: #14746f;
+      --accent-soft: #dff0ea;
       --danger: #bc3b3b;
-      --stage-bg: #e8edf1;
-      --canvas-bg: #eef3f6;
-      --grid-major: rgba(38, 55, 70, 0.08);
-      --grid-minor: rgba(38, 55, 70, 0.04);
-      --topbar-bg: rgba(255, 255, 255, 0.92);
-      --hint-text: #41505f;
-      --hint-bg: rgba(255, 255, 255, 0.88);
-      --rail-bg: #1d2935;
+      --stage-bg: #ece5d8;
+      --canvas-bg: #f3eee4;
+      --grid-major: rgba(120, 100, 70, 0.10);
+      --grid-minor: rgba(120, 100, 70, 0.05);
+      --topbar-bg: rgba(255, 253, 247, 0.92);
+      --hint-text: #5a5246;
+      --hint-bg: rgba(255, 253, 247, 0.9);
+      --rail-bg: #2a2520;
       --rail-button-active-text: #0e5b57;
-      --rail-button-active-bg: #d7f1ed;
-      --link-host: #3f4650;
+      --rail-button-active-bg: #dff0ea;
+      --link-host: #4a4034;
       --link-switch: #2563eb;
       --link-router: #dc2626;
       --link-active: #0e827a;
-      --label-primary: #17212b;
-      --label-ip: #52616f;
-      --label-mac: #667381;
-      --pc-fill: #f8fbff;
+      --label-primary: #2a2520;
+      --label-ip: #6a6052;
+      --label-mac: #837a6b;
+      --pc-fill: #fbf8f1;
       --pc-stroke: #3264a8;
-      --pc-accent: #dbeafe;
+      --pc-accent: #e6edf6;
       --pc-icon: #244c84;
-      --switch-fill: #f8fff9;
+      --switch-fill: #f6faf2;
       --switch-stroke: #14746f;
-      --switch-accent: #dff4f0;
+      --switch-accent: #dff0ea;
       --switch-icon: #0d5a56;
       --router-fill: #fffaf1;
       --router-stroke: #9a5b13;
       --router-accent: #fdecc8;
       --router-icon: #73420c;
-      --lan-fill: #f7f9fb;
-      --lan-stroke: #667381;
-      --lan-accent: #e8eef3;
-      --lan-icon: #41505f;
-      --shadow: 0 10px 28px rgba(19, 33, 46, 0.12);
+      --lan-fill: #f6f1e7;
+      --lan-stroke: #837a6b;
+      --lan-accent: #ece5d8;
+      --lan-icon: #5a5246;
+      --shadow: 0 10px 28px rgba(60, 50, 35, 0.14);
+    }
+
+    :root[data-theme="blueprint"] {
+      color-scheme: dark;
+      --theme: blueprint;
+      --bg: #0e3a86;
+      --panel: #0c327a;
+      --panel-soft: #124093;
+      --line: #4f79c4;
+      --line-strong: #9cc0f0;
+      --text: #eaf2ff;
+      --muted: #a9c4ee;
+      --modal-bg: #0a2a63;
+      --accent: #8ecbff;
+      --accent-soft: #14438f;
+      --danger: #ff9a9a;
+      --stage-bg: #0c357f;
+      --canvas-bg: #0e3a86;
+      --grid-major: rgba(255, 255, 255, 0.22);
+      --grid-minor: rgba(255, 255, 255, 0.10);
+      --topbar-bg: rgba(12, 50, 122, 0.94);
+      --hint-text: #dcebff;
+      --hint-bg: rgba(12, 50, 122, 0.9);
+      --rail-bg: #0a2a63;
+      --rail-button-active-text: #0e3a86;
+      --rail-button-active-bg: #cfe4ff;
+      --link-host: #ffffff;
+      --link-switch: #8ee0ff;
+      --link-router: #ffd27f;
+      --link-active: #fff07a;
+      --label-primary: #eaf2ff;
+      --label-ip: #c3d8f7;
+      --label-mac: #9cc0f0;
+      --pc-fill: #123f8f;
+      --pc-stroke: #bcd8ff;
+      --pc-accent: #1a4ea3;
+      --pc-icon: #dcebff;
+      --switch-fill: #123f8f;
+      --switch-stroke: #8ee0ff;
+      --switch-accent: #1a4ea3;
+      --switch-icon: #cdf4ff;
+      --router-fill: #123f8f;
+      --router-stroke: #ffd27f;
+      --router-accent: #1a4ea3;
+      --router-icon: #ffe6bf;
+      --lan-fill: #123f8f;
+      --lan-stroke: #9cc0f0;
+      --lan-accent: #1a4ea3;
+      --lan-icon: #dcebff;
+      --shadow: 0 14px 36px rgba(0, 0, 0, 0.4);
     }
 
     * {
@@ -1490,7 +1541,11 @@
           <label class="ribbon-check"><input id="showMacAddresses" type="checkbox" checked><span>MAC addresses</span></label>
         </div><span class="ribbon-label">Display</span></div>
         <div class="ribbon-group"><div class="ribbon-items">
-          <button class="ribbon-btn" id="themeButton" data-action="theme" type="button" aria-pressed="false"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 3v1"></path><path d="M12 20v1"></path><path d="M3 12h1"></path><path d="M20 12h1"></path><path d="M5.6 5.6l.7 .7"></path><path d="M17.7 17.7l.7 .7"></path><path d="M18.4 5.6l-.7 .7"></path><path d="M6.3 17.7l-.7 .7"></path><path d="M12 8a4 4 0 1 0 0 8a4 4 0 0 0 0 -8"></path></svg><span>Theme</span></button>
+          <button class="ribbon-btn" data-theme-id="warm-light" type="button" aria-pressed="false"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 3v1"></path><path d="M12 20v1"></path><path d="M3 12h1"></path><path d="M20 12h1"></path><path d="M5.6 5.6l.7 .7"></path><path d="M17.7 17.7l.7 .7"></path><path d="M18.4 5.6l-.7 .7"></path><path d="M6.3 17.7l-.7 .7"></path><path d="M12 8a4 4 0 1 0 0 8a4 4 0 0 0 0 -8"></path></svg><span>Warm Light</span></button>
+          <button class="ribbon-btn" data-theme-id="dark" type="button" aria-pressed="false"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 3c.132 0 .263 0 .393 0a7.5 7.5 0 0 0 7.92 12.446a9 9 0 1 1 -8.313 -12.454z"></path></svg><span>Dark</span></button>
+          <button class="ribbon-btn" data-theme-id="blueprint" type="button" aria-pressed="false"><svg viewBox="0 0 24 24" aria-hidden="true"><rect x="3" y="3" width="18" height="18" rx="1"></rect><path d="M3 9h18"></path><path d="M3 15h18"></path><path d="M9 3v18"></path><path d="M15 3v18"></path></svg><span>Blueprint</span></button>
+        </div><span class="ribbon-label">Theme</span></div>
+        <div class="ribbon-group"><div class="ribbon-items">
           <button class="ribbon-btn" data-action="fit" type="button"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M10 10m-7 0a7 7 0 1 0 14 0a7 7 0 1 0 -14 0"></path><path d="M21 21l-6 -6"></path><path d="M10 7v6"></path><path d="M7 10h6"></path></svg><span>Fit</span></button>
         </div><span class="ribbon-label">Canvas</span></div>
       </div>
@@ -1972,6 +2027,12 @@ Full legal text: https://creativecommons.org/publicdomain/zero/1.0/legalcode</pr
   }
 
   // src/state.ts
+  var THEMES = [
+    { id: "warm-light", label: "Warm Light" },
+    { id: "dark", label: "Dark" },
+    { id: "blueprint", label: "Blueprint" }
+  ];
+  var DEFAULT_THEME = THEMES[0].id;
   var _cb;
   function registerCallbacks(cb) {
     _cb = cb;
@@ -1992,7 +2053,7 @@ Full legal text: https://creativecommons.org/publicdomain/zero/1.0/legalcode</pr
     panDrag: null,
     pan: { x: 0, y: 0 },
     scale: 1,
-    theme: "light",
+    theme: DEFAULT_THEME,
     inspectorWidth: 320,
     inspectorResize: null,
     terminal: {
@@ -2459,7 +2520,7 @@ Full legal text: https://creativecommons.org/publicdomain/zero/1.0/legalcode</pr
     scenarioStatus: document.getElementById("scenarioStatus"),
     scenarioCheckButton: document.getElementById("scenarioCheckButton"),
     scenarioCloseButton: document.getElementById("scenarioCloseButton"),
-    themeButton: document.getElementById("themeButton"),
+    themeButtons: Array.from(document.querySelectorAll("[data-theme-id]")),
     ribbonScenarioList: document.getElementById("ribbonScenarioList"),
     coordReadout: document.getElementById("coordReadout"),
     simPlayPause: document.getElementById("simPlayPause"),
@@ -6477,20 +6538,17 @@ ${lines.join("\n")}
     };
   }
   function setTheme(theme) {
-    state.theme = theme === "light" ? "light" : "dark";
-    if (state.theme === "light") {
-      document.documentElement.dataset.theme = "light";
-    } else {
-      delete document.documentElement.dataset.theme;
+    const id = theme === "light" ? "warm-light" : theme;
+    const known = THEMES.find((t) => t.id === id) ? id : DEFAULT_THEME;
+    state.theme = known;
+    document.documentElement.dataset.theme = known;
+    for (const btn of dom.themeButtons) {
+      const active = btn.dataset.themeId === known;
+      btn.classList.toggle("active", active);
+      btn.setAttribute("aria-pressed", String(active));
     }
-    dom.themeButton.setAttribute("aria-pressed", String(state.theme === "light"));
-    dom.themeButton.title = state.theme === "light" ? "Toggle dark mode" : "Toggle light mode";
-    dom.themeButton.setAttribute("aria-label", dom.themeButton.title);
     clearCssColorCache();
     render();
-  }
-  function toggleTheme() {
-    setTheme(state.theme === "light" ? "dark" : "light");
   }
   function bindOptionToggle(input, optionKey) {
     input.addEventListener("change", () => {
@@ -6740,7 +6798,6 @@ ${lines.join("\n")}
         openConsole();
       },
       "panel-simlog": () => dom.simLogPanel.classList.toggle("active"),
-      "theme": toggleTheme,
       "fit": fitNetwork,
       "scenario-check": runActiveScenarioCheck,
       "scenario-dismiss": dismissScenario,
@@ -6754,7 +6811,7 @@ ${lines.join("\n")}
       "help-about": openAbout
     };
     document.addEventListener("click", (event) => {
-      const el = event.target?.closest?.("[data-action],[data-topology],[data-scenario]");
+      const el = event.target?.closest?.("[data-action],[data-topology],[data-scenario],[data-theme-id]");
       if (!el) return;
       if (el.dataset.topology) {
         loadTopology(el.dataset.topology);
@@ -6762,6 +6819,10 @@ ${lines.join("\n")}
       }
       if (el.dataset.scenario) {
         loadScenario(el.dataset.scenario);
+        return;
+      }
+      if (el.dataset.themeId) {
+        setTheme(el.dataset.themeId);
         return;
       }
       if (el.dataset.action) ribbonActions[el.dataset.action]?.();
@@ -7291,8 +7352,11 @@ ${lines.join("\n")}
     return ok(`Tool: ${tool}.`);
   }
   function cmdTheme(args) {
-    const theme = (args[0] || "").toLowerCase();
-    if (theme !== "dark" && theme !== "light") return err(`theme: expected dark|light.`);
+    const raw = (args[0] || "").toLowerCase();
+    const theme = raw === "light" ? "warm-light" : raw;
+    if (!THEMES.some((t) => t.id === theme)) {
+      return err(`theme: expected ${THEMES.map((t) => t.id).join("|")}.`);
+    }
     setTheme(theme);
     return ok(`Theme: ${theme}.`);
   }
@@ -7419,7 +7483,7 @@ ${lines.join("\n")}
     log: "hop-by-hop log",
     select: "select <device>",
     tool: "tool <name>",
-    theme: "theme dark|light",
+    theme: "theme warm-light|dark|blueprint",
     zoom: "zoom <scale>",
     fit: "fit to view",
     scenario: "scenario list | load <id> | goal | check",
@@ -7589,7 +7653,7 @@ ${lines.join("\n")}
     setInspectorWidth(state.inspectorWidth);
     state.pan = { x: dom.canvas.getBoundingClientRect().width / 2, y: dom.canvas.getBoundingClientRect().height / 2 };
     syncZoomLevel();
-    setTheme("light");
+    setTheme(DEFAULT_THEME);
     syncOptionControls();
     syncNetworkPanel();
     syncTerminal();

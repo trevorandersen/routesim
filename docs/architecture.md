@@ -8,13 +8,14 @@ RouteSim is a single-page canvas application. All state lives in one `AppState` 
 app.ts (entry)
   ├── state.ts       ← AppState, undo system, callback registry, built-in topologies
   ├── dom.ts         ← getElementById refs (evaluated at load time)
-  ├── env.ts         ← build-time flags (READONLY)
+  ├── ribbon.ts      ← tabbed ribbon (File/Edit/View/Simulate/Scenarios/Help)
+  ├── io.ts          ← JSON import/export (config/scenario/script/log)
   ├── ui.ts          ← event listeners, tool switching, keyboard, theme
   ├── canvas.ts      ← render loop, pan/zoom, device/link/transit drawing
   ├── inspector.ts   ← right panel: device details, link frame history
   ├── terminal.ts    ← bottom panel: per-device CLI, command dispatch
   ├── devices.ts     ← device/link CRUD, hit testing, lookup indexes, LAN collapse
-  ├── config.ts      ← save/load config.json via File System Access API
+  ├── config.ts      ← topology serialise/apply + built-in topologies (no fetch)
   ├── engine.ts      ← simulation engine: step loop, per-device frame processing
   ├── simulation.ts  ← buildPingEvents/buildDhcpEvents, L2 reachability, routing utils
   ├── frame.ts       ← EthernetFrame factories, frame labels/colours

@@ -121,12 +121,13 @@
 
     body {
       display: grid;
-      grid-template-columns: 72px minmax(0, 1fr) var(--inspector-width);
-      grid-template-rows: 100vh;
+      grid-template-columns: minmax(0, 1fr) var(--inspector-width);
+      grid-template-rows: auto minmax(0, 1fr);
+      height: 100vh;
     }
 
     body.inspector-closed {
-      grid-template-columns: 72px minmax(0, 1fr);
+      grid-template-columns: minmax(0, 1fr);
     }
 
     button,
@@ -135,202 +136,101 @@
       font: inherit;
     }
 
-    .rail {
-      display: flex;
-      flex-direction: column;
-      align-items: center;
-      gap: 10px;
-      padding: 12px 10px;
-      background: var(--rail-bg);
-      border-right: 1px solid rgba(255, 255, 255, 0.08);
-    }
-
-    .mark {
-      width: 44px;
-      height: 44px;
-      display: grid;
-      place-items: center;
-      color: #ffffff;
-      font-weight: 800;
-      letter-spacing: 0;
-      border: 1px solid rgba(255, 255, 255, 0.16);
-      background: #263746;
-      border-radius: 8px;
-      margin-bottom: 8px;
-    }
-
-    .tool-group {
-      display: flex;
-      flex-direction: column;
-      gap: 8px;
-    }
-
-    .tool-button,
-    .icon-button {
-      appearance: none;
-      border: 0;
-      cursor: pointer;
-      display: grid;
-      place-items: center;
-      border-radius: 8px;
-      transition: background 140ms ease, color 140ms ease, transform 140ms ease;
-    }
-
-    .tool-button {
-      width: 48px;
-      height: 48px;
-      color: #d7e1ea;
-      background: transparent;
-    }
-
-    .tool-button svg,
-    .icon-button svg {
-      width: 22px;
-      height: 22px;
-      stroke: currentColor;
-      stroke-width: 2;
-      stroke-linecap: round;
-      stroke-linejoin: round;
-      fill: none;
-    }
-
-    .tool-button:hover {
-      color: #ffffff;
-      background: rgba(255, 255, 255, 0.1);
-    }
-
-    .tool-button.active {
-      color: var(--rail-button-active-text);
-      background: var(--rail-button-active-bg);
-    }
-
-    .spacer {
-      flex: 1;
-    }
-
-    .stage {
-      min-width: 0;
-      display: grid;
-      grid-template-rows: 58px minmax(0, 1fr);
-      background: var(--stage-bg);
-    }
-
-    .topbar {
-      display: flex;
-      align-items: center;
-      justify-content: space-between;
-      gap: 16px;
-      padding: 0 18px;
+    /* ── Ribbon ─────────────────────────────────────────────────────────────── */
+    .ribbon {
+      grid-column: 1 / -1;
+      grid-row: 1;
       background: var(--topbar-bg);
       border-bottom: 1px solid var(--line);
+      z-index: 9;
     }
-
-    .title {
-      display: flex;
-      align-items: baseline;
-      gap: 12px;
-      min-width: 0;
-    }
-
-    .title h1 {
-      margin: 0;
-      font-size: 18px;
-      line-height: 1;
-      letter-spacing: 0;
-    }
-
-    .mode-label {
-      color: var(--muted);
-      font-size: 13px;
-      white-space: nowrap;
-      overflow: hidden;
-      text-overflow: ellipsis;
-    }
-
-    .actions {
+    .ribbon-tabs {
       display: flex;
       align-items: center;
-      gap: 8px;
-    }
-
-    .zoom-readout {
-      min-width: 54px;
-      height: 32px;
-      display: inline-flex;
-      align-items: center;
-      justify-content: center;
-      padding: 0 10px;
-      border: 1px solid var(--line);
-      border-radius: 8px;
-      color: var(--muted);
-      background: var(--panel-soft);
-      font-size: 12px;
-      font-weight: 800;
-    }
-
-    .icon-button {
-      width: 38px;
+      gap: 2px;
+      padding: 0 12px;
       height: 38px;
+      border-bottom: 1px solid var(--line);
+    }
+    .ribbon-brand { font-weight: 800; font-size: 15px; margin-right: 14px; color: var(--text); }
+    .ribbon-tab {
+      appearance: none;
+      border: 0;
+      background: transparent;
       color: var(--muted);
-      background: var(--panel-soft);
-      border: 1px solid var(--line);
-    }
-
-    .icon-button:hover {
-      color: var(--text);
-      background: var(--panel);
-      transform: translateY(-1px);
-    }
-
-    .icon-button[aria-expanded="true"] {
-      color: var(--accent);
-      border-color: rgba(20, 116, 111, 0.35);
-      background: var(--accent-soft);
-    }
-
-    .icon-button.danger:hover {
-      color: var(--danger);
-      border-color: rgba(188, 59, 59, 0.36);
-    }
-
-    .topology-chooser {
-      position: relative;
-      display: inline-block;
-    }
-    .topology-menu {
-      display: none;
-      position: absolute;
-      right: 0;
-      top: 100%;
-      margin-top: 4px;
-      background: var(--panel);
-      border: 1px solid var(--border);
-      border-radius: 8px;
-      box-shadow: 0 4px 16px rgba(0,0,0,.25);
-      min-width: 200px;
-      z-index: 100;
-      padding: 4px 0;
-    }
-    .topology-menu.open { display: block; }
-    .topology-option {
-      display: block;
-      width: 100%;
-      text-align: left;
       padding: 8px 14px;
-      font: 600 13px/1 Inter, system-ui, sans-serif;
-      color: var(--text);
-      background: none;
-      border: none;
+      font-size: 13px;
+      font-weight: 700;
       cursor: pointer;
-      border-radius: 0;
+      border-radius: 6px 6px 0 0;
     }
-    .topology-option:hover {
-      background: var(--accent-soft);
-      color: var(--accent);
+    .ribbon-tab:hover { color: var(--text); background: rgba(255, 255, 255, 0.05); }
+    .ribbon-tab.active { color: var(--accent); background: var(--panel); box-shadow: inset 0 -2px 0 var(--accent); }
+    .ribbon-status { margin-left: auto; display: flex; align-items: center; gap: 12px; }
+    .mode-label { color: var(--muted); font-size: 12px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 320px; }
+    .zoom-readout {
+      min-width: 50px; height: 26px; display: inline-flex; align-items: center; justify-content: center;
+      padding: 0 8px; border: 1px solid var(--line); border-radius: 6px; color: var(--muted);
+      background: var(--panel-soft); font-size: 12px; font-weight: 800;
+    }
+
+    .ribbon-body { background: var(--panel); }
+    .ribbon-panel { display: none; align-items: stretch; gap: 2px; padding: 6px 10px; min-height: 78px; overflow-x: auto; }
+    .ribbon-panel.active { display: flex; }
+    .ribbon-group {
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      gap: 4px;
+      padding: 2px 8px;
+      border-right: 1px solid var(--line);
+    }
+    .ribbon-group:last-child { border-right: 0; }
+    .ribbon-items { display: flex; align-items: flex-start; gap: 4px; flex: 1; }
+    .ribbon-items.ribbon-checks { flex-direction: column; align-items: flex-start; justify-content: center; }
+    .ribbon-label { font-size: 10px; color: var(--muted); text-transform: uppercase; letter-spacing: 0.4px; }
+
+    .ribbon-btn {
+      appearance: none;
+      border: 1px solid transparent;
+      background: transparent;
+      color: var(--text);
+      cursor: pointer;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      gap: 5px;
+      width: 66px;
+      padding: 7px 4px;
+      border-radius: 8px;
+      font-size: 11px;
+      text-align: center;
+      transition: background 140ms ease, color 140ms ease, border-color 140ms ease;
+    }
+    .ribbon-btn svg { width: 22px; height: 22px; stroke: currentColor; stroke-width: 2; stroke-linecap: round; stroke-linejoin: round; fill: none; }
+    .ribbon-btn span { line-height: 1.15; }
+    .ribbon-btn:hover { background: var(--panel-soft); border-color: var(--line); }
+    .ribbon-btn:disabled { opacity: 0.4; cursor: default; }
+    .ribbon-btn:disabled:hover { background: transparent; border-color: transparent; }
+    .ribbon-btn.active { color: var(--accent); background: var(--accent-soft); border-color: rgba(20, 116, 111, 0.35); }
+    .ribbon-btn.danger:hover { color: var(--danger); border-color: rgba(188, 59, 59, 0.36); }
+
+    .ribbon-check { display: inline-flex; align-items: center; gap: 7px; font-size: 12px; color: var(--text); cursor: pointer; padding: 2px 0; }
+    .ribbon-speed { display: flex; flex-direction: column; gap: 5px; font-size: 11px; color: var(--muted); justify-content: center; }
+    .ribbon-speed input { width: 140px; }
+
+    .stage {
+      grid-column: 1;
+      grid-row: 2;
+      min-width: 0;
+      min-height: 0;
+      display: flex;
+      background: var(--stage-bg);
     }
 
     .canvas-wrap {
       position: relative;
+      flex: 1;
       min-width: 0;
       min-height: 0;
     }
@@ -353,7 +253,7 @@
       position: absolute;
       left: 16px;
       bottom: 16px;
-      max-width: min(560px, calc(100% - 32px));
+      max-width: min(560px, calc(100% - 220px));
       padding: 9px 12px;
       border: 1px solid rgba(139, 152, 165, 0.32);
       border-radius: 8px;
@@ -367,10 +267,25 @@
       text-overflow: ellipsis;
     }
 
+    .coord-readout {
+      position: absolute;
+      right: 16px;
+      bottom: 16px;
+      padding: 7px 11px;
+      border: 1px solid rgba(139, 152, 165, 0.32);
+      border-radius: 8px;
+      color: var(--hint-text);
+      background: var(--hint-bg);
+      font: 600 12px/1 "SF Mono", "Fira Code", ui-monospace, monospace;
+      pointer-events: none;
+      white-space: nowrap;
+    }
+    .coord-readout:empty { display: none; }
+
     .terminal-panel,
     .console-panel {
       position: fixed;
-      left: 72px;
+      left: 0;
       right: 0;
       bottom: 0;
       z-index: 8;
@@ -469,6 +384,8 @@
     }
 
     .inspector {
+      grid-column: 2;
+      grid-row: 2;
       position: relative;
       min-width: 0;
       display: flex;
@@ -1042,7 +959,7 @@
     @media (max-width: 1100px) {
       body,
       body.inspector-closed {
-        grid-template-columns: 72px minmax(0, 1fr);
+        grid-template-columns: minmax(0, 1fr);
       }
 
       .inspector {
@@ -1050,7 +967,7 @@
         top: 0;
         right: 0;
         z-index: 10;
-        width: min(var(--inspector-width), calc(100vw - 72px));
+        width: min(var(--inspector-width), 100vw);
         height: 100vh;
         box-shadow: var(--shadow);
       }
@@ -1071,29 +988,19 @@
 
     @media (max-width: 820px) {
       body {
-        grid-template-columns: 60px minmax(0, 1fr);
+        grid-template-columns: minmax(0, 1fr);
       }
 
       .inspector {
-        width: min(var(--inspector-width), calc(100vw - 60px));
+        width: min(var(--inspector-width), 100vw);
       }
 
       .terminal-panel {
-        left: 60px;
+        left: 0;
       }
 
       body:not(.inspector-closed) .inspector {
         display: flex;
-      }
-
-      .tool-button {
-        width: 42px;
-        height: 42px;
-      }
-
-      .mark {
-        width: 40px;
-        height: 40px;
       }
 
       .interface-row {
@@ -1440,85 +1347,110 @@
 
   </style>
 </head>
-<body class="inspector-closed terminal-closed">
-  <aside class="rail" aria-label="Tools">
-    <div class="mark" aria-label="RouteSim">RS</div>
-    <div class="tool-group">
-      <button class="tool-button active" data-tool="select" title="Select and move" aria-label="Select and move">
-        <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 4l7 16l2 -7l7 -2z"></path></svg>
-      </button>
-      <button class="tool-button" data-tool="computer" title="Add computer" aria-label="Add computer">
-        <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M3 5a1 1 0 0 1 1 -1h16a1 1 0 0 1 1 1v10a1 1 0 0 1 -1 1h-16a1 1 0 0 1 -1 -1v-10"></path><path d="M7 20h10"></path><path d="M9 16v4"></path><path d="M15 16v4"></path></svg>
-      </button>
-      <button class="tool-button" data-tool="switch" title="Add switch" aria-label="Add switch">
-        <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M16 3l4 4l-4 4"></path><path d="M10 7l10 0"></path><path d="M8 13l-4 4l4 4"></path><path d="M4 17l9 0"></path></svg>
-      </button>
-      <button class="tool-button" data-tool="router" title="Add router" aria-label="Add router">
-        <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 12m-9 0a9 9 0 1 0 18 0a9 9 0 1 0 -18 0"></path><path d="M6 12h5"></path><path d="M8 10l3 2l-3 2"></path><path d="M18 12h-5"></path><path d="M16 10l-3 2l3 2"></path><path d="M12 10v-5"></path><path d="M10 7l2 -2l2 2"></path><path d="M12 14v5"></path><path d="M10 17l2 2l2 -2"></path></svg>
-      </button>
-      <button class="tool-button" data-tool="connect" title="Connect devices" aria-label="Connect devices">
-        <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M7 7m-3 0a3 3 0 1 0 6 0a3 3 0 1 0 -6 0"></path><path d="M17 17m-3 0a3 3 0 1 0 6 0a3 3 0 1 0 -6 0"></path><path d="M9 9l6 6"></path></svg>
-      </button>
-      <button class="tool-button" data-tool="configure" title="Configure device" aria-label="Configure device">
-        <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M16 5l3 3l-11 11h-3v-3z"></path><path d="M14 7l3 3"></path><path d="M12 20h9"></path></svg>
-      </button>
+<body class="inspector-closed terminal-closed console-closed">
+  <header class="ribbon" id="ribbon">
+    <div class="ribbon-tabs">
+      <span class="ribbon-brand">RouteSim</span>
+      <button class="ribbon-tab active" data-tab="file" type="button">File</button>
+      <button class="ribbon-tab" data-tab="edit" type="button">Edit</button>
+      <button class="ribbon-tab" data-tab="view" type="button">View</button>
+      <button class="ribbon-tab" data-tab="simulate" type="button">Simulate</button>
+      <button class="ribbon-tab" data-tab="scenarios" type="button">Scenarios</button>
+      <button class="ribbon-tab" data-tab="help" type="button">Help</button>
+      <span class="ribbon-status">
+        <span class="mode-label" id="modeLabel">Select and move devices</span>
+        <span class="zoom-readout" id="zoomLevel" aria-live="polite">100%</span>
+      </span>
     </div>
-    <div class="spacer"></div>
-    <button class="tool-button" id="fitButton" title="Center network" aria-label="Center network">
-      <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M10 10m-7 0a7 7 0 1 0 14 0a7 7 0 1 0 -14 0"></path><path d="M21 21l-6 -6"></path><path d="M10 7v6"></path><path d="M7 10h6"></path></svg>
-    </button>
-  </aside>
+    <div class="ribbon-body">
+
+      <div class="ribbon-panel active" data-tab="file">
+        <div class="ribbon-group"><div class="ribbon-items">
+          <button class="ribbon-btn" data-action="new" type="button"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M14 3v4a1 1 0 0 0 1 1h4"></path><path d="M17 21H7a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h7l5 5v11a2 2 0 0 1-2 2z"></path></svg><span>New</span></button>
+        </div><span class="ribbon-label">New</span></div>
+        <div class="ribbon-group"><div class="ribbon-items">
+          <button class="ribbon-btn" data-topology="basic" type="button"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 6h16"></path><path d="M4 12h16"></path><path d="M4 18h16"></path></svg><span>Basic</span></button>
+          <button class="ribbon-btn" data-topology="vlan-roas" type="button"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 6h16"></path><path d="M4 12h16"></path><path d="M4 18h16"></path></svg><span>VLAN RoaS</span></button>
+          <button class="ribbon-btn" data-topology="router-mesh" type="button"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 6h16"></path><path d="M4 12h16"></path><path d="M4 18h16"></path></svg><span>5-Router</span></button>
+        </div><span class="ribbon-label">Topologies</span></div>
+        <div class="ribbon-group"><div class="ribbon-items">
+          <button class="ribbon-btn" data-action="import-config" type="button"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 3v12"></path><path d="M7 10l5 5 5-5"></path><path d="M5 21h14"></path></svg><span>Config</span></button>
+          <button class="ribbon-btn" data-action="import-scenario" type="button"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 3v12"></path><path d="M7 10l5 5 5-5"></path><path d="M5 21h14"></path></svg><span>Scenario</span></button>
+          <button class="ribbon-btn" data-action="import-script" type="button"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 3v12"></path><path d="M7 10l5 5 5-5"></path><path d="M5 21h14"></path></svg><span>Script</span></button>
+          <button class="ribbon-btn" data-action="import-log" type="button"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 3v12"></path><path d="M7 10l5 5 5-5"></path><path d="M5 21h14"></path></svg><span>Log</span></button>
+        </div><span class="ribbon-label">Import</span></div>
+        <div class="ribbon-group"><div class="ribbon-items">
+          <button class="ribbon-btn" data-action="export-config" type="button"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 21V9"></path><path d="M7 14l5-5 5 5"></path><path d="M5 3h14"></path></svg><span>Config</span></button>
+          <button class="ribbon-btn" data-action="export-scenario" type="button"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 21V9"></path><path d="M7 14l5-5 5 5"></path><path d="M5 3h14"></path></svg><span>Scenario</span></button>
+          <button class="ribbon-btn" data-action="export-script" type="button"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 21V9"></path><path d="M7 14l5-5 5 5"></path><path d="M5 3h14"></path></svg><span>Script</span></button>
+          <button class="ribbon-btn" data-action="export-log" type="button"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 21V9"></path><path d="M7 14l5-5 5 5"></path><path d="M5 3h14"></path></svg><span>Log</span></button>
+        </div><span class="ribbon-label">Export</span></div>
+      </div>
+
+      <div class="ribbon-panel" data-tab="edit">
+        <div class="ribbon-group"><div class="ribbon-items">
+          <button class="ribbon-btn tool-button active" data-tool="select" type="button"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 4l7 16l2 -7l7 -2z"></path></svg><span>Select</span></button>
+          <button class="ribbon-btn tool-button" data-tool="computer" type="button"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M3 5a1 1 0 0 1 1 -1h16a1 1 0 0 1 1 1v10a1 1 0 0 1 -1 1h-16a1 1 0 0 1 -1 -1v-10"></path><path d="M7 20h10"></path><path d="M9 16v4"></path><path d="M15 16v4"></path></svg><span>Computer</span></button>
+          <button class="ribbon-btn tool-button" data-tool="switch" type="button"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M16 3l4 4l-4 4"></path><path d="M10 7l10 0"></path><path d="M8 13l-4 4l4 4"></path><path d="M4 17l9 0"></path></svg><span>Switch</span></button>
+          <button class="ribbon-btn tool-button" data-tool="router" type="button"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 12m-9 0a9 9 0 1 0 18 0a9 9 0 1 0 -18 0"></path><path d="M6 12h5"></path><path d="M8 10l3 2l-3 2"></path><path d="M18 12h-5"></path><path d="M16 10l-3 2l3 2"></path></svg><span>Router</span></button>
+          <button class="ribbon-btn tool-button" data-tool="connect" type="button"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M7 7m-3 0a3 3 0 1 0 6 0a3 3 0 1 0 -6 0"></path><path d="M17 17m-3 0a3 3 0 1 0 6 0a3 3 0 1 0 -6 0"></path><path d="M9 9l6 6"></path></svg><span>Connect</span></button>
+          <button class="ribbon-btn tool-button" data-tool="configure" type="button"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M16 5l3 3l-11 11h-3v-3z"></path><path d="M14 7l3 3"></path></svg><span>Configure</span></button>
+        </div><span class="ribbon-label">Tools</span></div>
+        <div class="ribbon-group"><div class="ribbon-items">
+          <button class="ribbon-btn" id="undoButton" data-action="undo" type="button" disabled><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M9 14l-4 -4l4 -4"></path><path d="M5 10h11a4 4 0 1 1 0 8h-1"></path></svg><span>Undo</span></button>
+          <button class="ribbon-btn danger" data-action="delete" type="button"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M3 6h18"></path><path d="M8 6V4h8v2"></path><path d="M19 6l-1 14H6L5 6"></path></svg><span>Delete</span></button>
+        </div><span class="ribbon-label">Edit</span></div>
+      </div>
+
+      <div class="ribbon-panel" data-tab="view">
+        <div class="ribbon-group"><div class="ribbon-items">
+          <button class="ribbon-btn" id="inspectorOpenButton" data-action="panel-network" type="button" aria-expanded="false"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 21v-7"></path><path d="M4 10V3"></path><path d="M12 21v-9"></path><path d="M12 8V3"></path><path d="M20 21v-5"></path><path d="M20 12V3"></path></svg><span>Network</span></button>
+          <button class="ribbon-btn" id="terminalOpenButton" data-action="panel-terminal" type="button" aria-expanded="false"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 17l6 -6l-6 -6"></path><path d="M12 19h8"></path></svg><span>Terminal</span></button>
+          <button class="ribbon-btn" id="consoleButton" data-action="panel-console" type="button" aria-expanded="false"><svg viewBox="0 0 24 24" aria-hidden="true"><rect x="3" y="4" width="18" height="16" rx="2"></rect><path d="M7 9l3 3l-3 3"></path><path d="M13 15h4"></path></svg><span>Console</span></button>
+          <button class="ribbon-btn" data-action="panel-simlog" type="button"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 6h16"></path><path d="M4 12h10"></path><path d="M4 18h7"></path></svg><span>Sim Log</span></button>
+        </div><span class="ribbon-label">Panels</span></div>
+        <div class="ribbon-group"><div class="ribbon-items ribbon-checks">
+          <label class="ribbon-check"><input id="showDeviceNames" type="checkbox" checked><span>Names</span></label>
+          <label class="ribbon-check"><input id="showIpAddresses" type="checkbox" checked><span>IP addresses</span></label>
+          <label class="ribbon-check"><input id="showMacAddresses" type="checkbox" checked><span>MAC addresses</span></label>
+        </div><span class="ribbon-label">Display</span></div>
+        <div class="ribbon-group"><div class="ribbon-items">
+          <button class="ribbon-btn" id="themeButton" data-action="theme" type="button" aria-pressed="false"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 3v1"></path><path d="M12 20v1"></path><path d="M3 12h1"></path><path d="M20 12h1"></path><path d="M5.6 5.6l.7 .7"></path><path d="M17.7 17.7l.7 .7"></path><path d="M18.4 5.6l-.7 .7"></path><path d="M6.3 17.7l-.7 .7"></path><path d="M12 8a4 4 0 1 0 0 8a4 4 0 0 0 0 -8"></path></svg><span>Theme</span></button>
+          <button class="ribbon-btn" data-action="fit" type="button"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M10 10m-7 0a7 7 0 1 0 14 0a7 7 0 1 0 -14 0"></path><path d="M21 21l-6 -6"></path><path d="M10 7v6"></path><path d="M7 10h6"></path></svg><span>Fit</span></button>
+        </div><span class="ribbon-label">Canvas</span></div>
+      </div>
+
+      <div class="ribbon-panel" data-tab="simulate">
+        <div class="ribbon-group"><div class="ribbon-items">
+          <button class="ribbon-btn" id="simPlayPause" type="button">▶ Play</button>
+          <button class="ribbon-btn" id="simStep" type="button">⏭ Step</button>
+          <button class="ribbon-btn" id="simStop" type="button">⏹ Stop</button>
+        </div><span class="ribbon-label">Run</span></div>
+        <div class="ribbon-group"><div class="ribbon-items">
+          <label class="ribbon-speed"><span>ms / hop</span><input id="simSpeed" type="range" min="200" max="3000" value="1000"></label>
+        </div><span class="ribbon-label">Speed</span></div>
+      </div>
+
+      <div class="ribbon-panel" data-tab="scenarios">
+        <div class="ribbon-group"><div class="ribbon-items" id="ribbonScenarioList"></div><span class="ribbon-label">Load</span></div>
+        <div class="ribbon-group"><div class="ribbon-items">
+          <button class="ribbon-btn" data-action="scenario-check" type="button"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M5 12l5 5l9 -9"></path></svg><span>Check goal</span></button>
+          <button class="ribbon-btn" data-action="scenario-dismiss" type="button"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M18 6 6 18"></path><path d="m6 6 12 12"></path></svg><span>Dismiss</span></button>
+        </div><span class="ribbon-label">Goal</span></div>
+      </div>
+
+      <div class="ribbon-panel" data-tab="help">
+        <div class="ribbon-group"><div class="ribbon-items">
+          <button class="ribbon-btn" data-action="help-shortcuts" type="button"><svg viewBox="0 0 24 24" aria-hidden="true"><rect x="3" y="6" width="18" height="12" rx="2"></rect><path d="M7 10h.01M11 10h.01M15 10h.01M8 14h8"></path></svg><span>Shortcuts</span></button>
+          <button class="ribbon-btn" data-action="help-commands" type="button"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M7 8l-4 4l4 4"></path><path d="M17 8l4 4l-4 4"></path><path d="M14 4l-4 16"></path></svg><span>Commands</span></button>
+          <button class="ribbon-btn" data-action="help-about" type="button"><svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="9"></circle><path d="M12 8h.01M11 12h1v4h1"></path></svg><span>About</span></button>
+        </div><span class="ribbon-label">Help</span></div>
+      </div>
+
+    </div>
+  </header>
 
   <main class="stage">
-    <header class="topbar">
-      <div class="title">
-        <h1>RouteSim</h1>
-        <span class="mode-label" id="modeLabel">Select and move devices</span>
-      </div>
-      <div class="actions">
-        <span class="zoom-readout" id="zoomLevel" aria-live="polite">100%</span>
-        <button class="icon-button" id="undoButton" title="Undo" aria-label="Undo" disabled>
-          <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M9 14l-4 -4l4 -4"></path><path d="M5 10h11a4 4 0 1 1 0 8h-1"></path></svg>
-        </button>
-        <button class="icon-button" id="terminalOpenButton" title="Device terminal" aria-label="Open device terminal" aria-controls="terminalPanel" aria-expanded="false">
-          <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 17l6 -6l-6 -6"></path><path d="M12 19h8"></path></svg>
-        </button>
-        <button class="icon-button" id="consoleButton" title="Command console" aria-label="Open command console" aria-controls="consolePanel" aria-expanded="false">
-          <svg viewBox="0 0 24 24" aria-hidden="true"><rect x="3" y="4" width="18" height="16" rx="2"></rect><path d="M7 9l3 3l-3 3"></path><path d="M13 15h4"></path></svg>
-        </button>
-        <button class="icon-button" id="inspectorOpenButton" title="Network panel" aria-label="Toggle network panel" aria-controls="networkInspector" aria-expanded="false">
-          <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 21v-7"></path><path d="M4 10V3"></path><path d="M12 21v-9"></path><path d="M12 8V3"></path><path d="M20 21v-5"></path><path d="M20 12V3"></path><path d="M2 14h4"></path><path d="M10 8h4"></path><path d="M18 16h4"></path></svg>
-        </button>
-        <button class="icon-button" id="themeButton" title="Toggle light mode" aria-label="Toggle light mode" aria-pressed="false">
-          <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 3v1"></path><path d="M12 20v1"></path><path d="M3 12h1"></path><path d="M20 12h1"></path><path d="M5.6 5.6l.7 .7"></path><path d="M17.7 17.7l.7 .7"></path><path d="M18.4 5.6l-.7 .7"></path><path d="M6.3 17.7l-.7 .7"></path><path d="M12 8a4 4 0 1 0 0 8a4 4 0 0 0 0 -8"></path></svg>
-        </button>
-        <div class="topology-chooser" id="topologyChooser">
-          <button class="icon-button" id="topologyButton" title="Load topology" aria-label="Load topology" aria-expanded="false">
-            <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 6h16"></path><path d="M4 12h16"></path><path d="M4 18h16"></path></svg>
-          </button>
-          <div class="topology-menu" id="topologyMenu">
-            <button class="topology-option" data-topology="basic">Basic Network</button>
-            <button class="topology-option" data-topology="vlan-roas">VLAN Router-on-a-Stick</button>
-            <button class="topology-option" data-topology="router-mesh">5-Router Mesh</button>
-          </div>
-        </div>
-        <div class="topology-chooser" id="scenarioChooser">
-          <button class="icon-button" id="scenarioButton" title="Load scenario" aria-label="Load scenario" aria-expanded="false">
-            <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 4v16"></path><path d="M4 5h13l-2 3l2 3H4"></path></svg>
-          </button>
-          <div class="topology-menu" id="scenarioMenu"></div>
-        </div>
-        <button class="icon-button" id="loadButton" title="Load config from config.json" aria-label="Load config from config.json">
-          <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 21V9"></path><path d="M7 14l5-5 5 5"></path><path d="M5 3h14"></path></svg>
-        </button>
-        <button class="icon-button" id="saveButton" title="Save config to config.json" aria-label="Save config to config.json">
-          <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 3v12"></path><path d="M7 10l5 5 5-5"></path><path d="M5 21h14"></path></svg>
-        </button>
-        <button class="icon-button danger" id="clearButton" title="Clear network" aria-label="Clear network">
-          <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M3 6h18"></path><path d="M8 6V4h8v2"></path><path d="M19 6l-1 14H6L5 6"></path><path d="M10 11v5"></path><path d="M14 11v5"></path></svg>
-        </button>
-      </div>
-    </header>
     <section class="canvas-wrap">
       <canvas id="networkCanvas" aria-label="Network canvas"></canvas>
       <div class="scenario-panel" id="scenarioPanel" aria-label="Scenario goal">
@@ -1535,16 +1467,8 @@
           <span class="scenario-status" id="scenarioStatus"></span>
         </div>
       </div>
-      <div class="sim-controls" id="simControls">
-        <button class="sim-btn" id="simPlayPause" title="Play / Pause" aria-label="Play or pause simulation">▶</button>
-        <button class="sim-btn" id="simStep" title="Next step" aria-label="Next simulation step">⏭</button>
-        <button class="sim-btn" id="simStop" title="Stop simulation" aria-label="Stop simulation">⏹</button>
-        <label class="sim-speed-label">
-          <span>Speed</span>
-          <input id="simSpeed" type="range" min="200" max="3000" value="1000" title="Simulation speed">
-        </label>
-      </div>
       <div class="hint" id="hint">Click a tool, then click the canvas. Drag devices in select mode.</div>
+      <div class="coord-readout" id="coordReadout" aria-live="off"></div>
     </section>
   </main>
 
@@ -1600,28 +1524,6 @@
         <div class="metric"><strong id="linkCount">0</strong><span>Links</span></div>
       </div>
     </section>
-    <section class="panel-section">
-      <div class="panel-heading">
-        <h2>Options</h2>
-        <button class="panel-toggle" id="displayOptionsButton" type="button" title="Display options" aria-label="Display options" aria-controls="displayOptionsPanel" aria-expanded="false">
-          <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 21v-7"></path><path d="M4 10V3"></path><path d="M12 21v-9"></path><path d="M12 8V3"></path><path d="M20 21v-5"></path><path d="M20 12V3"></path><path d="M2 14h4"></path><path d="M10 8h4"></path><path d="M18 16h4"></path></svg>
-        </button>
-      </div>
-      <div class="option-list closed" id="displayOptionsPanel">
-        <label class="toggle-row" for="showDeviceNames">
-          <span>Device names</span>
-          <input id="showDeviceNames" type="checkbox" checked>
-        </label>
-        <label class="toggle-row" for="showIpAddresses">
-          <span>IP addresses</span>
-          <input id="showIpAddresses" type="checkbox" checked>
-        </label>
-        <label class="toggle-row" for="showMacAddresses">
-          <span>MAC addresses</span>
-          <input id="showMacAddresses" type="checkbox" checked>
-        </label>
-      </div>
-    </section>
     <section class="panel-section" id="detailsPanel">
       <h2>Selection</h2>
       <p class="empty-state">No device selected.</p>
@@ -1642,207 +1544,6 @@
     </div>
   </div>
 
-  <script id="embeddedConfig" type="application/json">{
-  "version": 1,
-  "configs": {
-    "default": {
-      "version": 1,
-      "devices": [
-        {
-          "id": "pc-a1",
-          "type": "computer",
-          "name": "PC-A1",
-          "x": -560,
-          "y": -250,
-          "config": {
-            "ipv4Address": "192.168.10.11",
-            "gatewayIpv4Address": "192.168.10.1",
-            "macAddress": "02:00:00:00:10:11",
-            "arpTable": []
-          }
-        },
-        {
-          "id": "pc-a2",
-          "type": "computer",
-          "name": "PC-A2",
-          "x": -560,
-          "y": -130,
-          "config": {
-            "ipv4Address": "192.168.10.12",
-            "gatewayIpv4Address": "192.168.10.1",
-            "macAddress": "02:00:00:00:10:12",
-            "arpTable": []
-          }
-        },
-        {
-          "id": "sw-a",
-          "type": "switch",
-          "name": "Access-SW-A",
-          "x": -360,
-          "y": -190,
-          "config": {
-            "managed": false,
-            "ethernetPorts": 8,
-            "macTable": []
-          }
-        },
-        {
-          "id": "pc-b1",
-          "type": "computer",
-          "name": "PC-B1",
-          "x": -560,
-          "y": 90,
-          "config": {
-            "ipv4Address": "192.168.20.11",
-            "gatewayIpv4Address": "192.168.20.1",
-            "macAddress": "02:00:00:00:20:11",
-            "arpTable": []
-          }
-        },
-        {
-          "id": "pc-b2",
-          "type": "computer",
-          "name": "PC-B2",
-          "x": -560,
-          "y": 210,
-          "config": {
-            "ipv4Address": "192.168.20.12",
-            "gatewayIpv4Address": "192.168.20.1",
-            "macAddress": "02:00:00:00:20:12",
-            "arpTable": []
-          }
-        },
-        {
-          "id": "sw-b",
-          "type": "switch",
-          "name": "Access-SW-B",
-          "x": -360,
-          "y": 150,
-          "config": {
-            "managed": false,
-            "ethernetPorts": 8,
-            "macTable": []
-          }
-        },
-        {
-          "id": "sw-core",
-          "type": "switch",
-          "name": "Core-SW",
-          "x": -80,
-          "y": -20,
-          "config": {
-            "managed": false,
-            "ethernetPorts": 8,
-            "macTable": []
-          }
-        },
-        {
-          "id": "router",
-          "type": "router",
-          "name": "Router",
-          "x": 210,
-          "y": -20,
-          "config": {
-            "ethernetPorts": 4,
-            "serialPorts": 4,
-            "interfaces": [
-              {
-                "peerId": "sw-core",
-                "type": "ethernet",
-                "ipv4Address": "192.168.10.1"
-              },
-              {
-                "peerId": "sw-c",
-                "type": "ethernet",
-                "ipv4Address": "192.168.30.1"
-              }
-            ]
-          }
-        },
-        {
-          "id": "pc-c1",
-          "type": "computer",
-          "name": "PC-C1",
-          "x": 540,
-          "y": -80,
-          "config": {
-            "ipv4Address": "192.168.30.11",
-            "gatewayIpv4Address": "192.168.30.1",
-            "macAddress": "02:00:00:00:30:11",
-            "arpTable": []
-          }
-        },
-        {
-          "id": "pc-c2",
-          "type": "computer",
-          "name": "PC-C2",
-          "x": 540,
-          "y": 80,
-          "config": {
-            "ipv4Address": "192.168.30.12",
-            "gatewayIpv4Address": "192.168.30.1",
-            "macAddress": "02:00:00:00:30:12",
-            "arpTable": []
-          }
-        },
-        {
-          "id": "sw-c",
-          "type": "switch",
-          "name": "Access-SW-C",
-          "x": 360,
-          "y": 0,
-          "config": {
-            "managed": false,
-            "ethernetPorts": 8,
-            "macTable": []
-          }
-        }
-      ],
-      "links": [
-        {
-          "from": "pc-a1",
-          "to": "sw-a"
-        },
-        {
-          "from": "pc-a2",
-          "to": "sw-a"
-        },
-        {
-          "from": "pc-b1",
-          "to": "sw-b"
-        },
-        {
-          "from": "pc-b2",
-          "to": "sw-b"
-        },
-        {
-          "from": "sw-a",
-          "to": "sw-core"
-        },
-        {
-          "from": "sw-b",
-          "to": "sw-core"
-        },
-        {
-          "from": "sw-core",
-          "to": "router"
-        },
-        {
-          "from": "pc-c1",
-          "to": "sw-c"
-        },
-        {
-          "from": "pc-c2",
-          "to": "sw-c"
-        },
-        {
-          "from": "sw-c",
-          "to": "router"
-        }
-      ]
-    }
-  }
-}</script>
   <script>
 "use strict";
 (() => {
@@ -1898,7 +1599,6 @@
     nextSwitch: 1,
     nextRouter: 1,
     configStore: { version: 1, configs: {} },
-    configFileHandle: null,
     undoStack: [],
     isApplyingCompositeChange: false,
     simulation: {
@@ -2306,8 +2006,6 @@
     inspectorOpenButton: document.getElementById("inspectorOpenButton"),
     inspectorCloseButton: document.getElementById("inspectorCloseButton"),
     inspectorResizeHandle: document.getElementById("inspectorResizeHandle"),
-    displayOptionsButton: document.getElementById("displayOptionsButton"),
-    displayOptionsPanel: document.getElementById("displayOptionsPanel"),
     showDeviceNames: document.getElementById("showDeviceNames"),
     showIpAddresses: document.getElementById("showIpAddresses"),
     showMacAddresses: document.getElementById("showMacAddresses"),
@@ -2329,8 +2027,6 @@
     consoleOutput: document.getElementById("consoleOutput"),
     consoleForm: document.getElementById("consoleForm"),
     consoleInput: document.getElementById("consoleInput"),
-    scenarioButton: document.getElementById("scenarioButton"),
-    scenarioMenu: document.getElementById("scenarioMenu"),
     scenarioPanel: document.getElementById("scenarioPanel"),
     scenarioName: document.getElementById("scenarioName"),
     scenarioObjective: document.getElementById("scenarioObjective"),
@@ -2339,13 +2035,8 @@
     scenarioCheckButton: document.getElementById("scenarioCheckButton"),
     scenarioCloseButton: document.getElementById("scenarioCloseButton"),
     themeButton: document.getElementById("themeButton"),
-    loadButton: document.getElementById("loadButton"),
-    saveButton: document.getElementById("saveButton"),
-    clearButton: document.getElementById("clearButton"),
-    topologyButton: document.getElementById("topologyButton"),
-    topologyMenu: document.getElementById("topologyMenu"),
-    fitButton: document.getElementById("fitButton"),
-    simControls: document.getElementById("simControls"),
+    ribbonScenarioList: document.getElementById("ribbonScenarioList"),
+    coordReadout: document.getElementById("coordReadout"),
     simPlayPause: document.getElementById("simPlayPause"),
     simStep: document.getElementById("simStep"),
     simStop: document.getElementById("simStop"),
@@ -2648,15 +2339,6 @@
       });
     });
     return { devices, links };
-  }
-  function normaliseConfigStore(store) {
-    return {
-      version: 1,
-      configs: store && store.configs && typeof store.configs === "object" ? store.configs : {}
-    };
-  }
-  function normaliseConfigName(value) {
-    return String(value || "").trim().replace(/[<>:"/\\|?*]/g, "-");
   }
   function ensureConfig(device) {
     if (!device.config) device.config = defaultDeviceConfig(device.type);
@@ -5828,8 +5510,6 @@ ${lines.join("\n")}
     dom.showDeviceNames.checked = state.options.showDeviceNames;
     dom.showIpAddresses.checked = state.options.showIpAddresses;
     dom.showMacAddresses.checked = state.options.showMacAddresses;
-    dom.displayOptionsPanel.classList.toggle("closed", !state.options.displayOptionsOpen);
-    dom.displayOptionsButton.setAttribute("aria-expanded", String(state.options.displayOptionsOpen));
   }
   function syncNetworkPanel() {
     document.body.classList.toggle("inspector-closed", !state.options.networkPanelOpen);
@@ -5839,10 +5519,6 @@ ${lines.join("\n")}
   function setNetworkPanel(open) {
     state.options.networkPanelOpen = open;
     syncNetworkPanel();
-  }
-  function toggleDisplayOptions() {
-    state.options.displayOptionsOpen = !state.options.displayOptionsOpen;
-    syncOptionControls();
   }
   function setInspectorWidth(width) {
     state.inspectorWidth = Math.min(520, Math.max(260, width));
@@ -6061,6 +5737,7 @@ ${lines.join("\n")}
   function syncPanel() {
     dom.deviceCount.textContent = String(state.devices.filter(isVisibleDevice).length);
     dom.linkCount.textContent = String(state.links.filter((link) => !link.hidden).length);
+    sync().syncCoordReadout();
     const selected = getDevice(state.selectedId);
     const isConfiguring = selected && state.configuringId === selected.id;
     if (!selected && state.selectedLinkId) {
@@ -6398,9 +6075,6 @@ ${lines.join("\n")}
     });
   }
 
-  // src/env.ts
-  var READONLY = true ? true : false;
-
   // src/scenarios.ts
   var connectLan = {
     id: "connect-lan",
@@ -6445,6 +6119,11 @@ ${lines.join("\n")}
   var SCENARIOS = [connectLan];
   function getScenario(id) {
     return SCENARIOS.find((s) => s.id === id);
+  }
+  function registerScenario(scenario) {
+    const idx = SCENARIOS.findIndex((s) => s.id === scenario.id);
+    if (idx >= 0) SCENARIOS[idx] = scenario;
+    else SCENARIOS.push(scenario);
   }
   function loadScenario(id) {
     const scenario = getScenario(id);
@@ -6527,6 +6206,130 @@ ${lines.join("\n")}
     syncScenarioPanel();
   }
 
+  // src/ribbon.ts
+  function setupRibbon() {
+    const tabs = Array.from(document.querySelectorAll(".ribbon-tab"));
+    const panels = Array.from(document.querySelectorAll(".ribbon-panel"));
+    const activate = (tab) => {
+      tabs.forEach((t) => t.classList.toggle("active", t.dataset.tab === tab));
+      panels.forEach((p) => p.classList.toggle("active", p.dataset.tab === tab));
+      if (tab === "scenarios") renderScenarioButtons();
+    };
+    tabs.forEach((t) => t.addEventListener("click", () => activate(t.dataset.tab)));
+    renderScenarioButtons();
+  }
+  function renderScenarioButtons() {
+    dom.ribbonScenarioList.innerHTML = SCENARIOS.map(
+      (s) => `<button class="ribbon-btn" data-scenario="${escapeHtml(s.id)}" type="button"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 4v16"></path><path d="M4 5h13l-2 3l2 3H4"></path></svg><span>${escapeHtml(s.name)}</span></button>`
+    ).join("");
+  }
+
+  // src/io.ts
+  function downloadBlob(content, filename, type) {
+    const blob = new Blob([content], { type });
+    const url = URL.createObjectURL(blob);
+    const anchor = document.createElement("a");
+    anchor.href = url;
+    anchor.download = filename;
+    anchor.click();
+    URL.revokeObjectURL(url);
+  }
+  function downloadJson(data, filename) {
+    downloadBlob(JSON.stringify(data, null, 2), filename, "application/json");
+  }
+  function downloadText(text, filename) {
+    downloadBlob(text, filename, "text/plain");
+  }
+  function pickFile(accept = "application/json,.json,.txt") {
+    return new Promise((resolve2) => {
+      const input = document.createElement("input");
+      input.type = "file";
+      input.accept = accept;
+      input.onchange = () => {
+        const file = input.files?.[0];
+        if (!file) {
+          resolve2(null);
+          return;
+        }
+        const reader = new FileReader();
+        reader.onload = () => resolve2(String(reader.result || ""));
+        reader.onerror = () => resolve2(null);
+        reader.readAsText(file);
+      };
+      input.click();
+    });
+  }
+  function exportConfig() {
+    downloadJson(buildConfigPayload(), "topology.json");
+    dom.hint.textContent = "Exported topology.json.";
+  }
+  async function importConfig() {
+    const text = await pickFile();
+    if (text == null) return;
+    try {
+      applyConfig(parseConfig(text));
+      dom.hint.textContent = "Imported topology.";
+    } catch (error) {
+      dom.hint.textContent = error.message || "Import failed.";
+    }
+  }
+  function exportScenarios() {
+    downloadJson(SCENARIOS, "scenarios.json");
+    dom.hint.textContent = "Exported scenarios.json.";
+  }
+  async function importScenario() {
+    const text = await pickFile();
+    if (text == null) return;
+    try {
+      const parsed = JSON.parse(text);
+      const list = Array.isArray(parsed) ? parsed : [parsed];
+      let lastId = "";
+      for (const s of list) {
+        if (s && typeof s.id === "string" && s.topology && Array.isArray(s.checks)) {
+          registerScenario(s);
+          lastId = s.id;
+        }
+      }
+      if (lastId) {
+        loadScenario(lastId);
+        dom.hint.textContent = `Imported scenario "${lastId}".`;
+      } else dom.hint.textContent = "No valid scenarios in file.";
+    } catch {
+      dom.hint.textContent = "Invalid scenario JSON.";
+    }
+  }
+  function exportScript() {
+    downloadText(exportTopologyScript(), "topology.routesim.txt");
+    dom.hint.textContent = "Exported topology script.";
+  }
+  async function importScript() {
+    const text = await pickFile("text/plain,.txt,.routesim,.json");
+    if (text == null) return;
+    runConsoleScript(text);
+    dom.hint.textContent = "Ran imported script.";
+  }
+  function exportLog() {
+    downloadJson(state.simulation.log, "simlog.json");
+    dom.hint.textContent = "Exported simlog.json.";
+  }
+  async function importLog() {
+    const text = await pickFile();
+    if (text == null) return;
+    try {
+      const log = JSON.parse(text);
+      if (!Array.isArray(log)) {
+        dom.hint.textContent = "Invalid log JSON.";
+        return;
+      }
+      state.simulation.log = log;
+      dom.simLogPanel.classList.add("active");
+      syncSimLog();
+      dom.hint.textContent = "Imported simulation log.";
+    } catch {
+      dom.hint.textContent = "Invalid log JSON.";
+    }
+  }
+
   // src/ui.ts
   function setTool(tool) {
     state.tool = tool;
@@ -6536,6 +6339,16 @@ ${lines.join("\n")}
     dom.hint.textContent = toolCopy[tool][1];
     dom.canvas.style.cursor = tool === "select" ? "default" : tool === "configure" ? "pointer" : "crosshair";
     render();
+  }
+  function updateCoordReadout(world) {
+    const parts = [];
+    if (world) parts.push(`\u2316 ${Math.round(world.x)}, ${Math.round(world.y)}`);
+    const selected = getDevice(state.selectedId);
+    if (selected) parts.push(`${selected.name}: ${Math.round(selected.x)}, ${Math.round(selected.y)}`);
+    dom.coordReadout.textContent = parts.join("    \xB7    ");
+  }
+  function syncCoordReadout() {
+    updateCoordReadout(state.pointer ? screenToWorld(state.pointer) : null);
   }
   function pointerFromEvent(event) {
     const rect = dom.canvas.getBoundingClientRect();
@@ -6678,6 +6491,7 @@ ${lines.join("\n")}
     dom.canvas.addEventListener("pointermove", (event) => {
       state.pointer = pointerFromEvent(event);
       const world = screenToWorld(state.pointer);
+      updateCoordReadout(world);
       if (state.drag) {
         const device = getDevice(state.drag.id);
         if (device) {
@@ -6723,6 +6537,7 @@ ${lines.join("\n")}
       state.pointer = null;
       state.drag = null;
       state.panDrag = null;
+      updateCoordReadout(null);
       if (state.tool === "connect" && state.linkStartId) render();
     });
     dom.canvas.addEventListener("wheel", (event) => {
@@ -6732,80 +6547,78 @@ ${lines.join("\n")}
       setZoom(state.scale * factor, pointer);
     }, { passive: false });
     window.addEventListener("keydown", handleGlobalKeydown);
-    dom.loadButton.addEventListener("click", loadConfig);
-    if (READONLY) {
-      dom.saveButton.style.display = "none";
-    } else {
-      dom.saveButton.addEventListener("click", saveConfig);
-    }
-    dom.undoButton.addEventListener("click", undo);
-    dom.clearButton.addEventListener("click", clearNetwork);
-    dom.topologyButton.addEventListener("click", () => {
-      const open = dom.topologyMenu.classList.toggle("open");
-      dom.topologyButton.setAttribute("aria-expanded", String(open));
-    });
-    dom.topologyMenu.querySelectorAll(".topology-option").forEach((btn) => {
-      btn.addEventListener("click", () => {
-        const name = btn.dataset.topology || "basic";
-        dom.topologyMenu.classList.remove("open");
-        dom.topologyButton.setAttribute("aria-expanded", "false");
-        loadTopology(name);
-      });
-    });
-    document.addEventListener("click", (event) => {
-      if (!dom.topologyMenu.classList.contains("open")) return;
-      const chooser = document.getElementById("topologyChooser");
-      if (chooser && !chooser.contains(event.target)) {
-        dom.topologyMenu.classList.remove("open");
-        dom.topologyButton.setAttribute("aria-expanded", "false");
+    setupRibbon();
+    const ribbonActions = {
+      "new": clearNetwork,
+      "undo": undo,
+      "delete": deleteSelection,
+      "import-config": () => {
+        void importConfig();
+      },
+      "export-config": exportConfig,
+      "import-scenario": () => {
+        void importScenario().then(renderScenarioButtons);
+      },
+      "export-scenario": exportScenarios,
+      "import-script": () => {
+        void importScript();
+      },
+      "export-script": exportScript,
+      "import-log": () => {
+        void importLog();
+      },
+      "export-log": exportLog,
+      "panel-network": () => setNetworkPanel(!state.options.networkPanelOpen),
+      "panel-terminal": () => {
+        closeConsole();
+        openTerminalFor(getDevice(state.selectedId));
+      },
+      "panel-console": () => {
+        closeTerminal();
+        openConsole();
+      },
+      "panel-simlog": () => dom.simLogPanel.classList.toggle("active"),
+      "theme": toggleTheme,
+      "fit": fitNetwork,
+      "scenario-check": runActiveScenarioCheck,
+      "scenario-dismiss": dismissScenario,
+      "help-shortcuts": () => {
+        dom.hint.textContent = "Shortcuts: V select \xB7 C computer \xB7 S switch \xB7 R router \xB7 L connect \xB7 W configure \xB7 Del delete \xB7 Esc cancel \xB7 Ctrl/Cmd+Z undo \xB7 scroll to zoom.";
+      },
+      "help-commands": () => {
+        closeTerminal();
+        openConsole();
+      },
+      "help-about": () => {
+        dom.hint.textContent = "RouteSim \u2014 an interactive network simulator. See docs/ and the Help tab.";
       }
-    });
-    dom.scenarioMenu.innerHTML = SCENARIOS.map((s) => `<button class="topology-option" data-scenario="${s.id}">${s.name}</button>`).join("");
-    dom.scenarioButton.addEventListener("click", () => {
-      const open = dom.scenarioMenu.classList.toggle("open");
-      dom.scenarioButton.setAttribute("aria-expanded", String(open));
-    });
-    dom.scenarioMenu.querySelectorAll(".topology-option").forEach((btn) => {
-      btn.addEventListener("click", () => {
-        const id = btn.dataset.scenario;
-        dom.scenarioMenu.classList.remove("open");
-        dom.scenarioButton.setAttribute("aria-expanded", "false");
-        loadScenario(id);
-      });
-    });
+    };
     document.addEventListener("click", (event) => {
-      if (!dom.scenarioMenu.classList.contains("open")) return;
-      const chooser = document.getElementById("scenarioChooser");
-      if (chooser && !chooser.contains(event.target)) {
-        dom.scenarioMenu.classList.remove("open");
-        dom.scenarioButton.setAttribute("aria-expanded", "false");
+      const el = event.target?.closest?.("[data-action],[data-topology],[data-scenario]");
+      if (!el) return;
+      if (el.dataset.topology) {
+        loadTopology(el.dataset.topology);
+        return;
       }
+      if (el.dataset.scenario) {
+        loadScenario(el.dataset.scenario);
+        return;
+      }
+      if (el.dataset.action) ribbonActions[el.dataset.action]?.();
     });
     dom.scenarioCheckButton.addEventListener("click", runActiveScenarioCheck);
     dom.scenarioCloseButton.addEventListener("click", dismissScenario);
-    dom.fitButton.addEventListener("click", fitNetwork);
-    dom.themeButton.addEventListener("click", toggleTheme);
-    dom.terminalOpenButton.addEventListener("click", () => {
-      closeConsole();
-      openTerminalFor(getDevice(state.selectedId));
-    });
     dom.terminalCloseButton.addEventListener("click", closeTerminal);
     dom.terminalForm.addEventListener("submit", submitTerminalCommand);
     dom.terminalInput.addEventListener("keydown", handleTerminalKeydown);
-    dom.consoleButton.addEventListener("click", () => {
-      closeTerminal();
-      openConsole();
-    });
     dom.consoleCloseButton.addEventListener("click", closeConsole);
     dom.consoleForm.addEventListener("submit", submitConsoleCommand);
     dom.consoleInput.addEventListener("keydown", handleConsoleKeydown);
-    dom.inspectorOpenButton.addEventListener("click", () => setNetworkPanel(!state.options.networkPanelOpen));
     dom.inspectorCloseButton.addEventListener("click", () => setNetworkPanel(false));
     dom.inspectorResizeHandle.addEventListener("pointerdown", startInspectorResize);
     window.addEventListener("pointermove", moveInspectorResize);
     window.addEventListener("pointerup", stopInspectorResize);
     window.addEventListener("pointercancel", stopInspectorResize);
-    dom.displayOptionsButton.addEventListener("click", toggleDisplayOptions);
     bindOptionToggle(dom.showDeviceNames, "showDeviceNames");
     bindOptionToggle(dom.showIpAddresses, "showIpAddresses");
     bindOptionToggle(dom.showMacAddresses, "showMacAddresses");
@@ -6900,130 +6713,20 @@ ${lines.join("\n")}
     const connectedPeerIds = new Set(connectedIds(device.id));
     return normaliseRouterInterfaces(device.config?.interfaces || []).filter((entry) => !entry.peerId || connectedPeerIds.has(entry.peerId));
   }
-  async function saveConfig() {
-    if (READONLY) {
-      dom.hint.textContent = "Read-only build \u2014 saving to config.json is disabled.";
-      return;
-    }
-    const name = normaliseConfigName(prompt("Save config name", suggestedConfigName()));
-    if (!name) return;
-    await refreshConfigStore();
-    state.configStore.configs[name] = buildConfigPayload();
-    const payload = JSON.stringify(normaliseConfigStore(state.configStore), null, 2);
+  function parseConfig(text) {
+    let parsed;
     try {
-      await persistConfigStore(payload);
-      dom.hint.textContent = `Saved "${name}" to config.json.`;
-    } catch (error) {
-      if (error.name !== "AbortError") {
-        downloadConfigStore(payload);
-        dom.hint.textContent = `Saved "${name}". Downloaded config.json because direct file write was unavailable.`;
-      }
-    }
-    syncPanel();
-  }
-  async function loadConfig() {
-    await refreshConfigStore(true);
-    const names = Object.keys(state.configStore.configs).sort((a, b) => a.localeCompare(b));
-    if (!names.length) {
-      dom.hint.textContent = "No configs found in config.json yet.";
-      return;
-    }
-    const name = normaliseConfigName(prompt(`Load config:
-${names.join("\n")}`, names[0]));
-    if (!name) return;
-    const saved = state.configStore.configs[name];
-    if (!saved) {
-      dom.hint.textContent = `No config named "${name}" in config.json.`;
-      return;
-    }
-    try {
-      applyConfig(normaliseConfig(saved));
-      dom.hint.textContent = `Loaded "${name}" from config.json.`;
-    } catch (error) {
-      dom.hint.textContent = error.message;
-    }
-  }
-  function suggestedConfigName() {
-    const base = "network";
-    if (!state.configStore.configs[base]) return base;
-    let index = 2;
-    while (state.configStore.configs[`${base}-${index}`]) index++;
-    return `${base}-${index}`;
-  }
-  function readEmbeddedConfigStore() {
-    const text = document.getElementById("embeddedConfig")?.textContent?.trim();
-    if (!text) return null;
-    try {
-      return normaliseConfigStore(JSON.parse(text));
+      parsed = JSON.parse(text);
     } catch {
-      return null;
+      throw new Error("Config file must be valid JSON text.");
     }
-  }
-  async function refreshConfigStore(pickIfNeeded = false) {
-    if (state.configFileHandle) {
-      await readConfigStoreFromHandle();
-      return;
-    }
-    const embedded = readEmbeddedConfigStore();
-    if (embedded) {
-      state.configStore = embedded;
-      return;
-    }
-    try {
-      const response = await fetch("./config.json", { cache: "no-store" });
-      if (!response.ok) throw new Error("Missing config.json");
-      state.configStore = normaliseConfigStore(await response.json());
-    } catch {
-      if (pickIfNeeded && "showOpenFilePicker" in window) {
-        const [fileHandle] = await window.showOpenFilePicker({
-          types: [{
-            description: "RouteSim config store",
-            accept: { "application/json": [".json"] }
-          }]
-        });
-        state.configFileHandle = fileHandle;
-        await readConfigStoreFromHandle();
-        return;
-      }
-      state.configStore = normaliseConfigStore(state.configStore);
-    }
-  }
-  async function persistConfigStore(payload) {
-    if ("showSaveFilePicker" in window) {
-      if (!state.configFileHandle) {
-        state.configFileHandle = await window.showSaveFilePicker({
-          suggestedName: "config.json",
-          types: [{
-            description: "RouteSim config store",
-            accept: { "application/json": [".json"] }
-          }]
-        });
-      }
-      const writable = await state.configFileHandle.createWritable();
-      await writable.write(payload);
-      await writable.close();
-      return;
-    }
-    downloadConfigStore(payload);
-  }
-  async function readConfigStoreFromHandle() {
-    const file = await state.configFileHandle.getFile();
-    state.configStore = normaliseConfigStore(JSON.parse(await file.text()));
-  }
-  function downloadConfigStore(payload) {
-    const blob = new Blob([payload], { type: "application/json" });
-    const url = URL.createObjectURL(blob);
-    const anchor = document.createElement("a");
-    anchor.href = url;
-    anchor.download = "config.json";
-    anchor.click();
-    URL.revokeObjectURL(url);
+    return normaliseConfig(parsed);
   }
   function applyConfig(config) {
     pushUndo();
-    applyConfigWithoutUndo2(config);
+    applyConfigWithoutUndo(config);
   }
-  function applyConfigWithoutUndo2(config) {
+  function applyConfigWithoutUndo(config) {
     state.devices = config.devices;
     state.links = config.links;
     state.selectedId = config.devices[0]?.id || null;
@@ -7065,17 +6768,9 @@ ${names.join("\n")}`, names[0]));
       dom.hint.textContent = error.message;
     }
   }
-  async function loadDefaultConfig2() {
-    await refreshConfigStore();
-    if (!state.configStore.configs.default) {
-      state.configStore.configs.default = defaultConfig;
-    }
-    if (state.devices.length || state.links.length) {
-      applyConfig(normaliseConfig(state.configStore.configs.default));
-    } else {
-      applyConfigWithoutUndo2(normaliseConfig(state.configStore.configs.default));
-    }
-    dom.hint.textContent = "Loaded default topology from config.json.";
+  function loadDefaultConfig() {
+    applyConfigWithoutUndo(normaliseConfig(defaultConfig));
+    dom.hint.textContent = "Loaded the Basic Network topology.";
   }
 
   // src/commands.ts
@@ -7699,7 +7394,8 @@ ${names.join("\n")}`, names[0]));
     syncPanel,
     syncTerminal,
     resizeCanvas,
-    syncScenarioPanel
+    syncScenarioPanel,
+    syncCoordReadout
   });
   registerDeviceCallbacks({
     setTool,
@@ -7710,9 +7406,17 @@ ${names.join("\n")}`, names[0]));
     exec: (line) => runConsoleCommand(line),
     run: (script) => runConsoleScript(script),
     export: () => exportTopologyScript(),
-    snapshot: () => ({ devices: state.devices, links: state.links, simulation: state.simulation })
+    snapshot: () => ({ devices: state.devices, links: state.links, simulation: state.simulation }),
+    exportConfig,
+    importConfig,
+    exportScenarios,
+    importScenario,
+    exportScript,
+    importScript,
+    exportLog,
+    importLog
   };
-  async function initialiseApp() {
+  function initialiseApp() {
     resizeCanvas();
     setInspectorWidth(state.inspectorWidth);
     state.pan = { x: dom.canvas.getBoundingClientRect().width / 2, y: dom.canvas.getBoundingClientRect().height / 2 };
@@ -7723,12 +7427,7 @@ ${names.join("\n")}`, names[0]));
     syncTerminal();
     syncConsole();
     syncScenarioPanel();
-    try {
-      await loadDefaultConfig2();
-    } catch (error) {
-      applyConfigWithoutUndo2(normaliseConfig(defaultConfig));
-      dom.hint.textContent = "Loaded default topology.";
-    }
+    loadDefaultConfig();
     syncPanel();
     render();
   }

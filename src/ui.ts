@@ -3,16 +3,15 @@ import { dom } from "./dom";
 import { addDevice, addLink, deleteSelection, clearNetwork, findDeviceAt, findLinkAt, getDevice, configureDevice, openPortSelectionModal, confirmPortSelection, cancelPortSelection } from "./devices";
 import { render, resizeCanvas, screenToWorld, setZoom, syncZoomLevel, fitNetwork } from "./canvas";
 import { clearCssColorCache } from "./utils";
-import { syncPanel, syncOptionControls, syncNetworkPanel, setNetworkPanel, toggleDisplayOptions, setInspectorWidth, startInspectorResize, moveInspectorResize, stopInspectorResize } from "./inspector";
+import { syncPanel, syncOptionControls, syncNetworkPanel, setNetworkPanel, setInspectorWidth, startInspectorResize, moveInspectorResize, stopInspectorResize } from "./inspector";
 import { openTerminalFor, closeTerminal, syncTerminal, submitTerminalCommand, handleTerminalKeydown } from "./terminal";
 import { openConsole, closeConsole, submitConsoleCommand, handleConsoleKeydown } from "./console";
-import { SCENARIOS, loadScenario } from "./scenarios";
+import { loadScenario } from "./scenarios";
 import { runActiveScenarioCheck, dismissScenario } from "./scenario-ui";
-import { saveConfig, loadConfig, loadTopology, loadDefaultConfig, applyConfigWithoutUndo } from "./config";
-import { normaliseConfig } from "./normalise";
-import { defaultConfig } from "./state";
-import { pauseSimulation, resumeSimulation, stepOnce, stopSimulation, updateSimControls, syncSimLog } from "./engine";
-import { READONLY } from "./env";
+import { loadTopology } from "./config";
+import { pauseSimulation, resumeSimulation, stepOnce, stopSimulation } from "./engine";
+import { setupRibbon, renderScenarioButtons } from "./ribbon";
+import * as io from "./io";
 
 export function setTool(tool: string): void {
   state.tool = tool;
@@ -22,6 +21,22 @@ export function setTool(tool: string): void {
   dom.hint.textContent = toolCopy[tool][1];
   dom.canvas.style.cursor = tool === "select" ? "default" : tool === "configure" ? "pointer" : "crosshair";
   render();
+}
+
+// Bottom-right readout: cursor world coords (while over the canvas) plus the
+// selected device's coords.
+export function updateCoordReadout(world: { x: number; y: number } | null): void {
+  const parts: string[] = [];
+  if (world) parts.push(`⌖ ${Math.round(world.x)}, ${Math.round(world.y)}`);
+  const selected = getDevice(state.selectedId);
+  if (selected) parts.push(`${selected.name}: ${Math.round(selected.x)}, ${Math.round(selected.y)}`);
+  dom.coordReadout.textContent = parts.join("    ·    ");
+}
+
+// Registry callback — refreshes the readout on selection changes (keeps the
+// cursor coords if the pointer is still over the canvas).
+export function syncCoordReadout(): void {
+  updateCoordReadout(state.pointer ? screenToWorld(state.pointer) : null);
 }
 
 export function pointerFromEvent(event: MouseEvent): { x: number; y: number } {
@@ -179,6 +194,7 @@ export function setupUI(): void {
   dom.canvas.addEventListener("pointermove", (event: PointerEvent) => {
     state.pointer = pointerFromEvent(event);
     const world = screenToWorld(state.pointer);
+    updateCoordReadout(world);
 
     if (state.drag) {
       const device = getDevice(state.drag.id);
@@ -230,6 +246,7 @@ export function setupUI(): void {
     state.pointer = null;
     state.drag = null;
     state.panDrag = null;
+    updateCoordReadout(null);
     if (state.tool === "connect" && state.linkStartId) render();
   });
 
@@ -242,79 +259,61 @@ export function setupUI(): void {
 
   window.addEventListener("keydown", handleGlobalKeydown);
 
-  dom.loadButton.addEventListener("click", loadConfig);
-  if (READONLY) {
-    dom.saveButton.style.display = "none";
-  } else {
-    dom.saveButton.addEventListener("click", saveConfig);
-  }
-  dom.undoButton.addEventListener("click", undo);
-  dom.clearButton.addEventListener("click", clearNetwork);
-  dom.topologyButton.addEventListener("click", () => {
-    const open = dom.topologyMenu.classList.toggle("open");
-    dom.topologyButton.setAttribute("aria-expanded", String(open));
-  });
-  dom.topologyMenu.querySelectorAll(".topology-option").forEach((btn: Element) => {
-    btn.addEventListener("click", () => {
-      const name = (btn as HTMLElement).dataset.topology || "basic";
-      dom.topologyMenu.classList.remove("open");
-      dom.topologyButton.setAttribute("aria-expanded", "false");
-      loadTopology(name);
-    });
-  });
+  // ── Ribbon ──────────────────────────────────────────────────────────────────
+  setupRibbon();
+
+  // Most ribbon buttons are wired by data attribute (delegated so dynamically
+  // rendered buttons — scenarios — work without re-binding).
+  const ribbonActions: Record<string, () => void> = {
+    "new": clearNetwork,
+    "undo": undo,
+    "delete": deleteSelection,
+    "import-config": () => { void io.importConfig(); },
+    "export-config": io.exportConfig,
+    "import-scenario": () => { void io.importScenario().then(renderScenarioButtons); },
+    "export-scenario": io.exportScenarios,
+    "import-script": () => { void io.importScript(); },
+    "export-script": io.exportScript,
+    "import-log": () => { void io.importLog(); },
+    "export-log": io.exportLog,
+    "panel-network": () => setNetworkPanel(!state.options.networkPanelOpen),
+    "panel-terminal": () => { closeConsole(); openTerminalFor(getDevice(state.selectedId)); },
+    "panel-console": () => { closeTerminal(); openConsole(); },
+    "panel-simlog": () => dom.simLogPanel.classList.toggle("active"),
+    "theme": toggleTheme,
+    "fit": fitNetwork,
+    "scenario-check": runActiveScenarioCheck,
+    "scenario-dismiss": dismissScenario,
+    "help-shortcuts": () => { dom.hint.textContent = "Shortcuts: V select · C computer · S switch · R router · L connect · W configure · Del delete · Esc cancel · Ctrl/Cmd+Z undo · scroll to zoom."; },
+    "help-commands": () => { closeTerminal(); openConsole(); },
+    "help-about": () => { dom.hint.textContent = "RouteSim — an interactive network simulator. See docs/ and the Help tab."; },
+  };
   document.addEventListener("click", (event) => {
-    if (!dom.topologyMenu.classList.contains("open")) return;
-    const chooser = document.getElementById("topologyChooser");
-    if (chooser && !chooser.contains(event.target as Node)) {
-      dom.topologyMenu.classList.remove("open");
-      dom.topologyButton.setAttribute("aria-expanded", "false");
-    }
+    const el = (event.target as HTMLElement)?.closest?.("[data-action],[data-topology],[data-scenario]") as HTMLElement | null;
+    if (!el) return;
+    if (el.dataset.topology) { loadTopology(el.dataset.topology); return; }
+    if (el.dataset.scenario) { loadScenario(el.dataset.scenario); return; }
+    if (el.dataset.action) ribbonActions[el.dataset.action]?.();
   });
-  // Scenarios chooser — populated from the registry, mirrors the topology menu.
-  dom.scenarioMenu.innerHTML = SCENARIOS
-    .map(s => `<button class="topology-option" data-scenario="${s.id}">${s.name}</button>`)
-    .join("");
-  dom.scenarioButton.addEventListener("click", () => {
-    const open = dom.scenarioMenu.classList.toggle("open");
-    dom.scenarioButton.setAttribute("aria-expanded", String(open));
-  });
-  dom.scenarioMenu.querySelectorAll(".topology-option").forEach((btn: Element) => {
-    btn.addEventListener("click", () => {
-      const id = (btn as HTMLElement).dataset.scenario!;
-      dom.scenarioMenu.classList.remove("open");
-      dom.scenarioButton.setAttribute("aria-expanded", "false");
-      loadScenario(id);
-    });
-  });
-  document.addEventListener("click", (event) => {
-    if (!dom.scenarioMenu.classList.contains("open")) return;
-    const chooser = document.getElementById("scenarioChooser");
-    if (chooser && !chooser.contains(event.target as Node)) {
-      dom.scenarioMenu.classList.remove("open");
-      dom.scenarioButton.setAttribute("aria-expanded", "false");
-    }
-  });
+
+  // Scenario goal banner.
   dom.scenarioCheckButton.addEventListener("click", runActiveScenarioCheck);
   dom.scenarioCloseButton.addEventListener("click", dismissScenario);
 
-  dom.fitButton.addEventListener("click", fitNetwork);
-  dom.themeButton.addEventListener("click", toggleTheme);
-  // The terminal and console share the bottom slot — opening one closes the other.
-  dom.terminalOpenButton.addEventListener("click", () => { closeConsole(); openTerminalFor(getDevice(state.selectedId)); });
+  // Bottom panels: terminal & console share the bottom slot.
   dom.terminalCloseButton.addEventListener("click", closeTerminal);
   dom.terminalForm.addEventListener("submit", submitTerminalCommand);
   dom.terminalInput.addEventListener("keydown", handleTerminalKeydown);
-  dom.consoleButton.addEventListener("click", () => { closeTerminal(); openConsole(); });
   dom.consoleCloseButton.addEventListener("click", closeConsole);
   dom.consoleForm.addEventListener("submit", submitConsoleCommand);
   dom.consoleInput.addEventListener("keydown", handleConsoleKeydown);
-  dom.inspectorOpenButton.addEventListener("click", () => setNetworkPanel(!state.options.networkPanelOpen));
+
+  // Inspector (network) panel.
   dom.inspectorCloseButton.addEventListener("click", () => setNetworkPanel(false));
   dom.inspectorResizeHandle.addEventListener("pointerdown", startInspectorResize as any);
   window.addEventListener("pointermove", moveInspectorResize as any);
   window.addEventListener("pointerup", stopInspectorResize);
   window.addEventListener("pointercancel", stopInspectorResize);
-  dom.displayOptionsButton.addEventListener("click", toggleDisplayOptions);
   bindOptionToggle(dom.showDeviceNames, "showDeviceNames");
   bindOptionToggle(dom.showIpAddresses, "showIpAddresses");
   bindOptionToggle(dom.showMacAddresses, "showMacAddresses");

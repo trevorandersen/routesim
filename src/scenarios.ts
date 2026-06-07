@@ -60,6 +60,13 @@ export function getScenario(id: string | null): Scenario | undefined {
   return SCENARIOS.find(s => s.id === id);
 }
 
+// Adds (or replaces) a scenario in the runtime registry — used by JSON import.
+export function registerScenario(scenario: Scenario): void {
+  const idx = SCENARIOS.findIndex(s => s.id === scenario.id);
+  if (idx >= 0) SCENARIOS[idx] = scenario;
+  else SCENARIOS.push(scenario);
+}
+
 // ── Loading & evaluation ─────────────────────────────────────────────────────
 
 export function loadScenario(id: string): boolean {

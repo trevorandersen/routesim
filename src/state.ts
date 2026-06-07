@@ -6,6 +6,7 @@ export type SyncCallbacks = {
   syncTerminal: () => void;
   resizeCanvas: () => void;
   syncScenarioPanel: () => void;
+  syncCoordReadout: () => void;
 };
 
 let _cb: SyncCallbacks;
@@ -62,7 +63,6 @@ export const state: AppState = {
   nextSwitch: 1,
   nextRouter: 1,
   configStore: { version: 1, configs: {} },
-  configFileHandle: null,
   undoStack: [],
   isApplyingCompositeChange: false,
   simulation: {

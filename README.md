@@ -2,21 +2,18 @@
 
 A portable, single-file network topology simulator. Build a network of PCs, switches, and routers on an interactive canvas, then open device terminals to run CLI commands like `ping`, `arp -n`, and `show ip interface brief`. The simulator models L2/L3 reachability with VLAN enforcement, ARP/MAC learning, and subnet-aware routing.
 
-The app builds into self-contained single-file HTML variants — no server, no runtime dependencies, just open the file in a browser:
-
-- **`rs-main.html`** — for local use; fetches `config.json` at runtime and can read **and** write it.
-- **`rs-web.html`** — for hosting read-only on a web server; `config.json` is **embedded at build time**, so it's a true single file with no runtime requests, and the Save action is removed.
+The app builds into a single self-contained **`rs-web.html`** — no server, no runtime dependencies, no network requests. Just open it in a browser. Default topologies and scenarios are built in; configs, scenarios, scripts, and logs import/export as JSON files.
 
 ## Quick start
 
 ```bash
 # Build (requires esbuild + bun, no npm/Node/Python)
-./build.sh            # dev build  — produces rs-main.html and rs-web.html
+./build.sh            # dev build  — produces rs-web.html
 ./build.sh --minify   # minified build
 
 # Preview / serve locally (File System Access API needs localhost or HTTPS)
 bun test-server.ts            # serves on http://localhost:8767
-# then open http://localhost:8767/rs-main.html
+# then open http://localhost:8767/rs-web.html
 ```
 
 ### Prerequisites
@@ -34,9 +31,7 @@ routesim/
 ├── tsconfig.json       # TypeScript config (strict, ES2022, no emit)
 ├── template.html       # HTML shell with {{STYLES}} and {{SCRIPT}} placeholders
 ├── styles.css          # All CSS (dark/light theme via custom properties)
-├── config.json         # Default sample topology (fetched on load)
-├── rs-main.html        # Build output — local variant (read + write config.json)
-├── rs-web.html         # Build output — read-only web variant
+├── rs-web.html         # Build output — the single portable file
 ├── IMPROVEMENTS.md     # Notes on improvements made during refactor
 └── src/
     ├── app.ts          # Entry point — wires callbacks, initializes the app
@@ -56,13 +51,13 @@ routesim/
 
 ## How the build works
 
-The build uses only esbuild + bun (no Node.js, npm, or Python). For each variant:
+The build uses only esbuild + bun (no Node.js, npm, or Python):
 
-1. **esbuild** bundles all TypeScript modules in `src/` into a single IIFE (`.bundle.js`), injecting the build flag `__BUILD_READONLY__` via `--define`
-2. **`bun build-inline.ts <output> [--embed-config]`** reads `template.html` and inlines the CSS from `styles.css` and the JS bundle (and, with `--embed-config`, the contents of `config.json`), writing the named output file
+1. **esbuild** bundles all TypeScript modules in `src/` into a single IIFE (`.bundle.js`)
+2. **`bun build-inline.ts rs-web.html`** reads `template.html` and inlines the CSS from `styles.css` and the JS bundle
 3. The temporary `.bundle.js` is deleted
 
-`build.sh` runs this twice — `__BUILD_READONLY__=false` → `rs-main.html`, and `__BUILD_READONLY__=true --embed-config` → `rs-web.html`. The read-only flag defaults to `false` in dev/test (where bun runs the TypeScript directly), so the Save action is only stripped in `rs-web.html`. The web variant also embeds `config.json` into an inert `<script type="application/json">` block, which the app reads before falling back to a runtime `fetch` — making `rs-web.html` a true single file. Each result has everything inlined — styles in a `<style>` tag, script in a `<script>` tag.
+The result, `rs-web.html`, has everything inlined — styles in a `<style>` tag, script in a `<script>` — and makes no network requests. See [docs/build.md](docs/build.md) and [docs/scripting.md](docs/scripting.md) for the JSON import/export.
 
 ## Module architecture
 

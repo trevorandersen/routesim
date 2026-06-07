@@ -14,6 +14,7 @@ export function registerNoopCallbacks(): void {
     syncTerminal: () => {},
     resizeCanvas: () => {},
     syncScenarioPanel: () => {},
+    syncCoordReadout: () => {},
   });
 }
 

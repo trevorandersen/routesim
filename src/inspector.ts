@@ -19,8 +19,6 @@ export function syncOptionControls(): void {
   dom.showDeviceNames.checked = state.options.showDeviceNames;
   dom.showIpAddresses.checked = state.options.showIpAddresses;
   dom.showMacAddresses.checked = state.options.showMacAddresses;
-  dom.displayOptionsPanel.classList.toggle("closed", !state.options.displayOptionsOpen);
-  dom.displayOptionsButton.setAttribute("aria-expanded", String(state.options.displayOptionsOpen));
 }
 
 export function syncNetworkPanel(): void {
@@ -32,11 +30,6 @@ export function syncNetworkPanel(): void {
 export function setNetworkPanel(open: boolean): void {
   state.options.networkPanelOpen = open;
   syncNetworkPanel();
-}
-
-export function toggleDisplayOptions(): void {
-  state.options.displayOptionsOpen = !state.options.displayOptionsOpen;
-  syncOptionControls();
 }
 
 export function setInspectorWidth(width: number): void {
@@ -276,6 +269,7 @@ function renderLinkPanel(link: Link): void {
 export function syncPanel(): void {
   dom.deviceCount.textContent = String(state.devices.filter(isVisibleDevice).length);
   dom.linkCount.textContent = String(state.links.filter(link => !link.hidden).length);
+  sync().syncCoordReadout();
   const selected = getDevice(state.selectedId);
   const isConfiguring = selected && state.configuringId === selected.id;
 

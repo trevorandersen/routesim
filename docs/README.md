@@ -7,7 +7,7 @@ It is a single-page app with **no framework and no runtime dependencies** — it
 ## How to read these docs
 
 - **[architecture.md](architecture.md)** — the big picture: module layout, data flow, the callback registry that breaks circular imports, and the two-phase simulation model. Start here.
-- **[build.md](build.md)** — how source becomes `rs-main.html` / `rs-web.html`, the build variants, and the embedded-config mechanism.
+- **[build.md](build.md)** — how source becomes the single self-contained `rs-web.html`.
 - **[testing.md](testing.md)** — the Bun test suite, DOM mocking, fixtures, and how to run/write tests.
 - **[benchmarking.md](benchmarking.md)** — the micro-benchmark harness, p99 budgets, and when to add a benchmark.
 - **[scripting.md](scripting.md)** — the text-command interface: the console panel, the `window.routesim` JS API, the full command reference, and topology round-trip.
@@ -37,7 +37,8 @@ It is a single-page app with **no framework and no runtime dependencies** — it
 | `src/frame.ts` | [frame.md](src/frame.md) | Ethernet frame factories + label/colour helpers |
 | `src/normalise.ts` | [normalise.md](src/normalise.md) | Defensive config normalisation + defaults |
 | `src/utils.ts` | [utils.md](src/utils.md) | Pure helpers: IPv4/MAC, escaping, the `cssColor` cache |
-| `src/env.ts` | [env.md](src/env.md) | Build-time flags (`READONLY`) |
+| `src/io.ts` | [scripting.md](scripting.md) | JSON import/export (config/scenario/script/log) |
+| `src/ribbon.ts` | [src/ribbon.md](src/ribbon.md) | Tabbed ribbon: tab switching + dynamic scenario buttons |
 
 ## Conventions
 

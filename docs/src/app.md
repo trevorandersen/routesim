@@ -8,7 +8,9 @@ The bundle's entry point (esbuild bundles `app.ts` and everything it transitivel
    - `registerCallbacks({ render, syncPanel, syncTerminal, resizeCanvas })` (from `state.ts`).
    - `registerDeviceCallbacks({ setTool, setNetworkPanel })` (from `devices.ts`).
 2. **`setupUI()`** (`ui.ts`) — attaches all DOM event listeners.
-3. **`initialiseApp()`** — sizes the canvas, sets the inspector width, centres the pan, applies the dark theme, syncs the option/network panels and terminal, then `await loadDefaultConfig()` to load the starting topology from `config.json` (falling back to the built-in default on failure). Finishes with `syncPanel()` + `render()`.
+3. **`initialiseApp()`** — sizes the canvas, sets the inspector width, centres the pan, applies the dark theme, syncs the panels, then `loadDefaultConfig()` to load the built-in Basic Network. Finishes with `syncPanel()` + `render()`. No network request.
+
+It also exposes the `window.routesim` API (`exec`/`run`/`export`/`snapshot` + the io import/export functions) for automation.
 
 ## How it fits
 
@@ -16,5 +18,5 @@ The bundle's entry point (esbuild bundles `app.ts` and everything it transitivel
 
 ## Notes
 
-- Startup is async only for `loadDefaultConfig` (which may fetch `config.json` or read an embedded store). Everything else is synchronous.
+- Startup is fully synchronous — defaults are compiled in, so there's nothing to fetch.
 - Tests never import `app.ts`; they import individual modules and register no-op callbacks instead.

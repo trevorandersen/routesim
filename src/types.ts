@@ -329,7 +329,6 @@ export interface AppState {
   nextSwitch: number;
   nextRouter: number;
   configStore: ConfigStore;
-  configFileHandle: any;
   undoStack: string[];
   isApplyingCompositeChange: boolean;
   simulation: SimulationState;

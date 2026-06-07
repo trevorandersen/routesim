@@ -1,11 +1,10 @@
 import { state, pushUndo, sync } from "./state";
 import { dom } from "./dom";
-import { READONLY } from "./env";
 import { clampPortCount, clampRouterPortCount } from "./utils";
 import {
   normaliseArpTable, normaliseMacTable, normaliseVlans, normalisePortVlans,
   normalisePortModes, normaliseTrunkAllowedVlans,
-  normaliseRouterInterfaces, normaliseConfig, normaliseConfigStore, normaliseConfigName
+  normaliseRouterInterfaces, normaliseConfig
 } from "./normalise";
 import { connectedIds, clearNetwork, nextDeviceNumber } from "./devices";
 import { render, fitNetwork } from "./canvas";
@@ -83,141 +82,6 @@ export function routerInterfacesForPayload(device: any): any[] {
     .filter((entry: any) => !entry.peerId || connectedPeerIds.has(entry.peerId));
 }
 
-export async function saveConfig(): Promise<void> {
-  if (READONLY) {
-    dom.hint.textContent = "Read-only build — saving to config.json is disabled.";
-    return;
-  }
-
-  const name = normaliseConfigName(prompt("Save config name", suggestedConfigName()));
-  if (!name) return;
-
-  await refreshConfigStore();
-  state.configStore.configs[name] = buildConfigPayload();
-  const payload = JSON.stringify(normaliseConfigStore(state.configStore), null, 2);
-
-  try {
-    await persistConfigStore(payload);
-    dom.hint.textContent = `Saved "${name}" to config.json.`;
-  } catch (error: any) {
-    if (error.name !== "AbortError") {
-      downloadConfigStore(payload);
-      dom.hint.textContent = `Saved "${name}". Downloaded config.json because direct file write was unavailable.`;
-    }
-  }
-  syncPanel();
-}
-
-export async function loadConfig(): Promise<void> {
-  await refreshConfigStore(true);
-  const names = Object.keys(state.configStore.configs).sort((a, b) => a.localeCompare(b));
-  if (!names.length) {
-    dom.hint.textContent = "No configs found in config.json yet.";
-    return;
-  }
-
-  const name = normaliseConfigName(prompt(`Load config:\n${names.join("\n")}`, names[0]));
-  if (!name) return;
-
-  const saved = state.configStore.configs[name];
-  if (!saved) {
-    dom.hint.textContent = `No config named "${name}" in config.json.`;
-    return;
-  }
-
-  try {
-    applyConfig(normaliseConfig(saved));
-    dom.hint.textContent = `Loaded "${name}" from config.json.`;
-  } catch (error: any) {
-    dom.hint.textContent = error.message;
-  }
-}
-
-export function suggestedConfigName(): string {
-  const base = "network";
-  if (!state.configStore.configs[base]) return base;
-  let index = 2;
-  while (state.configStore.configs[`${base}-${index}`]) index++;
-  return `${base}-${index}`;
-}
-
-export function readEmbeddedConfigStore(): any | null {
-  const text = document.getElementById("embeddedConfig")?.textContent?.trim();
-  if (!text) return null;
-  try {
-    return normaliseConfigStore(JSON.parse(text));
-  } catch {
-    return null;
-  }
-}
-
-export async function refreshConfigStore(pickIfNeeded = false): Promise<void> {
-  if (state.configFileHandle) {
-    await readConfigStoreFromHandle();
-    return;
-  }
-
-  const embedded = readEmbeddedConfigStore();
-  if (embedded) {
-    state.configStore = embedded;
-    return;
-  }
-
-  try {
-    const response = await fetch("./config.json", { cache: "no-store" });
-    if (!response.ok) throw new Error("Missing config.json");
-    state.configStore = normaliseConfigStore(await response.json());
-  } catch {
-    if (pickIfNeeded && "showOpenFilePicker" in window) {
-      const [fileHandle] = await (window as any).showOpenFilePicker({
-        types: [{
-          description: "RouteSim config store",
-          accept: { "application/json": [".json"] }
-        }]
-      });
-      state.configFileHandle = fileHandle;
-      await readConfigStoreFromHandle();
-      return;
-    }
-    state.configStore = normaliseConfigStore(state.configStore);
-  }
-}
-
-export async function persistConfigStore(payload: string): Promise<void> {
-  if ("showSaveFilePicker" in window) {
-    if (!state.configFileHandle) {
-      state.configFileHandle = await (window as any).showSaveFilePicker({
-        suggestedName: "config.json",
-        types: [{
-          description: "RouteSim config store",
-          accept: { "application/json": [".json"] }
-        }]
-      });
-    }
-    const writable = await state.configFileHandle.createWritable();
-    await writable.write(payload);
-    await writable.close();
-    return;
-  }
-
-  downloadConfigStore(payload);
-}
-
-export async function readConfigStoreFromHandle(): Promise<void> {
-  const file = await state.configFileHandle.getFile();
-  state.configStore = normaliseConfigStore(JSON.parse(await file.text()));
-}
-
-export function downloadConfigStore(payload: string): void {
-  const blob = new Blob([payload], { type: "application/json" });
-  const url = URL.createObjectURL(blob);
-  const anchor = document.createElement("a");
-  anchor.href = url;
-  anchor.download = "config.json";
-  anchor.click();
-  URL.revokeObjectURL(url);
-}
-
 export function parseConfig(text: string): any {
   let parsed;
   try {
@@ -279,15 +143,7 @@ export function loadTopology(name: string): void {
   }
 }
 
-export async function loadDefaultConfig(): Promise<void> {
-  await refreshConfigStore();
-  if (!state.configStore.configs.default) {
-    state.configStore.configs.default = defaultConfig;
-  }
-  if (state.devices.length || state.links.length) {
-    applyConfig(normaliseConfig(state.configStore.configs.default));
-  } else {
-    applyConfigWithoutUndo(normaliseConfig(state.configStore.configs.default));
-  }
-  dom.hint.textContent = "Loaded default topology from config.json.";
+export function loadDefaultConfig(): void {
+  applyConfigWithoutUndo(normaliseConfig(defaultConfig));
+  dom.hint.textContent = "Loaded the Basic Network topology.";
 }

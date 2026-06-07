@@ -124,3 +124,23 @@ This is the completeness guarantee — the command set can express everything th
 ## Headless vs animated
 
 `ping`/`dhcp` run the **animated** simulation (transit dots on the canvas) and return immediately. `run ping`/`run dhcp` run **headless** — the engine drains the event queue synchronously (no animation) and returns the result plus log. Use `run` in scripts and tests where you want a deterministic pass/fail; use the animated form to watch a packet traverse the network. Both are backed by the same per-device processing in `engine.ts` (see [src/engine.md](src/engine.md)).
+
+## JSON import/export
+
+The app is a single self-contained file with no server, so persistence is **file import/export** (download + a file picker), in the ribbon's **File** tab and on `window.routesim`. Implemented in `src/io.ts`.
+
+| Artifact | Export | Import |
+|----------|--------|--------|
+| **Config** (topology) | `topology.json` ← `buildConfigPayload()` | `applyConfig(parseConfig(text))` |
+| **Scenario(s)** | `scenarios.json` ← the registry | register + load (`registerScenario`) |
+| **Script** | `topology.routesim.txt` ← `exportTopologyScript()` | `runConsoleScript(text)` |
+| **Log** | `simlog.json` ← `state.simulation.log` | load into the Sim Log viewer |
+
+```js
+routesim.exportConfig(); routesim.importConfig();      // topology JSON
+routesim.exportScenarios(); routesim.importScenario();  // scenario JSON
+routesim.exportScript(); routesim.importScript();        // command script
+routesim.exportLog(); routesim.importLog();              // simulation log JSON
+```
+
+Default topologies and scenarios are compiled in (`state.ts` / `scenarios.ts`), so a fresh page already has them — import is only for sharing/restoring your own.

@@ -8,85 +8,110 @@
 {{STYLES}}
   </style>
 </head>
-<body class="inspector-closed terminal-closed">
-  <aside class="rail" aria-label="Tools">
-    <div class="mark" aria-label="RouteSim">RS</div>
-    <div class="tool-group">
-      <button class="tool-button active" data-tool="select" title="Select and move" aria-label="Select and move">
-        <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 4l7 16l2 -7l7 -2z"></path></svg>
-      </button>
-      <button class="tool-button" data-tool="computer" title="Add computer" aria-label="Add computer">
-        <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M3 5a1 1 0 0 1 1 -1h16a1 1 0 0 1 1 1v10a1 1 0 0 1 -1 1h-16a1 1 0 0 1 -1 -1v-10"></path><path d="M7 20h10"></path><path d="M9 16v4"></path><path d="M15 16v4"></path></svg>
-      </button>
-      <button class="tool-button" data-tool="switch" title="Add switch" aria-label="Add switch">
-        <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M16 3l4 4l-4 4"></path><path d="M10 7l10 0"></path><path d="M8 13l-4 4l4 4"></path><path d="M4 17l9 0"></path></svg>
-      </button>
-      <button class="tool-button" data-tool="router" title="Add router" aria-label="Add router">
-        <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 12m-9 0a9 9 0 1 0 18 0a9 9 0 1 0 -18 0"></path><path d="M6 12h5"></path><path d="M8 10l3 2l-3 2"></path><path d="M18 12h-5"></path><path d="M16 10l-3 2l3 2"></path><path d="M12 10v-5"></path><path d="M10 7l2 -2l2 2"></path><path d="M12 14v5"></path><path d="M10 17l2 2l2 -2"></path></svg>
-      </button>
-      <button class="tool-button" data-tool="connect" title="Connect devices" aria-label="Connect devices">
-        <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M7 7m-3 0a3 3 0 1 0 6 0a3 3 0 1 0 -6 0"></path><path d="M17 17m-3 0a3 3 0 1 0 6 0a3 3 0 1 0 -6 0"></path><path d="M9 9l6 6"></path></svg>
-      </button>
-      <button class="tool-button" data-tool="configure" title="Configure device" aria-label="Configure device">
-        <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M16 5l3 3l-11 11h-3v-3z"></path><path d="M14 7l3 3"></path><path d="M12 20h9"></path></svg>
-      </button>
+<body class="inspector-closed terminal-closed console-closed">
+  <header class="ribbon" id="ribbon">
+    <div class="ribbon-tabs">
+      <span class="ribbon-brand">RouteSim</span>
+      <button class="ribbon-tab active" data-tab="file" type="button">File</button>
+      <button class="ribbon-tab" data-tab="edit" type="button">Edit</button>
+      <button class="ribbon-tab" data-tab="view" type="button">View</button>
+      <button class="ribbon-tab" data-tab="simulate" type="button">Simulate</button>
+      <button class="ribbon-tab" data-tab="scenarios" type="button">Scenarios</button>
+      <button class="ribbon-tab" data-tab="help" type="button">Help</button>
+      <span class="ribbon-status">
+        <span class="mode-label" id="modeLabel">Select and move devices</span>
+        <span class="zoom-readout" id="zoomLevel" aria-live="polite">100%</span>
+      </span>
     </div>
-    <div class="spacer"></div>
-    <button class="tool-button" id="fitButton" title="Center network" aria-label="Center network">
-      <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M10 10m-7 0a7 7 0 1 0 14 0a7 7 0 1 0 -14 0"></path><path d="M21 21l-6 -6"></path><path d="M10 7v6"></path><path d="M7 10h6"></path></svg>
-    </button>
-  </aside>
+    <div class="ribbon-body">
+
+      <div class="ribbon-panel active" data-tab="file">
+        <div class="ribbon-group"><div class="ribbon-items">
+          <button class="ribbon-btn" data-action="new" type="button"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M14 3v4a1 1 0 0 0 1 1h4"></path><path d="M17 21H7a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h7l5 5v11a2 2 0 0 1-2 2z"></path></svg><span>New</span></button>
+        </div><span class="ribbon-label">New</span></div>
+        <div class="ribbon-group"><div class="ribbon-items">
+          <button class="ribbon-btn" data-topology="basic" type="button"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 6h16"></path><path d="M4 12h16"></path><path d="M4 18h16"></path></svg><span>Basic</span></button>
+          <button class="ribbon-btn" data-topology="vlan-roas" type="button"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 6h16"></path><path d="M4 12h16"></path><path d="M4 18h16"></path></svg><span>VLAN RoaS</span></button>
+          <button class="ribbon-btn" data-topology="router-mesh" type="button"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 6h16"></path><path d="M4 12h16"></path><path d="M4 18h16"></path></svg><span>5-Router</span></button>
+        </div><span class="ribbon-label">Topologies</span></div>
+        <div class="ribbon-group"><div class="ribbon-items">
+          <button class="ribbon-btn" data-action="import-config" type="button"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 3v12"></path><path d="M7 10l5 5 5-5"></path><path d="M5 21h14"></path></svg><span>Config</span></button>
+          <button class="ribbon-btn" data-action="import-scenario" type="button"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 3v12"></path><path d="M7 10l5 5 5-5"></path><path d="M5 21h14"></path></svg><span>Scenario</span></button>
+          <button class="ribbon-btn" data-action="import-script" type="button"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 3v12"></path><path d="M7 10l5 5 5-5"></path><path d="M5 21h14"></path></svg><span>Script</span></button>
+          <button class="ribbon-btn" data-action="import-log" type="button"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 3v12"></path><path d="M7 10l5 5 5-5"></path><path d="M5 21h14"></path></svg><span>Log</span></button>
+        </div><span class="ribbon-label">Import</span></div>
+        <div class="ribbon-group"><div class="ribbon-items">
+          <button class="ribbon-btn" data-action="export-config" type="button"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 21V9"></path><path d="M7 14l5-5 5 5"></path><path d="M5 3h14"></path></svg><span>Config</span></button>
+          <button class="ribbon-btn" data-action="export-scenario" type="button"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 21V9"></path><path d="M7 14l5-5 5 5"></path><path d="M5 3h14"></path></svg><span>Scenario</span></button>
+          <button class="ribbon-btn" data-action="export-script" type="button"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 21V9"></path><path d="M7 14l5-5 5 5"></path><path d="M5 3h14"></path></svg><span>Script</span></button>
+          <button class="ribbon-btn" data-action="export-log" type="button"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 21V9"></path><path d="M7 14l5-5 5 5"></path><path d="M5 3h14"></path></svg><span>Log</span></button>
+        </div><span class="ribbon-label">Export</span></div>
+      </div>
+
+      <div class="ribbon-panel" data-tab="edit">
+        <div class="ribbon-group"><div class="ribbon-items">
+          <button class="ribbon-btn tool-button active" data-tool="select" type="button"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 4l7 16l2 -7l7 -2z"></path></svg><span>Select</span></button>
+          <button class="ribbon-btn tool-button" data-tool="computer" type="button"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M3 5a1 1 0 0 1 1 -1h16a1 1 0 0 1 1 1v10a1 1 0 0 1 -1 1h-16a1 1 0 0 1 -1 -1v-10"></path><path d="M7 20h10"></path><path d="M9 16v4"></path><path d="M15 16v4"></path></svg><span>Computer</span></button>
+          <button class="ribbon-btn tool-button" data-tool="switch" type="button"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M16 3l4 4l-4 4"></path><path d="M10 7l10 0"></path><path d="M8 13l-4 4l4 4"></path><path d="M4 17l9 0"></path></svg><span>Switch</span></button>
+          <button class="ribbon-btn tool-button" data-tool="router" type="button"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 12m-9 0a9 9 0 1 0 18 0a9 9 0 1 0 -18 0"></path><path d="M6 12h5"></path><path d="M8 10l3 2l-3 2"></path><path d="M18 12h-5"></path><path d="M16 10l-3 2l3 2"></path></svg><span>Router</span></button>
+          <button class="ribbon-btn tool-button" data-tool="connect" type="button"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M7 7m-3 0a3 3 0 1 0 6 0a3 3 0 1 0 -6 0"></path><path d="M17 17m-3 0a3 3 0 1 0 6 0a3 3 0 1 0 -6 0"></path><path d="M9 9l6 6"></path></svg><span>Connect</span></button>
+          <button class="ribbon-btn tool-button" data-tool="configure" type="button"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M16 5l3 3l-11 11h-3v-3z"></path><path d="M14 7l3 3"></path></svg><span>Configure</span></button>
+        </div><span class="ribbon-label">Tools</span></div>
+        <div class="ribbon-group"><div class="ribbon-items">
+          <button class="ribbon-btn" id="undoButton" data-action="undo" type="button" disabled><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M9 14l-4 -4l4 -4"></path><path d="M5 10h11a4 4 0 1 1 0 8h-1"></path></svg><span>Undo</span></button>
+          <button class="ribbon-btn danger" data-action="delete" type="button"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M3 6h18"></path><path d="M8 6V4h8v2"></path><path d="M19 6l-1 14H6L5 6"></path></svg><span>Delete</span></button>
+        </div><span class="ribbon-label">Edit</span></div>
+      </div>
+
+      <div class="ribbon-panel" data-tab="view">
+        <div class="ribbon-group"><div class="ribbon-items">
+          <button class="ribbon-btn" id="inspectorOpenButton" data-action="panel-network" type="button" aria-expanded="false"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 21v-7"></path><path d="M4 10V3"></path><path d="M12 21v-9"></path><path d="M12 8V3"></path><path d="M20 21v-5"></path><path d="M20 12V3"></path></svg><span>Network</span></button>
+          <button class="ribbon-btn" id="terminalOpenButton" data-action="panel-terminal" type="button" aria-expanded="false"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 17l6 -6l-6 -6"></path><path d="M12 19h8"></path></svg><span>Terminal</span></button>
+          <button class="ribbon-btn" id="consoleButton" data-action="panel-console" type="button" aria-expanded="false"><svg viewBox="0 0 24 24" aria-hidden="true"><rect x="3" y="4" width="18" height="16" rx="2"></rect><path d="M7 9l3 3l-3 3"></path><path d="M13 15h4"></path></svg><span>Console</span></button>
+          <button class="ribbon-btn" data-action="panel-simlog" type="button"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 6h16"></path><path d="M4 12h10"></path><path d="M4 18h7"></path></svg><span>Sim Log</span></button>
+        </div><span class="ribbon-label">Panels</span></div>
+        <div class="ribbon-group"><div class="ribbon-items ribbon-checks">
+          <label class="ribbon-check"><input id="showDeviceNames" type="checkbox" checked><span>Names</span></label>
+          <label class="ribbon-check"><input id="showIpAddresses" type="checkbox" checked><span>IP addresses</span></label>
+          <label class="ribbon-check"><input id="showMacAddresses" type="checkbox" checked><span>MAC addresses</span></label>
+        </div><span class="ribbon-label">Display</span></div>
+        <div class="ribbon-group"><div class="ribbon-items">
+          <button class="ribbon-btn" id="themeButton" data-action="theme" type="button" aria-pressed="false"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 3v1"></path><path d="M12 20v1"></path><path d="M3 12h1"></path><path d="M20 12h1"></path><path d="M5.6 5.6l.7 .7"></path><path d="M17.7 17.7l.7 .7"></path><path d="M18.4 5.6l-.7 .7"></path><path d="M6.3 17.7l-.7 .7"></path><path d="M12 8a4 4 0 1 0 0 8a4 4 0 0 0 0 -8"></path></svg><span>Theme</span></button>
+          <button class="ribbon-btn" data-action="fit" type="button"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M10 10m-7 0a7 7 0 1 0 14 0a7 7 0 1 0 -14 0"></path><path d="M21 21l-6 -6"></path><path d="M10 7v6"></path><path d="M7 10h6"></path></svg><span>Fit</span></button>
+        </div><span class="ribbon-label">Canvas</span></div>
+      </div>
+
+      <div class="ribbon-panel" data-tab="simulate">
+        <div class="ribbon-group"><div class="ribbon-items">
+          <button class="ribbon-btn" id="simPlayPause" type="button">▶ Play</button>
+          <button class="ribbon-btn" id="simStep" type="button">⏭ Step</button>
+          <button class="ribbon-btn" id="simStop" type="button">⏹ Stop</button>
+        </div><span class="ribbon-label">Run</span></div>
+        <div class="ribbon-group"><div class="ribbon-items">
+          <label class="ribbon-speed"><span>ms / hop</span><input id="simSpeed" type="range" min="200" max="3000" value="1000"></label>
+        </div><span class="ribbon-label">Speed</span></div>
+      </div>
+
+      <div class="ribbon-panel" data-tab="scenarios">
+        <div class="ribbon-group"><div class="ribbon-items" id="ribbonScenarioList"></div><span class="ribbon-label">Load</span></div>
+        <div class="ribbon-group"><div class="ribbon-items">
+          <button class="ribbon-btn" data-action="scenario-check" type="button"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M5 12l5 5l9 -9"></path></svg><span>Check goal</span></button>
+          <button class="ribbon-btn" data-action="scenario-dismiss" type="button"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M18 6 6 18"></path><path d="m6 6 12 12"></path></svg><span>Dismiss</span></button>
+        </div><span class="ribbon-label">Goal</span></div>
+      </div>
+
+      <div class="ribbon-panel" data-tab="help">
+        <div class="ribbon-group"><div class="ribbon-items">
+          <button class="ribbon-btn" data-action="help-shortcuts" type="button"><svg viewBox="0 0 24 24" aria-hidden="true"><rect x="3" y="6" width="18" height="12" rx="2"></rect><path d="M7 10h.01M11 10h.01M15 10h.01M8 14h8"></path></svg><span>Shortcuts</span></button>
+          <button class="ribbon-btn" data-action="help-commands" type="button"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M7 8l-4 4l4 4"></path><path d="M17 8l4 4l-4 4"></path><path d="M14 4l-4 16"></path></svg><span>Commands</span></button>
+          <button class="ribbon-btn" data-action="help-about" type="button"><svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="9"></circle><path d="M12 8h.01M11 12h1v4h1"></path></svg><span>About</span></button>
+        </div><span class="ribbon-label">Help</span></div>
+      </div>
+
+    </div>
+  </header>
 
   <main class="stage">
-    <header class="topbar">
-      <div class="title">
-        <h1>RouteSim</h1>
-        <span class="mode-label" id="modeLabel">Select and move devices</span>
-      </div>
-      <div class="actions">
-        <span class="zoom-readout" id="zoomLevel" aria-live="polite">100%</span>
-        <button class="icon-button" id="undoButton" title="Undo" aria-label="Undo" disabled>
-          <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M9 14l-4 -4l4 -4"></path><path d="M5 10h11a4 4 0 1 1 0 8h-1"></path></svg>
-        </button>
-        <button class="icon-button" id="terminalOpenButton" title="Device terminal" aria-label="Open device terminal" aria-controls="terminalPanel" aria-expanded="false">
-          <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 17l6 -6l-6 -6"></path><path d="M12 19h8"></path></svg>
-        </button>
-        <button class="icon-button" id="consoleButton" title="Command console" aria-label="Open command console" aria-controls="consolePanel" aria-expanded="false">
-          <svg viewBox="0 0 24 24" aria-hidden="true"><rect x="3" y="4" width="18" height="16" rx="2"></rect><path d="M7 9l3 3l-3 3"></path><path d="M13 15h4"></path></svg>
-        </button>
-        <button class="icon-button" id="inspectorOpenButton" title="Network panel" aria-label="Toggle network panel" aria-controls="networkInspector" aria-expanded="false">
-          <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 21v-7"></path><path d="M4 10V3"></path><path d="M12 21v-9"></path><path d="M12 8V3"></path><path d="M20 21v-5"></path><path d="M20 12V3"></path><path d="M2 14h4"></path><path d="M10 8h4"></path><path d="M18 16h4"></path></svg>
-        </button>
-        <button class="icon-button" id="themeButton" title="Toggle light mode" aria-label="Toggle light mode" aria-pressed="false">
-          <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 3v1"></path><path d="M12 20v1"></path><path d="M3 12h1"></path><path d="M20 12h1"></path><path d="M5.6 5.6l.7 .7"></path><path d="M17.7 17.7l.7 .7"></path><path d="M18.4 5.6l-.7 .7"></path><path d="M6.3 17.7l-.7 .7"></path><path d="M12 8a4 4 0 1 0 0 8a4 4 0 0 0 0 -8"></path></svg>
-        </button>
-        <div class="topology-chooser" id="topologyChooser">
-          <button class="icon-button" id="topologyButton" title="Load topology" aria-label="Load topology" aria-expanded="false">
-            <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 6h16"></path><path d="M4 12h16"></path><path d="M4 18h16"></path></svg>
-          </button>
-          <div class="topology-menu" id="topologyMenu">
-            <button class="topology-option" data-topology="basic">Basic Network</button>
-            <button class="topology-option" data-topology="vlan-roas">VLAN Router-on-a-Stick</button>
-            <button class="topology-option" data-topology="router-mesh">5-Router Mesh</button>
-          </div>
-        </div>
-        <div class="topology-chooser" id="scenarioChooser">
-          <button class="icon-button" id="scenarioButton" title="Load scenario" aria-label="Load scenario" aria-expanded="false">
-            <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 4v16"></path><path d="M4 5h13l-2 3l2 3H4"></path></svg>
-          </button>
-          <div class="topology-menu" id="scenarioMenu"></div>
-        </div>
-        <button class="icon-button" id="loadButton" title="Load config from config.json" aria-label="Load config from config.json">
-          <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 21V9"></path><path d="M7 14l5-5 5 5"></path><path d="M5 3h14"></path></svg>
-        </button>
-        <button class="icon-button" id="saveButton" title="Save config to config.json" aria-label="Save config to config.json">
-          <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 3v12"></path><path d="M7 10l5 5 5-5"></path><path d="M5 21h14"></path></svg>
-        </button>
-        <button class="icon-button danger" id="clearButton" title="Clear network" aria-label="Clear network">
-          <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M3 6h18"></path><path d="M8 6V4h8v2"></path><path d="M19 6l-1 14H6L5 6"></path><path d="M10 11v5"></path><path d="M14 11v5"></path></svg>
-        </button>
-      </div>
-    </header>
     <section class="canvas-wrap">
       <canvas id="networkCanvas" aria-label="Network canvas"></canvas>
       <div class="scenario-panel" id="scenarioPanel" aria-label="Scenario goal">
@@ -103,16 +128,8 @@
           <span class="scenario-status" id="scenarioStatus"></span>
         </div>
       </div>
-      <div class="sim-controls" id="simControls">
-        <button class="sim-btn" id="simPlayPause" title="Play / Pause" aria-label="Play or pause simulation">▶</button>
-        <button class="sim-btn" id="simStep" title="Next step" aria-label="Next simulation step">⏭</button>
-        <button class="sim-btn" id="simStop" title="Stop simulation" aria-label="Stop simulation">⏹</button>
-        <label class="sim-speed-label">
-          <span>Speed</span>
-          <input id="simSpeed" type="range" min="200" max="3000" value="1000" title="Simulation speed">
-        </label>
-      </div>
       <div class="hint" id="hint">Click a tool, then click the canvas. Drag devices in select mode.</div>
+      <div class="coord-readout" id="coordReadout" aria-live="off"></div>
     </section>
   </main>
 
@@ -168,28 +185,6 @@
         <div class="metric"><strong id="linkCount">0</strong><span>Links</span></div>
       </div>
     </section>
-    <section class="panel-section">
-      <div class="panel-heading">
-        <h2>Options</h2>
-        <button class="panel-toggle" id="displayOptionsButton" type="button" title="Display options" aria-label="Display options" aria-controls="displayOptionsPanel" aria-expanded="false">
-          <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 21v-7"></path><path d="M4 10V3"></path><path d="M12 21v-9"></path><path d="M12 8V3"></path><path d="M20 21v-5"></path><path d="M20 12V3"></path><path d="M2 14h4"></path><path d="M10 8h4"></path><path d="M18 16h4"></path></svg>
-        </button>
-      </div>
-      <div class="option-list closed" id="displayOptionsPanel">
-        <label class="toggle-row" for="showDeviceNames">
-          <span>Device names</span>
-          <input id="showDeviceNames" type="checkbox" checked>
-        </label>
-        <label class="toggle-row" for="showIpAddresses">
-          <span>IP addresses</span>
-          <input id="showIpAddresses" type="checkbox" checked>
-        </label>
-        <label class="toggle-row" for="showMacAddresses">
-          <span>MAC addresses</span>
-          <input id="showMacAddresses" type="checkbox" checked>
-        </label>
-      </div>
-    </section>
     <section class="panel-section" id="detailsPanel">
       <h2>Selection</h2>
       <p class="empty-state">No device selected.</p>
@@ -210,7 +205,6 @@
     </div>
   </div>
 
-  <script id="embeddedConfig" type="application/json">{{CONFIG}}</script>
   <script>
 {{SCRIPT}}
   </script>

@@ -23,7 +23,7 @@ Defensive normalisation for every config shape. Whenever config enters the app f
 
 ## How it fits
 
-`config.ts` calls the store/config normalisers on every load. `devices.ts` calls `defaultDeviceConfig`/`deviceSize` when creating devices. `terminal.ts` and `inspector.ts` call `ensureConfig` before mutating config. The normalisers are also the implicit schema for `config.json`.
+`config.ts` calls the config normalisers when applying a topology (built-in or imported). `devices.ts` calls `defaultDeviceConfig`/`deviceSize` when creating devices. `terminal.ts` and `inspector.ts` call `ensureConfig` before mutating config. The normalisers are also the implicit schema for imported topology JSON.
 
 ## Notes
 

@@ -6,7 +6,7 @@ Interactive network topology simulator. Canvas-based editor with discrete frame-
 
 RouteSim is a teaching tool: it makes the invisible parts of a network visible by simulating real Ethernet frames (ARP, ICMP, DHCP) and watching them hop through switches and routers. Design decisions follow from a few principles:
 
-- **Zero-install, single file.** The whole app builds to portable single-file HTML that runs offline by opening it in a browser. `rs-web.html` embeds `config.json` too, so it makes zero runtime requests; `rs-main.html` fetches `config.json` at runtime (it reads/writes that file locally).
+- **Zero-install, single file.** The whole app builds to one portable `rs-web.html` that runs offline by opening it in a browser with **zero runtime requests** — default topologies and scenarios are compiled in; persistence is JSON import/export.
 - **Minimal toolchain.** Only two binaries: `esbuild` (bundle) and `bun` (run, test, serve, inline). No Node.js, no npm, no `package.json`, no `node_modules`, no Python. Hard constraint — see Build.
 - **Faithful to the protocols.** Simulated behaviour should match how real ARP, switching, routing, RIP, and DHCP work — down to frame fields and the order of operations. Correctness over shortcuts.
 - **Typed, tested, and small.** Prefer concrete types over `any`, keep per-device handlers focused, and cover new behaviour with tests.
@@ -16,26 +16,13 @@ RouteSim is a teaching tool: it makes the invisible parts of a network visible b
 ## Build
 
 ```bash
-bash build.sh          # dev build  → rs-main.html + rs-web.html
+bash build.sh          # dev build  → rs-web.html
 bash build.sh --minify # minified build
 ```
 
-The project uses only two tools: `esbuild` (bundler) and `bun` (runtime, test runner, test server, build inlining). For each variant the build bundles TypeScript into an IIFE via esbuild, then `bun build-inline.ts <output>` inlines the JS + CSS into `template.html`. Each output is a single portable HTML file.
+The project uses only two tools: `esbuild` (bundler) and `bun` (runtime, test runner, test server, build inlining). The build bundles `src/app.ts` into an IIFE via esbuild, then `bun build-inline.ts rs-web.html` inlines the JS + CSS into `template.html`. The result is a **single self-contained** `rs-web.html` with **no runtime requests**: default topologies (`state.ts`) and scenarios (`scenarios.ts`) are compiled in, and persistence is JSON import/export (`io.ts`). There is no `config.json`, no fetch, no File System Access, and no build-time flags.
 
-### Build variants
-
-`build.sh` emits two variants from the same source, differing only by the compile-time flag `__BUILD_READONLY__` (injected via esbuild `--define`, read through `src/env.ts`):
-
-| Output | `__BUILD_READONLY__` | config.json | Use |
-|--------|----------------------|-------------|-----|
-| `rs-main.html` | `false` | fetched at runtime; read **and** write | Local use (full editor) |
-| `rs-web.html` | `true` | **embedded** at build time; read only (Save hidden) | Self-contained one-file web host |
-
-`src/env.ts` exports `READONLY`, which defaults to `false` in dev/test (bun runs the TS directly, without the `--define`). Guard any write-only capability behind `READONLY` and hide its UI in `setupUI()` — see `saveConfig()` in `config.ts` and the Save button wiring in `ui.ts`. To add a variant, add one `build_variant <flag> <output> [extra build-inline args]` line in `build.sh`.
-
-**Embedded config (web variant):** `build.sh` passes `--embed-config` to `build-inline.ts` for `rs-web.html`, which inlines `config.json` into a `<script id="embeddedConfig" type="application/json">` block (the `{{CONFIG}}` slot in `template.html`; left empty for `rs-main.html`). At startup `refreshConfigStore()` (config.ts) calls `readEmbeddedConfigStore()` and uses the embedded store if present, otherwise falls back to `fetch("./config.json")`. So `rs-web.html` is a true single file — no runtime requests.
-
-**`build-inline.ts` gotcha:** it inserts CSS/JS/config via `String.replace` **replacer functions**, not string replacements — a string replacement would interpret `` $` ``/`$'`/`$&`/`$$` in the inserted content as special patterns and corrupt the output.
+**`build-inline.ts` gotcha:** it inserts CSS/JS via `String.replace` **replacer functions**, not string replacements — a string replacement would interpret `` $` ``/`$'`/`$&`/`$$` in the bundle as special patterns and corrupt the output.
 
 **Do not introduce any other tooling or runtime dependencies.** No `npm`, no `package.json`, no `node_modules`, no Node.js, no Python. The entire toolchain is `esbuild` (single binary) + `bun` (single binary). This constraint is intentional and must be preserved.
 
@@ -69,7 +56,7 @@ bun test-server.ts          # default port 8767
 bun test-server.ts 8765     # custom port
 ```
 
-Open `http://localhost:8767/rs-main.html` for the local app (`/` redirects there), `/rs-web.html` for the read-only variant, `/test.html` for the test runner, `/benchmark.html` for benchmarks. The File System Access API (save/load config.json) requires HTTPS or localhost.
+Open `http://localhost:8767/rs-web.html` for the app (`/` redirects there), `/test.html` for the test runner, `/benchmark.html` for benchmarks.
 
 ## Architecture
 
@@ -86,7 +73,9 @@ app.ts (entry)
   ├── inspector.ts   ← right panel: device details, link frame history
   ├── terminal.ts    ← bottom panel: per-device CLI, command dispatch
   ├── devices.ts     ← device/link CRUD, hit testing, LAN collapse/expand
-  ├── config.ts      ← save/load config.json via File System Access API
+  ├── config.ts      ← topology serialise/apply + in-code default topologies
+  ├── io.ts          ← JSON import/export (config/scenario/script/log)
+  ├── ribbon.ts      ← tabbed ribbon UI (File/Edit/View/Simulate/Scenarios/Help)
   ├── engine.ts      ← simulation engine: step loop, per-device frame processing
   ├── simulation.ts  ← buildPingEvents(), L2 reachability, routing utilities
   ├── frame.ts       ← EthernetFrame factories, frame labels/colors
@@ -129,8 +118,9 @@ fixed enums may be interpolated raw.
 | `inspector.ts` | Right panel. Device selection shows config fields; link selection shows frame history (color-coded ARP/ICMP entries with step numbers). |
 | `devices.ts` | CRUD, hit testing (`findDeviceAt`, `findLinkAt`), port/interface enumeration, LAN collapse/expand (groups devices into a single node). |
 | `normalise.ts` | Defensive normalisation for all config shapes. `normaliseRouterInterfaces` auto-generates deterministic MACs (`02:RR:00:00:II:01`). |
-| `config.ts` | Persistence via File System Access API. Falls back to download. Config store holds named topologies in a single `config.json`. `refreshConfigStore()` prefers an embedded store (`readEmbeddedConfigStore()`) before fetching. `saveConfig()` is a no-op in read-only builds (`READONLY`). |
-| `env.ts` | Build-time flags. Exports `READONLY` from the `__BUILD_READONLY__` esbuild define; defaults to `false` in dev/test. |
+| `config.ts` | `buildConfigPayload()` (serialise topology), `parseConfig`/`applyConfig`, `loadTopology`, `loadDefaultConfig` (in-code defaults). No fetch/FSA — persistence is JSON import/export via `io.ts`. |
+| `io.ts` | JSON import/export (download + file picker) for config, scenario, script, and log. Exposed on `window.routesim`. |
+| `ribbon.ts` | Tabbed ribbon (File/Edit/View/Simulate/Scenarios/Help): tab switching + dynamic scenario buttons. Button clicks are wired by data attribute in `ui.ts`. |
 | `commands.ts` | Text-command engine: parses a line, resolves device refs, dispatches to the action functions. `runConsoleCommand`/`runConsoleScript`/`exportTopologyScript`. Pure (no panel UI) so it's reused by the console, `window.routesim`, and tests. See `docs/scripting.md`. |
 | `console.ts` | The command console panel UI (distinct from per-device terminals); drives `commands.ts`. |
 | `scenarios.ts` | Guided-challenge scenarios: data model, `SCENARIOS` registry, `loadScenario`, and `checkScenario` (goal evaluation reusing `runSimulationHeadless`). `scenario-ui.ts` renders the goal banner. See `docs/scenarios.md`. |
@@ -174,11 +164,14 @@ Every link records frames that traverse it (`link.frameHistory[]`). Click a link
 
 ## UI panels
 
-- **Sim controls** — play/pause/step/stop/speed slider. Appears at bottom-center of canvas during simulation.
-- **Sim log panel** — separate from terminal. Floats top-right during simulation. Color-coded frame processing log.
-- **Terminal** — bottom panel. Per-device CLI with command history.
-- **Inspector** — right panel. Shows device config or link frame history.
-- **Port selection modal** — when connecting devices via the connect tool, `openPortSelectionModal()` in `devices.ts` shows a modal for choosing specific ports on switches/routers. `PortSelectionState` and `PortOption` types in `types.ts`. Computers (single-port) auto-select; two single-port devices skip the modal entirely.
+- **Ribbon** — the top toolbar: tabs **File / Edit / View / Simulate / Scenarios / Help**, each swapping a strip of grouped buttons (`ribbon.ts` + `template.html`). The drawing tools live in Edit. Buttons are wired by data attribute in `ui.ts` (`data-tool`/`data-topology`/`data-scenario`/`data-action`). No left tool rail.
+- **Coordinate readout** — `#coordReadout`, bottom-right of the canvas: cursor world coords (on move) + the selected device's coords. Updated from the pointermove handler and the `syncCoordReadout` callback (refreshes on selection).
+- **Sim controls** — play/pause/step/stop/speed live in the Simulate ribbon tab.
+- **Sim log panel** — floats top-right during simulation. Color-coded frame processing log.
+- **Terminal** — bottom panel. Per-device CLI with command history. **Command console** — bottom panel, app-level commands (`commands.ts`). They share the bottom slot.
+- **Inspector** — right panel. Device config or link frame history; display options (names/IPs/MACs) live in the View ribbon tab.
+- **Scenario goal banner** — floats top-left when a scenario is active (`scenario-ui.ts`).
+- **Port selection modal** — `openPortSelectionModal()` (`devices.ts`) for choosing ports when connecting switches/routers.
 
 ## Keyboard shortcuts
 

@@ -4,7 +4,8 @@ Wires every DOM event listener and owns the interaction model: tool switching, c
 
 ## Key exports
 
-- **`setupUI()`** — called once from `app.ts`. Attaches all listeners: toolbar buttons, canvas pointer/wheel events, the topology chooser, save/load/clear, the terminal input, the inspector resize handle, and the global keydown handler.
+- **`setupUI()`** — called once from `app.ts`. Calls `setupRibbon()` and attaches all listeners: a delegated handler for ribbon buttons (`data-action`/`data-topology`/`data-scenario`), the drawing tools (`data-tool`), canvas pointer/wheel events, the terminal/console inputs, the inspector resize handle, the sim controls, and the global keydown handler.
+- **`updateCoordReadout(world)` / `syncCoordReadout()`** — the bottom-right `#coordReadout`: cursor world coords (from pointermove) + the selected device's coords. `syncCoordReadout` is a registry callback so selection changes refresh it.
 - **`setTool(tool)`** — switch the active tool (`select`/`computer`/`switch`/`router`/`connect`/`configure`), update button states, the mode label/hint, and the cursor, then re-render. Exposed to `devices.ts` via the device-callback bridge.
 - **`setTheme(theme)` / `toggleTheme()`** — switch dark/light. `setTheme` sets the `data-theme` attribute, **clears the `cssColor` cache** (so themed colours refresh), and re-renders.
 - **`handleGlobalKeydown(event)`** — the global keyboard handler (extracted from `setupUI` so it can be unit-tested):
@@ -20,4 +21,4 @@ Wires every DOM event listener and owns the interaction model: tool switching, c
 ## Notes
 
 - `handleGlobalKeydown` is registered by reference in `setupUI`, so the live handler and the unit-tested function are identical.
-- Read-only builds (`READONLY`, see [env.md](env.md)) hide the Save button here.
+- Ribbon buttons are wired by a single delegated click handler over `data-action`/`data-topology`/`data-scenario`; the drawing tools use `data-tool`. Tab switching lives in [ribbon.ts](ribbon.md).

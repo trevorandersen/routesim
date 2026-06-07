@@ -1,71 +1,45 @@
 # Build process
 
-The toolchain is intentionally minimal: **`esbuild`** (bundler) and **`bun`** (runtime + inliner). There is **no** Node.js, npm, `package.json`, `node_modules`, or Python. This constraint is deliberate and must be preserved.
+The toolchain is two binaries: **`esbuild`** (bundler) and **`bun`** (runtime + inliner). No Node.js, npm, `package.json`, `node_modules`, or Python.
 
 ## Commands
 
 ```bash
-bash build.sh            # dev build  → rs-main.html + rs-web.html
+bash build.sh            # build → rs-web.html
 bash build.sh --minify   # minified build
 ```
 
 ## Pipeline
 
-`build.sh` builds **two variants** from the same source, then cleans up:
-
 ```
-for each variant:
-  esbuild src/app.ts --bundle --format=iife --target=es2022 \
-    --define:__BUILD_READONLY__=<flag> [--minify] --outfile=.bundle.js
-  bun build-inline.ts <output.html> [--embed-config]
+esbuild src/app.ts --bundle --format=iife --target=es2022 [--minify] --outfile=.bundle.js
+bun build-inline.ts rs-web.html
 rm .bundle.js
 ```
 
-1. **esbuild** bundles the entry point `src/app.ts` and all its imports into a single self-executing IIFE (`.bundle.js`). It injects the compile-time flag `__BUILD_READONLY__` via `--define` (read through `src/env.ts` — see [env.md](src/env.md)). esbuild strips TypeScript types but does **not** type-check (see Type-checking below).
-2. **`build-inline.ts`** (a tiny Bun script) reads `template.html` and substitutes three placeholders: `{{STYLES}}` ← `styles.css`, `{{SCRIPT}}` ← the JS bundle, and (web variant only) `{{CONFIG}}` ← `config.json`. The result is one portable HTML file.
+1. **esbuild** bundles `src/app.ts` and all its imports into a single IIFE (`.bundle.js`); it strips TypeScript types but does **not** type-check (run `bunx tsc --noEmit` for that).
+2. **`build-inline.ts`** reads `template.html` and substitutes `{{STYLES}}` ← `styles.css` and `{{SCRIPT}}` ← the JS bundle, producing the single portable **`rs-web.html`**.
 
-> **Gotcha:** `build-inline.ts` uses `String.replace` **replacer functions** (`.replace("{{SCRIPT}}", () => js)`), not string replacements. A string replacement would interpret `` $` ``/`$'`/`$&`/`$$` sequences in the bundle as special patterns and corrupt the output. This bit us once during the Python→Bun migration.
+> **Gotcha:** `build-inline.ts` uses `String.replace` **replacer functions** (`.replace("{{SCRIPT}}", () => js)`), not string replacements — a string replacement would interpret `` $` ``/`$'`/`$&`/`$$` in the bundle as special patterns and corrupt the output.
 
-## Build variants
+## One self-contained file
 
-| Output | `__BUILD_READONLY__` | config.json | Use |
-|--------|----------------------|-------------|-----|
-| `rs-main.html` | `false` | fetched at runtime; read **and** write | Local use — full editor |
-| `rs-web.html` | `true` | **embedded** at build time; read-only (Save hidden) | Self-contained web hosting |
+There is a **single** build output, `rs-web.html` — a self-contained portable file with **no runtime requests**. The default topologies (`defaultConfig`/`vlanRoasConfig`/`routerMeshConfig` in `state.ts`) and scenarios (`SCENARIOS` in `scenarios.ts`) are compiled in; on startup the app loads the Basic Network directly. There is no `config.json`, no fetch, and no File System Access API.
 
-- **`rs-main.html`** is for local use. On startup it fetches `./config.json`; the Save button writes back to it via the File System Access API (which requires `localhost` or HTTPS — see [config.md](src/config.md)).
-- **`rs-web.html`** is for hosting. `config.json` is inlined into a `<script id="embeddedConfig" type="application/json">` block, so the page makes **zero** runtime requests and is a true single file. `READONLY` hides the Save button and no-ops `saveConfig()`.
-
-Both `rs-main.html` and `rs-web.html` are committed (the portable deliverables live in the repo). Adding a third variant is one extra `build_variant <flag> <output> [args]` line in `build.sh`.
+Persistence is **JSON import/export** (download + file picker) for configs, scenarios, scripts, and logs — see [scripting.md](scripting.md). `rs-web.html` is committed (the portable deliverable lives in the repo).
 
 ## Serving
 
-`test-server.ts` (Bun) serves the build output, the test/benchmark UIs, and the test API:
+`test-server.ts` (Bun) serves the build output + the test/benchmark UIs + the test API:
 
 ```bash
-bun test-server.ts          # default port 8767
-bun test-server.ts 8765     # custom port
+bun test-server.ts          # default port 8767; / → rs-web.html
 ```
-
-`/` redirects to `rs-main.html`. See [testing.md](testing.md) for the `/api/*` endpoints.
-
-## Files involved
-
-| File | Role |
-|------|------|
-| `build.sh` | Orchestrates the two-variant build |
-| `build-inline.ts` | Inlines CSS/JS/config into `template.html` |
-| `template.html` | HTML shell with `{{STYLES}}` / `{{SCRIPT}}` / `{{CONFIG}}` placeholders |
-| `styles.css` | All CSS (dark/light theme via custom properties) |
-| `src/env.ts` | Surfaces the `__BUILD_READONLY__` define as `READONLY` |
-| `config.json` | Default topology store |
 
 ## Type-checking
 
-esbuild does **not** type-check, so a type error cannot break the build — types are for editor safety and documentation. To check types explicitly:
+esbuild does not type-check, so a type error can't break the build. Check explicitly:
 
 ```bash
 bunx tsc --noEmit
 ```
-
-`tsconfig.json` is `strict`, ES2022, `noEmit`, with DOM libs.

@@ -206,6 +206,7 @@ Every link records frames that traverse it (`link.frameHistory[]`). Click a link
 ## Style notes
 
 - **Commonwealth English** in all code and documentation. Use `-ise`/`-isation` (e.g. `normalise`, `initialise`), not `-ize`/`-ization`.
+- **No emoji in user-facing messages** (status text, banners, terminal/console output, log lines). Emoji used as functional glyphs/icons (e.g. status marks like `✓`/`✗`/`○`) are fine.
 - **Prefer concrete types over `any`.** Function parameters take real types (`Device`, `Link`, …). `Device.config` is `DeviceConfig` — a permissive superset of the per-type `ComputerConfig`/`SwitchConfig`/`RouterConfig`/`LanConfig` shapes (every field optional) so `device.config?.x` access stays ergonomic while typos are caught; the strict per-type interfaces type the `normalise.ts` layer. The codebase is **tsc-clean** (`bunx tsc --noEmit`) — keep it that way. Remaining intentional `any`: the File System Access API and DOM `dataset` extensions, documented where they occur.
 - **Keep handlers focused.** When a `processAt*` or convergence function grows large, extract private helpers rather than inlining everything (e.g. `handleRouterArp`, `routeIpv4Frame`, `buildRipAdvertisements`).
 - **Cover new behaviour with tests.** Add or extend a `tests/*.test.ts` suite when changing simulation logic.

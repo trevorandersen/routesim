@@ -25,7 +25,7 @@ export function syncScenarioPanel(): void {
     return `<li class="scenario-check ${cls}"><span class="mark">${mark}</span>${escapeHtml(c.label)}</li>`;
   }).join("");
   dom.scenarioStatus.textContent = lastResult
-    ? (lastResult.passed ? "Scenario complete 🎉" : "Not yet — keep going.")
+    ? (lastResult.passed ? "Scenario complete" : "Not yet — keep going.")
     : "";
   dom.scenarioStatus.className = "scenario-status" + (lastResult ? (lastResult.passed ? " pass" : " fail") : "");
 }

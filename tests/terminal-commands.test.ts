@@ -134,7 +134,85 @@ describe("runRouterTerminalCommand — show & unknown", () => {
   });
 });
 
-describe("runSwitchTerminalCommand", () => {
+describe("runRouterTerminalCommand — FRR additions", () => {
+  beforeEach(() => resetState());
+
+  it("network <ifname> enables RIP on the interface's connected subnet", () => {
+    const rtr = loadRouter();
+    state.terminal.mode = "config";
+    runRouterTerminalCommand(rtr, "interface Ethernet1");
+    runRouterTerminalCommand(rtr, "ip address 192.168.10.1/24");
+    runRouterTerminalCommand(rtr, "exit");
+    runRouterTerminalCommand(rtr, "router rip");
+    runRouterTerminalCommand(rtr, "network Ethernet1");
+    expect(rtr.config.rip!.networks).toContain("192.168.10.0/24");
+  });
+
+  it("do <show> runs a show command from a config sub-mode", () => {
+    const rtr = loadRouter();
+    state.terminal.mode = "config";
+    runRouterTerminalCommand(rtr, "router rip");
+    runRouterTerminalCommand(rtr, "do show ip route");
+    expect(hasError()).toBe(false);
+    expect(state.terminal.lines.length).toBeGreaterThan(0);
+  });
+
+  it("show ip rip status and show ip route rip return output without error", () => {
+    const rtr = loadRouter();
+    runRouterTerminalCommand(rtr, "show ip rip status");
+    runRouterTerminalCommand(rtr, "show ip route rip");
+    expect(hasError()).toBe(false);
+  });
+});
+
+describe("runRouterTerminalCommand — abbreviation & context ?", () => {
+  beforeEach(() => resetState());
+
+  const mutedText = () => state.terminal.lines.filter(l => l.kind === "muted").map(l => l.text).join("\n");
+
+  it("expands an unambiguous prefix (sh ip ro → show ip route)", () => {
+    const rtr = loadRouter();
+    runRouterTerminalCommand(rtr, "sh ip ro");
+    expect(hasError()).toBe(false);
+    expect(state.terminal.lines.length).toBeGreaterThan(0);
+  });
+
+  it("abbreviates mode commands (en, conf t)", () => {
+    const rtr = loadRouter();
+    runRouterTerminalCommand(rtr, "en");
+    expect(state.terminal.mode).toBe("privileged");
+    runRouterTerminalCommand(rtr, "conf t");
+    expect(state.terminal.mode).toBe("config");
+  });
+
+  it("reports an ambiguous prefix", () => {
+    const rtr = loadRouter();
+    runRouterTerminalCommand(rtr, "show ip r"); // route vs rip
+    expect(state.terminal.lines.some(l => l.text.includes("Ambiguous"))).toBe(true);
+  });
+
+  it("? lists commands for the current mode", () => {
+    const rtr = loadRouter();
+    state.terminal.mode = "privileged";
+    runRouterTerminalCommand(rtr, "?");
+    expect(mutedText()).toContain("configure terminal");
+  });
+
+  it("partial ? completes the next tokens (show ip ?)", () => {
+    const rtr = loadRouter();
+    runRouterTerminalCommand(rtr, "show ip ?");
+    expect(mutedText()).toContain("show ip route");
+  });
+
+  it("do <abbrev show> works from a config sub-mode", () => {
+    const rtr = loadRouter();
+    state.terminal.mode = "rip";
+    runRouterTerminalCommand(rtr, "do sh ip ro");
+    expect(hasError()).toBe(false);
+  });
+});
+
+describe("runSwitchTerminalCommand — SONiC", () => {
   beforeEach(() => resetState());
 
   function loadSwitch() {
@@ -159,28 +237,52 @@ describe("runSwitchTerminalCommand", () => {
     expect(msw.config.vlans!.some(v => v.id === 30)).toBe(true);
   });
 
-  it("config interface vlan add assigns an access VLAN", () => {
+  it("config vlan member add (untagged) sets the access VLAN", () => {
     const msw = loadSwitch();
-    runSwitchTerminalCommand(msw, "config interface vlan add Ethernet4 30");
+    runSwitchTerminalCommand(msw, "config vlan add 30");
+    runSwitchTerminalCommand(msw, "config vlan member add 30 Ethernet4");
     expect(msw.config.portVlans!.Ethernet4).toBe(30);
   });
 
-  it("config interface mode sets trunk", () => {
+  it("config vlan member add -t (tagged) makes the port a trunk carrying the VLAN", () => {
     const msw = loadSwitch();
-    runSwitchTerminalCommand(msw, "config interface mode Ethernet5 trunk");
+    runSwitchTerminalCommand(msw, "config vlan add 30");
+    runSwitchTerminalCommand(msw, "config vlan member add -t 30 Ethernet5");
     expect(msw.config.portModes!.Ethernet5).toBe("trunk");
+    expect(msw.config.trunkAllowedVlans!.Ethernet5).toContain(30);
   });
 
-  it("config interface trunk native sets the native VLAN", () => {
+  it("tagged add migrates an existing access VLAN to the trunk native", () => {
     const msw = loadSwitch();
-    runSwitchTerminalCommand(msw, "config interface trunk native Ethernet1 99");
-    expect(msw.config.trunkNativeVlans!.Ethernet1).toBe(99);
+    runSwitchTerminalCommand(msw, "config vlan add 30");
+    runSwitchTerminalCommand(msw, "config vlan add 40");
+    runSwitchTerminalCommand(msw, "config vlan member add 30 Ethernet4");
+    runSwitchTerminalCommand(msw, "config vlan member add -t 40 Ethernet4");
+    expect(msw.config.portModes!.Ethernet4).toBe("trunk");
+    expect(msw.config.trunkNativeVlans!.Ethernet4).toBe(30);
+    expect(msw.config.trunkAllowedVlans!.Ethernet4).toContain(40);
   });
 
-  it("config interface trunk allowed add updates the allowed list", () => {
+  it("config vlan member del removes an untagged membership", () => {
     const msw = loadSwitch();
-    runSwitchTerminalCommand(msw, "config interface trunk allowed Ethernet1 add 30");
-    expect(msw.config.trunkAllowedVlans!.Ethernet1).toContain(30);
+    runSwitchTerminalCommand(msw, "config vlan add 30");
+    runSwitchTerminalCommand(msw, "config vlan member add 30 Ethernet4");
+    runSwitchTerminalCommand(msw, "config vlan member del 30 Ethernet4");
+    expect(msw.config.portVlans!.Ethernet4).toBeUndefined();
+  });
+
+  it("removing the last tagged member collapses the trunk back to access", () => {
+    const msw = loadSwitch();
+    runSwitchTerminalCommand(msw, "config vlan add 30");
+    runSwitchTerminalCommand(msw, "config vlan member add -t 30 Ethernet5");
+    runSwitchTerminalCommand(msw, "config vlan member del 30 Ethernet5");
+    expect(msw.config.portModes!.Ethernet5).toBeUndefined();
+  });
+
+  it("errors when adding a member to a non-existent VLAN (SONiC requires it first)", () => {
+    const msw = loadSwitch();
+    runSwitchTerminalCommand(msw, "config vlan member add 999 Ethernet4");
+    expect(state.terminal.lines.some(l => l.kind === "error")).toBe(true);
   });
 });
 

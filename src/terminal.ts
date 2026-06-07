@@ -153,13 +153,32 @@ export function showRouterRip(router: Device): string {
   return lines.join("\n");
 }
 
-export function showRouterRipDatabase(router: Device): string {
+// FRR `show ip rip` — the RIP route table (what RIP itself knows).
+export function showRouterRipRoutes(router: Device): string {
   const rip = normaliseRipConfig(router.config?.rip);
   if (!rip.enabled) return "RIP is not enabled on this router.";
-  if (!rip.learnedRoutes.length) return "RIP Database:\n  No learned routes.";
+  const header = [
+    "Codes: R - RIP, C - connected, S - Static",
+    "Sub-codes: (n) - normal, (i) - interface",
+    "",
+    "     Network              Next Hop         Metric From",
+  ];
+  if (!rip.learnedRoutes.length) return header.join("\n");
   return [
-    "RIP Database:",
-    ...rip.learnedRoutes.map((r: any) => `  ${r.network} via ${r.nextHop} metric ${r.metric}${r.interface ? ` (${r.interface})` : ""}`)
+    ...header,
+    ...rip.learnedRoutes.map((r: any) =>
+      `R(n) ${String(r.network).padEnd(21)}${String(r.nextHop).padEnd(17)}${String(r.metric).padEnd(7)}self`)
+  ].join("\n");
+}
+
+// FRR `show ip route rip` — RIP entries as installed in the main routing table.
+export function showRouterRouteRip(router: Device): string {
+  const table = buildRoutingTable(router).filter((r: any) => r.type === "R");
+  if (!table.length) return "Codes: C - connected, S - static, R - RIP\n\nNo RIP routes.";
+  return [
+    "Codes: C - connected, S - static, R - RIP",
+    "",
+    ...table.map((r: any) => `R>* ${r.network} via ${r.nextHop} [${r.metric}]`)
   ].join("\n");
 }
 
@@ -238,34 +257,24 @@ export function showSwitchMacTable(device: Device): string {
   ].join("\n");
 }
 
+// SONiC `show runningconfiguration all`. Real SONiC emits JSON; we emit the
+// equivalent `config …` commands that would recreate the state (consistent with
+// the switch CLI grammar and easy to replay).
 export function showSwitchRunningConfig(device: Device): string {
-  const vlans = normaliseVlans(device.config?.vlans || []);
+  const vlans = normaliseVlans(device.config?.vlans || []).filter((vlan: any) => vlan.id !== 1);
   const interfaces = switchInterfacesWithNames(device);
   const trunkAllowed = normaliseTrunkAllowedVlans(device.config?.trunkAllowedVlans || {});
-  const ifaceLines: string[] = [];
+  const lines: string[] = [`hostname ${device.name}`];
+  for (const vlan of vlans) lines.push(`config vlan add ${vlan.id}`);
   for (const iface of interfaces) {
-    const lines: string[] = [];
     if (iface.mode === "trunk") {
-      lines.push(` switchport mode trunk`);
-      if (iface.nativeVlan !== 1) lines.push(` switchport trunk native vlan ${iface.nativeVlan}`);
-      const allowed = trunkAllowed[iface.name];
-      if (allowed && allowed.length > 0) lines.push(` switchport trunk allowed vlan ${allowed.join(",")}`);
-    } else if (iface.vlan !== 1) {
-      lines.push(` switchport mode access`);
-      lines.push(` switchport access vlan ${iface.vlan}`);
-    }
-    if (lines.length) {
-      ifaceLines.push(`interface ${iface.name}\n${lines.join("\n")}\n!`);
+      if (iface.nativeVlan && iface.nativeVlan !== 1) lines.push(`config vlan member add ${iface.nativeVlan} ${iface.name}`);
+      for (const vid of trunkAllowed[iface.name] || []) lines.push(`config vlan member add -t ${vid} ${iface.name}`);
+    } else if (iface.vlan && iface.vlan !== 1) {
+      lines.push(`config vlan member add ${iface.vlan} ${iface.name}`);
     }
   }
-  return [
-    "!",
-    `hostname ${device.name}`,
-    "!",
-    ...vlans.filter((vlan: any) => vlan.id !== 1).map((vlan: any) => `vlan ${vlan.id}\n name ${vlan.name || `Vlan${vlan.id}`}\n!`),
-    ...ifaceLines,
-    "end"
-  ].join("\n");
+  return lines.length > 1 ? lines.join("\n") : `hostname ${device.name}\n(no VLAN configuration)`;
 }
 
 export function addSwitchVlan(device: Device, vlanId: string): string {
@@ -391,34 +400,116 @@ export function clearRouterInterfaceIp(router: Device, peerId: string, vlanTag?:
   sync().render();
 }
 
-export function runRouterTerminalCommand(router: Device, command: string): void {
+// ─── FRR command registry — drives abbreviation + context-sensitive `?` ───────
+// FRR's vtysh lets you type any unambiguous prefix (`sh ip ro` → `show ip route`,
+// `conf t` → `configure terminal`) and `?` lists the commands valid in the
+// current mode. The registry below is the single source for both. Commands the
+// existing handlers accept but that are missing here simply aren't abbreviated —
+// they still work when typed in full (expansion returns null → pass through).
+type RouterMode = "exec" | "privileged" | "config" | "interface" | "rip";
+const ALL_ROUTER_MODES: RouterMode[] = ["exec", "privileged", "config", "interface", "rip"];
+interface RouterCmdSpec { tokens: string[]; args?: boolean; modes: RouterMode[] }
+const ROUTER_COMMANDS: RouterCmdSpec[] = [
+  { tokens: ["enable"], modes: ["exec", "privileged"] },
+  { tokens: ["configure", "terminal"], modes: ["privileged"] },
+  { tokens: ["show", "ip", "interface", "brief"], modes: ALL_ROUTER_MODES },
+  { tokens: ["show", "ip", "route"], modes: ALL_ROUTER_MODES },
+  { tokens: ["show", "ip", "route", "rip"], modes: ALL_ROUTER_MODES },
+  { tokens: ["show", "ip", "arp"], modes: ALL_ROUTER_MODES },
+  { tokens: ["show", "ip", "dhcp", "binding"], modes: ALL_ROUTER_MODES },
+  { tokens: ["show", "ip", "rip"], modes: ALL_ROUTER_MODES },
+  { tokens: ["show", "ip", "rip", "status"], modes: ALL_ROUTER_MODES },
+  { tokens: ["show", "running-config"], modes: ALL_ROUTER_MODES },
+  { tokens: ["write", "memory"], modes: ["privileged"] },
+  { tokens: ["clear", "ip", "rip", "database"], modes: ["privileged", "config", "rip"] },
+  { tokens: ["do"], args: true, modes: ["config", "interface", "rip"] },
+  { tokens: ["interface"], args: true, modes: ["config"] },
+  { tokens: ["ip", "address"], args: true, modes: ["interface"] },
+  { tokens: ["no", "ip", "address"], modes: ["interface"] },
+  { tokens: ["encapsulation", "dot1q"], args: true, modes: ["interface"] },
+  { tokens: ["no", "encapsulation", "dot1q"], modes: ["interface"] },
+  { tokens: ["ip", "route"], args: true, modes: ["config"] },
+  { tokens: ["no", "ip", "route"], args: true, modes: ["config"] },
+  { tokens: ["router", "rip"], modes: ["config"] },
+  { tokens: ["no", "router", "rip"], modes: ["config"] },
+  { tokens: ["network"], args: true, modes: ["rip"] },
+  { tokens: ["no", "network"], args: true, modes: ["rip"] },
+  { tokens: ["passive-interface"], args: true, modes: ["rip"] },
+  { tokens: ["no", "passive-interface"], args: true, modes: ["rip"] },
+  { tokens: ["exit"], modes: ALL_ROUTER_MODES },
+  { tokens: ["end"], modes: ["privileged", "config", "interface", "rip"] },
+  { tokens: ["clear"], modes: ALL_ROUTER_MODES },
+];
+
+function routerMode(): RouterMode {
+  const m = state.terminal.mode;
+  return (m === "privileged" || m === "config" || m === "interface" || m === "rip") ? m : "exec";
+}
+
+function routerCmdMatches(tokens: string[], spec: RouterCmdSpec): boolean {
+  const k = spec.tokens.length;
+  if (spec.args ? tokens.length < k : tokens.length !== k) return false;
+  for (let i = 0; i < k; i++) {
+    if (!spec.tokens[i].startsWith(tokens[i].toLowerCase())) return false;
+  }
+  return true;
+}
+
+// Expand an abbreviated command to canonical form. Returns the canonical string,
+// "" if the prefix is ambiguous, or null if nothing matches (pass through).
+function expandRouterCommand(command: string, mode: RouterMode): string | null {
+  const tokens = command.trim().split(/\s+/);
+  if (!tokens[0]) return null;
+  let matches = ROUTER_COMMANDS.filter(c => c.modes.includes(mode) && routerCmdMatches(tokens, c));
+  if (matches.length === 0) {
+    const any = ROUTER_COMMANDS.filter(c => routerCmdMatches(tokens, c));
+    if (any.length !== 1) return null; // unknown or cross-mode ambiguity → pass through
+    matches = any;
+  }
+  if (matches.length > 1) return "";
+  const spec = matches[0];
+  return [...spec.tokens, ...tokens.slice(spec.tokens.length)].join(" ");
+}
+
+// Context-sensitive `?`: list the commands in `mode` whose keywords prefix-match
+// what's been typed so far.
+function routerHelp(mode: RouterMode, typed: string): string {
+  const prefix = typed.trim().split(/\s+/).filter(Boolean);
+  const entries = ROUTER_COMMANDS.filter(c =>
+    c.modes.includes(mode) &&
+    prefix.every((t, i) => i < c.tokens.length && c.tokens[i].startsWith(t.toLowerCase()))
+  );
+  if (!entries.length) return "% No matching commands.";
+  return entries.map(c => c.tokens.join(" ") + (c.args ? " <...>" : "")).join("\n");
+}
+
+export function runRouterTerminalCommand(router: Device, rawCommand: string): void {
+  const mode = routerMode();
+  const trimmed = rawCommand.trim();
+  // Context-sensitive `?` (bare or trailing) and `help`.
+  if (trimmed === "?" || /\?\s*$/.test(trimmed)) {
+    terminalLine("muted", routerHelp(mode, trimmed.replace(/\?\s*$/, "")));
+    return;
+  }
+  if (trimmed.toLowerCase() === "help") {
+    terminalLine("muted", routerHelp(mode, ""));
+    return;
+  }
+  // Abbreviation: expand an unambiguous prefix to its canonical command.
+  const expanded = expandRouterCommand(trimmed, mode);
+  if (expanded === "") {
+    terminalLine("error", `% Ambiguous command: ${trimmed}`);
+    return;
+  }
+  const command = expanded || trimmed;
   const lower = command.toLowerCase();
-  if (lower === "?" || lower === "help") {
-    terminalLine("muted", [
-      "enable",
-      "show ip interface brief",
-      "show ip route",
-      "show ip arp",
-      "show ip dhcp binding",
-      "show ip rip",
-      "show ip rip database",
-      "show running-config",
-      "configure terminal",
-      "interface <EthernetN|SerialN|EthernetN.vlan>",
-      "ip address <ipv4>/24",
-      "no ip address",
-      "ip route <network/prefix> <next-hop-ip>",
-      "no ip route <network/prefix>",
-      "router rip / no router rip",
-      "  network <cidr>",
-      "  no network <cidr>",
-      "  passive-interface <name>",
-      "  no passive-interface <name>",
-      "encapsulation dot1q <vlan-id>",
-      "no encapsulation dot1q",
-      "exit",
-      "end"
-    ].join("\n"));
+  // `do <command>` runs a show command from any config sub-mode (FRR/IOS staple).
+  const doMatch = command.match(/^do\s+(.+)$/i);
+  if (doMatch) {
+    const inner = (expandRouterCommand(doMatch[1].trim(), "exec") || doMatch[1].trim()).toLowerCase();
+    if (!routerShowCommand(router, inner)) {
+      terminalLine("error", `% Unknown command: ${doMatch[1]}`);
+    }
     return;
   }
   if (routerSessionCommand(lower)) return;
@@ -496,12 +587,16 @@ function routerShowCommand(router: Device, lower: string): boolean {
     terminalLine("", showRouterDhcpBindings(router));
     return true;
   }
-  if (lower === "show ip rip") {
+  if (lower === "show ip route rip") {
+    terminalLine("", showRouterRouteRip(router));
+    return true;
+  }
+  if (lower === "show ip rip status") {
     terminalLine("", showRouterRip(router));
     return true;
   }
-  if (lower === "show ip rip database") {
-    terminalLine("", showRouterRipDatabase(router));
+  if (lower === "show ip rip") {
+    terminalLine("", showRouterRipRoutes(router));
     return true;
   }
   if (lower === "show running-config" || lower === "show run") {
@@ -635,12 +730,24 @@ function routerRipCommand(router: Device, command: string, lower: string): boole
       return true;
     }
     const networkToken = networkMatch[1];
+    let network: string;
     const parsed = parseIpv4Token(networkToken);
-    if (!parsed) {
-      terminalLine("error", `% Invalid network: ${networkToken}`);
-      return true;
+    if (parsed) {
+      network = parsed.prefixLength != null ? `${parsed.address}/${parsed.prefixLength}` : `${parsed.address}/24`;
+    } else {
+      // FRR `network <ifname>` — enable RIP on the interface's connected network.
+      const iface = routerInterfaceByName(router, networkToken);
+      if (!iface) {
+        terminalLine("error", `% Invalid network or interface: ${networkToken}`);
+        return true;
+      }
+      if (!iface.config?.ipv4Address) {
+        terminalLine("error", `% Interface ${iface.name} has no IP address.`);
+        return true;
+      }
+      const ip = iface.config.ipv4Address;
+      network = `${ip.split(".").slice(0, 3).join(".")}.0/24`;
     }
-    const network = parsed.prefixLength != null ? `${parsed.address}/${parsed.prefixLength}` : `${parsed.address}/24`;
     pushUndo();
     if (!router.config.rip!.networks.includes(network)) {
       router.config.rip!.networks.push(network);
@@ -766,6 +873,99 @@ function routerStaticRouteCommand(router: Device, command: string): boolean {
   return false;
 }
 
+function switchIfaceByName(device: Device, portName: string): any {
+  return switchInterfacesWithNames(device).find((p: any) => p.name.toLowerCase() === String(portName || "").toLowerCase());
+}
+
+function switchVlanExists(device: Device, id: number): boolean {
+  return id === 1 || normaliseVlans(device.config?.vlans || []).some((v: any) => v.id === id);
+}
+
+// SONiC `config vlan member add [-t] <vid> <port>`. Untagged membership is the
+// port's single access/native VLAN; a tagged member makes the port a trunk that
+// carries the VLAN. One undo snapshot per command (atomic).
+function sonicVlanMemberAdd(device: Device, vlanId: string, portName: string, tagged: boolean): string {
+  const iface = switchIfaceByName(device, portName);
+  if (!iface) return `Unknown interface ${portName}.`;
+  const id = normaliseVlanId(vlanId);
+  if (!id) return `Invalid VLAN ID: ${vlanId}`;
+  if (!switchVlanExists(device, id)) return `Error: Vlan${id} doesn't exist`;
+  pushUndo();
+  ensureConfig(device);
+  const portModes = normalisePortModes(device.config.portModes || {});
+  const portVlans = normalisePortVlans(device.config.portVlans || {});
+  const trunkNative = normalisePortVlans(device.config.trunkNativeVlans || {});
+  const trunkAllowed = normaliseTrunkAllowedVlans(device.config.trunkAllowedVlans || {});
+  const name = iface.name;
+  if (tagged) {
+    if (portModes[name] !== "trunk") {
+      // Becoming a trunk: keep the current untagged (access) VLAN as the native.
+      const access = portVlans[name];
+      if (access && access !== 1) trunkNative[name] = access;
+      delete portVlans[name];
+      portModes[name] = "trunk";
+    }
+    if (!trunkAllowed[name]) trunkAllowed[name] = [];
+    if (!trunkAllowed[name].includes(id)) trunkAllowed[name].push(id);
+    trunkAllowed[name].sort((a, b) => a - b);
+  } else if (portModes[name] === "trunk") {
+    if (id === 1) delete trunkNative[name]; else trunkNative[name] = id;
+  } else {
+    if (id === 1) delete portVlans[name]; else portVlans[name] = id;
+  }
+  device.config.portModes = portModes;
+  device.config.portVlans = portVlans;
+  device.config.trunkNativeVlans = trunkNative;
+  device.config.trunkAllowedVlans = trunkAllowed;
+  sync().syncPanel();
+  sync().render();
+  return tagged
+    ? `Added ${name} as a tagged member of VLAN ${id}.`
+    : `Added ${name} as an untagged member of VLAN ${id}.`;
+}
+
+// SONiC `config vlan member del <vid> <port>`. Removing the last tagged member
+// collapses the port back to an access port.
+function sonicVlanMemberDel(device: Device, vlanId: string, portName: string): string {
+  const iface = switchIfaceByName(device, portName);
+  if (!iface) return `Unknown interface ${portName}.`;
+  const id = normaliseVlanId(vlanId);
+  if (!id) return `Invalid VLAN ID: ${vlanId}`;
+  pushUndo();
+  ensureConfig(device);
+  const portModes = normalisePortModes(device.config.portModes || {});
+  const portVlans = normalisePortVlans(device.config.portVlans || {});
+  const trunkNative = normalisePortVlans(device.config.trunkNativeVlans || {});
+  const trunkAllowed = normaliseTrunkAllowedVlans(device.config.trunkAllowedVlans || {});
+  const name = iface.name;
+  let changed = false;
+  if (portModes[name] === "trunk") {
+    if (trunkNative[name] === id) { delete trunkNative[name]; changed = true; }
+    if (trunkAllowed[name]?.includes(id)) {
+      trunkAllowed[name] = trunkAllowed[name].filter((v: number) => v !== id);
+      changed = true;
+    }
+    if (!trunkAllowed[name] || trunkAllowed[name].length === 0) {
+      // No tagged members left — collapse back to an access port.
+      delete trunkAllowed[name];
+      delete portModes[name];
+      const native = trunkNative[name];
+      delete trunkNative[name];
+      if (native && native !== 1) portVlans[name] = native;
+    }
+  } else if ((portVlans[name] || 1) === id) {
+    delete portVlans[name];
+    changed = true;
+  }
+  device.config.portModes = portModes;
+  device.config.portVlans = portVlans;
+  device.config.trunkNativeVlans = trunkNative;
+  device.config.trunkAllowedVlans = trunkAllowed;
+  sync().syncPanel();
+  sync().render();
+  return changed ? `Removed ${name} from VLAN ${id}.` : `VLAN ${id} is not a member of ${name}.`;
+}
+
 export function runSwitchTerminalCommand(device: Device, command: string): void {
   const lower = command.toLowerCase();
   if (!device.config?.managed) {
@@ -774,18 +974,15 @@ export function runSwitchTerminalCommand(device: Device, command: string): void 
   }
   if (lower === "?" || lower === "help") {
     terminalLine("muted", [
-      "show interfaces status",
       "show vlan brief",
       "show mac",
-      "show running-config",
+      "show interfaces status",
+      "show runningconfiguration all",
       "config vlan add <vlan-id>",
       "config vlan del <vlan-id>",
-      "config interface vlan add <EthernetN> <vlan-id>",
-      "config interface vlan remove <EthernetN>",
-      "config interface mode <EthernetN> access|trunk",
-      "config interface trunk native <EthernetN> <vlan-id>",
-      "config interface trunk allowed <EthernetN> add <vlan-id>",
-      "config interface trunk allowed <EthernetN> remove <vlan-id>",
+      "config vlan member add <vlan-id> <EthernetN>      (untagged / access)",
+      "config vlan member add -t <vlan-id> <EthernetN>   (tagged / trunk)",
+      "config vlan member del <vlan-id> <EthernetN>",
       "clear"
     ].join("\n"));
     return;
@@ -794,19 +991,19 @@ export function runSwitchTerminalCommand(device: Device, command: string): void 
     state.terminal.lines = [];
     return;
   }
-  if (lower === "show interfaces status" || lower === "show interface status") {
-    terminalLine("", showSwitchInterfaces(device));
-    return;
-  }
   if (lower === "show vlan brief" || lower === "show vlan") {
     terminalLine("", showSwitchVlans(device));
     return;
   }
-  if (lower === "show mac" || lower === "show mac address-table" || lower === "show mac-address-table") {
+  if (lower === "show mac" || lower === "show mac address-table") {
     terminalLine("", showSwitchMacTable(device));
     return;
   }
-  if (lower === "show running-config" || lower === "show run") {
+  if (lower === "show interfaces status" || lower === "show interface status") {
+    terminalLine("", showSwitchInterfaces(device));
+    return;
+  }
+  if (lower === "show runningconfiguration all" || lower === "show runningconfiguration") {
     terminalLine("", showSwitchRunningConfig(device));
     return;
   }
@@ -816,50 +1013,22 @@ export function runSwitchTerminalCommand(device: Device, command: string): void 
     terminalLine(result.startsWith("Invalid") ? "error" : "", result);
     return;
   }
-  const delVlanMatch = command.match(/^config\s+vlan\s+(?:del|delete|remove)\s+(\d+)$/i);
+  const delVlanMatch = command.match(/^config\s+vlan\s+del\s+(\d+)$/i);
   if (delVlanMatch) {
     const result = removeSwitchVlan(device, delVlanMatch[1]);
     terminalLine(result.startsWith("Invalid") ? "error" : "", result);
     return;
   }
-  const portVlanMatch = command.match(/^config\s+interface\s+vlan\s+add\s+(\S+)\s+(\d+)$/i);
-  if (portVlanMatch) {
-    const result = setSwitchPortVlan(device, portVlanMatch[1], portVlanMatch[2]);
-    terminalLine(result.startsWith("Invalid") || result.startsWith("Unknown") ? "error" : "", result);
+  const memberAddMatch = command.match(/^config\s+vlan\s+member\s+add\s+(-t\s+)?(\d+)\s+(\S+)$/i);
+  if (memberAddMatch) {
+    const result = sonicVlanMemberAdd(device, memberAddMatch[2], memberAddMatch[3], !!memberAddMatch[1]);
+    terminalLine(/^(Unknown|Invalid|Error)/.test(result) ? "error" : "", result);
     return;
   }
-  const removePortVlanMatch = command.match(/^config\s+interface\s+vlan\s+(?:remove|del|delete)\s+(\S+)$/i);
-  if (removePortVlanMatch) {
-    const result = setSwitchPortVlan(device, removePortVlanMatch[1], "1");
-    terminalLine(result.startsWith("Unknown") ? "error" : "", result);
-    return;
-  }
-  // Port mode: config interface mode <EthernetN> access|trunk
-  const portModeMatch = command.match(/^config\s+interface\s+mode\s+(\S+)\s+(access|trunk)$/i);
-  if (portModeMatch) {
-    const result = setSwitchPortMode(device, portModeMatch[1], portModeMatch[2].toLowerCase());
-    terminalLine(result.startsWith("Unknown") ? "error" : "", result);
-    return;
-  }
-  // Trunk native VLAN: config interface trunk native <EthernetN> <vlan-id>
-  const trunkNativeMatch = command.match(/^config\s+interface\s+trunk\s+native\s+(\S+)\s+(\d+)$/i);
-  if (trunkNativeMatch) {
-    const result = setSwitchTrunkNative(device, trunkNativeMatch[1], trunkNativeMatch[2]);
-    terminalLine(result.startsWith("Unknown") || result.startsWith("Invalid") ? "error" : "", result);
-    return;
-  }
-  // Trunk allowed VLAN add: config interface trunk allowed <EthernetN> add <vlan-id>
-  const trunkAllowedAddMatch = command.match(/^config\s+interface\s+trunk\s+allowed\s+(\S+)\s+add\s+(\d+)$/i);
-  if (trunkAllowedAddMatch) {
-    const result = modifySwitchTrunkAllowed(device, trunkAllowedAddMatch[1], trunkAllowedAddMatch[2], "add");
-    terminalLine(result.startsWith("Unknown") || result.startsWith("Invalid") ? "error" : "", result);
-    return;
-  }
-  // Trunk allowed VLAN remove: config interface trunk allowed <EthernetN> remove <vlan-id>
-  const trunkAllowedRemoveMatch = command.match(/^config\s+interface\s+trunk\s+allowed\s+(\S+)\s+(?:remove|del|delete)\s+(\d+)$/i);
-  if (trunkAllowedRemoveMatch) {
-    const result = modifySwitchTrunkAllowed(device, trunkAllowedRemoveMatch[1], trunkAllowedRemoveMatch[2], "remove");
-    terminalLine(result.startsWith("Unknown") || result.startsWith("Invalid") ? "error" : "", result);
+  const memberDelMatch = command.match(/^config\s+vlan\s+member\s+del\s+(\d+)\s+(\S+)$/i);
+  if (memberDelMatch) {
+    const result = sonicVlanMemberDel(device, memberDelMatch[1], memberDelMatch[2]);
+    terminalLine(/^(Unknown|Invalid|Error)/.test(result) ? "error" : "", result);
     return;
   }
   terminalLine("error", `% Unknown command: ${command}`);

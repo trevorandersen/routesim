@@ -115,7 +115,7 @@ fixed enums may be interpolated raw.
 | `simulation.ts` | `buildPingEvents()` — validates a ping command and returns initial `SimEvent[]` + `pendingArp` map for deferred ICMPs. Does **not** pre-compute reachability: a destination IP with no device still emits a real ARP (to the target on-subnet, or the gateway off-subnet) and the simulation/router decides the outcome. Also has `l2Reachable`. |
 | `frame.ts` | Factory functions: `createArpRequest`, `createArpReply`, `createIcmpEchoRequest`, `createIcmpEchoReply`. Also `frameLabel()` and `frameColor()` for rendering. |
 | `canvas.ts` | All drawing: grid, links, devices (icon rendering via SVG path data on canvas), frame transit dots with glow/labels, zoom/pan math. |
-| `terminal.ts` | Per-device CLI. Computers: `ping`, `ip addr`, `arp -n`, etc. Routers: IOS-like `show ip interface brief`, `configure terminal`, etc. Switches: `show mac`, VLAN config. Command history (up/down arrow). |
+| `terminal.ts` | Per-device CLI, each modelled on a real open-source NOS. Computers: Linux-ish (`ping`, `ip addr`, `arp -n`, …). Routers: **FRRouting** (vtysh) — `configure terminal`, `interface`, `router rip`, `show ip route`, `do <show>`, with prefix abbreviation (`sh ip ro`) and context-sensitive `?`. Managed switches: **SONiC** — flat `config vlan add/del`, `config vlan member add [-t] <vid> <port>`, `show vlan brief`/`mac`/`interfaces status`. Command history (up/down arrow). |
 | `inspector.ts` | Right panel. Device selection shows config fields; link selection shows frame history (color-coded ARP/ICMP entries with step numbers). |
 | `devices.ts` | CRUD, hit testing (`findDeviceAt`, `findLinkAt`), port/interface enumeration, LAN collapse/expand (groups devices into a single node). |
 | `normalise.ts` | Defensive normalisation for all config shapes. `normaliseRouterInterfaces` auto-generates deterministic MACs (`02:RR:00:00:II:01`). |
@@ -197,7 +197,7 @@ Every link records frames that traverse it (`link.frameHistory[]`). Click a link
 
 **Adding a device type**: Add icon paths to `deviceIcons` in `state.ts`, palette to `devicePalette` in `canvas.ts`, config shape to `normaliseDeviceConfig` / `defaultDeviceConfig` in `normalise.ts`, tool button in `template.html`, tool copy in `toolCopy` in `state.ts`.
 
-**Adding a terminal command**: `runTerminalCommand()` in `terminal.ts` is the top-level dispatcher — it routes to `runRouterTerminalCommand()` for routers and `runSwitchTerminalCommand()` for switches. Computer commands (`ping`, `ip addr`, `arp`, `dhcp`) are handled inline in `runTerminalCommand()` itself.
+**Adding a terminal command**: `runTerminalCommand()` in `terminal.ts` is the top-level dispatcher — it routes to `runRouterTerminalCommand()` for routers and `runSwitchTerminalCommand()` for switches. Computer commands (`ping`, `ip addr`, `arp`, `dhcp`) are handled inline in `runTerminalCommand()` itself. **Match the device's reference NOS** — router commands should follow FRRouting (vtysh), managed-switch commands should follow SONiC — so new commands stay faithful to a real CLI rather than inventing syntax.
 
 **Adding a simulation protocol**: Create frame factories in `frame.ts`, handle in the appropriate `processAt*` function in `engine.ts`, update `frameLabel`/`frameColor` for display.
 

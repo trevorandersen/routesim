@@ -160,7 +160,7 @@
       color: var(--muted);
       padding: 8px 14px;
       font-size: 13px;
-      font-weight: 700;
+      font-weight: 400;
       cursor: pointer;
       border-radius: 6px 6px 0 0;
     }
@@ -1345,6 +1345,71 @@
       justify-content: flex-end;
     }
 
+    /* ─── About modal ─── */
+
+    .about-overlay {
+      display: none;
+      position: fixed;
+      inset: 0;
+      z-index: 50;
+      background: rgba(0, 0, 0, 0.5);
+      place-items: center;
+    }
+    .about-overlay.open {
+      display: grid;
+    }
+    .about-modal {
+      width: min(620px, calc(100vw - 48px));
+      max-height: calc(100vh - 80px);
+      background: var(--panel-bg);
+      border: 1px solid var(--border);
+      border-radius: 12px;
+      box-shadow: 0 16px 48px rgba(0, 0, 0, 0.3);
+      display: flex;
+      flex-direction: column;
+      overflow: hidden;
+    }
+    .about-header {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      padding: 12px 16px;
+      border-bottom: 1px solid var(--border);
+    }
+    .about-header h3 {
+      margin: 0;
+      font-size: 14px;
+      font-weight: 600;
+      color: var(--fg);
+    }
+    .about-body {
+      padding: 16px;
+      overflow-y: auto;
+    }
+    .about-title {
+      margin: 0 0 8px;
+      font-size: 18px;
+      font-weight: 700;
+      color: var(--fg);
+    }
+    .about-tagline {
+      margin: 0 0 16px;
+      font-size: 13px;
+      line-height: 1.5;
+      color: var(--muted);
+    }
+    .about-license {
+      margin: 0;
+      padding: 12px;
+      background: var(--bg);
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      font: 11px/1.45 ui-monospace, SFMono-Regular, Menlo, Consolas, "Liberation Mono", monospace;
+      color: var(--muted);
+      white-space: pre-wrap;
+      overflow-x: auto;
+    }
+
   </style>
 </head>
 <body class="inspector-closed terminal-closed console-closed">
@@ -1540,6 +1605,33 @@
       <div class="port-selection-body" id="portSelectionBody"></div>
       <div class="port-selection-footer">
         <button class="wide-button" id="portSelectionConfirm">Connect</button>
+      </div>
+    </div>
+  </div>
+
+  <div class="about-overlay" id="aboutOverlay">
+    <div class="about-modal">
+      <div class="about-header">
+        <h3>About</h3>
+        <button class="panel-toggle" id="aboutClose">&#x2715;</button>
+      </div>
+      <div class="about-body">
+        <p class="about-title">RouteSim</p>
+        <p class="about-tagline">Created dispassionately by an alien intelligence (Claude Opus 4.6&ndash;4.8). Vibecoded by Trevor Andersen in Claude Code.</p>
+        <pre class="about-license">No Rights Reserved &mdash; CC0 1.0 Universal Public Domain Dedication
+
+To the extent possible under law, the RouteSim Authors have waived all
+copyright and related or neighbouring rights to RouteSim. The work is
+dedicated to the public domain: you may copy, modify, distribute, and use it,
+including for commercial purposes, all without asking permission.
+
+This dedication is irrevocable, so the work can never be clawed back out of
+the public domain. Where a full waiver is not legally possible, a maximally
+permissive, royalty-free, unconditional licence applies as a fallback.
+
+The work is provided as-is, without warranties of any kind.
+
+Full legal text: https://creativecommons.org/publicdomain/zero/1.0/legalcode</pre>
       </div>
     </div>
   </div>
@@ -2371,7 +2463,9 @@
     portSelectionOverlay: document.getElementById("portSelectionOverlay"),
     portSelectionBody: document.getElementById("portSelectionBody"),
     portSelectionConfirm: document.getElementById("portSelectionConfirm"),
-    portSelectionCancel: document.getElementById("portSelectionCancel")
+    portSelectionCancel: document.getElementById("portSelectionCancel"),
+    aboutOverlay: document.getElementById("aboutOverlay"),
+    aboutClose: document.getElementById("aboutClose")
   };
 
   // src/devices.ts
@@ -6392,6 +6486,12 @@ ${lines.join("\n")}
       render();
     });
   }
+  function openAbout() {
+    dom.aboutOverlay.classList.add("open");
+  }
+  function closeAbout() {
+    dom.aboutOverlay.classList.remove("open");
+  }
   function handleGlobalKeydown(event) {
     if ((event.metaKey || event.ctrlKey) && event.key.toLowerCase() === "z") {
       event.preventDefault();
@@ -6399,6 +6499,10 @@ ${lines.join("\n")}
       return;
     }
     if (event.key === "Escape") {
+      if (dom.aboutOverlay.classList.contains("open")) {
+        closeAbout();
+        return;
+      }
       if (state.portSelection) {
         cancelPortSelection();
         return;
@@ -6602,9 +6706,7 @@ ${lines.join("\n")}
         closeTerminal();
         openConsole();
       },
-      "help-about": () => {
-        dom.hint.textContent = "RouteSim \u2014 an interactive network simulator. See docs/ and the Help tab.";
-      }
+      "help-about": openAbout
     };
     document.addEventListener("click", (event) => {
       const el = event.target?.closest?.("[data-action],[data-topology],[data-scenario]");
@@ -6656,6 +6758,10 @@ ${lines.join("\n")}
     dom.portSelectionCancel.addEventListener("click", cancelPortSelection);
     dom.portSelectionOverlay.addEventListener("click", (event) => {
       if (event.target === dom.portSelectionOverlay) cancelPortSelection();
+    });
+    dom.aboutClose.addEventListener("click", closeAbout);
+    dom.aboutOverlay.addEventListener("click", (event) => {
+      if (event.target === dom.aboutOverlay) closeAbout();
     });
   }
 

@@ -108,6 +108,10 @@ sync().syncPanel();
 - **VLAN enforcement** — managed switches enforce VLAN membership on L2 paths
 - **ARP/MAC learning** — ping populates ARP tables on hosts and routers, MAC tables on switches
 - **Undo** — single-level undo for topology and config changes
-- **Persistence** — save/load topologies to JSON files via File System Access API
+- **Persistence** — import/export configs, scenarios, scripts, and logs as JSON files
 - **Dark/light theme** — toggle via toolbar, implemented with CSS custom properties
 - **LAN grouping** — collapse multiple devices into a LAN cloud
+
+## Licence
+
+RouteSim is released into the **public domain** under the [CC0 1.0 Universal Public Domain Dedication](LICENSE). No rights reserved: copy, modify, distribute, and use it for any purpose (including commercial) without asking permission. The dedication is irrevocable, so the work can never be clawed back out of the public domain. See [`LICENSE`](LICENSE) for the full text.

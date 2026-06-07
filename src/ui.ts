@@ -73,6 +73,9 @@ export function bindOptionToggle(input: HTMLInputElement, optionKey: string): vo
 }
 
 // Global keyboard shortcuts. Extracted from setupUI() so it can be unit-tested.
+export function openAbout(): void { dom.aboutOverlay.classList.add("open"); }
+export function closeAbout(): void { dom.aboutOverlay.classList.remove("open"); }
+
 export function handleGlobalKeydown(event: KeyboardEvent): void {
   if ((event.metaKey || event.ctrlKey) && event.key.toLowerCase() === "z") {
     event.preventDefault();
@@ -82,6 +85,10 @@ export function handleGlobalKeydown(event: KeyboardEvent): void {
   // Escape is handled before the input guard so it also works while a field
   // is focused (it blurs the field and reverts to the select tool).
   if (event.key === "Escape") {
+    if (dom.aboutOverlay.classList.contains("open")) {
+      closeAbout();
+      return;
+    }
     if (state.portSelection) {
       cancelPortSelection();
       return;
@@ -286,7 +293,7 @@ export function setupUI(): void {
     "scenario-dismiss": dismissScenario,
     "help-shortcuts": () => { dom.hint.textContent = "Shortcuts: V select · C computer · S switch · R router · L connect · W configure · Del delete · Esc cancel · Ctrl/Cmd+Z undo · scroll to zoom."; },
     "help-commands": () => { closeTerminal(); openConsole(); },
-    "help-about": () => { dom.hint.textContent = "RouteSim — an interactive network simulator. See docs/ and the Help tab."; },
+    "help-about": openAbout,
   };
   document.addEventListener("click", (event) => {
     const el = (event.target as HTMLElement)?.closest?.("[data-action],[data-topology],[data-scenario]") as HTMLElement | null;
@@ -344,5 +351,11 @@ export function setupUI(): void {
   dom.portSelectionCancel.addEventListener("click", cancelPortSelection);
   dom.portSelectionOverlay.addEventListener("click", (event) => {
     if (event.target === dom.portSelectionOverlay) cancelPortSelection();
+  });
+
+  // About modal
+  dom.aboutClose.addEventListener("click", closeAbout);
+  dom.aboutOverlay.addEventListener("click", (event) => {
+    if (event.target === dom.aboutOverlay) closeAbout();
   });
 }

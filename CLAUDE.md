@@ -11,6 +11,7 @@ RouteSim is a teaching tool: it makes the invisible parts of a network visible b
 - **Faithful to the protocols.** Simulated behaviour should match how real ARP, switching, routing, RIP, and DHCP work — down to frame fields and the order of operations. Correctness over shortcuts.
 - **Typed, tested, and small.** Prefer concrete types over `any`, keep per-device handlers focused, and cover new behaviour with tests.
 - **Performance is a feature.** The simulation engine runs hot — device/port lookup, per-device frame processing, routing, and RIP convergence are all on the critical path. Keep them fast, and add a benchmark with a p99 budget for any new performance-sensitive code so regressions are caught early.
+- **Keep everything fresh.** Documentation (`docs/`), the `README`, tests, and benchmarks are part of every change, not an afterthought — update them in lockstep with the code so they never drift. New behaviour ships with matching docs and tests; new hot-path code ships with a benchmark; removed or renamed things get scrubbed from the docs/README the same commit.
 - **Scoped work.** When exploring or searching the codebase, stay within this repository — don't scan the home directory or the wider filesystem.
 
 ## Build

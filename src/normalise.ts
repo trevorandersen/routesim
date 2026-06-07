@@ -279,6 +279,18 @@ export function defaultDeviceConfig(type: DeviceType): DeviceConfig {
   return {};
 }
 
+// Translates a topology in place so every device sits at a positive coordinate
+// (top-left anchored at `margin`), preserving the relative layout. Returns the
+// same config object. Keeps the built-in topologies/scenarios positive.
+export function shiftToPositive(config: any, margin = 80): any {
+  const devices = config?.devices || [];
+  if (!devices.length) return config;
+  const dx = margin - Math.min(...devices.map((d: any) => d.x));
+  const dy = margin - Math.min(...devices.map((d: any) => d.y));
+  for (const d of devices) { d.x += dx; d.y += dy; }
+  return config;
+}
+
 export function deviceSize(type: string): { width: number; height: number } {
   if (type === "computer") return { width: 92, height: 68 };
   if (type === "router") return { width: 92, height: 70 };

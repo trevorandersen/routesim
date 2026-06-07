@@ -8,7 +8,7 @@ import type { Device } from "./types";
 import { state, sync } from "./state";
 import { getDevice } from "./devices";
 import { applyConfig } from "./config";
-import { normaliseConfig } from "./normalise";
+import { normaliseConfig, shiftToPositive } from "./normalise";
 import { buildPingEvents, buildDhcpEvents } from "./simulation";
 import { runSimulationHeadless } from "./engine";
 
@@ -53,6 +53,9 @@ const connectLan: Scenario = {
     { kind: "ping", from: "PC-A", to: "PC-B", label: "PC-A can ping PC-B" },
   ],
 };
+
+// Keep built-in scenario topologies in positive coordinate space.
+shiftToPositive(connectLan.topology);
 
 export const SCENARIOS: Scenario[] = [connectLan];
 

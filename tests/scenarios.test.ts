@@ -2,11 +2,26 @@
  * Scenario framework tests — loading, goal evaluation, and console parity.
  */
 import { describe, it, expect, beforeAll, beforeEach } from "bun:test";
-import { state } from "../src/state";
+import { state, defaultConfig, vlanRoasConfig, routerMeshConfig } from "../src/state";
 import { SCENARIOS, getScenario, loadScenario, checkScenario } from "../src/scenarios";
 import { addLink } from "../src/devices";
 import { runConsoleCommand as exec } from "../src/commands";
 import { registerNoopCallbacks, resetState } from "./helpers";
+
+describe("built-in topologies & scenarios — positive coordinates", () => {
+  const configs: [string, any][] = [
+    ["default", defaultConfig], ["vlan-roas", vlanRoasConfig], ["router-mesh", routerMeshConfig],
+    ...SCENARIOS.map(s => [`scenario:${s.id}`, s.topology] as [string, any]),
+  ];
+  for (const [name, cfg] of configs) {
+    it(`${name} has all device coordinates >= 0`, () => {
+      for (const d of cfg.devices) {
+        expect(d.x, `${name} ${d.name || d.id} x`).toBeGreaterThanOrEqual(0);
+        expect(d.y, `${name} ${d.name || d.id} y`).toBeGreaterThanOrEqual(0);
+      }
+    });
+  }
+});
 
 beforeAll(() => registerNoopCallbacks());
 

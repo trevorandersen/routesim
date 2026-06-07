@@ -1,4 +1,5 @@
 import type { AppState } from "./types";
+import { shiftToPositive } from "./normalise";
 
 export type SyncCallbacks = {
   render: () => void;
@@ -379,6 +380,9 @@ export const routerMeshConfig = {
     { from: "r4", to: "r5" }
   ]
 };
+
+// Keep all built-in topologies in positive coordinate space.
+[defaultConfig, vlanRoasConfig, routerMeshConfig].forEach(c => shiftToPositive(c));
 
 // --- Undo system ---
 

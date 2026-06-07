@@ -1547,6 +1547,328 @@
   <script>
 "use strict";
 (() => {
+  // src/utils.ts
+  function escapeHtml(value) {
+    return String(value).replaceAll("&", "&amp;").replaceAll("<", "&lt;").replaceAll(">", "&gt;").replaceAll('"', "&quot;");
+  }
+  function isValidIpv4(value) {
+    const parts = value.split(".");
+    if (parts.length !== 4) return false;
+    return parts.every((part) => {
+      if (!/^\d{1,3}$/.test(part)) return false;
+      if (part.length > 1 && part.startsWith("0")) return false;
+      const octet = Number(part);
+      return octet >= 0 && octet <= 255;
+    });
+  }
+  function ipv4ToInt(ip) {
+    const parts = ip.split(".").map(Number);
+    return (parts[0] << 24 | parts[1] << 16 | parts[2] << 8 | parts[3]) >>> 0;
+  }
+  function sameSubnet24(a, b) {
+    if (!a || !b || !isValidIpv4(a) || !isValidIpv4(b)) return false;
+    return ipv4ToInt(a) >>> 8 === ipv4ToInt(b) >>> 8;
+  }
+  function normaliseMacAddress(value) {
+    return String(value || "").trim().replaceAll("-", ":").toUpperCase();
+  }
+  function isValidMac(value) {
+    return /^([0-9A-F]{2}:){5}[0-9A-F]{2}$/.test(value);
+  }
+  function clampPortCount(value) {
+    const portCount = Number(value);
+    if (!Number.isInteger(portCount)) return 8;
+    return Math.min(24, Math.max(4, portCount));
+  }
+  function clampRouterPortCount(value) {
+    const portCount = Number(value);
+    if (!Number.isInteger(portCount)) return 4;
+    return Math.min(12, Math.max(0, portCount));
+  }
+  function parseIpv4Token(value) {
+    const match = String(value || "").trim().match(/^([^/]+)(?:\/(\d{1,2}))?$/);
+    if (!match) return null;
+    const address = match[1];
+    const prefixLength = match[2] == null ? null : Number(match[2]);
+    if (!isValidIpv4(address)) return null;
+    if (prefixLength != null && (!Number.isInteger(prefixLength) || prefixLength < 0 || prefixLength > 32)) return null;
+    return { address, prefixLength };
+  }
+  function normaliseVlanId(value) {
+    const id = Number(value);
+    if (!Number.isInteger(id) || id < 1 || id > 4094) return null;
+    return id;
+  }
+  var cssColorCache = /* @__PURE__ */ new Map();
+  function cssColor(name) {
+    let value = cssColorCache.get(name);
+    if (value === void 0) {
+      value = getComputedStyle(document.documentElement).getPropertyValue(name).trim();
+      cssColorCache.set(name, value);
+    }
+    return value;
+  }
+  function clearCssColorCache() {
+    cssColorCache.clear();
+  }
+  function randomMac() {
+    const bytes = new Uint8Array(6);
+    crypto.getRandomValues(bytes);
+    bytes[0] = bytes[0] & 254 | 2;
+    return Array.from(bytes, (b) => b.toString(16).padStart(2, "0").toUpperCase()).join(":");
+  }
+
+  // src/normalise.ts
+  function normaliseArpTable(entries) {
+    if (!Array.isArray(entries)) return [];
+    return entries.map((entry) => ({
+      ipv4Address: String(entry.ipv4Address || entry.ip || "").trim(),
+      macAddress: normaliseMacAddress(entry.macAddress || entry.mac || "")
+    })).filter((entry) => entry.ipv4Address || entry.macAddress);
+  }
+  function normaliseDhcpLeases(entries) {
+    if (!Array.isArray(entries)) return [];
+    return entries.map((entry) => ({
+      macAddress: normaliseMacAddress(entry.macAddress || entry.mac || ""),
+      ipv4Address: String(entry.ipv4Address || entry.ip || "").trim()
+    })).filter((entry) => entry.macAddress && entry.ipv4Address);
+  }
+  function normaliseMacTable(entries) {
+    if (!Array.isArray(entries)) return [];
+    return entries.map((entry) => {
+      const vlan = entry.vlan == null ? "" : String(entry.vlan).trim();
+      const macAddress = normaliseMacAddress(entry.macAddress || entry.mac || "");
+      const port = String(entry.port || "").trim();
+      const hasEntryData = Boolean(vlan || macAddress || port || entry.type);
+      const type = hasEntryData ? String(entry.type || "DYNAMIC").trim().toUpperCase() : "";
+      return { vlan, macAddress, type, port };
+    }).filter((entry) => entry.vlan || entry.macAddress || entry.type || entry.port);
+  }
+  function normaliseVlans(entries) {
+    const source = Array.isArray(entries) ? entries : [];
+    const seen = /* @__PURE__ */ new Set();
+    const vlans = [{ id: 1, name: "default" }];
+    source.forEach((entry) => {
+      const id = normaliseVlanId(typeof entry === "object" ? entry.id : entry);
+      if (!id || seen.has(id) || id === 1) return;
+      seen.add(id);
+      vlans.push({ id, name: String(entry.name || `Vlan${id}`).trim() });
+    });
+    return vlans.sort((a, b) => a.id - b.id);
+  }
+  function normalisePortVlans(portVlans) {
+    if (!portVlans || typeof portVlans !== "object") return {};
+    return Object.fromEntries(Object.entries(portVlans).map(([port, vlan]) => [String(port).trim(), normaliseVlanId(vlan)]).filter(([port, vlan]) => port && vlan && vlan !== 1));
+  }
+  function normalisePortModes(portModes) {
+    if (!portModes || typeof portModes !== "object") return {};
+    const valid = /* @__PURE__ */ new Set(["access", "trunk"]);
+    return Object.fromEntries(
+      Object.entries(portModes).map(([port, mode]) => [String(port).trim(), valid.has(String(mode)) ? String(mode) : "access"]).filter(([port]) => port)
+    );
+  }
+  function normaliseTrunkAllowedVlans(allowed) {
+    if (!allowed || typeof allowed !== "object") return {};
+    return Object.fromEntries(
+      Object.entries(allowed).map(([port, vlans]) => [
+        String(port).trim(),
+        (Array.isArray(vlans) ? vlans : []).map(Number).filter((v) => v >= 1 && v <= 4094)
+      ]).filter(([port, vlans]) => port && vlans.length)
+    );
+  }
+  function normaliseRouterInterfaces(entries, routerId) {
+    if (!Array.isArray(entries)) return [];
+    return entries.map((entry, index) => ({
+      peerId: String(entry.peerId || entry.peer || entry.linkedDeviceId || "").trim(),
+      type: entry.type === "serial" ? "serial" : "ethernet",
+      name: String(entry.name || "").trim(),
+      ipv4Address: String(entry.ipv4Address || entry.ip || "").trim(),
+      macAddress: entry.macAddress || generateRouterIfaceMac(routerId || "", index),
+      arpTable: normaliseArpTable(entry.arpTable || []),
+      dhcpLeases: normaliseDhcpLeases(entry.dhcpLeases || []),
+      vlanTag: entry.vlanTag != null ? normaliseVlanId(entry.vlanTag) || null : null
+    })).filter((entry) => entry.peerId || entry.name || entry.ipv4Address || entry.arpTable.length);
+  }
+  function normaliseRipConfig(rip) {
+    if (!rip || typeof rip !== "object") return { enabled: false, networks: [], passiveInterfaces: [], learnedRoutes: [] };
+    return {
+      enabled: Boolean(rip.enabled),
+      networks: Array.isArray(rip.networks) ? rip.networks.map((n) => String(n).trim()).filter(Boolean) : [],
+      passiveInterfaces: Array.isArray(rip.passiveInterfaces) ? rip.passiveInterfaces.map((n) => String(n).trim()).filter(Boolean) : [],
+      learnedRoutes: Array.isArray(rip.learnedRoutes) ? rip.learnedRoutes.map((r) => ({
+        network: String(r.network || "").trim(),
+        nextHop: String(r.nextHop || "").trim(),
+        interface: r.interface ? String(r.interface).trim() : void 0,
+        metric: Number(r.metric) || 2
+      })).filter((r) => r.network && r.nextHop) : []
+    };
+  }
+  function normaliseStaticRoutes(routes) {
+    if (!Array.isArray(routes)) return [];
+    return routes.filter((r) => r && r.network && r.nextHop).map((r) => ({
+      network: String(r.network).trim(),
+      nextHop: String(r.nextHop).trim()
+    }));
+  }
+  function generateRouterIfaceMac(routerId, ifaceIndex) {
+    let hash = 0;
+    for (let i = 0; i < routerId.length; i++) {
+      hash = (hash << 5) - hash + routerId.charCodeAt(i) | 0;
+    }
+    const rr = ((hash >>> 0) % 256).toString(16).padStart(2, "0");
+    const ii = ((ifaceIndex + 1) % 256).toString(16).padStart(2, "0");
+    return `02:${rr}:00:00:${ii}:01`;
+  }
+  function normaliseDeviceConfig(device) {
+    if (device.type === "switch") {
+      const ethernetPorts = clampPortCount(device.config?.ethernetPorts ?? device.ethernetPorts ?? 8);
+      const managed = Boolean(device.config?.managed ?? device.managed ?? false);
+      return {
+        managed,
+        ethernetPorts,
+        macTable: normaliseMacTable(device.config?.macTable || device.macTable || []),
+        ...managed ? {
+          vlans: normaliseVlans(device.config?.vlans || device.vlans || []),
+          portVlans: normalisePortVlans(device.config?.portVlans || device.portVlans || {}),
+          portModes: normalisePortModes(device.config?.portModes || device.portModes || {}),
+          trunkAllowedVlans: normaliseTrunkAllowedVlans(device.config?.trunkAllowedVlans || {}),
+          trunkNativeVlans: normalisePortVlans(device.config?.trunkNativeVlans || {})
+        } : {}
+      };
+    }
+    if (device.type === "router") {
+      const ethernetPorts = clampRouterPortCount(device.config?.ethernetPorts ?? device.ethernetPorts ?? 4);
+      const serialPorts = clampRouterPortCount(device.config?.serialPorts ?? device.serialPorts ?? 4);
+      const interfaces = normaliseRouterInterfaces(device.config?.interfaces || device.interfaces || [], device.id);
+      const invalidInterface = interfaces.find((entry) => entry.ipv4Address && !isValidIpv4(entry.ipv4Address));
+      if (invalidInterface) {
+        throw new Error(`${device.name || device.id || "Router"} has an invalid interface IPv4 address.`);
+      }
+      const ripConfig = normaliseRipConfig(device.config?.rip);
+      return {
+        ethernetPorts,
+        serialPorts,
+        interfaces,
+        staticRoutes: normaliseStaticRoutes(device.config?.staticRoutes || []),
+        ...ripConfig.enabled ? { rip: ripConfig } : {}
+      };
+    }
+    if (device.type === "lan") {
+      return {
+        anchorId: String(device.config?.anchorId || device.anchorId || ""),
+        members: Array.isArray(device.config?.members || device.members) ? (device.config?.members || device.members).map((id) => String(id)) : [],
+        absorbedLans: Array.isArray(device.config?.absorbedLans || device.absorbedLans) ? (device.config?.absorbedLans || device.absorbedLans).map((id) => String(id)) : []
+      };
+    }
+    if (device.type !== "computer") return {};
+    const ipv4Address = String(device.config?.ipv4Address || device.ipv4Address || "").trim();
+    const gatewayIpv4Address = String(device.config?.gatewayIpv4Address || device.gatewayIpv4Address || device.gateway || "").trim();
+    const macAddress = normaliseMacAddress(device.config?.macAddress || device.macAddress || "");
+    if (ipv4Address && !isValidIpv4(ipv4Address)) {
+      throw new Error(`${device.name || device.id || "Computer"} has an invalid IPv4 address.`);
+    }
+    if (gatewayIpv4Address && !isValidIpv4(gatewayIpv4Address)) {
+      throw new Error(`${device.name || device.id || "Computer"} has an invalid default gateway.`);
+    }
+    if (macAddress && !isValidMac(macAddress)) {
+      throw new Error(`${device.name || device.id || "Computer"} has an invalid MAC address.`);
+    }
+    return {
+      ipv4Address,
+      gatewayIpv4Address,
+      macAddress,
+      arpTable: normaliseArpTable(device.config?.arpTable || device.arpTable || [])
+    };
+  }
+  function normaliseConfig(parsed) {
+    if (!parsed || !Array.isArray(parsed.devices) || !Array.isArray(parsed.links)) {
+      throw new Error("Config needs devices and links arrays.");
+    }
+    const seenIds = /* @__PURE__ */ new Set();
+    const devices = parsed.devices.map((device, index) => {
+      if (!device || !["computer", "switch", "router", "lan"].includes(device.type)) {
+        throw new Error(`Device ${index + 1} needs type computer, switch, router, or lan.`);
+      }
+      const id = String(device.id || `device-${index + 1}`);
+      if (seenIds.has(id)) throw new Error(`Duplicate device id: ${id}`);
+      seenIds.add(id);
+      const x = Number(device.x);
+      const y = Number(device.y);
+      if (!Number.isFinite(x) || !Number.isFinite(y)) {
+        throw new Error(`Device ${device.name || id} needs numeric x and y.`);
+      }
+      return {
+        id,
+        type: device.type,
+        name: String(device.name || defaultNameForType(device.type, index + 1)),
+        x,
+        y,
+        width: deviceSize(device.type).width,
+        height: deviceSize(device.type).height,
+        hidden: Boolean(device.hidden),
+        ...device.poweredOff ? { poweredOff: true } : {},
+        ...device.collapsedBy ? { collapsedBy: String(device.collapsedBy) } : {},
+        config: normaliseDeviceConfig(device)
+      };
+    });
+    const links = [];
+    const seenLinks = /* @__PURE__ */ new Set();
+    parsed.links.forEach((link, index) => {
+      if (!link || !seenIds.has(String(link.from)) || !seenIds.has(String(link.to))) {
+        throw new Error(`Link ${index + 1} references a missing device.`);
+      }
+      const from = String(link.from);
+      const to = String(link.to);
+      if (from === to) return;
+      const key = [from, to].sort().join("::");
+      if (seenLinks.has(key)) return;
+      seenLinks.add(key);
+      links.push({
+        id: crypto.randomUUID ? crypto.randomUUID() : `${Date.now()}-${Math.random()}`,
+        from,
+        to,
+        ...link.fromPort != null ? { fromPort: Number(link.fromPort) } : {},
+        ...link.toPort != null ? { toPort: Number(link.toPort) } : {},
+        hidden: Boolean(link.hidden),
+        ...link.collapsedBy ? { collapsedBy: String(link.collapsedBy) } : {},
+        ...link.proxy ? { proxy: true } : {}
+      });
+    });
+    return { devices, links };
+  }
+  function ensureConfig(device) {
+    if (!device.config) device.config = defaultDeviceConfig(device.type);
+    return device.config;
+  }
+  function defaultDeviceConfig(type) {
+    if (type === "computer") return { ipv4Address: "", gatewayIpv4Address: "", macAddress: "", arpTable: [] };
+    if (type === "switch") return { managed: false, ethernetPorts: 8, macTable: [], vlans: [], portVlans: {}, portModes: {}, trunkAllowedVlans: {}, trunkNativeVlans: {} };
+    if (type === "router") return { ethernetPorts: 4, serialPorts: 4, interfaces: [] };
+    if (type === "lan") return { members: [] };
+    return {};
+  }
+  function shiftToPositive(config, margin = 80) {
+    const devices = config?.devices || [];
+    if (!devices.length) return config;
+    const dx = margin - Math.min(...devices.map((d) => d.x));
+    const dy = margin - Math.min(...devices.map((d) => d.y));
+    for (const d of devices) {
+      d.x += dx;
+      d.y += dy;
+    }
+    return config;
+  }
+  function deviceSize(type) {
+    if (type === "computer") return { width: 92, height: 68 };
+    if (type === "router") return { width: 92, height: 70 };
+    if (type === "lan") return { width: 112, height: 72 };
+    return { width: 104, height: 58 };
+  }
+  function defaultNameForType(type, fallbackNumber) {
+    if (type === "router") return `RTR-${fallbackNumber}`;
+    return type === "computer" ? `PC-${fallbackNumber}` : `SW-${fallbackNumber}`;
+  }
+
   // src/state.ts
   var _cb;
   function registerCallbacks(cb) {
@@ -1920,6 +2242,7 @@
       { from: "r4", to: "r5" }
     ]
   };
+  [defaultConfig, vlanRoasConfig, routerMeshConfig].forEach((c) => shiftToPositive(c));
   function networkSnapshot() {
     return JSON.stringify({
       devices: state.devices,
@@ -2050,317 +2373,6 @@
     portSelectionConfirm: document.getElementById("portSelectionConfirm"),
     portSelectionCancel: document.getElementById("portSelectionCancel")
   };
-
-  // src/utils.ts
-  function escapeHtml(value) {
-    return String(value).replaceAll("&", "&amp;").replaceAll("<", "&lt;").replaceAll(">", "&gt;").replaceAll('"', "&quot;");
-  }
-  function isValidIpv4(value) {
-    const parts = value.split(".");
-    if (parts.length !== 4) return false;
-    return parts.every((part) => {
-      if (!/^\d{1,3}$/.test(part)) return false;
-      if (part.length > 1 && part.startsWith("0")) return false;
-      const octet = Number(part);
-      return octet >= 0 && octet <= 255;
-    });
-  }
-  function ipv4ToInt(ip) {
-    const parts = ip.split(".").map(Number);
-    return (parts[0] << 24 | parts[1] << 16 | parts[2] << 8 | parts[3]) >>> 0;
-  }
-  function sameSubnet24(a, b) {
-    if (!a || !b || !isValidIpv4(a) || !isValidIpv4(b)) return false;
-    return ipv4ToInt(a) >>> 8 === ipv4ToInt(b) >>> 8;
-  }
-  function normaliseMacAddress(value) {
-    return String(value || "").trim().replaceAll("-", ":").toUpperCase();
-  }
-  function isValidMac(value) {
-    return /^([0-9A-F]{2}:){5}[0-9A-F]{2}$/.test(value);
-  }
-  function clampPortCount(value) {
-    const portCount = Number(value);
-    if (!Number.isInteger(portCount)) return 8;
-    return Math.min(24, Math.max(4, portCount));
-  }
-  function clampRouterPortCount(value) {
-    const portCount = Number(value);
-    if (!Number.isInteger(portCount)) return 4;
-    return Math.min(12, Math.max(0, portCount));
-  }
-  function parseIpv4Token(value) {
-    const match = String(value || "").trim().match(/^([^/]+)(?:\/(\d{1,2}))?$/);
-    if (!match) return null;
-    const address = match[1];
-    const prefixLength = match[2] == null ? null : Number(match[2]);
-    if (!isValidIpv4(address)) return null;
-    if (prefixLength != null && (!Number.isInteger(prefixLength) || prefixLength < 0 || prefixLength > 32)) return null;
-    return { address, prefixLength };
-  }
-  function normaliseVlanId(value) {
-    const id = Number(value);
-    if (!Number.isInteger(id) || id < 1 || id > 4094) return null;
-    return id;
-  }
-  var cssColorCache = /* @__PURE__ */ new Map();
-  function cssColor(name) {
-    let value = cssColorCache.get(name);
-    if (value === void 0) {
-      value = getComputedStyle(document.documentElement).getPropertyValue(name).trim();
-      cssColorCache.set(name, value);
-    }
-    return value;
-  }
-  function clearCssColorCache() {
-    cssColorCache.clear();
-  }
-  function randomMac() {
-    const bytes = new Uint8Array(6);
-    crypto.getRandomValues(bytes);
-    bytes[0] = bytes[0] & 254 | 2;
-    return Array.from(bytes, (b) => b.toString(16).padStart(2, "0").toUpperCase()).join(":");
-  }
-
-  // src/normalise.ts
-  function normaliseArpTable(entries) {
-    if (!Array.isArray(entries)) return [];
-    return entries.map((entry) => ({
-      ipv4Address: String(entry.ipv4Address || entry.ip || "").trim(),
-      macAddress: normaliseMacAddress(entry.macAddress || entry.mac || "")
-    })).filter((entry) => entry.ipv4Address || entry.macAddress);
-  }
-  function normaliseDhcpLeases(entries) {
-    if (!Array.isArray(entries)) return [];
-    return entries.map((entry) => ({
-      macAddress: normaliseMacAddress(entry.macAddress || entry.mac || ""),
-      ipv4Address: String(entry.ipv4Address || entry.ip || "").trim()
-    })).filter((entry) => entry.macAddress && entry.ipv4Address);
-  }
-  function normaliseMacTable(entries) {
-    if (!Array.isArray(entries)) return [];
-    return entries.map((entry) => {
-      const vlan = entry.vlan == null ? "" : String(entry.vlan).trim();
-      const macAddress = normaliseMacAddress(entry.macAddress || entry.mac || "");
-      const port = String(entry.port || "").trim();
-      const hasEntryData = Boolean(vlan || macAddress || port || entry.type);
-      const type = hasEntryData ? String(entry.type || "DYNAMIC").trim().toUpperCase() : "";
-      return { vlan, macAddress, type, port };
-    }).filter((entry) => entry.vlan || entry.macAddress || entry.type || entry.port);
-  }
-  function normaliseVlans(entries) {
-    const source = Array.isArray(entries) ? entries : [];
-    const seen = /* @__PURE__ */ new Set();
-    const vlans = [{ id: 1, name: "default" }];
-    source.forEach((entry) => {
-      const id = normaliseVlanId(typeof entry === "object" ? entry.id : entry);
-      if (!id || seen.has(id) || id === 1) return;
-      seen.add(id);
-      vlans.push({ id, name: String(entry.name || `Vlan${id}`).trim() });
-    });
-    return vlans.sort((a, b) => a.id - b.id);
-  }
-  function normalisePortVlans(portVlans) {
-    if (!portVlans || typeof portVlans !== "object") return {};
-    return Object.fromEntries(Object.entries(portVlans).map(([port, vlan]) => [String(port).trim(), normaliseVlanId(vlan)]).filter(([port, vlan]) => port && vlan && vlan !== 1));
-  }
-  function normalisePortModes(portModes) {
-    if (!portModes || typeof portModes !== "object") return {};
-    const valid = /* @__PURE__ */ new Set(["access", "trunk"]);
-    return Object.fromEntries(
-      Object.entries(portModes).map(([port, mode]) => [String(port).trim(), valid.has(String(mode)) ? String(mode) : "access"]).filter(([port]) => port)
-    );
-  }
-  function normaliseTrunkAllowedVlans(allowed) {
-    if (!allowed || typeof allowed !== "object") return {};
-    return Object.fromEntries(
-      Object.entries(allowed).map(([port, vlans]) => [
-        String(port).trim(),
-        (Array.isArray(vlans) ? vlans : []).map(Number).filter((v) => v >= 1 && v <= 4094)
-      ]).filter(([port, vlans]) => port && vlans.length)
-    );
-  }
-  function normaliseRouterInterfaces(entries, routerId) {
-    if (!Array.isArray(entries)) return [];
-    return entries.map((entry, index) => ({
-      peerId: String(entry.peerId || entry.peer || entry.linkedDeviceId || "").trim(),
-      type: entry.type === "serial" ? "serial" : "ethernet",
-      name: String(entry.name || "").trim(),
-      ipv4Address: String(entry.ipv4Address || entry.ip || "").trim(),
-      macAddress: entry.macAddress || generateRouterIfaceMac(routerId || "", index),
-      arpTable: normaliseArpTable(entry.arpTable || []),
-      dhcpLeases: normaliseDhcpLeases(entry.dhcpLeases || []),
-      vlanTag: entry.vlanTag != null ? normaliseVlanId(entry.vlanTag) || null : null
-    })).filter((entry) => entry.peerId || entry.name || entry.ipv4Address || entry.arpTable.length);
-  }
-  function normaliseRipConfig(rip) {
-    if (!rip || typeof rip !== "object") return { enabled: false, networks: [], passiveInterfaces: [], learnedRoutes: [] };
-    return {
-      enabled: Boolean(rip.enabled),
-      networks: Array.isArray(rip.networks) ? rip.networks.map((n) => String(n).trim()).filter(Boolean) : [],
-      passiveInterfaces: Array.isArray(rip.passiveInterfaces) ? rip.passiveInterfaces.map((n) => String(n).trim()).filter(Boolean) : [],
-      learnedRoutes: Array.isArray(rip.learnedRoutes) ? rip.learnedRoutes.map((r) => ({
-        network: String(r.network || "").trim(),
-        nextHop: String(r.nextHop || "").trim(),
-        interface: r.interface ? String(r.interface).trim() : void 0,
-        metric: Number(r.metric) || 2
-      })).filter((r) => r.network && r.nextHop) : []
-    };
-  }
-  function normaliseStaticRoutes(routes) {
-    if (!Array.isArray(routes)) return [];
-    return routes.filter((r) => r && r.network && r.nextHop).map((r) => ({
-      network: String(r.network).trim(),
-      nextHop: String(r.nextHop).trim()
-    }));
-  }
-  function generateRouterIfaceMac(routerId, ifaceIndex) {
-    let hash = 0;
-    for (let i = 0; i < routerId.length; i++) {
-      hash = (hash << 5) - hash + routerId.charCodeAt(i) | 0;
-    }
-    const rr = ((hash >>> 0) % 256).toString(16).padStart(2, "0");
-    const ii = ((ifaceIndex + 1) % 256).toString(16).padStart(2, "0");
-    return `02:${rr}:00:00:${ii}:01`;
-  }
-  function normaliseDeviceConfig(device) {
-    if (device.type === "switch") {
-      const ethernetPorts = clampPortCount(device.config?.ethernetPorts ?? device.ethernetPorts ?? 8);
-      const managed = Boolean(device.config?.managed ?? device.managed ?? false);
-      return {
-        managed,
-        ethernetPorts,
-        macTable: normaliseMacTable(device.config?.macTable || device.macTable || []),
-        ...managed ? {
-          vlans: normaliseVlans(device.config?.vlans || device.vlans || []),
-          portVlans: normalisePortVlans(device.config?.portVlans || device.portVlans || {}),
-          portModes: normalisePortModes(device.config?.portModes || device.portModes || {}),
-          trunkAllowedVlans: normaliseTrunkAllowedVlans(device.config?.trunkAllowedVlans || {}),
-          trunkNativeVlans: normalisePortVlans(device.config?.trunkNativeVlans || {})
-        } : {}
-      };
-    }
-    if (device.type === "router") {
-      const ethernetPorts = clampRouterPortCount(device.config?.ethernetPorts ?? device.ethernetPorts ?? 4);
-      const serialPorts = clampRouterPortCount(device.config?.serialPorts ?? device.serialPorts ?? 4);
-      const interfaces = normaliseRouterInterfaces(device.config?.interfaces || device.interfaces || [], device.id);
-      const invalidInterface = interfaces.find((entry) => entry.ipv4Address && !isValidIpv4(entry.ipv4Address));
-      if (invalidInterface) {
-        throw new Error(`${device.name || device.id || "Router"} has an invalid interface IPv4 address.`);
-      }
-      const ripConfig = normaliseRipConfig(device.config?.rip);
-      return {
-        ethernetPorts,
-        serialPorts,
-        interfaces,
-        staticRoutes: normaliseStaticRoutes(device.config?.staticRoutes || []),
-        ...ripConfig.enabled ? { rip: ripConfig } : {}
-      };
-    }
-    if (device.type === "lan") {
-      return {
-        anchorId: String(device.config?.anchorId || device.anchorId || ""),
-        members: Array.isArray(device.config?.members || device.members) ? (device.config?.members || device.members).map((id) => String(id)) : [],
-        absorbedLans: Array.isArray(device.config?.absorbedLans || device.absorbedLans) ? (device.config?.absorbedLans || device.absorbedLans).map((id) => String(id)) : []
-      };
-    }
-    if (device.type !== "computer") return {};
-    const ipv4Address = String(device.config?.ipv4Address || device.ipv4Address || "").trim();
-    const gatewayIpv4Address = String(device.config?.gatewayIpv4Address || device.gatewayIpv4Address || device.gateway || "").trim();
-    const macAddress = normaliseMacAddress(device.config?.macAddress || device.macAddress || "");
-    if (ipv4Address && !isValidIpv4(ipv4Address)) {
-      throw new Error(`${device.name || device.id || "Computer"} has an invalid IPv4 address.`);
-    }
-    if (gatewayIpv4Address && !isValidIpv4(gatewayIpv4Address)) {
-      throw new Error(`${device.name || device.id || "Computer"} has an invalid default gateway.`);
-    }
-    if (macAddress && !isValidMac(macAddress)) {
-      throw new Error(`${device.name || device.id || "Computer"} has an invalid MAC address.`);
-    }
-    return {
-      ipv4Address,
-      gatewayIpv4Address,
-      macAddress,
-      arpTable: normaliseArpTable(device.config?.arpTable || device.arpTable || [])
-    };
-  }
-  function normaliseConfig(parsed) {
-    if (!parsed || !Array.isArray(parsed.devices) || !Array.isArray(parsed.links)) {
-      throw new Error("Config needs devices and links arrays.");
-    }
-    const seenIds = /* @__PURE__ */ new Set();
-    const devices = parsed.devices.map((device, index) => {
-      if (!device || !["computer", "switch", "router", "lan"].includes(device.type)) {
-        throw new Error(`Device ${index + 1} needs type computer, switch, router, or lan.`);
-      }
-      const id = String(device.id || `device-${index + 1}`);
-      if (seenIds.has(id)) throw new Error(`Duplicate device id: ${id}`);
-      seenIds.add(id);
-      const x = Number(device.x);
-      const y = Number(device.y);
-      if (!Number.isFinite(x) || !Number.isFinite(y)) {
-        throw new Error(`Device ${device.name || id} needs numeric x and y.`);
-      }
-      return {
-        id,
-        type: device.type,
-        name: String(device.name || defaultNameForType(device.type, index + 1)),
-        x,
-        y,
-        width: deviceSize(device.type).width,
-        height: deviceSize(device.type).height,
-        hidden: Boolean(device.hidden),
-        ...device.poweredOff ? { poweredOff: true } : {},
-        ...device.collapsedBy ? { collapsedBy: String(device.collapsedBy) } : {},
-        config: normaliseDeviceConfig(device)
-      };
-    });
-    const links = [];
-    const seenLinks = /* @__PURE__ */ new Set();
-    parsed.links.forEach((link, index) => {
-      if (!link || !seenIds.has(String(link.from)) || !seenIds.has(String(link.to))) {
-        throw new Error(`Link ${index + 1} references a missing device.`);
-      }
-      const from = String(link.from);
-      const to = String(link.to);
-      if (from === to) return;
-      const key = [from, to].sort().join("::");
-      if (seenLinks.has(key)) return;
-      seenLinks.add(key);
-      links.push({
-        id: crypto.randomUUID ? crypto.randomUUID() : `${Date.now()}-${Math.random()}`,
-        from,
-        to,
-        ...link.fromPort != null ? { fromPort: Number(link.fromPort) } : {},
-        ...link.toPort != null ? { toPort: Number(link.toPort) } : {},
-        hidden: Boolean(link.hidden),
-        ...link.collapsedBy ? { collapsedBy: String(link.collapsedBy) } : {},
-        ...link.proxy ? { proxy: true } : {}
-      });
-    });
-    return { devices, links };
-  }
-  function ensureConfig(device) {
-    if (!device.config) device.config = defaultDeviceConfig(device.type);
-    return device.config;
-  }
-  function defaultDeviceConfig(type) {
-    if (type === "computer") return { ipv4Address: "", gatewayIpv4Address: "", macAddress: "", arpTable: [] };
-    if (type === "switch") return { managed: false, ethernetPorts: 8, macTable: [], vlans: [], portVlans: {}, portModes: {}, trunkAllowedVlans: {}, trunkNativeVlans: {} };
-    if (type === "router") return { ethernetPorts: 4, serialPorts: 4, interfaces: [] };
-    if (type === "lan") return { members: [] };
-    return {};
-  }
-  function deviceSize(type) {
-    if (type === "computer") return { width: 92, height: 68 };
-    if (type === "router") return { width: 92, height: 70 };
-    if (type === "lan") return { width: 112, height: 72 };
-    return { width: 104, height: 58 };
-  }
-  function defaultNameForType(type, fallbackNumber) {
-    if (type === "router") return `RTR-${fallbackNumber}`;
-    return type === "computer" ? `PC-${fallbackNumber}` : `SW-${fallbackNumber}`;
-  }
 
   // src/devices.ts
   function addDevice(type, x, y, name) {
@@ -6116,6 +6128,7 @@ ${lines.join("\n")}
       { kind: "ping", from: "PC-A", to: "PC-B", label: "PC-A can ping PC-B" }
     ]
   };
+  shiftToPositive(connectLan.topology);
   var SCENARIOS = [connectLan];
   function getScenario(id) {
     return SCENARIOS.find((s) => s.id === id);

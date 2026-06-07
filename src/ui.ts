@@ -73,8 +73,46 @@ export function bindOptionToggle(input: HTMLInputElement, optionKey: string): vo
 }
 
 // Global keyboard shortcuts. Extracted from setupUI() so it can be unit-tested.
-export function openAbout(): void { dom.aboutOverlay.classList.add("open"); }
+export function openAbout(): void {
+  // Reset any drag position so it re-centres each time it opens.
+  dom.aboutModal.style.position = "";
+  dom.aboutModal.style.left = "";
+  dom.aboutModal.style.top = "";
+  dom.aboutModal.style.margin = "";
+  dom.aboutOverlay.classList.add("open");
+}
 export function closeAbout(): void { dom.aboutOverlay.classList.remove("open"); }
+
+let aboutDrag: { dx: number; dy: number } | null = null;
+
+function startAboutDrag(event: PointerEvent): void {
+  if ((event.target as HTMLElement)?.closest("button")) return; // let the close button work
+  const rect = dom.aboutModal.getBoundingClientRect();
+  aboutDrag = { dx: event.clientX - rect.left, dy: event.clientY - rect.top };
+  // Pin the modal to its current spot, then move it freely.
+  dom.aboutModal.style.position = "fixed";
+  dom.aboutModal.style.margin = "0";
+  dom.aboutModal.style.left = `${rect.left}px`;
+  dom.aboutModal.style.top = `${rect.top}px`;
+  dom.aboutHeader.setPointerCapture(event.pointerId);
+  event.preventDefault();
+}
+
+function moveAboutDrag(event: PointerEvent): void {
+  if (!aboutDrag) return;
+  const maxX = window.innerWidth - dom.aboutModal.offsetWidth;
+  const maxY = window.innerHeight - dom.aboutModal.offsetHeight;
+  const x = Math.min(Math.max(0, event.clientX - aboutDrag.dx), Math.max(0, maxX));
+  const y = Math.min(Math.max(0, event.clientY - aboutDrag.dy), Math.max(0, maxY));
+  dom.aboutModal.style.left = `${x}px`;
+  dom.aboutModal.style.top = `${y}px`;
+}
+
+function endAboutDrag(event: PointerEvent): void {
+  if (!aboutDrag) return;
+  aboutDrag = null;
+  try { dom.aboutHeader.releasePointerCapture(event.pointerId); } catch { /* already released */ }
+}
 
 export function handleGlobalKeydown(event: KeyboardEvent): void {
   if ((event.metaKey || event.ctrlKey) && event.key.toLowerCase() === "z") {
@@ -358,4 +396,8 @@ export function setupUI(): void {
   dom.aboutOverlay.addEventListener("click", (event) => {
     if (event.target === dom.aboutOverlay) closeAbout();
   });
+  dom.aboutHeader.addEventListener("pointerdown", startAboutDrag);
+  dom.aboutHeader.addEventListener("pointermove", moveAboutDrag);
+  dom.aboutHeader.addEventListener("pointerup", endAboutDrag);
+  dom.aboutHeader.addEventListener("pointercancel", endAboutDrag);
 }

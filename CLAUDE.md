@@ -173,6 +173,8 @@ Every link records frames that traverse it (`link.frameHistory[]`). Click a link
 - **Inspector** — right panel. Device config or link frame history; display options (names/IPs/MACs) live in the View ribbon tab.
 - **Scenario goal banner** — floats top-left when a scenario is active (`scenario-ui.ts`).
 - **Port selection modal** — `openPortSelectionModal()` (`devices.ts`) for choosing ports when connecting switches/routers.
+- **About modal** — Help → About (`openAbout`/`closeAbout` in `ui.ts`): project blurb + CC0 dedication. Draggable by its header; dismiss via close button, backdrop click, or Escape.
+- **Modals** use a solid `--modal-bg` background (`#BBBBBB` light / `#222222` dark), never transparent. The app boots in **light** theme by default (toggle in View).
 
 ## Keyboard shortcuts
 

@@ -53,5 +53,7 @@ export const dom = {
   portSelectionConfirm: document.getElementById("portSelectionConfirm") as HTMLButtonElement,
   portSelectionCancel: document.getElementById("portSelectionCancel")!,
   aboutOverlay: document.getElementById("aboutOverlay")!,
+  aboutModal: document.getElementById("aboutModal")!,
+  aboutHeader: document.getElementById("aboutHeader")!,
   aboutClose: document.getElementById("aboutClose")!,
 };

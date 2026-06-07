@@ -33,7 +33,7 @@ export const state: AppState = {
   panDrag: null,
   pan: { x: 0, y: 0 },
   scale: 1,
-  theme: "dark",
+  theme: "light",
   inspectorWidth: 320,
   inspectorResize: null,
   terminal: {

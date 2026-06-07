@@ -8,6 +8,11 @@
       --line-strong: #607080;
       --text: #e6edf3;
       --muted: #95a4b3;
+      /* Aliases used by modals/banners + the solid modal background. */
+      --fg: var(--text);
+      --border: var(--line);
+      --panel-bg: var(--panel);
+      --modal-bg: #222222;
       --accent: #14746f;
       --accent-soft: #123d3a;
       --danger: #f87171;
@@ -59,6 +64,7 @@
       --line-strong: #8b98a5;
       --text: #17212b;
       --muted: #667381;
+      --modal-bg: #BBBBBB;
       --accent-soft: #dff4f0;
       --danger: #bc3b3b;
       --stage-bg: #e8edf1;
@@ -1255,7 +1261,7 @@
     .port-selection-modal {
       width: min(640px, calc(100vw - 48px));
       max-height: calc(100vh - 80px);
-      background: var(--panel-bg);
+      background: var(--modal-bg);
       border: 1px solid var(--border);
       border-radius: 12px;
       box-shadow: 0 16px 48px rgba(0, 0, 0, 0.3);
@@ -1354,7 +1360,7 @@
     .about-modal {
       width: min(620px, calc(100vw - 48px));
       max-height: calc(100vh - 80px);
-      background: var(--panel-bg);
+      background: var(--modal-bg);
       border: 1px solid var(--border);
       border-radius: 12px;
       box-shadow: 0 16px 48px rgba(0, 0, 0, 0.3);
@@ -1368,7 +1374,11 @@
       justify-content: space-between;
       padding: 12px 16px;
       border-bottom: 1px solid var(--border);
+      cursor: move;
+      user-select: none;
+      touch-action: none;
     }
+    .about-header .panel-toggle { cursor: pointer; }
     .about-header h3 {
       margin: 0;
       font-size: 14px;

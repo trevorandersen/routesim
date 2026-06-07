@@ -49,7 +49,7 @@ function initialiseApp(): void {
   setInspectorWidth(state.inspectorWidth);
   state.pan = { x: dom.canvas.getBoundingClientRect().width / 2, y: dom.canvas.getBoundingClientRect().height / 2 };
   syncZoomLevel();
-  setTheme("dark");
+  setTheme("light");
   syncOptionControls();
   syncNetworkPanel();
   syncTerminal();

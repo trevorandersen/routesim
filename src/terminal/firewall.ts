@@ -70,9 +70,9 @@ export function runFirewallTerminalCommand(device: Device, command: string): voi
       "iptables -D FORWARD <rulenum>                    delete rule N",
       "iptables -P FORWARD ACCEPT|DROP                  set the default policy",
       "iptables -F [FORWARD]                            flush all rules",
-      "  matches: -s <ip/cidr>  -d <ip/cidr>  -p icmp|udp|all  --icmp-type <t>",
+      "  matches: -s <ip/cidr>  -d <ip/cidr>  -p icmp|tcp|udp|all  --icmp-type <t>  --dport <port>",
       "  targets: ACCEPT  DROP  REJECT",
-      "  Note: only FORWARD + L3 matches act today; -p tcp / --dport parse but never match (no L4 traffic yet).",
+      "  Note: transparent mode filters the FORWARD chain only.",
       "clear",
     ].join("\n"));
     return;

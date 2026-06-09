@@ -1,4 +1,4 @@
-import type { EthernetFrame, ArpPayload, Ipv4Payload, IcmpPayload, DhcpPayload } from "./types";
+import type { EthernetFrame, ArpPayload, Ipv4Payload, IcmpPayload, DhcpPayload, TcpPayload, TcpFlags } from "./types";
 
 let frameCounter = 0;
 function nextFrameId(): string {
@@ -113,6 +113,20 @@ export function createIcmpTimeExceeded(
   return { id: nextFrameId(), srcMac, dstMac, etherType: 0x0800, vlanTag, payload: ipv4 };
 }
 
+// TCP segment (protocol 6) — the simulator models the three-way handshake
+// (SYN / SYN-ACK / ACK) plus RST for refused connections.
+export function createTcpSegment(
+  srcMac: string, dstMac: string,
+  srcIp: string, dstIp: string,
+  srcPort: number, dstPort: number,
+  flags: TcpFlags,
+  ttl = 64, vlanTag: number | null = null
+): EthernetFrame {
+  const tcp: TcpPayload = { type: "tcp", srcPort, dstPort, flags };
+  const ipv4: Ipv4Payload = { type: "ipv4", srcIp, dstIp, ttl, protocol: 6, payload: tcp };
+  return { id: nextFrameId(), srcMac, dstMac, etherType: 0x0800, vlanTag, payload: ipv4 };
+}
+
 export function createDhcpDiscover(clientMac: string, transactionId: string, vlanTag: number | null = null): EthernetFrame {
   const dhcp: DhcpPayload = { type: "dhcp", messageType: "discover", transactionId, clientMac };
   const ipv4: Ipv4Payload = { type: "ipv4", srcIp: "0.0.0.0", dstIp: "255.255.255.255", ttl: 64, protocol: 17, payload: dhcp };
@@ -147,6 +161,9 @@ export function frameLabel(frame: EthernetFrame): string {
       const dhcp = ipv4.payload as DhcpPayload;
       const labels: Record<string, string> = { discover: "DHCP Disc", offer: "DHCP Offer", request: "DHCP Req", ack: "DHCP ACK" };
       label = labels[dhcp.messageType] || "DHCP";
+    } else if (ipv4.payload.type === "tcp") {
+      const labels: Record<string, string> = { "syn": "TCP SYN", "syn-ack": "TCP SYN-ACK", "ack": "TCP ACK", "rst": "TCP RST" };
+      label = labels[ipv4.payload.flags] || "TCP";
     } else if (ipv4.payload.type === "icmp") {
       label = ipv4.payload.icmpType === 8 ? "ICMP Echo"
         : ipv4.payload.icmpType === 11 ? "ICMP TTL Exceeded"
@@ -163,6 +180,7 @@ export function frameColor(frame: EthernetFrame): string {
   if (frame.payload.type === "arp") return "#f59e0b";    // amber
   const ipv4 = frame.payload as Ipv4Payload;
   if (ipv4.payload.type === "dhcp") return "#a78bfa";    // violet
+  if (ipv4.payload.type === "tcp") return ipv4.payload.flags === "rst" ? "#ef4444" : "#fb923c"; // orange (RST red)
   if (ipv4.payload.type === "icmp" && ipv4.payload.icmpType === 8) return "#3b82f6"; // blue
   if (ipv4.payload.type === "icmp" && ipv4.payload.icmpType === 11) return "#ef4444"; // red (TTL exceeded)
   return "#22c55e";                                        // green

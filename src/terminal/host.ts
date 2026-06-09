@@ -7,7 +7,7 @@ import { state, sync, pushUndo } from "../state";
 import { dom } from "../dom";
 import { isValidIpv4, parseIpv4Token, prefixOf, clampPrefixLength } from "../utils";
 import { normaliseArpTable, ensureConfig } from "../normalise";
-import { buildPingEvents, buildDhcpEvents } from "../simulation";
+import { buildPingEvents, buildDhcpEvents, buildConnectEvents } from "../simulation";
 import { startSimulation, runTraceroute } from "../engine";
 import { terminalLine } from "./core";
 
@@ -87,6 +87,7 @@ export function runHostTerminalCommand(host: Device, command: string): void {
       "  arp -n",
       "  ping <pc-name|ipv4>",
       "  traceroute <pc-name|ipv4>",
+      "  nc -z <pc-name|ipv4> <port>   (TCP connection test)",
       "  dhcp",
       "  clear"
     ].join("\n"));
@@ -133,6 +134,19 @@ export function runHostTerminalCommand(host: Device, command: string): void {
       terminalLine("error", result);
     } else {
       startSimulation(result, host.id, "", "dhcp");
+      dom.terminalInput.disabled = true;
+    }
+    return;
+  }
+
+  const ncMatch = command.match(/^nc\s+(?:-z\s+)?(\S+)\s+(\d+)$/i);
+  if (ncMatch) {
+    const port = Number(ncMatch[2]);
+    const result = buildConnectEvents(host, ncMatch[1], port);
+    if (typeof result === "string") {
+      terminalLine("error", result);
+    } else {
+      startSimulation(result, host.id, resolvePingTargetIp(ncMatch[1]), "tcp", port);
       dom.terminalInput.disabled = true;
     }
     return;

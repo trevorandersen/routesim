@@ -53,8 +53,10 @@ routesim.snapshot()                             // { devices, links, simulation 
 |---------|--------|
 | `ping <src> <dst>` | Start an **animated** ping (watch it on the canvas). |
 | `dhcp <host>` | Start an **animated** DHCP request. |
+| `connect <src> <dst> <port>` | Start an **animated** TCP three-way handshake. |
 | `run ping <src> <dst>` | **Headless** ping → returns reachable/unreachable + TTL + step count. |
 | `run dhcp <host>` | **Headless** DHCP → returns the assigned lease (or no response). |
+| `run connect <src> <dst> <port>` | **Headless** TCP connect → open / refused (RST) / timed out. |
 | `traceroute <src> <dst>` | **Headless** hop-by-hop path discovery via increasing TTL; `data` is `{ targetIp, hops, reached }`. Also `tracert`. |
 | `play` / `pause` / `step` / `stop` | Drive an animated run. |
 | `speed <ms>` | Milliseconds per hop. |

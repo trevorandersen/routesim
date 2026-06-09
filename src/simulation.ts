@@ -3,7 +3,7 @@ import { state } from "./state";
 import { getDevice, linkedPortsFor, linksFor } from "./devices";
 import { normalisePortVlans, normalisePortModes, normaliseTrunkAllowedVlans } from "./normalise";
 import { isValidIpv4, sameSubnet, prefixOf } from "./utils";
-import { createArpRequest, createIcmpEchoRequest, createDhcpDiscover } from "./frame";
+import { createArpRequest, createIcmpEchoRequest, createDhcpDiscover, createTcpSegment } from "./frame";
 
 export interface PingSetup {
   events: SimEvent[];
@@ -178,6 +178,72 @@ export function buildPingEvents(source: any, targetText: string, options: { ttl?
     initialFrame = createArpRequest(srcMac, srcIp, gwIp, vlanTag);
     const deferredIcmp = createIcmpEchoRequest(srcMac, "00:00:00:00:00:00", srcIp, dstIp, ttl, vlanTag);
     pendingArp[`${source.id}:${gwIp}`] = [deferredIcmp];
+  }
+
+  return {
+    events: [{
+      type: "frame_arrive" as const,
+      frame: initialFrame,
+      deviceId: firstHop.peerId,
+      fromDeviceId: source.id,
+      linkId: firstHop.linkId
+    }],
+    pendingArp
+  };
+}
+
+/**
+ * Validates a TCP connect (`nc <host> <port>`) and generates its initial
+ * events: a SYN to the target (same subnet) or via the default gateway —
+ * ARP-ing first when the next-hop MAC is unknown, exactly like ping. The
+ * handshake itself (SYN-ACK / ACK / RST) runs in the engine.
+ */
+export function buildConnectEvents(source: any, targetText: string, port: number): PingSetup | string {
+  if (!source.config?.ipv4Address) return `${source.name}: eth0 has no IPv4 address.`;
+  if (!source.config?.macAddress) return `${source.name}: eth0 has no MAC address.`;
+  if (!Number.isInteger(port) || port < 1 || port > 65535) return `nc: invalid port ${port}`;
+
+  const srcIp = source.config.ipv4Address;
+  const srcMac = source.config.macAddress;
+  const srcPort = 30000 + Math.floor(Math.random() * 20000); // ephemeral
+
+  const target = findPingTarget(targetText);
+  let dstIp: string;
+  if (target) {
+    if (!target.config?.ipv4Address) return `${target.name}: eth0 has no IPv4 address.`;
+    dstIp = target.config.ipv4Address;
+  } else if (isValidIpv4(targetText.trim())) {
+    dstIp = targetText.trim();
+  } else {
+    return `nc: cannot resolve ${targetText}`;
+  }
+
+  const pendingArp: Record<string, EthernetFrame[]> = {};
+  const firstHop = findFirstHop(source);
+  if (!firstHop) return `nc: Network is unreachable (no link)`;
+
+  const syn = (dstMac: string) => createTcpSegment(srcMac, dstMac, srcIp, dstIp, srcPort, port, "syn");
+
+  let initialFrame: EthernetFrame;
+  if (sameSubnet(srcIp, dstIp, prefixOf(source.config))) {
+    const arpEntry = (source.config.arpTable || []).find((e: any) => e.ipv4Address === dstIp);
+    if (arpEntry) {
+      initialFrame = syn(arpEntry.macAddress);
+    } else {
+      initialFrame = createArpRequest(srcMac, srcIp, dstIp, null);
+      pendingArp[`${source.id}:${dstIp}`] = [syn("00:00:00:00:00:00")];
+    }
+  } else {
+    if (!source.config?.gatewayIpv4Address) return `nc: connect: Network is unreachable (no default gateway)`;
+    const gwIp = source.config.gatewayIpv4Address;
+    if (!sameSubnet(gwIp, srcIp, prefixOf(source.config))) return `nc: connect: Network is unreachable (gateway not on source subnet)`;
+    const gwArpEntry = (source.config.arpTable || []).find((e: any) => e.ipv4Address === gwIp);
+    if (gwArpEntry) {
+      initialFrame = syn(gwArpEntry.macAddress);
+    } else {
+      initialFrame = createArpRequest(srcMac, srcIp, gwIp, null);
+      pendingArp[`${source.id}:${gwIp}`] = [syn("00:00:00:00:00:00")];
+    }
   }
 
   return {

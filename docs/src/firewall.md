@@ -44,13 +44,12 @@ Scriptable via the console: `cli <fw> iptables -A FORWARD -p icmp -j DROP`.
 
 ## Scope (what filters today)
 
-The frame model has no TCP and no L4 ports — the simulation only generates ARP /
-ICMP / DHCP. So matching is on **src/dst IP (CIDR), protocol (`icmp`/`all`), and
-ICMP type**. `-p tcp` / `--dport` parse but never match, and the CLI/inspector
-say so. REJECT behaves like DROP for now (no ICMP-unreachable reply). See
-`FUTURE_PLANS.md` for the L4 layer, stateful filtering, and the plan to let
-**routers** be configured as routing firewalls (reusing this rule engine on the
-INPUT/FORWARD path, like switches' managed mode).
+Matching covers **src/dst IP (CIDR), protocol (`icmp`/`tcp`/`udp`/`all`), ICMP
+type, and TCP destination port** (`-p tcp --dport 80` — exercised by the
+`nc`/`connect` TCP traffic generator). REJECT behaves like DROP for now (no
+ICMP-unreachable reply). See `FUTURE_PLANS.md` for stateful filtering and the
+plan to let **routers** be configured as routing firewalls (reusing this rule
+engine on the INPUT/FORWARD path, like switches' managed mode).
 
 ## How it fits
 

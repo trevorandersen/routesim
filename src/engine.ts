@@ -1,10 +1,10 @@
-import type { EthernetFrame, ArpPayload, Ipv4Payload, DhcpPayload, SimEvent, SimLogEntry, ActiveTransit, FrameHistoryEntry, RouteEntry, Device, DeviceType, FirewallRule, FirewallTarget } from "./types";
+import type { EthernetFrame, ArpPayload, Ipv4Payload, DhcpPayload, TcpPayload, SimEvent, SimLogEntry, ActiveTransit, FrameHistoryEntry, RouteEntry, Device, DeviceType, FirewallRule, FirewallTarget } from "./types";
 import { state, pushUndo, sync } from "./state";
 import { dom } from "./dom";
 import { getDevice, linkedPortsFor, routerInterfacesWithNames } from "./devices";
 import { normalisePortVlans, normalisePortModes, normaliseTrunkAllowedVlans, normaliseArpTable, normaliseMacTable, normaliseDhcpLeases, normaliseStaticRoutes } from "./normalise";
 import { sameSubnet, prefixOf, isValidIpv4, escapeHtml, ipv4ToInt, normaliseMacAddress } from "./utils";
-import { createArpRequest, createArpReply, createIcmpEchoRequest, createIcmpEchoReply, createIcmpTimeExceeded, createDhcpOffer, createDhcpRequest, createDhcpAck, BROADCAST_MAC, frameLabel } from "./frame";
+import { createArpRequest, createArpReply, createIcmpEchoRequest, createIcmpEchoReply, createIcmpTimeExceeded, createDhcpOffer, createDhcpRequest, createDhcpAck, createTcpSegment, BROADCAST_MAC, frameLabel } from "./frame";
 import { terminalLine, syncTerminal } from "./terminal";
 import { buildPingEvents, findPingTarget } from "./simulation";
 import type { PingSetup } from "./simulation";
@@ -15,7 +15,7 @@ export { buildRoutingTable, routingLookup, runRipConvergence } from "./routing";
 
 // ─── Public API ──────────────────────────────────────────────────────────────
 
-export function startSimulation(setup: PingSetup, originDeviceId: string, targetIp: string, mode: "ping" | "dhcp" = "ping"): void {
+export function startSimulation(setup: PingSetup, originDeviceId: string, targetIp: string, mode: "ping" | "dhcp" | "tcp" = "ping", targetPort: number | null = null): void {
   // Run RIP convergence before simulation to populate learned routes
   runRipConvergence();
   pushUndo();
@@ -34,10 +34,15 @@ export function startSimulation(setup: PingSetup, originDeviceId: string, target
   sim.pingTtl = 64;
   sim.pingResponderIp = null;
   sim.pingTimeExceeded = false;
+  sim.tcpSuccess = false;
+  sim.tcpRefused = false;
+  sim.tcpTargetPort = targetPort;
   sim.dhcpSuccess = false;
   sim.dhcpAssignedIp = null;
   sim.dhcpAssignedGateway = null;
-  const label = mode === "dhcp" ? "Requesting DHCP lease..." : `Simulating ping to ${targetIp}...`;
+  const label = mode === "dhcp" ? "Requesting DHCP lease..."
+    : mode === "tcp" ? `Opening TCP connection to ${targetIp}:${targetPort ?? "?"}...`
+    : `Simulating ping to ${targetIp}...`;
   state.terminal.lines.push({ kind: "sim", text: label });
   syncTerminal();
   syncSimLog();
@@ -89,6 +94,7 @@ export function stepOnce(): void {
 
 export interface SimResult {
   success: boolean;
+  refused?: boolean;             // TCP connect answered with RST (port closed)
   ttl?: number;
   responderIp?: string | null;   // who answered (echo reply or a router's TTL-exceeded)
   timeExceeded?: boolean;        // the answer was an ICMP Time-Exceeded
@@ -102,7 +108,7 @@ export interface SimResult {
 // and returns the result plus the hop-by-hop log. Reuses the same process handlers as
 // the animated path; powers the console `run` command, window.routesim, and tests.
 export function runSimulationHeadless(
-  setup: PingSetup, originDeviceId: string, targetIp: string, mode: "ping" | "dhcp" = "ping"
+  setup: PingSetup, originDeviceId: string, targetIp: string, mode: "ping" | "dhcp" | "tcp" = "ping", targetPort: number | null = null
 ): SimResult {
   runRipConvergence();
   const sim = state.simulation;
@@ -120,6 +126,9 @@ export function runSimulationHeadless(
   sim.pingTtl = 64;
   sim.pingResponderIp = null;
   sim.pingTimeExceeded = false;
+  sim.tcpSuccess = false;
+  sim.tcpRefused = false;
+  sim.tcpTargetPort = targetPort;
   sim.dhcpSuccess = false;
   sim.dhcpAssignedIp = null;
   sim.dhcpAssignedGateway = null;
@@ -140,7 +149,8 @@ export function runSimulationHeadless(
   if ((sim.status as string) !== "done") finishSimulation();
 
   return {
-    success: mode === "dhcp" ? sim.dhcpSuccess : sim.pingSuccess,
+    success: mode === "dhcp" ? sim.dhcpSuccess : mode === "tcp" ? sim.tcpSuccess : sim.pingSuccess,
+    refused: sim.tcpRefused,
     ttl: sim.pingTtl,
     responderIp: sim.pingResponderIp,
     timeExceeded: sim.pingTimeExceeded,
@@ -361,7 +371,7 @@ export function processAtComputer(device: Device, frame: EthernetFrame, fromDevi
         for (const pf of pending) {
           // Rewrite dstMac now that we know it
           pf.dstMac = arp.senderMac;
-          logStep(device, "sim-icmp", `Sending deferred ICMP Echo Request to ${arp.senderIp}`);
+          logStep(device, "sim-icmp", `Sending deferred ${frameLabel(pf)} to ${arp.senderIp}`);
           if (fromDeviceId) outgoing.push({ frame: pf, toDeviceId: fromDeviceId });
         }
         delete sim.pendingArp[pendingKey];
@@ -396,6 +406,35 @@ export function processAtComputer(device: Device, frame: EthernetFrame, fromDevi
           sim.pingTimeExceeded = true;
           logStep(device, "sim-icmp", `Received ICMP Time-Exceeded from ${ipv4.srcIp}`);
         }
+      }
+    } else if (ipv4.payload.type === "tcp") {
+      const tcp = ipv4.payload as TcpPayload;
+      if (ipv4.dstIp !== config.ipv4Address) return outgoing; // not for us
+      if (tcp.flags === "syn") {
+        // Listener model: no openPorts list = accept on any port; otherwise RST.
+        const listening = !Array.isArray(config.openPorts) || config.openPorts.includes(tcp.dstPort);
+        learnArp(config, ipv4.srcIp, frame.srcMac);
+        if (listening) {
+          logStep(device, "sim-tcp", `TCP SYN on port ${tcp.dstPort} — sending SYN-ACK`);
+          outgoing.push({ frame: createTcpSegment(config.macAddress || "", frame.srcMac, config.ipv4Address || "", ipv4.srcIp, tcp.dstPort, tcp.srcPort, "syn-ack", 64, frame.vlanTag), toDeviceId: fromDeviceId! });
+        } else {
+          logStep(device, "sim-drop", `TCP SYN on closed port ${tcp.dstPort} — sending RST`);
+          outgoing.push({ frame: createTcpSegment(config.macAddress || "", frame.srcMac, config.ipv4Address || "", ipv4.srcIp, tcp.dstPort, tcp.srcPort, "rst", 64, frame.vlanTag), toDeviceId: fromDeviceId! });
+        }
+      } else if (tcp.flags === "syn-ack") {
+        logStep(device, "sim-tcp", `TCP SYN-ACK from ${ipv4.srcIp}:${tcp.srcPort} — sending ACK (connection established)`);
+        if (device.id === sim.originDeviceId) {
+          sim.tcpSuccess = true;
+          sim.pingResponderIp = ipv4.srcIp;
+        }
+        outgoing.push({ frame: createTcpSegment(config.macAddress || "", frame.srcMac, config.ipv4Address || "", ipv4.srcIp, tcp.dstPort, tcp.srcPort, "ack", 64, frame.vlanTag), toDeviceId: fromDeviceId! });
+      } else if (tcp.flags === "rst") {
+        if (device.id === sim.originDeviceId) {
+          sim.tcpRefused = true;
+          logStep(device, "sim-drop", `TCP RST from ${ipv4.srcIp}:${tcp.srcPort} — connection refused`);
+        }
+      } else if (tcp.flags === "ack") {
+        logStep(device, "sim-tcp", `TCP ACK from ${ipv4.srcIp} — handshake complete`);
       }
     } else if (ipv4.payload.type === "dhcp") {
       const dhcp = ipv4.payload as DhcpPayload;
@@ -795,8 +834,11 @@ function ipMatchesCidr(ip: string, pattern: string): boolean {
 
 export function firewallRuleMatches(rule: FirewallRule, ipv4: Ipv4Payload): boolean {
   if (rule.protocol && rule.protocol !== "all") {
-    const proto = ipv4.protocol === 1 ? "icmp" : ipv4.protocol === 17 ? "udp" : "other";
-    if (rule.protocol !== proto) return false; // tcp/udp-port rules never match (no L4 traffic yet)
+    const proto = ipv4.protocol === 1 ? "icmp" : ipv4.protocol === 6 ? "tcp" : ipv4.protocol === 17 ? "udp" : "other";
+    if (rule.protocol !== proto) return false;
+  }
+  if (rule.dport != null) {
+    if (ipv4.payload.type !== "tcp" || ipv4.payload.dstPort !== rule.dport) return false;
   }
   if (rule.icmpType) {
     if (ipv4.payload.type !== "icmp") return false;
@@ -958,6 +1000,18 @@ function finishSimulation(): void {
       }
       sim.dhcpAssignedIp = apipaIp;
       if (!sim.headless) terminalLine("error", `DHCP: no response from server.\nAPIPA: assigned link-local ${apipaIp}`);
+    }
+  } else if (sim.mode === "tcp") {
+    if (!sim.headless) {
+      const targetIp = sim.pingTargetIp || "?";
+      const port = sim.tcpTargetPort ?? "?";
+      if (sim.tcpSuccess) {
+        terminalLine("", `Connection to ${targetIp} ${port} port [tcp/*] succeeded!`);
+      } else if (sim.tcpRefused) {
+        terminalLine("error", `nc: connect to ${targetIp} port ${port} (tcp) failed: Connection refused`);
+      } else {
+        terminalLine("error", `nc: connect to ${targetIp} port ${port} (tcp) failed: Operation timed out`);
+      }
     }
   } else if (!sim.headless) {
     const targetIp = sim.pingTargetIp || "?";

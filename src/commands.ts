@@ -18,7 +18,7 @@ import {
   startSimulation, stopSimulation, pauseSimulation, resumeSimulation, stepOnce,
   runSimulationHeadless, runTraceroute,
 } from "./engine";
-import { buildPingEvents, buildDhcpEvents, findPingTarget } from "./simulation";
+import { buildPingEvents, buildDhcpEvents, buildConnectEvents, findPingTarget } from "./simulation";
 import {
   setHostIp, setHostGateway, setRouterInterfaceIp, addSwitchVlan, removeSwitchVlan,
   setSwitchPortVlan, setSwitchPortMode, setSwitchTrunkNative, modifySwitchTrunkAllowed,
@@ -257,6 +257,18 @@ function cmdPing(args: string[]): CommandResult {
   return ok(`Ping ${src.name} → ${dst} started.`);
 }
 
+function cmdConnect(args: string[]): CommandResult {
+  const src = resolveDevice(args[0]);
+  if (typeof src === "string") return err(src);
+  const dst = args[1];
+  const port = Number(args[2]);
+  if (!dst || !args[2]) return err(`connect: expected "connect <src> <dst> <port>".`);
+  const setup = buildConnectEvents(src, dst, port);
+  if (typeof setup === "string") return err(setup);
+  startSimulation(setup, src.id, targetIpFor(dst), "tcp", port);
+  return ok(`TCP connect ${src.name} → ${dst}:${port} started.`);
+}
+
 function cmdDhcp(args: string[]): CommandResult {
   const host = resolveDevice(args[0]);
   if (typeof host === "string") return err(host);
@@ -279,6 +291,18 @@ function cmdRun(args: string[]): CommandResult {
     return { ok: r.success, data: r,
       output: [`ping ${dst}: ${r.success ? `reachable (ttl=${r.ttl})` : "unreachable"} — ${r.steps} steps`] };
   }
+  if (mode === "connect" || mode === "tcp") {
+    const src = resolveDevice(args[1]);
+    if (typeof src === "string") return err(src);
+    const dst = args[2];
+    const port = Number(args[3]);
+    if (!dst || !args[3]) return err(`run connect: expected "run connect <src> <dst> <port>".`);
+    const setup = buildConnectEvents(src, dst, port);
+    if (typeof setup === "string") return err(setup);
+    const r = runSimulationHeadless(setup, src.id, targetIpFor(dst), "tcp", port);
+    return { ok: r.success, data: r,
+      output: [`connect ${dst}:${port}: ${r.success ? "open (handshake completed)" : r.refused ? "refused (RST)" : "timed out"} — ${r.steps} steps`] };
+  }
   if (mode === "dhcp") {
     const host = resolveDevice(args[1]);
     if (typeof host === "string") return err(host);
@@ -288,7 +312,7 @@ function cmdRun(args: string[]): CommandResult {
     return { ok: r.success, data: r,
       output: [r.success ? `dhcp: assigned ${r.assignedIp} (gw ${r.assignedGateway})` : "dhcp: no response"] };
   }
-  return err(`run: expected "ping <src> <dst>" or "dhcp <host>".`);
+  return err(`run: expected "ping <src> <dst>", "connect <src> <dst> <port>", or "dhcp <host>".`);
 }
 
 function cmdTraceroute(args: string[]): CommandResult {
@@ -482,7 +506,7 @@ const COMMANDS: Record<string, Handler> = {
   move: cmdMove, rename: cmdRename, clear: cmdClear, collapse: cmdCollapse, expand: cmdExpand,
   ip: cmdIp, gateway: cmdGateway, mac: cmdMac, interface: cmdInterface, route: cmdRoute,
   vlan: cmdVlan, port: cmdPort, cli: cmdCli,
-  ping: cmdPing, dhcp: cmdDhcp, run: cmdRun, traceroute: cmdTraceroute, tracert: cmdTraceroute,
+  ping: cmdPing, dhcp: cmdDhcp, connect: cmdConnect, run: cmdRun, traceroute: cmdTraceroute, tracert: cmdTraceroute,
   play: cmdPlay, pause: cmdPause, step: cmdStep,
   stop: cmdStop, speed: cmdSpeed,
   topology: cmdTopology, save: cmdSave, load: cmdLoad, undo: cmdUndo, export: cmdExport,
@@ -501,8 +525,8 @@ const HELP: Record<string, string> = {
   interface: "interface <router> <peer> ip <addr> [vlan <tag>]", route: "route <router> <net/prefix> <nextHop>",
   vlan: "vlan <switch> add|del <id>", port: "port <switch> <EthN> vlan|mode|native|allowed ...",
   cli: "cli <device> <raw CLI command>",
-  ping: "ping <src> <dst> (animated)", dhcp: "dhcp <host> (animated)",
-  run: "run ping <src> <dst> | run dhcp <host> (headless, returns result)",
+  ping: "ping <src> <dst> (animated)", dhcp: "dhcp <host> (animated)", connect: "connect <src> <dst> <port> (animated TCP handshake)",
+  run: "run ping <src> <dst> | run connect <src> <dst> <port> | run dhcp <host> (headless, returns result)",
   traceroute: "traceroute <src> <dst> (hop-by-hop via TTL)",
   play: "resume", pause: "pause", step: "advance one hop", stop: "stop", speed: "speed <ms-per-hop>",
   topology: "topology basic|vlan-roas|router-mesh", save: "save <name>", load: "load <name>",

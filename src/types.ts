@@ -106,6 +106,9 @@ export interface ComputerConfig {
   gatewayIpv4Address: string;
   macAddress: string;
   arpTable: ArpEntry[];
+  // TCP listener model: undefined = accept connections on any port (permissive
+  // teaching default); a list = only these ports answer SYN, others send RST.
+  openPorts?: number[];
 }
 
 export interface SwitchConfig {
@@ -134,9 +137,9 @@ export interface LanConfig {
 }
 
 // A transparent inline firewall: a 2-port node that bridges ARP and filters
-// IPv4 on the FORWARD chain (first match wins, else the chain policy). Matching
-// is limited to L3 fields for now — `dport` parses but is inert until the sim
-// models L4 (TCP/UDP) traffic. See docs/src/firewall.md.
+// IPv4 on the FORWARD chain (first match wins, else the chain policy). Matches
+// L3 fields plus TCP destination ports (`-p tcp --dport`). See
+// docs/src/firewall.md.
 export type FirewallTarget = "accept" | "drop" | "reject";
 export interface FirewallRule {
   chain: string;                              // "forward" (v1); "input"/"output" reserved
@@ -145,7 +148,7 @@ export interface FirewallRule {
   src?: string;                               // IPv4 or CIDR
   dst?: string;                               // IPv4 or CIDR
   icmpType?: string;                          // e.g. "echo-request"
-  dport?: number;                             // parsed but inert (no L4 ports yet)
+  dport?: number;                             // TCP destination port (with protocol "tcp")
 }
 export interface FirewallConfig {
   ethernetPorts: number;
@@ -235,6 +238,15 @@ export interface IcmpPayload {
   sequence: number;
 }
 
+export type TcpFlags = "syn" | "syn-ack" | "ack" | "rst";
+
+export interface TcpPayload {
+  type: "tcp";
+  srcPort: number;
+  dstPort: number;
+  flags: TcpFlags;
+}
+
 export interface DhcpPayload {
   type: "dhcp";
   messageType: "discover" | "offer" | "request" | "ack";
@@ -252,8 +264,8 @@ export interface Ipv4Payload {
   srcIp: string;
   dstIp: string;
   ttl: number;
-  protocol: number;   // 1 = ICMP, 17 = UDP/DHCP
-  payload: IcmpPayload | DhcpPayload;
+  protocol: number;   // 1 = ICMP, 6 = TCP, 17 = UDP/DHCP
+  payload: IcmpPayload | DhcpPayload | TcpPayload;
 }
 
 export interface EthernetFrame {
@@ -293,7 +305,7 @@ export interface SimLogEntry {
 
 export interface SimulationState {
   status: "idle" | "running" | "paused" | "done";
-  mode: "ping" | "dhcp";
+  mode: "ping" | "dhcp" | "tcp";
   events: SimEvent[];
   log: SimLogEntry[];
   transits: ActiveTransit[];
@@ -307,6 +319,9 @@ export interface SimulationState {
   pingTtl: number;
   pingResponderIp: string | null;   // who answered (echo reply, or a router's TTL-exceeded)
   pingTimeExceeded: boolean;         // the last answer was an ICMP Time-Exceeded
+  tcpSuccess: boolean;               // three-way handshake completed (mode "tcp")
+  tcpRefused: boolean;               // destination answered RST (port closed)
+  tcpTargetPort: number | null;
   headless: boolean;                 // running synchronously (no animation / terminal output)
   dhcpSuccess: boolean;
   dhcpAssignedIp: string | null;

@@ -39,10 +39,8 @@ Effort: moderate–high (touches L2 forwarding in `engine.ts`).
 
 ### Firewall — beyond basic packet filtering
 The **transparent inline firewall** device (iptables CLI, FORWARD chain, L3
-matching) is **done** — see `docs/src/firewall.md`. Next layers:
-- **L4 traffic + ports.** The frame model has no TCP/UDP ports yet, so `-p tcp` /
-  `--dport` rules parse but never match. Add a TCP/UDP "connection test" traffic
-  generator (e.g. `nc`/`curl`-style) so port rules become meaningful.
+matching) is **done**, and the **L4 TCP layer** (nc/connect three-way handshake,
+live `-p tcp --dport` rules) is **done** too — see `docs/src/firewall.md`. Next layers:
 - **Routers as routing firewalls.** Let a router be put into a firewall-enabled
   mode (exactly like switches' managed/unmanaged toggle), reusing the same
   iptables rule engine on its INPUT/FORWARD path — a realistic perimeter device.

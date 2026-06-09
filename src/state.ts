@@ -1,5 +1,6 @@
 import type { AppState } from "./types";
 import { shiftToPositive } from "./normalise";
+import { freshNameCounters } from "./device-registry";
 
 export type SyncCallbacks = {
   render: () => void;
@@ -70,10 +71,7 @@ export const state: AppState = {
     displayOptionsOpen: false,
     networkPanelOpen: false
   },
-  nextComputer: 1,
-  nextSwitch: 1,
-  nextRouter: 1,
-  nextFirewall: 1,
+  nameCounters: freshNameCounters(),
   configStore: { version: 1, configs: {} },
   undoStack: [],
   isApplyingCompositeChange: false,
@@ -113,45 +111,6 @@ export const toolCopy: Record<string, [string, string]> = {
 
 export const colors = {
   selected: "#f0b429"
-};
-
-export const deviceIcons: Record<string, string[]> = {
-  // MIT-licensed Tabler icon path data, adapted for canvas rendering.
-  computer: [
-    "M3 5a1 1 0 0 1 1 -1h16a1 1 0 0 1 1 1v10a1 1 0 0 1 -1 1h-16a1 1 0 0 1 -1 -1v-10",
-    "M7 20h10",
-    "M9 16v4",
-    "M15 16v4"
-  ],
-  switch: [
-    "M16 3l4 4l-4 4",
-    "M10 7l10 0",
-    "M8 13l-4 4l4 4",
-    "M4 17l9 0"
-  ],
-  router: [
-    "M12 12m-9 0a9 9 0 1 0 18 0a9 9 0 1 0 -18 0",
-    "M6 12h5",
-    "M8 10l3 2l-3 2",
-    "M18 12h-5",
-    "M16 10l-3 2l3 2",
-    "M12 10v-5",
-    "M10 7l2 -2l2 2",
-    "M12 14v5",
-    "M10 17l2 2l2 -2"
-  ],
-  firewall: [
-    // Tabler "shield-check" — security/firewall.
-    "M12 3a12 12 0 0 0 8.5 3a12 12 0 0 1 -8.5 15a12 12 0 0 1 -8.5 -15a12 12 0 0 0 8.5 -3",
-    "M9 12l2 2l4 -4"
-  ],
-  lan: [
-    "M7 18a4.6 4.4 0 0 1 -1.2 -8.9a5.8 5.6 0 0 1 10.8 -1.9a4.7 4.5 0 0 1 1.4 8.8",
-    "M8 18h9",
-    "M10 15h4",
-    "M12 13v5",
-    "M8 20h8"
-  ]
 };
 
 export const defaultConfig = {
@@ -415,10 +374,7 @@ export function networkSnapshot(): string {
     }),
     selectedId: state.selectedId,
     configuringId: state.configuringId,
-    nextComputer: state.nextComputer,
-    nextSwitch: state.nextSwitch,
-    nextRouter: state.nextRouter,
-    nextFirewall: state.nextFirewall
+    nameCounters: { ...state.nameCounters }
   });
 }
 
@@ -445,10 +401,7 @@ export function restoreSnapshot(snapshot: string): void {
   state.links = restored.links;
   state.selectedId = restored.selectedId;
   state.configuringId = restored.configuringId;
-  state.nextComputer = restored.nextComputer;
-  state.nextSwitch = restored.nextSwitch;
-  state.nextRouter = restored.nextRouter || 1;
-  state.nextFirewall = restored.nextFirewall || 1;
+  state.nameCounters = { ...freshNameCounters(), ...(restored.nameCounters || {}) };
   state.linkStartId = null;
   state.selectedLinkId = null;
   state.drag = null;

@@ -348,10 +348,7 @@ export interface AppState {
   console: ConsoleState;
   activeScenarioId: string | null;
   options: DisplayOptions;
-  nextComputer: number;
-  nextSwitch: number;
-  nextRouter: number;
-  nextFirewall: number;
+  nameCounters: Record<DeviceType, number>;
   configStore: ConfigStore;
   undoStack: string[];
   isApplyingCompositeChange: boolean;

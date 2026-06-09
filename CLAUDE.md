@@ -72,12 +72,14 @@ app.ts (entry)
   ├── ui.ts          ← event listeners, tool switching, keyboard shortcuts
   ├── canvas.ts      ← render loop, pan/zoom, device/link/transit drawing
   ├── inspector.ts   ← right panel: device details, link frame history
-  ├── terminal.ts    ← bottom panel: per-device CLI, command dispatch
+  ├── terminal/      ← bottom panel CLI: core (dispatch/UI) + host, router (FRR), switch (SONiC), firewall (iptables)
   ├── devices.ts     ← device/link CRUD, hit testing, LAN collapse/expand
+  ├── device-registry.ts ← per-type spec: label, name prefix, size, palette, icon, default config
   ├── config.ts      ← topology serialise/apply + in-code default topologies
   ├── io.ts          ← JSON import/export (config/scenario/script/log)
   ├── ribbon.ts      ← tabbed ribbon UI (File/Edit/View/Simulate/Scenarios/Help)
   ├── engine.ts      ← simulation engine: step loop, per-device frame processing
+  ├── routing.ts     ← routing table, longest-match lookup, RIP convergence
   ├── simulation.ts  ← buildPingEvents(), L2 reachability, routing utilities
   ├── frame.ts       ← EthernetFrame factories, frame labels/colors
   ├── normalise.ts   ← config normalisation, device defaults, router MAC generation
@@ -111,11 +113,13 @@ fixed enums may be interpolated raw.
 |------|---------|
 | `types.ts` | Every interface: `AppState`, `Device`, `Link`, `EthernetFrame`, `SimEvent`, `ActiveTransit`, `SimLogEntry`, `FrameHistoryEntry`, etc. |
 | `state.ts` | Singleton `state` object, undo stack (80-deep snapshots), `networkSnapshot()` strips transient data (frameHistory) from undo payloads. |
-| `engine.ts` | Two-phase simulation: **process phase** dequeues events → per-device handler → outgoing frames; **animate phase** rAF loop interpolates transit dots. Public API: `startSimulation`, `stopSimulation`, `pauseSimulation`, `resumeSimulation`, `stepOnce`. Per-device handlers: `processAtComputer`, `processAtSwitch`, `processAtRouter`. Routing: `buildRoutingTable`, `runRipConvergence`. |
+| `engine.ts` | Two-phase simulation: **process phase** dequeues events → per-device handler (the `PROCESSORS` map) → outgoing frames; **animate phase** rAF loop interpolates transit dots. Public API: `startSimulation`, `stopSimulation`, `pauseSimulation`, `resumeSimulation`, `stepOnce`, `runSimulationHeadless`, `runTraceroute`. Per-device handlers: `processAtComputer/Switch/Router/Firewall`. |
+| `routing.ts` | Routing table (`buildRoutingTable`: connected/static/RIP by metric), `routingLookup`, and `runRipConvergence` (split horizon, metric 16 = unreachable). Re-exported via `engine.ts` for compatibility. |
+| `device-registry.ts` | `DEVICE_SPECS` — one entry per device type: label, name prefix, canvas size/palette/icon, default config, user-addable flag. Drives naming, drawing, inspector labels, and console validation. |
 | `simulation.ts` | `buildPingEvents()` — validates a ping command and returns initial `SimEvent[]` + `pendingArp` map for deferred ICMPs. Does **not** pre-compute reachability: a destination IP with no device still emits a real ARP (to the target on-subnet, or the gateway off-subnet) and the simulation/router decides the outcome. Also has `l2Reachable`. |
 | `frame.ts` | Factory functions: `createArpRequest`, `createArpReply`, `createIcmpEchoRequest`, `createIcmpEchoReply`. Also `frameLabel()` and `frameColor()` for rendering. |
 | `canvas.ts` | All drawing: grid, links, devices (icon rendering via SVG path data on canvas), frame transit dots with glow/labels, zoom/pan math. |
-| `terminal.ts` | Per-device CLI, each modelled on a real open-source NOS. Computers: Linux-ish (`ping`, `traceroute`, `ip addr`, `arp -n`, …). Routers: **FRRouting** (vtysh) — `configure terminal`, `interface`, `router rip`, `show ip route`, `do <show>`, with prefix abbreviation (`sh ip ro`) and context-sensitive `?`. Managed switches: **SONiC** — flat `config vlan add/del`, `config vlan member add [-t] <vid> <port>`, `show vlan brief`/`mac`/`interfaces status`. Firewalls: **iptables** — `iptables -A FORWARD … -j DROP`, `-L`/`-P`/`-F`. Command history (up/down arrow). |
+| `terminal/` | Per-device CLI, one file per NOS (`core` dispatch/UI + `host`/`router`/`switch`/`firewall`), public API re-exported via `terminal/index.ts`. Each modelled on a real open-source NOS. Computers: Linux-ish (`ping`, `traceroute`, `ip addr`, `arp -n`, …). Routers: **FRRouting** (vtysh) — `configure terminal`, `interface`, `router rip`, `show ip route`, `do <show>`, with prefix abbreviation (`sh ip ro`) and context-sensitive `?`. Managed switches: **SONiC** — flat `config vlan add/del`, `config vlan member add [-t] <vid> <port>`, `show vlan brief`/`mac`/`interfaces status`. Firewalls: **iptables** — `iptables -A FORWARD … -j DROP`, `-L`/`-P`/`-F`. Command history (up/down arrow). |
 | `inspector.ts` | Right panel. Device selection shows config fields; link selection shows frame history (color-coded ARP/ICMP entries with step numbers). |
 | `devices.ts` | CRUD, hit testing (`findDeviceAt`, `findLinkAt`), port/interface enumeration, LAN collapse/expand (groups devices into a single node). |
 | `normalise.ts` | Defensive normalisation for all config shapes. `normaliseRouterInterfaces` auto-generates deterministic MACs (`02:RR:00:00:II:01`). |
@@ -125,7 +129,7 @@ fixed enums may be interpolated raw.
 | `commands.ts` | Text-command engine: parses a line, resolves device refs, dispatches to the action functions. `runConsoleCommand`/`runConsoleScript`/`exportTopologyScript`. Pure (no panel UI) so it's reused by the console, `window.routesim`, and tests. See `docs/scripting.md`. |
 | `console.ts` | The command console panel UI (distinct from per-device terminals); drives `commands.ts`. |
 | `scenarios.ts` | Guided-challenge scenarios: data model, `SCENARIOS` registry, `loadScenario`, and `checkScenario` (goal evaluation reusing `runSimulationHeadless`). `scenario-ui.ts` renders the goal banner. See `docs/scenarios.md`. |
-| `test-server.ts` | Dev server (Bun). Serves static files (`/` → `rs-main.html`) + `/api/tests` (list test suites) + `/api/run` (execute `bun test` with optional file/pattern filters). Powers `test.html` and `benchmark.html`. |
+| `test-server.ts` | Dev server (Bun). Serves static files (`/` → `rs-web.html`) + `/api/tests` (list test suites) + `/api/run` (execute `bun test` with optional file/pattern filters). Powers `test.html` and `benchmark.html`. |
 | `build-inline.ts` | Inlines CSS + bundled JS into `template.html` → named output file. Uses replacer functions to avoid `$`-pattern corruption. Called by `build.sh` per variant. |
 
 ## Simulation model
@@ -200,7 +204,7 @@ Every link records frames that traverse it (`link.frameHistory[]`). Click a link
 
 ## Common tasks
 
-**Adding a device type**: Add icon paths to `deviceIcons` in `state.ts`, palette to `devicePalette` in `canvas.ts` (+ `--<x>-fill/-stroke/-accent/-icon` vars in each theme in `styles.css`), config shape to `normaliseDeviceConfig` / `defaultDeviceConfig` in `normalise.ts`, the `DeviceType` union + config interfaces in `types.ts`, a name counter (`next<Type>`) in `state.ts`/`devices.ts` (incl. undo snapshot + `clearNetwork`), tool button in `template.html`, tool copy in `toolCopy` + a keyboard shortcut in `ui.ts`, the engine dispatch (`processAt<Type>`), the terminal/inspector device-type gates, and the `add`/`tool` validation in `commands.ts`. The **firewall** (transparent inline iptables filter) is the worked example — see [docs/src/firewall.md](docs/src/firewall.md).
+**Adding a device type**: (1) add the `DeviceType` union member + config interface in `types.ts`; (2) add a `DeviceSpec` entry to `DEVICE_SPECS` in `device-registry.ts` (label, name prefix, size, palette var, icon paths, default config) — this drives naming, drawing, inspector labels, and `add`/`tool` validation automatically; (3) add the `--<paletteVar>-fill/-stroke/-accent/-icon` vars to **each theme** in `styles.css` (the parity test enforces this); (4) add a normalise branch in `normaliseDeviceConfig`; (5) implement `processAt<Type>` in `engine.ts` and register it in the `PROCESSORS` map; (6) optionally add a CLI in `src/terminal/` and register it in `CLI_DISPATCH` (`terminal/core.ts`); (7) add the tool button in `template.html` + `toolCopy` entry and keyboard shortcut in `ui.ts`. The **firewall** is the worked example — see [docs/src/firewall.md](docs/src/firewall.md).
 
 **Adding a terminal command**: `runTerminalCommand()` in `terminal.ts` is the top-level dispatcher — it routes to `runRouterTerminalCommand()` for routers and `runSwitchTerminalCommand()` for switches. Computer commands (`ping`, `ip addr`, `arp`, `dhcp`) are handled inline in `runTerminalCommand()` itself. **Match the device's reference NOS** — router commands should follow FRRouting (vtysh), managed-switch commands should follow SONiC — so new commands stay faithful to a real CLI rather than inventing syntax.
 

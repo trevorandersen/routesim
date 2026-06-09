@@ -3,6 +3,7 @@ import { state, sync, pushUndo, networkSnapshot } from "./state";
 import { dom } from "./dom";
 import { deviceSize, defaultDeviceConfig, ensureConfig, normaliseRouterInterfaces, normalisePortVlans, normalisePortModes } from "./normalise";
 import { clampPortCount, clampRouterPortCount, escapeHtml, randomMac } from "./utils";
+import { DEVICE_SPECS, freshNameCounters } from "./device-registry";
 
 export function addDevice(type: DeviceType, x: number, y: number, name?: string): Device {
   pushUndo();
@@ -101,10 +102,7 @@ export function clearNetwork(): void {
   state.terminal.mode = "exec";
   state.terminal.interfacePeerId = null;
   state.terminal.lines = [];
-  state.nextComputer = 1;
-  state.nextSwitch = 1;
-  state.nextRouter = 1;
-  state.nextFirewall = 1;
+  state.nameCounters = freshNameCounters();
   sync().syncPanel();
   sync().syncTerminal();
   sync().render();
@@ -161,6 +159,10 @@ function pointToSegmentDistance(px: number, py: number, ax: number, ay: number, 
 // link endpoints are stable. In-place field changes (config, hidden, port) are
 // seen through the cached object references, so they need no invalidation —
 // which is why the adjacency keeps ALL links and callers filter `hidden`.
+//
+// INVARIANT: never replace an element in place (e.g. splice one out and push a
+// different one) — same ref + same length would silently serve a stale index.
+// Mutators must either reassign the array or only push/pop.
 let _deviceIndex = new Map<string, Device>();
 let _deviceRef: Device[] | null = null;
 let _deviceLen = -1;
@@ -264,14 +266,12 @@ export function linkedPortsFor(id: string): any[] {
 }
 
 export function nextName(type: string): string {
-  if (type === "computer") return `PC-${state.nextComputer++}`;
-  if (type === "router") return `RTR-${state.nextRouter++}`;
-  if (type === "firewall") return `FW-${state.nextFirewall++}`;
-  return `SW-${state.nextSwitch++}`;
+  const spec = DEVICE_SPECS[type as DeviceType];
+  return `${spec.namePrefix}-${state.nameCounters[type as DeviceType]++}`;
 }
 
 export function nextDeviceNumber(type: string): number {
-  const prefix = type === "computer" ? "PC-" : type === "router" ? "RTR-" : "SW-";
+  const prefix = `${DEVICE_SPECS[type as DeviceType].namePrefix}-`;
   const highest = state.devices
     .filter(device => device.type === type && device.name.startsWith(prefix))
     .map(device => Number(device.name.slice(prefix.length)))
@@ -520,6 +520,12 @@ export function switchInterfacesWithNames(device: any): any[] {
       nativeVlan: trunkNativeVlans[name] || 1
     };
   });
+}
+
+// Case-insensitive switch port lookup by name (e.g. "ethernet3" → Ethernet3).
+export function switchIfaceByName(device: any, portName: string): any {
+  const lower = String(portName || "").toLowerCase();
+  return switchInterfacesWithNames(device).find((p: any) => p.name.toLowerCase() === lower);
 }
 
 // ─── Port selection modal ─────────────────────────────────────────────────────

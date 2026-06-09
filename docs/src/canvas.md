@@ -12,7 +12,7 @@ All `<canvas>` drawing and the pan/zoom view transform. The entire scene is redr
 
 ### The render loop
 - **`render()`** — clears, applies the pan/zoom transform, then draws the grid, links, devices, and any in-flight transit dots. Called directly by interaction code and via `sync().render()` by everything else.
-- **`drawLink`, `drawDevice`, `drawComputer`/`drawSwitch`/`drawRouter`, `drawIconDevice`, `drawTablerIcon`, `drawManagedBadge`** — the drawing primitives. Device icons are rendered from SVG path data (`deviceIcons` in `state.ts`) via `Path2D`.
+- **`drawLink`, `drawDevice`, `drawIconDevice`, `drawTablerIcon`, `drawManagedBadge`** — the drawing primitives. Every device body/icon is drawn by `drawIconDevice` from its `DEVICE_SPECS` entry (`device-registry.ts`: size, corner radius, palette var, Tabler `Path2D` paths); managed switches add the badge.
 - **`linkColorFor`, `devicePalette`** — resolve themed colours; **`clampText`, `roundRect`** — drawing helpers.
 
 ## Performance

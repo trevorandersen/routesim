@@ -8,6 +8,7 @@
  */
 import type { Device, DeviceType } from "./types";
 import { state, undo, sync, THEMES } from "./state";
+import { USER_ADDABLE_TYPES } from "./device-registry";
 import { dom } from "./dom";
 import {
   addDevice, addLink, deleteSelection, clearNetwork, collapseLan, expandLan,
@@ -65,8 +66,8 @@ function targetIpFor(ref: string): string {
 
 function cmdAdd(args: string[]): CommandResult {
   const type = (args[0] || "").toLowerCase();
-  if (!["computer", "switch", "router", "firewall"].includes(type)) {
-    return err(`add: type must be computer|switch|router|firewall.`);
+  if (!USER_ADDABLE_TYPES.includes(type as DeviceType)) {
+    return err(`add: type must be ${USER_ADDABLE_TYPES.join("|")}.`);
   }
   let name: string | undefined;
   let pos = spawnPosition();
@@ -409,8 +410,9 @@ function cmdSelect(args: string[]): CommandResult {
 
 function cmdTool(args: string[]): CommandResult {
   const tool = (args[0] || "").toLowerCase();
-  if (!["select", "computer", "switch", "router", "firewall", "connect", "configure"].includes(tool)) {
-    return err(`tool: expected select|computer|switch|router|firewall|connect|configure.`);
+  const tools = ["select", ...USER_ADDABLE_TYPES, "connect", "configure"];
+  if (!tools.includes(tool)) {
+    return err(`tool: expected ${tools.join("|")}.`);
   }
   setTool(tool);
   return ok(`Tool: ${tool}.`);

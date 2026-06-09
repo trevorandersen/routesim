@@ -3,6 +3,7 @@ import type {
   RipConfig, StaticRoute, DeviceConfig, DeviceType, Device, Link, FirewallRule
 } from "./types";
 import { normaliseMacAddress, isValidMac, isValidIpv4, clampPortCount, clampRouterPortCount, normaliseVlanId } from "./utils";
+import { DEVICE_SPECS } from "./device-registry";
 
 export function normaliseArpTable(entries: unknown): ArpEntry[] {
   if (!Array.isArray(entries)) return [];
@@ -300,12 +301,7 @@ export function ensureConfig(device: Device): DeviceConfig {
 }
 
 export function defaultDeviceConfig(type: DeviceType): DeviceConfig {
-  if (type === "computer") return { ipv4Address: "", gatewayIpv4Address: "", macAddress: "", arpTable: [] };
-  if (type === "switch") return { managed: false, ethernetPorts: 8, macTable: [], vlans: [], portVlans: {}, portModes: {}, trunkAllowedVlans: {}, trunkNativeVlans: {} };
-  if (type === "router") return { ethernetPorts: 4, serialPorts: 4, interfaces: [] };
-  if (type === "firewall") return { ethernetPorts: 2, rules: [], policy: { forward: "accept" } };
-  if (type === "lan") return { members: [] };
-  return {};
+  return DEVICE_SPECS[type]?.defaultConfig() ?? {};
 }
 
 // Translates a topology in place so every device sits at a positive coordinate
@@ -321,15 +317,11 @@ export function shiftToPositive(config: any, margin = 80): any {
 }
 
 export function deviceSize(type: string): { width: number; height: number } {
-  if (type === "computer") return { width: 92, height: 68 };
-  if (type === "router") return { width: 92, height: 70 };
-  if (type === "firewall") return { width: 96, height: 66 };
-  if (type === "lan") return { width: 112, height: 72 };
-  return { width: 104, height: 58 };
+  const spec = DEVICE_SPECS[type as DeviceType];
+  return spec ? { width: spec.width, height: spec.height } : { width: 104, height: 58 };
 }
 
 export function defaultNameForType(type: string, fallbackNumber: number): string {
-  if (type === "router") return `RTR-${fallbackNumber}`;
-  if (type === "firewall") return `FW-${fallbackNumber}`;
-  return type === "computer" ? `PC-${fallbackNumber}` : `SW-${fallbackNumber}`;
+  const spec = DEVICE_SPECS[type as DeviceType];
+  return `${spec?.namePrefix ?? "DEV"}-${fallbackNumber}`;
 }

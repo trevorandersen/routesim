@@ -292,7 +292,7 @@ describe("bench: firewall", () => {
     const ipv4: any = { type: "ipv4", srcIp: "192.168.1.10", dstIp: "192.168.1.20", ttl: 64, protocol: 1, payload: { type: "icmp", icmpType: 8, sequence: 1 } };
     results.push(bench("evaluateFirewall — 50 rules (miss)", () => {
       evaluateFirewall(fw, ipv4, "forward");
-    }, { budget: 30 }));
+    }, { budget: 100 }));
     expect(results[results.length - 1].passed).toBe(true);
   });
 

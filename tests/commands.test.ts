@@ -6,14 +6,13 @@ import { state } from "../src/state";
 import { runConsoleCommand as exec, runConsoleScript, exportTopologyScript } from "../src/commands";
 import { registerNoopCallbacks, resetState } from "./helpers";
 import { routedTopology } from "./fixtures";
+import { freshNameCounters } from "../src/device-registry";
 
 beforeAll(() => registerNoopCallbacks());
 
 function reset() {
   resetState();
-  (state as any).nextComputer = 1;
-  (state as any).nextSwitch = 1;
-  (state as any).nextRouter = 1;
+  state.nameCounters = freshNameCounters();
   state.configStore = { version: 1, configs: {} } as any;
 }
 

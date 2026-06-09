@@ -7,6 +7,7 @@ import {
   normaliseRouterInterfaces, normaliseConfig
 } from "./normalise";
 import { connectedIds, clearNetwork, nextDeviceNumber } from "./devices";
+import { DEVICE_TYPES } from "./device-registry";
 import { render, fitNetwork } from "./canvas";
 import { syncPanel } from "./inspector";
 import { syncTerminal } from "./terminal";
@@ -113,9 +114,9 @@ export function applyConfigWithoutUndo(config: any): void {
   state.drag = null;
   state.panDrag = null;
   state.pointer = null;
-  state.nextComputer = nextDeviceNumber("computer");
-  state.nextSwitch = nextDeviceNumber("switch");
-  state.nextRouter = nextDeviceNumber("router");
+  // Recompute auto-name counters from the loaded devices for every type — a
+  // loaded FW-2 must make the next firewall FW-3, not a duplicate FW-1.
+  for (const type of DEVICE_TYPES) state.nameCounters[type] = nextDeviceNumber(type);
   // Replacing the network drops any active scenario; loadScenario re-sets it after.
   state.activeScenarioId = null;
   setTool("select");

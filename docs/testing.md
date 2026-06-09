@@ -75,16 +75,21 @@ describe("setSwitchPortVlan", () => {
 
 | Test file | Covers |
 |-----------|--------|
-| `tests/engine.test.ts` | `processAtComputer/Switch/Router`, routing, sub-interfaces, self-destined frames |
+| `tests/engine.test.ts` | `processAtComputer/Switch/Router`, routing, sub-interfaces, traceroute, headless runs |
+| `tests/firewall.test.ts` | Firewall rule matching/evaluation, the iptables CLI, filtering in the sim |
 | `tests/terminal.test.ts` | Terminal display + mutator helpers (host/router/switch, VLAN, trunk) |
-| `tests/terminal-commands.test.ts` | The command **dispatchers** + router mode state machine |
+| `tests/terminal-commands.test.ts` | The command **dispatchers**, router mode machine, abbreviation + `?` |
+| `tests/commands.test.ts` | The console command engine (verbs, headless runs, script round-trip) |
 | `tests/simulation.test.ts` | `l2Reachable`, `getVlanForDevice`, `buildPing/DhcpEvents` |
+| `tests/scenarios.test.ts` | Scenario loading/goal checks + positive-coordinate invariants |
+| `tests/io.test.ts` | JSON import/export round-trips |
 | `tests/frame.test.ts` | Frame factories, `frameLabel`/`frameColor` |
 | `tests/normalise.test.ts` | All normalisers, `ensureConfig`, `defaultDeviceConfig`, `deviceSize` |
 | `tests/devices.test.ts` | CRUD, hit-testing, lookup indexes + invalidation |
 | `tests/inspector.test.ts` | `renderSwitchPorts` / `renderSwitchVlans` HTML |
-| `tests/config.test.ts` | `readEmbeddedConfigStore` |
-| `tests/ui.test.ts` | `handleGlobalKeydown` (Escape + tool shortcuts) |
+| `tests/ui.test.ts` | `handleGlobalKeydown` (Escape + tool shortcuts), theme registry |
+| `tests/parity.test.ts` | Theme CSS-var parity; ribbon `data-action`/tool/theme-button ↔ code parity |
 | `tests/utils.test.ts` | Pure helpers |
+| `tests/bench.test.ts` | Hot-path benchmarks with p99 budgets |
 
 When you change behaviour, extend or add a `tests/*.test.ts` suite. When you add a hot path, add a benchmark too — see [benchmarking.md](benchmarking.md).

@@ -1825,6 +1825,100 @@ Full legal text: https://creativecommons.org/publicdomain/zero/1.0/legalcode</pr
     return Array.from(bytes, (b) => b.toString(16).padStart(2, "0").toUpperCase()).join(":");
   }
 
+  // src/device-registry.ts
+  var DEVICE_SPECS = {
+    computer: {
+      label: "Computer",
+      namePrefix: "PC",
+      width: 92,
+      height: 68,
+      paletteVar: "pc",
+      iconRadius: 10,
+      userAddable: true,
+      iconPaths: [
+        "M3 5a1 1 0 0 1 1 -1h16a1 1 0 0 1 1 1v10a1 1 0 0 1 -1 1h-16a1 1 0 0 1 -1 -1v-10",
+        "M7 20h10",
+        "M9 16v4",
+        "M15 16v4"
+      ],
+      defaultConfig: () => ({ ipv4Address: "", gatewayIpv4Address: "", macAddress: "", arpTable: [] })
+    },
+    switch: {
+      label: "Switch",
+      namePrefix: "SW",
+      width: 104,
+      height: 58,
+      paletteVar: "switch",
+      iconRadius: 8,
+      userAddable: true,
+      iconPaths: [
+        "M16 3l4 4l-4 4",
+        "M10 7l10 0",
+        "M8 13l-4 4l4 4",
+        "M4 17l9 0"
+      ],
+      defaultConfig: () => ({ managed: false, ethernetPorts: 8, macTable: [], vlans: [], portVlans: {}, portModes: {}, trunkAllowedVlans: {}, trunkNativeVlans: {} })
+    },
+    router: {
+      label: "Router",
+      namePrefix: "RTR",
+      width: 92,
+      height: 70,
+      paletteVar: "router",
+      iconRadius: 12,
+      iconStrokeWidth: 0.77,
+      userAddable: true,
+      iconPaths: [
+        "M12 12m-9 0a9 9 0 1 0 18 0a9 9 0 1 0 -18 0",
+        "M6 12h5",
+        "M8 10l3 2l-3 2",
+        "M18 12h-5",
+        "M16 10l-3 2l3 2",
+        "M12 10v-5",
+        "M10 7l2 -2l2 2",
+        "M12 14v5",
+        "M10 17l2 2l2 -2"
+      ],
+      defaultConfig: () => ({ ethernetPorts: 4, serialPorts: 4, interfaces: [] })
+    },
+    firewall: {
+      label: "Firewall",
+      namePrefix: "FW",
+      width: 96,
+      height: 66,
+      paletteVar: "fw",
+      iconRadius: 10,
+      userAddable: true,
+      iconPaths: [
+        "M12 3a12 12 0 0 0 8.5 3a12 12 0 0 1 -8.5 15a12 12 0 0 1 -8.5 -15a12 12 0 0 0 8.5 -3",
+        "M9 12l2 2l4 -4"
+      ],
+      defaultConfig: () => ({ ethernetPorts: 2, rules: [], policy: { forward: "accept" } })
+    },
+    lan: {
+      label: "LAN",
+      namePrefix: "LAN",
+      width: 112,
+      height: 72,
+      paletteVar: "lan",
+      iconRadius: 14,
+      userAddable: false,
+      iconPaths: [
+        "M7 18a4.6 4.4 0 0 1 -1.2 -8.9a5.8 5.6 0 0 1 10.8 -1.9a4.7 4.5 0 0 1 1.4 8.8",
+        "M8 18h9",
+        "M10 15h4",
+        "M12 13v5",
+        "M8 20h8"
+      ],
+      defaultConfig: () => ({ members: [] })
+    }
+  };
+  var DEVICE_TYPES = Object.keys(DEVICE_SPECS);
+  var USER_ADDABLE_TYPES = DEVICE_TYPES.filter((t) => DEVICE_SPECS[t].userAddable);
+  function freshNameCounters() {
+    return Object.fromEntries(DEVICE_TYPES.map((t) => [t, 1]));
+  }
+
   // src/normalise.ts
   function normaliseArpTable(entries) {
     if (!Array.isArray(entries)) return [];
@@ -2074,12 +2168,7 @@ Full legal text: https://creativecommons.org/publicdomain/zero/1.0/legalcode</pr
     return device.config;
   }
   function defaultDeviceConfig(type) {
-    if (type === "computer") return { ipv4Address: "", gatewayIpv4Address: "", macAddress: "", arpTable: [] };
-    if (type === "switch") return { managed: false, ethernetPorts: 8, macTable: [], vlans: [], portVlans: {}, portModes: {}, trunkAllowedVlans: {}, trunkNativeVlans: {} };
-    if (type === "router") return { ethernetPorts: 4, serialPorts: 4, interfaces: [] };
-    if (type === "firewall") return { ethernetPorts: 2, rules: [], policy: { forward: "accept" } };
-    if (type === "lan") return { members: [] };
-    return {};
+    return DEVICE_SPECS[type]?.defaultConfig() ?? {};
   }
   function shiftToPositive(config, margin = 80) {
     const devices = config?.devices || [];
@@ -2093,16 +2182,12 @@ Full legal text: https://creativecommons.org/publicdomain/zero/1.0/legalcode</pr
     return config;
   }
   function deviceSize(type) {
-    if (type === "computer") return { width: 92, height: 68 };
-    if (type === "router") return { width: 92, height: 70 };
-    if (type === "firewall") return { width: 96, height: 66 };
-    if (type === "lan") return { width: 112, height: 72 };
-    return { width: 104, height: 58 };
+    const spec = DEVICE_SPECS[type];
+    return spec ? { width: spec.width, height: spec.height } : { width: 104, height: 58 };
   }
   function defaultNameForType(type, fallbackNumber) {
-    if (type === "router") return `RTR-${fallbackNumber}`;
-    if (type === "firewall") return `FW-${fallbackNumber}`;
-    return type === "computer" ? `PC-${fallbackNumber}` : `SW-${fallbackNumber}`;
+    const spec = DEVICE_SPECS[type];
+    return `${spec?.namePrefix ?? "DEV"}-${fallbackNumber}`;
   }
 
   // src/state.ts
@@ -2159,10 +2244,7 @@ Full legal text: https://creativecommons.org/publicdomain/zero/1.0/legalcode</pr
       displayOptionsOpen: false,
       networkPanelOpen: false
     },
-    nextComputer: 1,
-    nextSwitch: 1,
-    nextRouter: 1,
-    nextFirewall: 1,
+    nameCounters: freshNameCounters(),
     configStore: { version: 1, configs: {} },
     undoStack: [],
     isApplyingCompositeChange: false,
@@ -2200,44 +2282,6 @@ Full legal text: https://creativecommons.org/publicdomain/zero/1.0/legalcode</pr
   };
   var colors = {
     selected: "#f0b429"
-  };
-  var deviceIcons = {
-    // MIT-licensed Tabler icon path data, adapted for canvas rendering.
-    computer: [
-      "M3 5a1 1 0 0 1 1 -1h16a1 1 0 0 1 1 1v10a1 1 0 0 1 -1 1h-16a1 1 0 0 1 -1 -1v-10",
-      "M7 20h10",
-      "M9 16v4",
-      "M15 16v4"
-    ],
-    switch: [
-      "M16 3l4 4l-4 4",
-      "M10 7l10 0",
-      "M8 13l-4 4l4 4",
-      "M4 17l9 0"
-    ],
-    router: [
-      "M12 12m-9 0a9 9 0 1 0 18 0a9 9 0 1 0 -18 0",
-      "M6 12h5",
-      "M8 10l3 2l-3 2",
-      "M18 12h-5",
-      "M16 10l-3 2l3 2",
-      "M12 10v-5",
-      "M10 7l2 -2l2 2",
-      "M12 14v5",
-      "M10 17l2 2l2 -2"
-    ],
-    firewall: [
-      // Tabler "shield-check" — security/firewall.
-      "M12 3a12 12 0 0 0 8.5 3a12 12 0 0 1 -8.5 15a12 12 0 0 1 -8.5 -15a12 12 0 0 0 8.5 -3",
-      "M9 12l2 2l4 -4"
-    ],
-    lan: [
-      "M7 18a4.6 4.4 0 0 1 -1.2 -8.9a5.8 5.6 0 0 1 10.8 -1.9a4.7 4.5 0 0 1 1.4 8.8",
-      "M8 18h9",
-      "M10 15h4",
-      "M12 13v5",
-      "M8 20h8"
-    ]
   };
   var defaultConfig = {
     version: 1,
@@ -2504,10 +2548,7 @@ Full legal text: https://creativecommons.org/publicdomain/zero/1.0/legalcode</pr
       }),
       selectedId: state.selectedId,
       configuringId: state.configuringId,
-      nextComputer: state.nextComputer,
-      nextSwitch: state.nextSwitch,
-      nextRouter: state.nextRouter,
-      nextFirewall: state.nextFirewall
+      nameCounters: { ...state.nameCounters }
     });
   }
   function pushUndo() {
@@ -2530,10 +2571,7 @@ Full legal text: https://creativecommons.org/publicdomain/zero/1.0/legalcode</pr
     state.links = restored.links;
     state.selectedId = restored.selectedId;
     state.configuringId = restored.configuringId;
-    state.nextComputer = restored.nextComputer;
-    state.nextSwitch = restored.nextSwitch;
-    state.nextRouter = restored.nextRouter || 1;
-    state.nextFirewall = restored.nextFirewall || 1;
+    state.nameCounters = { ...freshNameCounters(), ...restored.nameCounters || {} };
     state.linkStartId = null;
     state.selectedLinkId = null;
     state.drag = null;
@@ -2726,10 +2764,7 @@ Full legal text: https://creativecommons.org/publicdomain/zero/1.0/legalcode</pr
     state.terminal.mode = "exec";
     state.terminal.interfacePeerId = null;
     state.terminal.lines = [];
-    state.nextComputer = 1;
-    state.nextSwitch = 1;
-    state.nextRouter = 1;
-    state.nextFirewall = 1;
+    state.nameCounters = freshNameCounters();
     sync().syncPanel();
     sync().syncTerminal();
     sync().render();
@@ -2846,13 +2881,11 @@ Full legal text: https://creativecommons.org/publicdomain/zero/1.0/legalcode</pr
     return result;
   }
   function nextName(type) {
-    if (type === "computer") return `PC-${state.nextComputer++}`;
-    if (type === "router") return `RTR-${state.nextRouter++}`;
-    if (type === "firewall") return `FW-${state.nextFirewall++}`;
-    return `SW-${state.nextSwitch++}`;
+    const spec = DEVICE_SPECS[type];
+    return `${spec.namePrefix}-${state.nameCounters[type]++}`;
   }
   function nextDeviceNumber(type) {
-    const prefix = type === "computer" ? "PC-" : type === "router" ? "RTR-" : "SW-";
+    const prefix = `${DEVICE_SPECS[type].namePrefix}-`;
     const highest = state.devices.filter((device) => device.type === type && device.name.startsWith(prefix)).map((device) => Number(device.name.slice(prefix.length))).filter(Number.isFinite).reduce((max, value) => Math.max(max, value), 0);
     return highest + 1;
   }
@@ -3084,6 +3117,10 @@ Full legal text: https://creativecommons.org/publicdomain/zero/1.0/legalcode</pr
         nativeVlan: trunkNativeVlans[name] || 1
       };
     });
+  }
+  function switchIfaceByName(device, portName) {
+    const lower = String(portName || "").toLowerCase();
+    return switchInterfacesWithNames(device).find((p) => p.name.toLowerCase() === lower);
   }
   function buildPortList(deviceId) {
     const device = getDevice(deviceId);
@@ -3529,43 +3566,12 @@ Full legal text: https://creativecommons.org/publicdomain/zero/1.0/legalcode</pr
     return cssColor("--link-host");
   }
   function devicePalette(type) {
-    if (type === "computer") {
-      return {
-        fill: cssColor("--pc-fill"),
-        stroke: cssColor("--pc-stroke"),
-        accent: cssColor("--pc-accent"),
-        dark: cssColor("--pc-icon")
-      };
-    }
-    if (type === "router") {
-      return {
-        fill: cssColor("--router-fill"),
-        stroke: cssColor("--router-stroke"),
-        accent: cssColor("--router-accent"),
-        dark: cssColor("--router-icon")
-      };
-    }
-    if (type === "firewall") {
-      return {
-        fill: cssColor("--fw-fill"),
-        stroke: cssColor("--fw-stroke"),
-        accent: cssColor("--fw-accent"),
-        dark: cssColor("--fw-icon")
-      };
-    }
-    if (type === "lan") {
-      return {
-        fill: cssColor("--lan-fill"),
-        stroke: cssColor("--lan-stroke"),
-        accent: cssColor("--lan-accent"),
-        dark: cssColor("--lan-icon")
-      };
-    }
+    const v = DEVICE_SPECS[type]?.paletteVar ?? "switch";
     return {
-      fill: cssColor("--switch-fill"),
-      stroke: cssColor("--switch-stroke"),
-      accent: cssColor("--switch-accent"),
-      dark: cssColor("--switch-icon")
+      fill: cssColor(`--${v}-fill`),
+      stroke: cssColor(`--${v}-stroke`),
+      accent: cssColor(`--${v}-accent`),
+      dark: cssColor(`--${v}-icon`)
     };
   }
   function isTrunkLink(from, to) {
@@ -3623,7 +3629,9 @@ Full legal text: https://creativecommons.org/publicdomain/zero/1.0/legalcode</pr
     ctx.stroke();
     ctx.restore();
   }
-  function drawIconDevice(device, palette, iconName, radius = 10, iconStrokeWidth = 1.7) {
+  function drawIconDevice(device, palette) {
+    const spec = DEVICE_SPECS[device.type] ?? DEVICE_SPECS.switch;
+    const radius = spec.iconRadius;
     const x = device.x - device.width / 2;
     const y = device.y - device.height / 2;
     ctx.fillStyle = palette.fill;
@@ -3635,9 +3643,9 @@ Full legal text: https://creativecommons.org/publicdomain/zero/1.0/legalcode</pr
     ctx.fillStyle = palette.accent;
     roundRect(x + 10, y + 10, device.width - 20, device.height - 20, Math.max(5, radius - 3));
     ctx.fill();
-    drawTablerIcon(device.x, device.y, iconName, palette.dark, Math.min(device.width, device.height) - 22, iconStrokeWidth);
+    drawTablerIcon(device.x, device.y, spec.iconPaths, palette.dark, Math.min(device.width, device.height) - 22, spec.iconStrokeWidth ?? 1.7);
   }
-  function drawTablerIcon(centerX, centerY, iconName, color, size, strokeWidth = 1.7) {
+  function drawTablerIcon(centerX, centerY, paths, color, size, strokeWidth = 1.7) {
     const scale = size / 24;
     ctx.save();
     ctx.translate(centerX - size / 2, centerY - size / 2);
@@ -3647,17 +3655,10 @@ Full legal text: https://creativecommons.org/publicdomain/zero/1.0/legalcode</pr
     ctx.lineCap = "round";
     ctx.lineJoin = "round";
     ctx.fillStyle = "transparent";
-    deviceIcons[iconName].forEach((path) => {
+    paths.forEach((path) => {
       ctx.stroke(new Path2D(path));
     });
     ctx.restore();
-  }
-  function drawComputer(device, palette) {
-    drawIconDevice(device, palette, "computer", 10);
-  }
-  function drawSwitch(device, palette) {
-    drawIconDevice(device, palette, "switch", 8);
-    if (device.config?.managed) drawManagedBadge(device, palette);
   }
   function drawManagedBadge(device, palette) {
     const x = device.x + device.width / 2 - 18;
@@ -3686,9 +3687,6 @@ Full legal text: https://creativecommons.org/publicdomain/zero/1.0/legalcode</pr
     ctx.stroke();
     ctx.restore();
   }
-  function drawRouter(device, palette) {
-    drawIconDevice(device, palette, "router", 12, 0.77);
-  }
   function drawDeviceIcon(device) {
     if (device.hidden) return;
     const selected = state.selectedId === device.id;
@@ -3704,17 +3702,8 @@ Full legal text: https://creativecommons.org/publicdomain/zero/1.0/legalcode</pr
       ctx.stroke();
       ctx.setLineDash([]);
     }
-    if (device.type === "computer") {
-      drawComputer(device, palette);
-    } else if (device.type === "router") {
-      drawRouter(device, palette);
-    } else if (device.type === "firewall") {
-      drawIconDevice(device, palette, "firewall", 10);
-    } else if (device.type === "lan") {
-      drawIconDevice(device, palette, "lan", 14);
-    } else {
-      drawSwitch(device, palette);
-    }
+    drawIconDevice(device, palette);
+    if (device.type === "switch" && device.config?.managed) drawManagedBadge(device, palette);
     ctx.restore();
   }
   function drawDevice(device) {
@@ -3900,6 +3889,166 @@ Full legal text: https://creativecommons.org/publicdomain/zero/1.0/legalcode</pr
     };
     syncZoomLevel();
     render();
+  }
+
+  // src/routing.ts
+  function buildRoutingTable(router) {
+    const table = [];
+    const ifaces = routerInterfacesWithNames(router);
+    const seen = /* @__PURE__ */ new Set();
+    for (const iface of ifaces) {
+      const ip = iface.config?.ipv4Address;
+      if (!ip || !isValidIpv4(ip) || !iface.peer) continue;
+      const parts = ip.split(".");
+      const network = `${parts[0]}.${parts[1]}.${parts[2]}.0/24`;
+      if (seen.has(network)) continue;
+      seen.add(network);
+      table.push({ network, nextHop: "", interface: iface.name, type: "C", metric: 0 });
+    }
+    const statics = normaliseStaticRoutes(router.config?.staticRoutes || []);
+    for (const sr of statics) {
+      if (seen.has(sr.network)) continue;
+      seen.add(sr.network);
+      table.push({ network: sr.network, nextHop: sr.nextHop, type: "S", metric: 1 });
+    }
+    if (router.config?.rip?.enabled && Array.isArray(router.config.rip.learnedRoutes)) {
+      for (const rr of router.config.rip.learnedRoutes) {
+        if (seen.has(rr.network)) continue;
+        seen.add(rr.network);
+        table.push({ network: rr.network, nextHop: rr.nextHop, interface: rr.interface, type: "R", metric: rr.metric });
+      }
+    }
+    table.sort((a, b) => a.metric - b.metric);
+    return table;
+  }
+  function networkMatch(dstIp, network) {
+    const slash = network.indexOf("/");
+    const netIp = slash >= 0 ? network.slice(0, slash) : network;
+    if (!isValidIpv4(netIp) || !isValidIpv4(dstIp)) return false;
+    return ipv4ToInt(dstIp) >>> 8 === ipv4ToInt(netIp) >>> 8;
+  }
+  function routingLookup(router, dstIp) {
+    const table = buildRoutingTable(router);
+    const ifaces = router.config?.interfaces || [];
+    const route = table.find((r) => networkMatch(dstIp, r.network));
+    if (!route) return null;
+    if (route.type === "C") {
+      const egressIface2 = ifaces.find(
+        (iface) => iface.ipv4Address && isValidIpv4(iface.ipv4Address) && sameSubnet24(iface.ipv4Address, dstIp)
+      );
+      return egressIface2 ? { egressIface: egressIface2, nextHopIp: dstIp } : null;
+    }
+    const nextHop = route.nextHop;
+    if (!nextHop || !isValidIpv4(nextHop)) return null;
+    const egressIface = ifaces.find(
+      (iface) => iface.ipv4Address && isValidIpv4(iface.ipv4Address) && sameSubnet24(iface.ipv4Address, nextHop)
+    );
+    return egressIface ? { egressIface, nextHopIp: nextHop } : null;
+  }
+  function buildRipAdvertisements(ifaces, ripNetworks, learnedRoutes) {
+    const advertisements = [];
+    for (const iface of ifaces) {
+      const ip = iface.config?.ipv4Address;
+      if (!ip || !isValidIpv4(ip) || !iface.peer) continue;
+      const parts = ip.split(".");
+      const network = `${parts[0]}.${parts[1]}.${parts[2]}.0/24`;
+      const isAdvertised = ripNetworks.some((rn) => {
+        const slash = rn.indexOf("/");
+        const rnIp = slash >= 0 ? rn.slice(0, slash) : rn;
+        if (!isValidIpv4(rnIp)) return false;
+        return ipv4ToInt(rnIp) >>> 8 === ipv4ToInt(ip) >>> 8;
+      });
+      if (isAdvertised) {
+        advertisements.push({ network, metric: 1, sourceInterface: iface.name });
+      }
+    }
+    for (const lr of learnedRoutes) {
+      if (lr.metric >= 15) continue;
+      advertisements.push({ network: lr.network, metric: lr.metric + 1, sourceInterface: lr.interface || "" });
+    }
+    return advertisements;
+  }
+  function applyRipUpdates(neighbor, neighborIface, neighborIfaces, advertisements, egressIfaceName, egressIfaceIp) {
+    let changed = false;
+    let exchanged = 0;
+    const neighborRip = neighbor.config.rip;
+    for (const ad of advertisements) {
+      if (ad.sourceInterface === egressIfaceName && ad.metric > 1) continue;
+      if (ad.metric > 15) continue;
+      const existingRoutes = neighborRip.learnedRoutes || [];
+      const existing = existingRoutes.find((r) => r.network === ad.network);
+      if (existing) {
+        if (ad.metric < existing.metric) {
+          existing.metric = ad.metric;
+          existing.nextHop = egressIfaceIp;
+          existing.interface = neighborIface.name;
+          changed = true;
+          exchanged++;
+        }
+      } else {
+        const neighborConnected = neighborIfaces.some((ni) => {
+          const nip = ni.config?.ipv4Address;
+          if (!nip || !isValidIpv4(nip) || !ni.peer) return false;
+          const parts = nip.split(".");
+          return `${parts[0]}.${parts[1]}.${parts[2]}.0/24` === ad.network;
+        });
+        if (neighborConnected) continue;
+        if (!neighborRip.learnedRoutes) neighborRip.learnedRoutes = [];
+        neighborRip.learnedRoutes.push({
+          network: ad.network,
+          nextHop: egressIfaceIp,
+          interface: neighborIface.name,
+          metric: ad.metric
+        });
+        changed = true;
+        exchanged++;
+      }
+    }
+    return { changed, exchanged };
+  }
+  function runRipConvergence() {
+    const ripRouters = state.devices.filter((d) => d.type === "router" && !d.hidden && !d.poweredOff && d.config?.rip?.enabled);
+    if (ripRouters.length === 0) return { iterations: 0, routesExchanged: 0 };
+    let totalExchanged = 0;
+    let iterations = 0;
+    const MAX_ITERATIONS = 15;
+    const ifacesByRouter = /* @__PURE__ */ new Map();
+    const ifacesFor = (router) => {
+      let ifaces = ifacesByRouter.get(router.id);
+      if (!ifaces) {
+        ifaces = routerInterfacesWithNames(router);
+        ifacesByRouter.set(router.id, ifaces);
+      }
+      return ifaces;
+    };
+    for (let iter = 0; iter < MAX_ITERATIONS; iter++) {
+      let changed = false;
+      iterations = iter + 1;
+      for (const router of ripRouters) {
+        const ifaces = ifacesFor(router);
+        const rip = router.config.rip;
+        const ripNetworks = rip.networks || [];
+        const learnedRoutes = rip.learnedRoutes || [];
+        const advertisements = buildRipAdvertisements(ifaces, ripNetworks, learnedRoutes);
+        const passiveInterfaces = rip.passiveInterfaces || [];
+        for (const iface of ifaces) {
+          if (!iface.peer || !iface.config?.ipv4Address) continue;
+          if (passiveInterfaces.includes(iface.name)) continue;
+          const neighbor = getDevice(iface.peer.id);
+          if (!neighbor || neighbor.type !== "router" || !neighbor.config?.rip?.enabled) continue;
+          const neighborIfaces = ifacesFor(neighbor);
+          const neighborIface = neighborIfaces.find((ni) => ni.peer && ni.peer.id === router.id);
+          if (!neighborIface || !neighborIface.config?.ipv4Address) continue;
+          const neighborPassive = neighbor.config.rip.passiveInterfaces || [];
+          if (neighborPassive.includes(neighborIface.name)) continue;
+          const result = applyRipUpdates(neighbor, neighborIface, neighborIfaces, advertisements, iface.name, iface.config.ipv4Address);
+          if (result.changed) changed = true;
+          totalExchanged += result.exchanged;
+        }
+      }
+      if (!changed) break;
+    }
+    return { iterations, routesExchanged: totalExchanged };
   }
 
   // src/engine.ts
@@ -4095,18 +4244,7 @@ Full legal text: https://creativecommons.org/publicdomain/zero/1.0/legalcode</pr
     sim.stepIndex++;
     const device = getDevice(event.deviceId);
     if (!device) return;
-    let outgoing;
-    if (device.type === "computer") {
-      outgoing = processAtComputer(device, event.frame, event.fromDeviceId);
-    } else if (device.type === "switch") {
-      outgoing = processAtSwitch(device, event.frame, event.fromDeviceId);
-    } else if (device.type === "router") {
-      outgoing = processAtRouter(device, event.frame, event.fromDeviceId);
-    } else if (device.type === "firewall") {
-      outgoing = processAtFirewall(device, event.frame, event.fromDeviceId);
-    } else {
-      outgoing = [];
-    }
+    const outgoing = PROCESSORS[device.type]?.(device, event.frame, event.fromDeviceId) ?? [];
     const now = performance.now();
     for (const out of outgoing) {
       const link = findLinkBetween(event.deviceId, out.toDeviceId);
@@ -4132,6 +4270,12 @@ Full legal text: https://creativecommons.org/publicdomain/zero/1.0/legalcode</pr
       finishSimulation();
     }
   }
+  var PROCESSORS = {
+    computer: processAtComputer,
+    switch: processAtSwitch,
+    router: processAtRouter,
+    firewall: processAtFirewall
+  };
   function processAtComputer(device, frame, fromDeviceId) {
     const sim = state.simulation;
     const outgoing = [];
@@ -4586,59 +4730,6 @@ Full legal text: https://creativecommons.org/publicdomain/zero/1.0/legalcode</pr
   function findEgressInterface(ifaces, dstIp) {
     return ifaces.find((iface) => iface.ipv4Address && isValidIpv4(iface.ipv4Address) && sameSubnet24(iface.ipv4Address, dstIp)) || null;
   }
-  function buildRoutingTable(router) {
-    const table = [];
-    const ifaces = routerInterfacesWithNames(router);
-    const seen = /* @__PURE__ */ new Set();
-    for (const iface of ifaces) {
-      const ip = iface.config?.ipv4Address;
-      if (!ip || !isValidIpv4(ip) || !iface.peer) continue;
-      const parts = ip.split(".");
-      const network = `${parts[0]}.${parts[1]}.${parts[2]}.0/24`;
-      if (seen.has(network)) continue;
-      seen.add(network);
-      table.push({ network, nextHop: "", interface: iface.name, type: "C", metric: 0 });
-    }
-    const statics = normaliseStaticRoutes(router.config?.staticRoutes || []);
-    for (const sr of statics) {
-      if (seen.has(sr.network)) continue;
-      seen.add(sr.network);
-      table.push({ network: sr.network, nextHop: sr.nextHop, type: "S", metric: 1 });
-    }
-    if (router.config?.rip?.enabled && Array.isArray(router.config.rip.learnedRoutes)) {
-      for (const rr of router.config.rip.learnedRoutes) {
-        if (seen.has(rr.network)) continue;
-        seen.add(rr.network);
-        table.push({ network: rr.network, nextHop: rr.nextHop, interface: rr.interface, type: "R", metric: rr.metric });
-      }
-    }
-    table.sort((a, b) => a.metric - b.metric);
-    return table;
-  }
-  function networkMatch(dstIp, network) {
-    const slash = network.indexOf("/");
-    const netIp = slash >= 0 ? network.slice(0, slash) : network;
-    if (!isValidIpv4(netIp) || !isValidIpv4(dstIp)) return false;
-    return ipv4ToInt(dstIp) >>> 8 === ipv4ToInt(netIp) >>> 8;
-  }
-  function routingLookup(router, dstIp) {
-    const table = buildRoutingTable(router);
-    const ifaces = router.config?.interfaces || [];
-    const route = table.find((r) => networkMatch(dstIp, r.network));
-    if (!route) return null;
-    if (route.type === "C") {
-      const egressIface2 = ifaces.find(
-        (iface) => iface.ipv4Address && isValidIpv4(iface.ipv4Address) && sameSubnet24(iface.ipv4Address, dstIp)
-      );
-      return egressIface2 ? { egressIface: egressIface2, nextHopIp: dstIp } : null;
-    }
-    const nextHop = route.nextHop;
-    if (!nextHop || !isValidIpv4(nextHop)) return null;
-    const egressIface = ifaces.find(
-      (iface) => iface.ipv4Address && isValidIpv4(iface.ipv4Address) && sameSubnet24(iface.ipv4Address, nextHop)
-    );
-    return egressIface ? { egressIface, nextHopIp: nextHop } : null;
-  }
   function ifaceName(iface) {
     return iface.name || iface.peerId || "unknown";
   }
@@ -4743,127 +4834,8 @@ APIPA: assigned link-local ${apipaIp}`);
       playPause.textContent = state.simulation.status === "running" ? "\u23F8" : "\u25B6";
     }
   }
-  function buildRipAdvertisements(ifaces, ripNetworks, learnedRoutes) {
-    const advertisements = [];
-    for (const iface of ifaces) {
-      const ip = iface.config?.ipv4Address;
-      if (!ip || !isValidIpv4(ip) || !iface.peer) continue;
-      const parts = ip.split(".");
-      const network = `${parts[0]}.${parts[1]}.${parts[2]}.0/24`;
-      const isAdvertised = ripNetworks.some((rn) => {
-        const slash = rn.indexOf("/");
-        const rnIp = slash >= 0 ? rn.slice(0, slash) : rn;
-        if (!isValidIpv4(rnIp)) return false;
-        return ipv4ToInt(rnIp) >>> 8 === ipv4ToInt(ip) >>> 8;
-      });
-      if (isAdvertised) {
-        advertisements.push({ network, metric: 1, sourceInterface: iface.name });
-      }
-    }
-    for (const lr of learnedRoutes) {
-      if (lr.metric >= 15) continue;
-      advertisements.push({ network: lr.network, metric: lr.metric + 1, sourceInterface: lr.interface || "" });
-    }
-    return advertisements;
-  }
-  function applyRipUpdates(neighbor, neighborIface, neighborIfaces, advertisements, egressIfaceName, egressIfaceIp) {
-    let changed = false;
-    let exchanged = 0;
-    const neighborRip = neighbor.config.rip;
-    for (const ad of advertisements) {
-      if (ad.sourceInterface === egressIfaceName && ad.metric > 1) continue;
-      if (ad.metric > 15) continue;
-      const existingRoutes = neighborRip.learnedRoutes || [];
-      const existing = existingRoutes.find((r) => r.network === ad.network);
-      if (existing) {
-        if (ad.metric < existing.metric) {
-          existing.metric = ad.metric;
-          existing.nextHop = egressIfaceIp;
-          existing.interface = neighborIface.name;
-          changed = true;
-          exchanged++;
-        }
-      } else {
-        const neighborConnected = neighborIfaces.some((ni) => {
-          const nip = ni.config?.ipv4Address;
-          if (!nip || !isValidIpv4(nip) || !ni.peer) return false;
-          const parts = nip.split(".");
-          return `${parts[0]}.${parts[1]}.${parts[2]}.0/24` === ad.network;
-        });
-        if (neighborConnected) continue;
-        if (!neighborRip.learnedRoutes) neighborRip.learnedRoutes = [];
-        neighborRip.learnedRoutes.push({
-          network: ad.network,
-          nextHop: egressIfaceIp,
-          interface: neighborIface.name,
-          metric: ad.metric
-        });
-        changed = true;
-        exchanged++;
-      }
-    }
-    return { changed, exchanged };
-  }
-  function runRipConvergence() {
-    const ripRouters = state.devices.filter((d) => d.type === "router" && !d.hidden && !d.poweredOff && d.config?.rip?.enabled);
-    if (ripRouters.length === 0) return { iterations: 0, routesExchanged: 0 };
-    let totalExchanged = 0;
-    let iterations = 0;
-    const MAX_ITERATIONS = 15;
-    const ifacesByRouter = /* @__PURE__ */ new Map();
-    const ifacesFor = (router) => {
-      let ifaces = ifacesByRouter.get(router.id);
-      if (!ifaces) {
-        ifaces = routerInterfacesWithNames(router);
-        ifacesByRouter.set(router.id, ifaces);
-      }
-      return ifaces;
-    };
-    for (let iter = 0; iter < MAX_ITERATIONS; iter++) {
-      let changed = false;
-      iterations = iter + 1;
-      for (const router of ripRouters) {
-        const ifaces = ifacesFor(router);
-        const rip = router.config.rip;
-        const ripNetworks = rip.networks || [];
-        const learnedRoutes = rip.learnedRoutes || [];
-        const advertisements = buildRipAdvertisements(ifaces, ripNetworks, learnedRoutes);
-        const passiveInterfaces = rip.passiveInterfaces || [];
-        for (const iface of ifaces) {
-          if (!iface.peer || !iface.config?.ipv4Address) continue;
-          if (passiveInterfaces.includes(iface.name)) continue;
-          const neighbor = getDevice(iface.peer.id);
-          if (!neighbor || neighbor.type !== "router" || !neighbor.config?.rip?.enabled) continue;
-          const neighborIfaces = ifacesFor(neighbor);
-          const neighborIface = neighborIfaces.find((ni) => ni.peer && ni.peer.id === router.id);
-          if (!neighborIface || !neighborIface.config?.ipv4Address) continue;
-          const neighborPassive = neighbor.config.rip.passiveInterfaces || [];
-          if (neighborPassive.includes(neighborIface.name)) continue;
-          const result = applyRipUpdates(neighbor, neighborIface, neighborIfaces, advertisements, iface.name, iface.config.ipv4Address);
-          if (result.changed) changed = true;
-          totalExchanged += result.exchanged;
-        }
-      }
-      if (!changed) break;
-    }
-    return { iterations, routesExchanged: totalExchanged };
-  }
 
-  // src/terminal.ts
-  function terminalLine(kind, text) {
-    state.terminal.lines.push({ kind, text });
-    if (state.terminal.lines.length > 120) state.terminal.lines.splice(0, state.terminal.lines.length - 120);
-  }
-  function terminalPromptText(device) {
-    if (device.type === "computer") return `${device.name}$`;
-    if (device.type === "switch") return `${device.name}#`;
-    if (device.type === "firewall") return `root@${device.name}#`;
-    if (state.terminal.mode === "config") return `${device.name}(config)#`;
-    if (state.terminal.mode === "interface") return `${device.name}(config-if)#`;
-    if (state.terminal.mode === "rip") return `${device.name}(config-router)#`;
-    if (state.terminal.mode === "privileged") return `${device.name}#`;
-    return `${device.name}>`;
-  }
+  // src/terminal/host.ts
   function showHostIp(device) {
     const ipv4 = device.config?.ipv4Address || "unassigned";
     const mac = device.config?.macAddress || "unassigned";
@@ -4916,6 +4888,106 @@ APIPA: assigned link-local ${apipaIp}`);
     sync().render();
     return `Default gateway set to ${parsed.address}.`;
   }
+  function runHostTerminalCommand(host, command) {
+    const lower = command.toLowerCase();
+    if (lower === "clear") {
+      state.terminal.lines = [];
+      return;
+    }
+    if (lower === "help") {
+      terminalLine("muted", [
+        "Commands:",
+        "  ip addr show",
+        "  ip addr add <ipv4>/24 dev eth0",
+        "  ip addr flush dev eth0",
+        "  ip route show",
+        "  ip route add default via <ipv4> dev eth0",
+        "  arp -n",
+        "  ping <pc-name|ipv4>",
+        "  traceroute <pc-name|ipv4>",
+        "  dhcp",
+        "  clear"
+      ].join("\n"));
+      return;
+    }
+    if (lower === "ip" || lower === "ip addr" || lower === "ip address" || lower === "ip addr show" || lower === "ip address show" || lower === "ip addr show dev eth0" || lower === "ip address show dev eth0" || lower === "ip a") {
+      terminalLine("", showHostIp(host));
+      return;
+    }
+    if (lower === "ip route" || lower === "ip route show" || lower === "ip route show default" || lower === "ip r" || lower === "route" || lower === "route -n") {
+      terminalLine("", showHostRoute(host));
+      return;
+    }
+    if (lower === "arp" || lower === "arp -a" || lower === "arp -n" || lower === "ip neigh" || lower === "ip neigh show" || lower === "ip neighbour" || lower === "ip neighbour show") {
+      terminalLine("", showHostArp(host));
+      return;
+    }
+    const ipFlushMatch = command.match(/^ip\s+(?:addr|address)\s+flush\s+dev\s+eth0$/i);
+    if (ipFlushMatch) {
+      terminalLine("", flushHostIp(host));
+      return;
+    }
+    const ipSetMatch = command.match(/^ip\s+(?:addr|address)\s+add\s+(\S+)\s+dev\s+eth0$/i) || command.match(/^ip\s+(?:addr|address)\s+(?:set|add)\s+(\S+)$/i) || command.match(/^set\s+ip\s+(\S+)$/i);
+    if (ipSetMatch) {
+      const result = setHostIp(host, ipSetMatch[1]);
+      terminalLine(result.startsWith("Invalid") ? "error" : "", result);
+      return;
+    }
+    const gatewayMatch = command.match(/^ip\s+route\s+(?:add|replace|change|set)\s+default\s+via\s+(\S+)(?:\s+dev\s+eth0)?$/i) || command.match(/^set\s+gateway\s+(\S+)$/i);
+    if (gatewayMatch) {
+      const result = setHostGateway(host, gatewayMatch[1]);
+      terminalLine(result.startsWith("Invalid") ? "error" : "", result);
+      return;
+    }
+    if (lower === "dhcp" || lower === "dhclient") {
+      const result = buildDhcpEvents(host);
+      if (typeof result === "string") {
+        terminalLine("error", result);
+      } else {
+        startSimulation(result, host.id, "", "dhcp");
+        dom.terminalInput.disabled = true;
+      }
+      return;
+    }
+    const traceMatch = command.match(/^(?:traceroute|tracert)\s+(.+)$/i);
+    if (traceMatch) {
+      const result = runTraceroute(host, traceMatch[1].trim());
+      if (typeof result === "string") {
+        terminalLine("error", result);
+      } else {
+        const lines = [`traceroute to ${result.targetIp}, 30 hops max`];
+        for (const hop of result.hops) {
+          lines.push(` ${String(hop.ttl).padStart(2)}  ${hop.ip || "* (no response)"}`);
+        }
+        if (!result.reached) lines.push("(destination not reached within 30 hops)");
+        terminalLine("", lines.join("\n"));
+      }
+      return;
+    }
+    const pingMatch = command.match(/^ping(?:\s+-c\s+\d+)?\s+(.+)$/i);
+    if (pingMatch) {
+      const targetText = pingMatch[1].trim();
+      const result = buildPingEvents(host, targetText);
+      if (typeof result === "string") {
+        terminalLine(result.startsWith("ping:") ? "error" : "", result);
+      } else {
+        const targetIp = resolvePingTargetIp(targetText);
+        startSimulation(result, host.id, targetIp);
+        dom.terminalInput.disabled = true;
+      }
+      return;
+    }
+    terminalLine("error", `${command}: command not found`);
+  }
+  function resolvePingTargetIp(targetText) {
+    if (isValidIpv4(targetText)) return targetText;
+    const target = state.devices.find(
+      (d) => d.type === "computer" && d.name.toLowerCase() === targetText.toLowerCase()
+    );
+    return target?.config?.ipv4Address || targetText;
+  }
+
+  // src/terminal/router.ts
   function showRouterInterfaceBrief(router) {
     const interfaces = routerInterfacesWithNames(router);
     if (!interfaces.length) return "No interfaces configured.";
@@ -5032,166 +5104,6 @@ APIPA: assigned link-local ${apipaIp}`);
       ] : [],
       "end"
     ].join("\n");
-  }
-  function showSwitchInterfaces(device) {
-    const interfaces = switchInterfacesWithNames(device);
-    return [
-      "Interface  Admin  Oper  Mode    VLAN  Connected to",
-      ...interfaces.map((iface) => {
-        const mode = iface.mode || "access";
-        const vlanDisplay = mode === "trunk" ? `-` : String(iface.vlan);
-        return [
-          iface.name.padEnd(11),
-          "up".padEnd(7),
-          (iface.peer ? "up" : "down").padEnd(6),
-          mode.padEnd(8),
-          vlanDisplay.padEnd(6),
-          iface.peer?.name || "-"
-        ].join("");
-      })
-    ].join("\n");
-  }
-  function showSwitchVlans(device) {
-    const vlans = normaliseVlans(device.config?.vlans || []);
-    const configured = vlans.length ? vlans : [{ id: 1, name: "default" }];
-    const interfaces = switchInterfacesWithNames(device);
-    const trunkAllowed = normaliseTrunkAllowedVlans(device.config?.trunkAllowedVlans || {});
-    return [
-      "VLAN ID  Name       Ports",
-      ...configured.map((vlan) => {
-        const accessPorts = interfaces.filter((iface) => iface.mode !== "trunk" && iface.vlan === vlan.id).map((iface) => iface.name);
-        const trunkPorts = interfaces.filter((iface) => {
-          if (iface.mode !== "trunk") return false;
-          const allowed = trunkAllowed[iface.name];
-          return !allowed || allowed.length === 0 || allowed.includes(vlan.id);
-        }).map((iface) => `${iface.name}(T)`);
-        const ports = [...accessPorts, ...trunkPorts].join(",") || "-";
-        return `${String(vlan.id).padEnd(8)}${String(vlan.name || `Vlan${vlan.id}`).padEnd(11)}${ports}`;
-      })
-    ].join("\n");
-  }
-  function showSwitchMacTable(device) {
-    const entries = normaliseMacTable(device.config?.macTable || []);
-    if (!entries.length) return "No.    Vlan  MacAddress         Port      Type";
-    return [
-      "No.    Vlan  MacAddress         Port      Type",
-      ...entries.map((entry, index) => `${String(index + 1).padEnd(7)}${String(entry.vlan || "-").padEnd(6)}${entry.macAddress.padEnd(19)}${String(entry.port || "-").padEnd(10)}${entry.type || "DYNAMIC"}`)
-    ].join("\n");
-  }
-  function showSwitchRunningConfig(device) {
-    const vlans = normaliseVlans(device.config?.vlans || []).filter((vlan) => vlan.id !== 1);
-    const interfaces = switchInterfacesWithNames(device);
-    const trunkAllowed = normaliseTrunkAllowedVlans(device.config?.trunkAllowedVlans || {});
-    const lines = [`hostname ${device.name}`];
-    for (const vlan of vlans) lines.push(`config vlan add ${vlan.id}`);
-    for (const iface of interfaces) {
-      if (iface.mode === "trunk") {
-        if (iface.nativeVlan && iface.nativeVlan !== 1) lines.push(`config vlan member add ${iface.nativeVlan} ${iface.name}`);
-        for (const vid of trunkAllowed[iface.name] || []) lines.push(`config vlan member add -t ${vid} ${iface.name}`);
-      } else if (iface.vlan && iface.vlan !== 1) {
-        lines.push(`config vlan member add ${iface.vlan} ${iface.name}`);
-      }
-    }
-    return lines.length > 1 ? lines.join("\n") : `hostname ${device.name}
-(no VLAN configuration)`;
-  }
-  function addSwitchVlan(device, vlanId) {
-    const id = normaliseVlanId(vlanId);
-    if (!id) return `Invalid VLAN ID: ${vlanId}`;
-    pushUndo();
-    ensureConfig(device);
-    const vlans = normaliseVlans(device.config.vlans || []);
-    if (!vlans.some((vlan) => vlan.id === id)) vlans.push({ id, name: id === 1 ? "default" : `Vlan${id}` });
-    device.config.vlans = vlans.sort((a, b) => a.id - b.id);
-    sync().syncPanel();
-    return `Added VLAN ${id}.`;
-  }
-  function removeSwitchVlan(device, vlanId) {
-    const id = normaliseVlanId(vlanId);
-    if (!id || id === 1) return `Invalid VLAN ID: ${vlanId}`;
-    pushUndo();
-    ensureConfig(device);
-    device.config.vlans = normaliseVlans(device.config.vlans || []).filter((vlan) => vlan.id !== id);
-    const portVlans = normalisePortVlans(device.config.portVlans || {});
-    Object.keys(portVlans).forEach((port) => {
-      if (portVlans[port] === id) delete portVlans[port];
-    });
-    device.config.portVlans = portVlans;
-    sync().syncPanel();
-    return `Removed VLAN ${id}.`;
-  }
-  function setSwitchPortVlan(device, portName, vlanId) {
-    const id = normaliseVlanId(vlanId);
-    const iface = switchInterfacesWithNames(device).find((port) => port.name.toLowerCase() === String(portName || "").toLowerCase());
-    if (!iface) return `Unknown interface ${portName}.`;
-    if (!id) return `Invalid VLAN ID: ${vlanId}`;
-    pushUndo();
-    ensureConfig(device);
-    const vlans = normaliseVlans(device.config.vlans || []);
-    if (!vlans.some((vlan) => vlan.id === id)) vlans.push({ id, name: id === 1 ? "default" : `Vlan${id}` });
-    const portVlans = normalisePortVlans(device.config.portVlans || {});
-    if (id === 1) {
-      delete portVlans[iface.name];
-    } else {
-      portVlans[iface.name] = id;
-    }
-    device.config.vlans = vlans.sort((a, b) => a.id - b.id);
-    device.config.portVlans = portVlans;
-    sync().syncPanel();
-    return `Assigned ${iface.name} to VLAN ${id}.`;
-  }
-  function setSwitchPortMode(device, portName, mode) {
-    const iface = switchInterfacesWithNames(device).find((port) => port.name.toLowerCase() === String(portName || "").toLowerCase());
-    if (!iface) return `Unknown interface ${portName}.`;
-    pushUndo();
-    ensureConfig(device);
-    const portModes = normalisePortModes(device.config.portModes || {});
-    if (mode === "access") {
-      delete portModes[iface.name];
-    } else {
-      portModes[iface.name] = mode;
-    }
-    device.config.portModes = portModes;
-    sync().syncPanel();
-    sync().render();
-    return `Set ${iface.name} to ${mode} mode.`;
-  }
-  function setSwitchTrunkNative(device, portName, vlanId) {
-    const id = normaliseVlanId(vlanId);
-    const iface = switchInterfacesWithNames(device).find((port) => port.name.toLowerCase() === String(portName || "").toLowerCase());
-    if (!iface) return `Unknown interface ${portName}.`;
-    if (!id) return `Invalid VLAN ID: ${vlanId}`;
-    pushUndo();
-    ensureConfig(device);
-    const trunkNativeVlans = normalisePortVlans(device.config.trunkNativeVlans || {});
-    if (id === 1) {
-      delete trunkNativeVlans[iface.name];
-    } else {
-      trunkNativeVlans[iface.name] = id;
-    }
-    device.config.trunkNativeVlans = trunkNativeVlans;
-    sync().syncPanel();
-    return `Set ${iface.name} trunk native VLAN to ${id}.`;
-  }
-  function modifySwitchTrunkAllowed(device, portName, vlanId, action) {
-    const id = normaliseVlanId(vlanId);
-    const iface = switchInterfacesWithNames(device).find((port) => port.name.toLowerCase() === String(portName || "").toLowerCase());
-    if (!iface) return `Unknown interface ${portName}.`;
-    if (!id) return `Invalid VLAN ID: ${vlanId}`;
-    pushUndo();
-    ensureConfig(device);
-    const trunkAllowed = normaliseTrunkAllowedVlans(device.config.trunkAllowedVlans || {});
-    if (!trunkAllowed[iface.name]) trunkAllowed[iface.name] = [];
-    if (action === "add") {
-      if (!trunkAllowed[iface.name].includes(id)) trunkAllowed[iface.name].push(id);
-      trunkAllowed[iface.name].sort((a, b) => a - b);
-    } else {
-      trunkAllowed[iface.name] = trunkAllowed[iface.name].filter((v) => v !== id);
-      if (trunkAllowed[iface.name].length === 0) delete trunkAllowed[iface.name];
-    }
-    device.config.trunkAllowedVlans = trunkAllowed;
-    sync().syncPanel();
-    return action === "add" ? `Added VLAN ${id} to ${iface.name} trunk allowed list.` : `Removed VLAN ${id} from ${iface.name} trunk allowed list.`;
   }
   function setRouterInterfaceIp(router, peerId, address, vlanTag) {
     const parsed = parseIpv4Token(address);
@@ -5644,8 +5556,167 @@ APIPA: assigned link-local ${apipaIp}`);
     }
     return false;
   }
-  function switchIfaceByName(device, portName) {
-    return switchInterfacesWithNames(device).find((p) => p.name.toLowerCase() === String(portName || "").toLowerCase());
+
+  // src/terminal/switch.ts
+  function showSwitchInterfaces(device) {
+    const interfaces = switchInterfacesWithNames(device);
+    return [
+      "Interface  Admin  Oper  Mode    VLAN  Connected to",
+      ...interfaces.map((iface) => {
+        const mode = iface.mode || "access";
+        const vlanDisplay = mode === "trunk" ? `-` : String(iface.vlan);
+        return [
+          iface.name.padEnd(11),
+          "up".padEnd(7),
+          (iface.peer ? "up" : "down").padEnd(6),
+          mode.padEnd(8),
+          vlanDisplay.padEnd(6),
+          iface.peer?.name || "-"
+        ].join("");
+      })
+    ].join("\n");
+  }
+  function showSwitchVlans(device) {
+    const vlans = normaliseVlans(device.config?.vlans || []);
+    const configured = vlans.length ? vlans : [{ id: 1, name: "default" }];
+    const interfaces = switchInterfacesWithNames(device);
+    const trunkAllowed = normaliseTrunkAllowedVlans(device.config?.trunkAllowedVlans || {});
+    return [
+      "VLAN ID  Name       Ports",
+      ...configured.map((vlan) => {
+        const accessPorts = interfaces.filter((iface) => iface.mode !== "trunk" && iface.vlan === vlan.id).map((iface) => iface.name);
+        const trunkPorts = interfaces.filter((iface) => {
+          if (iface.mode !== "trunk") return false;
+          const allowed = trunkAllowed[iface.name];
+          return !allowed || allowed.length === 0 || allowed.includes(vlan.id);
+        }).map((iface) => `${iface.name}(T)`);
+        const ports = [...accessPorts, ...trunkPorts].join(",") || "-";
+        return `${String(vlan.id).padEnd(8)}${String(vlan.name || `Vlan${vlan.id}`).padEnd(11)}${ports}`;
+      })
+    ].join("\n");
+  }
+  function showSwitchMacTable(device) {
+    const entries = normaliseMacTable(device.config?.macTable || []);
+    if (!entries.length) return "No.    Vlan  MacAddress         Port      Type";
+    return [
+      "No.    Vlan  MacAddress         Port      Type",
+      ...entries.map((entry, index) => `${String(index + 1).padEnd(7)}${String(entry.vlan || "-").padEnd(6)}${entry.macAddress.padEnd(19)}${String(entry.port || "-").padEnd(10)}${entry.type || "DYNAMIC"}`)
+    ].join("\n");
+  }
+  function showSwitchRunningConfig(device) {
+    const vlans = normaliseVlans(device.config?.vlans || []).filter((vlan) => vlan.id !== 1);
+    const interfaces = switchInterfacesWithNames(device);
+    const trunkAllowed = normaliseTrunkAllowedVlans(device.config?.trunkAllowedVlans || {});
+    const lines = [`hostname ${device.name}`];
+    for (const vlan of vlans) lines.push(`config vlan add ${vlan.id}`);
+    for (const iface of interfaces) {
+      if (iface.mode === "trunk") {
+        if (iface.nativeVlan && iface.nativeVlan !== 1) lines.push(`config vlan member add ${iface.nativeVlan} ${iface.name}`);
+        for (const vid of trunkAllowed[iface.name] || []) lines.push(`config vlan member add -t ${vid} ${iface.name}`);
+      } else if (iface.vlan && iface.vlan !== 1) {
+        lines.push(`config vlan member add ${iface.vlan} ${iface.name}`);
+      }
+    }
+    return lines.length > 1 ? lines.join("\n") : `hostname ${device.name}
+(no VLAN configuration)`;
+  }
+  function addSwitchVlan(device, vlanId) {
+    const id = normaliseVlanId(vlanId);
+    if (!id) return `Invalid VLAN ID: ${vlanId}`;
+    pushUndo();
+    ensureConfig(device);
+    const vlans = normaliseVlans(device.config.vlans || []);
+    if (!vlans.some((vlan) => vlan.id === id)) vlans.push({ id, name: id === 1 ? "default" : `Vlan${id}` });
+    device.config.vlans = vlans.sort((a, b) => a.id - b.id);
+    sync().syncPanel();
+    return `Added VLAN ${id}.`;
+  }
+  function removeSwitchVlan(device, vlanId) {
+    const id = normaliseVlanId(vlanId);
+    if (!id || id === 1) return `Invalid VLAN ID: ${vlanId}`;
+    pushUndo();
+    ensureConfig(device);
+    device.config.vlans = normaliseVlans(device.config.vlans || []).filter((vlan) => vlan.id !== id);
+    const portVlans = normalisePortVlans(device.config.portVlans || {});
+    Object.keys(portVlans).forEach((port) => {
+      if (portVlans[port] === id) delete portVlans[port];
+    });
+    device.config.portVlans = portVlans;
+    sync().syncPanel();
+    return `Removed VLAN ${id}.`;
+  }
+  function setSwitchPortVlan(device, portName, vlanId) {
+    const id = normaliseVlanId(vlanId);
+    const iface = switchInterfacesWithNames(device).find((port) => port.name.toLowerCase() === String(portName || "").toLowerCase());
+    if (!iface) return `Unknown interface ${portName}.`;
+    if (!id) return `Invalid VLAN ID: ${vlanId}`;
+    pushUndo();
+    ensureConfig(device);
+    const vlans = normaliseVlans(device.config.vlans || []);
+    if (!vlans.some((vlan) => vlan.id === id)) vlans.push({ id, name: id === 1 ? "default" : `Vlan${id}` });
+    const portVlans = normalisePortVlans(device.config.portVlans || {});
+    if (id === 1) {
+      delete portVlans[iface.name];
+    } else {
+      portVlans[iface.name] = id;
+    }
+    device.config.vlans = vlans.sort((a, b) => a.id - b.id);
+    device.config.portVlans = portVlans;
+    sync().syncPanel();
+    return `Assigned ${iface.name} to VLAN ${id}.`;
+  }
+  function setSwitchPortMode(device, portName, mode) {
+    const iface = switchInterfacesWithNames(device).find((port) => port.name.toLowerCase() === String(portName || "").toLowerCase());
+    if (!iface) return `Unknown interface ${portName}.`;
+    pushUndo();
+    ensureConfig(device);
+    const portModes = normalisePortModes(device.config.portModes || {});
+    if (mode === "access") {
+      delete portModes[iface.name];
+    } else {
+      portModes[iface.name] = mode;
+    }
+    device.config.portModes = portModes;
+    sync().syncPanel();
+    sync().render();
+    return `Set ${iface.name} to ${mode} mode.`;
+  }
+  function setSwitchTrunkNative(device, portName, vlanId) {
+    const id = normaliseVlanId(vlanId);
+    const iface = switchInterfacesWithNames(device).find((port) => port.name.toLowerCase() === String(portName || "").toLowerCase());
+    if (!iface) return `Unknown interface ${portName}.`;
+    if (!id) return `Invalid VLAN ID: ${vlanId}`;
+    pushUndo();
+    ensureConfig(device);
+    const trunkNativeVlans = normalisePortVlans(device.config.trunkNativeVlans || {});
+    if (id === 1) {
+      delete trunkNativeVlans[iface.name];
+    } else {
+      trunkNativeVlans[iface.name] = id;
+    }
+    device.config.trunkNativeVlans = trunkNativeVlans;
+    sync().syncPanel();
+    return `Set ${iface.name} trunk native VLAN to ${id}.`;
+  }
+  function modifySwitchTrunkAllowed(device, portName, vlanId, action) {
+    const id = normaliseVlanId(vlanId);
+    const iface = switchInterfacesWithNames(device).find((port) => port.name.toLowerCase() === String(portName || "").toLowerCase());
+    if (!iface) return `Unknown interface ${portName}.`;
+    if (!id) return `Invalid VLAN ID: ${vlanId}`;
+    pushUndo();
+    ensureConfig(device);
+    const trunkAllowed = normaliseTrunkAllowedVlans(device.config.trunkAllowedVlans || {});
+    if (!trunkAllowed[iface.name]) trunkAllowed[iface.name] = [];
+    if (action === "add") {
+      if (!trunkAllowed[iface.name].includes(id)) trunkAllowed[iface.name].push(id);
+      trunkAllowed[iface.name].sort((a, b) => a - b);
+    } else {
+      trunkAllowed[iface.name] = trunkAllowed[iface.name].filter((v) => v !== id);
+      if (trunkAllowed[iface.name].length === 0) delete trunkAllowed[iface.name];
+    }
+    device.config.trunkAllowedVlans = trunkAllowed;
+    sync().syncPanel();
+    return action === "add" ? `Added VLAN ${id} to ${iface.name} trunk allowed list.` : `Removed VLAN ${id} from ${iface.name} trunk allowed list.`;
   }
   function switchVlanExists(device, id) {
     return id === 1 || normaliseVlans(device.config?.vlans || []).some((v) => v.id === id);
@@ -5796,6 +5867,8 @@ APIPA: assigned link-local ${apipaIp}`);
     }
     terminalLine("error", `% Unknown command: ${command}`);
   }
+
+  // src/terminal/firewall.ts
   function fwChain(raw) {
     return (raw || "").toLowerCase() === "forward" ? "forward" : null;
   }
@@ -5973,126 +6046,45 @@ APIPA: assigned link-local ${apipaIp}`);
     }
     terminalLine("error", `iptables: unknown operation "${args[0] || ""}". Try "help".`);
   }
+
+  // src/terminal/core.ts
+  function terminalLine(kind, text) {
+    state.terminal.lines.push({ kind, text });
+    if (state.terminal.lines.length > 120) state.terminal.lines.splice(0, state.terminal.lines.length - 120);
+  }
+  function terminalPromptText(device) {
+    if (device.type === "computer") return `${device.name}$`;
+    if (device.type === "switch") return `${device.name}#`;
+    if (device.type === "firewall") return `root@${device.name}#`;
+    if (state.terminal.mode === "config") return `${device.name}(config)#`;
+    if (state.terminal.mode === "interface") return `${device.name}(config-if)#`;
+    if (state.terminal.mode === "rip") return `${device.name}(config-router)#`;
+    if (state.terminal.mode === "privileged") return `${device.name}#`;
+    return `${device.name}>`;
+  }
+  var CLI_DISPATCH = {
+    computer: runHostTerminalCommand,
+    router: runRouterTerminalCommand,
+    switch: runSwitchTerminalCommand,
+    firewall: runFirewallTerminalCommand
+  };
+  function hasTerminal(device) {
+    return !!device && device.type in CLI_DISPATCH;
+  }
   function runTerminalCommand(rawCommand) {
     const host = getDevice(state.terminal.deviceId);
     const command = rawCommand.trim();
-    if (!host || !["computer", "router", "switch", "firewall"].includes(host.type)) {
+    const run = host ? CLI_DISPATCH[host.type] : void 0;
+    if (!host || !run) {
       terminalLine("error", "No device is attached to this terminal.");
       return;
     }
     if (!command) return;
     terminalLine("command", `${terminalPromptText(host)} ${command}`);
-    if (host.type === "router") {
-      runRouterTerminalCommand(host, command);
-      return;
-    }
-    if (host.type === "switch") {
-      runSwitchTerminalCommand(host, command);
-      return;
-    }
-    if (host.type === "firewall") {
-      runFirewallTerminalCommand(host, command);
-      return;
-    }
-    const lower = command.toLowerCase();
-    if (lower === "clear") {
-      state.terminal.lines = [];
-      return;
-    }
-    if (lower === "help") {
-      terminalLine("muted", [
-        "Commands:",
-        "  ip addr show",
-        "  ip addr add <ipv4>/24 dev eth0",
-        "  ip addr flush dev eth0",
-        "  ip route show",
-        "  ip route add default via <ipv4> dev eth0",
-        "  arp -n",
-        "  ping <pc-name|ipv4>",
-        "  traceroute <pc-name|ipv4>",
-        "  dhcp",
-        "  clear"
-      ].join("\n"));
-      return;
-    }
-    if (lower === "ip" || lower === "ip addr" || lower === "ip address" || lower === "ip addr show" || lower === "ip address show" || lower === "ip addr show dev eth0" || lower === "ip address show dev eth0" || lower === "ip a") {
-      terminalLine("", showHostIp(host));
-      return;
-    }
-    if (lower === "ip route" || lower === "ip route show" || lower === "ip route show default" || lower === "ip r" || lower === "route" || lower === "route -n") {
-      terminalLine("", showHostRoute(host));
-      return;
-    }
-    if (lower === "arp" || lower === "arp -a" || lower === "arp -n" || lower === "ip neigh" || lower === "ip neigh show" || lower === "ip neighbour" || lower === "ip neighbour show") {
-      terminalLine("", showHostArp(host));
-      return;
-    }
-    const ipFlushMatch = command.match(/^ip\s+(?:addr|address)\s+flush\s+dev\s+eth0$/i);
-    if (ipFlushMatch) {
-      terminalLine("", flushHostIp(host));
-      return;
-    }
-    const ipSetMatch = command.match(/^ip\s+(?:addr|address)\s+add\s+(\S+)\s+dev\s+eth0$/i) || command.match(/^ip\s+(?:addr|address)\s+(?:set|add)\s+(\S+)$/i) || command.match(/^set\s+ip\s+(\S+)$/i);
-    if (ipSetMatch) {
-      const result = setHostIp(host, ipSetMatch[1]);
-      terminalLine(result.startsWith("Invalid") ? "error" : "", result);
-      return;
-    }
-    const gatewayMatch = command.match(/^ip\s+route\s+(?:add|replace|change|set)\s+default\s+via\s+(\S+)(?:\s+dev\s+eth0)?$/i) || command.match(/^set\s+gateway\s+(\S+)$/i);
-    if (gatewayMatch) {
-      const result = setHostGateway(host, gatewayMatch[1]);
-      terminalLine(result.startsWith("Invalid") ? "error" : "", result);
-      return;
-    }
-    if (lower === "dhcp" || lower === "dhclient") {
-      const result = buildDhcpEvents(host);
-      if (typeof result === "string") {
-        terminalLine("error", result);
-      } else {
-        startSimulation(result, host.id, "", "dhcp");
-        dom.terminalInput.disabled = true;
-      }
-      return;
-    }
-    const traceMatch = command.match(/^(?:traceroute|tracert)\s+(.+)$/i);
-    if (traceMatch) {
-      const result = runTraceroute(host, traceMatch[1].trim());
-      if (typeof result === "string") {
-        terminalLine("error", result);
-      } else {
-        const lines = [`traceroute to ${result.targetIp}, 30 hops max`];
-        for (const hop of result.hops) {
-          lines.push(` ${String(hop.ttl).padStart(2)}  ${hop.ip || "* (no response)"}`);
-        }
-        if (!result.reached) lines.push("(destination not reached within 30 hops)");
-        terminalLine("", lines.join("\n"));
-      }
-      return;
-    }
-    const pingMatch = command.match(/^ping(?:\s+-c\s+\d+)?\s+(.+)$/i);
-    if (pingMatch) {
-      const targetText = pingMatch[1].trim();
-      const result = buildPingEvents(host, targetText);
-      if (typeof result === "string") {
-        terminalLine(result.startsWith("ping:") ? "error" : "", result);
-      } else {
-        const targetIp = resolvePingTargetIp(targetText);
-        startSimulation(result, host.id, targetIp);
-        dom.terminalInput.disabled = true;
-      }
-      return;
-    }
-    terminalLine("error", `${command}: command not found`);
-  }
-  function resolvePingTargetIp(targetText) {
-    if (isValidIpv4(targetText)) return targetText;
-    const target = state.devices.find(
-      (d) => d.type === "computer" && d.name.toLowerCase() === targetText.toLowerCase()
-    );
-    return target?.config?.ipv4Address || targetText;
+    run(host, command);
   }
   function openTerminalFor(device) {
-    if (!device || !["computer", "router", "switch", "firewall"].includes(device.type)) {
+    if (!device || !hasTerminal(device)) {
       state.terminal.open = true;
       state.terminal.deviceId = null;
       state.terminal.mode = "exec";
@@ -6134,7 +6126,7 @@ APIPA: assigned link-local ${apipaIp}`);
   }
   function syncTerminal() {
     const host = getDevice(state.terminal.deviceId);
-    if (!host || !["computer", "router", "switch", "firewall"].includes(host.type)) {
+    if (!hasTerminal(host)) {
       state.terminal.deviceId = null;
       state.terminal.mode = "exec";
       state.terminal.interfacePeerId = null;
@@ -6459,7 +6451,7 @@ APIPA: assigned link-local ${apipaIp}`);
     `;
     } else {
       const neighbors = connectedIds(selected.id).map((id) => getDevice(id)).filter(isVisibleDevice);
-      const selectedType = selected.type === "computer" ? "Computer" : selected.type === "router" ? "Router" : selected.type === "firewall" ? "Firewall" : selected.type === "lan" ? "LAN" : "Switch";
+      const selectedType = DEVICE_SPECS[selected.type]?.label ?? "Device";
       const pcConfigFields = selected.type === "computer" ? `
       <div class="field">
         <label for="selectedIpv4">IPv4 address</label>
@@ -6793,7 +6785,7 @@ APIPA: assigned link-local ${apipaIp}`);
     dom.deviceList.innerHTML = visibleDevices.map((device) => `
     <button class="device-row ${device.id === state.selectedId ? "active" : ""}" data-id="${device.id}">
       <span class="device-name">${escapeHtml(device.name)}</span>
-      <span class="device-type">${device.type === "computer" ? "Computer" : device.type === "router" ? "Router" : device.type === "firewall" ? "Firewall" : device.type === "lan" ? "LAN" : "Switch"}</span>
+      <span class="device-type">${DEVICE_SPECS[device.type]?.label ?? "Device"}</span>
     </button>
   `).join("");
     [...dom.deviceList.querySelectorAll(".device-row")].forEach((row) => {
@@ -7525,9 +7517,7 @@ APIPA: assigned link-local ${apipaIp}`);
     state.drag = null;
     state.panDrag = null;
     state.pointer = null;
-    state.nextComputer = nextDeviceNumber("computer");
-    state.nextSwitch = nextDeviceNumber("switch");
-    state.nextRouter = nextDeviceNumber("router");
+    for (const type of DEVICE_TYPES) state.nameCounters[type] = nextDeviceNumber(type);
     state.activeScenarioId = null;
     setTool("select");
     fitNetwork();
@@ -7579,8 +7569,8 @@ APIPA: assigned link-local ${apipaIp}`);
   }
   function cmdAdd(args) {
     const type = (args[0] || "").toLowerCase();
-    if (!["computer", "switch", "router", "firewall"].includes(type)) {
-      return err(`add: type must be computer|switch|router|firewall.`);
+    if (!USER_ADDABLE_TYPES.includes(type)) {
+      return err(`add: type must be ${USER_ADDABLE_TYPES.join("|")}.`);
     }
     let name;
     let pos = spawnPosition();
@@ -7912,8 +7902,9 @@ APIPA: assigned link-local ${apipaIp}`);
   }
   function cmdTool(args) {
     const tool = (args[0] || "").toLowerCase();
-    if (!["select", "computer", "switch", "router", "firewall", "connect", "configure"].includes(tool)) {
-      return err(`tool: expected select|computer|switch|router|firewall|connect|configure.`);
+    const tools = ["select", ...USER_ADDABLE_TYPES, "connect", "configure"];
+    if (!tools.includes(tool)) {
+      return err(`tool: expected ${tools.join("|")}.`);
     }
     setTool(tool);
     return ok(`Tool: ${tool}.`);

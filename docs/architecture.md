@@ -13,10 +13,12 @@ app.ts (entry)
   ├── ui.ts          ← event listeners, tool switching, keyboard, theme
   ├── canvas.ts      ← render loop, pan/zoom, device/link/transit drawing
   ├── inspector.ts   ← right panel: device details, link frame history
-  ├── terminal.ts    ← bottom panel: per-device CLI, command dispatch
+  ├── terminal/      ← bottom panel CLI: core dispatch/UI + host/router/switch/firewall
   ├── devices.ts     ← device/link CRUD, hit testing, lookup indexes, LAN collapse
   ├── config.ts      ← topology serialise/apply + built-in topologies (no fetch)
   ├── engine.ts      ← simulation engine: step loop, per-device frame processing
+  ├── routing.ts     ← routing table, longest-match lookup, RIP convergence
+  ├── device-registry.ts ← per-type spec (label, prefix, size, palette, icon, defaults)
   ├── simulation.ts  ← buildPingEvents/buildDhcpEvents, L2 reachability, routing utils
   ├── frame.ts       ← EthernetFrame factories, frame labels/colours
   ├── normalise.ts   ← config normalisation, device defaults, router MAC generation

@@ -25,10 +25,12 @@ It is a single-page app with **no framework and no runtime dependencies** — it
 | `src/ui.ts` | [ui.md](src/ui.md) | Event wiring, tool switching, theme, keyboard shortcuts |
 | `src/canvas.ts` | [canvas.md](src/canvas.md) | All `<canvas>` drawing, pan/zoom, the render loop |
 | `src/inspector.ts` | [inspector.md](src/inspector.md) | Right panel: device config + link history |
-| `src/terminal.ts` | [terminal.md](src/terminal.md) | Per-device CLI: parsing, command handlers, rendering |
+| `src/terminal/` | [terminal.md](src/terminal.md) | Per-device CLI: core dispatch/UI + host/router/switch/firewall modules |
 | `src/devices.ts` | [devices.md](src/devices.md) | Device/link CRUD, hit-testing, lookup indexes, LAN grouping |
 | `src/config.ts` | [config.md](src/config.md) | Save/load `config.json`, built-in + embedded configs |
-| `src/engine.ts` | [engine.md](src/engine.md) | The simulation engine: per-device frame processing, routing, RIP, headless runs |
+| `src/engine.ts` | [engine.md](src/engine.md) | The simulation engine: per-device frame processing, headless runs, traceroute |
+| `src/routing.ts` | [engine.md](src/engine.md) | Routing table, longest-match lookup, RIP convergence |
+| `src/device-registry.ts` | [architecture.md](architecture.md) | Per-type device spec: label, name prefix, size, palette, icon, defaults |
 | (firewall) | [firewall.md](src/firewall.md) | The transparent inline firewall device (iptables CLI + packet filtering) |
 | `src/commands.ts` | [scripting.md](scripting.md) | The text-command engine (parser, verb registry, topology export) |
 | `src/console.ts` | [scripting.md](scripting.md) | The command console panel UI |

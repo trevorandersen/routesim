@@ -1,6 +1,8 @@
-import { state, colors, deviceIcons } from "./state";
+import type { DeviceType } from "./types";
+import { state, colors } from "./state";
 import { dom } from "./dom";
 import { cssColor } from "./utils";
+import { DEVICE_SPECS } from "./device-registry";
 import { getDevice, isVisibleDevice, routerInterfacesWithNames, linkedPortsFor } from "./devices";
 import { normalisePortModes } from "./normalise";
 import { getVlanForDevice } from "./simulation";
@@ -75,43 +77,12 @@ export function linkColorFor(from: any, to: any): string {
 }
 
 export function devicePalette(type: string): { fill: string; stroke: string; accent: string; dark: string } {
-  if (type === "computer") {
-    return {
-      fill: cssColor("--pc-fill"),
-      stroke: cssColor("--pc-stroke"),
-      accent: cssColor("--pc-accent"),
-      dark: cssColor("--pc-icon")
-    };
-  }
-  if (type === "router") {
-    return {
-      fill: cssColor("--router-fill"),
-      stroke: cssColor("--router-stroke"),
-      accent: cssColor("--router-accent"),
-      dark: cssColor("--router-icon")
-    };
-  }
-  if (type === "firewall") {
-    return {
-      fill: cssColor("--fw-fill"),
-      stroke: cssColor("--fw-stroke"),
-      accent: cssColor("--fw-accent"),
-      dark: cssColor("--fw-icon")
-    };
-  }
-  if (type === "lan") {
-    return {
-      fill: cssColor("--lan-fill"),
-      stroke: cssColor("--lan-stroke"),
-      accent: cssColor("--lan-accent"),
-      dark: cssColor("--lan-icon")
-    };
-  }
+  const v = DEVICE_SPECS[type as DeviceType]?.paletteVar ?? "switch";
   return {
-    fill: cssColor("--switch-fill"),
-    stroke: cssColor("--switch-stroke"),
-    accent: cssColor("--switch-accent"),
-    dark: cssColor("--switch-icon")
+    fill: cssColor(`--${v}-fill`),
+    stroke: cssColor(`--${v}-stroke`),
+    accent: cssColor(`--${v}-accent`),
+    dark: cssColor(`--${v}-icon`)
   };
 }
 
@@ -176,7 +147,10 @@ export function drawLink(link: any): void {
   ctx.restore();
 }
 
-export function drawIconDevice(device: any, palette: any, iconName: string, radius = 10, iconStrokeWidth = 1.7): void {
+// Draws any device body + icon from its registry spec (size, radius, paths).
+export function drawIconDevice(device: any, palette: any): void {
+  const spec = DEVICE_SPECS[device.type as DeviceType] ?? DEVICE_SPECS.switch;
+  const radius = spec.iconRadius;
   const x = device.x - device.width / 2;
   const y = device.y - device.height / 2;
   ctx.fillStyle = palette.fill;
@@ -190,10 +164,10 @@ export function drawIconDevice(device: any, palette: any, iconName: string, radi
   roundRect(x + 10, y + 10, device.width - 20, device.height - 20, Math.max(5, radius - 3));
   ctx.fill();
 
-  drawTablerIcon(device.x, device.y, iconName, palette.dark, Math.min(device.width, device.height) - 22, iconStrokeWidth);
+  drawTablerIcon(device.x, device.y, spec.iconPaths, palette.dark, Math.min(device.width, device.height) - 22, spec.iconStrokeWidth ?? 1.7);
 }
 
-export function drawTablerIcon(centerX: number, centerY: number, iconName: string, color: string, size: number, strokeWidth = 1.7): void {
+export function drawTablerIcon(centerX: number, centerY: number, paths: string[], color: string, size: number, strokeWidth = 1.7): void {
   const scale = size / 24;
   ctx.save();
   ctx.translate(centerX - size / 2, centerY - size / 2);
@@ -203,19 +177,10 @@ export function drawTablerIcon(centerX: number, centerY: number, iconName: strin
   ctx.lineCap = "round";
   ctx.lineJoin = "round";
   ctx.fillStyle = "transparent";
-  deviceIcons[iconName].forEach(path => {
+  paths.forEach(path => {
     ctx.stroke(new Path2D(path));
   });
   ctx.restore();
-}
-
-export function drawComputer(device: any, palette: any): void {
-  drawIconDevice(device, palette, "computer", 10);
-}
-
-export function drawSwitch(device: any, palette: any): void {
-  drawIconDevice(device, palette, "switch", 8);
-  if (device.config?.managed) drawManagedBadge(device, palette);
 }
 
 export function drawManagedBadge(device: any, palette: any): void {
@@ -247,10 +212,6 @@ export function drawManagedBadge(device: any, palette: any): void {
   ctx.restore();
 }
 
-export function drawRouter(device: any, palette: any): void {
-  drawIconDevice(device, palette, "router", 12, 0.77);
-}
-
 function drawDeviceIcon(device: any): void {
   if (device.hidden) return;
   const selected = state.selectedId === device.id;
@@ -268,17 +229,8 @@ function drawDeviceIcon(device: any): void {
     ctx.setLineDash([]);
   }
 
-  if (device.type === "computer") {
-    drawComputer(device, palette);
-  } else if (device.type === "router") {
-    drawRouter(device, palette);
-  } else if (device.type === "firewall") {
-    drawIconDevice(device, palette, "firewall", 10);
-  } else if (device.type === "lan") {
-    drawIconDevice(device, palette, "lan", 14);
-  } else {
-    drawSwitch(device, palette);
-  }
+  drawIconDevice(device, palette);
+  if (device.type === "switch" && device.config?.managed) drawManagedBadge(device, palette);
   ctx.restore();
 }
 

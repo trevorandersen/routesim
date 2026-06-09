@@ -1,6 +1,7 @@
 import { describe, it, expect, beforeAll, beforeEach } from "bun:test";
 import { state } from "../src/state";
 import { addDevice, addLink, deleteSelection, clearNetwork, findDeviceAt, getDevice, connectedIds, linkedPortsFor } from "../src/devices";
+import { freshNameCounters } from "../src/device-registry";
 import { registerNoopCallbacks, resetState } from "./helpers";
 
 beforeAll(() => {
@@ -11,9 +12,7 @@ describe("addDevice", () => {
   beforeEach(() => {
     resetState();
     // Reset auto-naming counters so tests are independent of run order
-    (state as any).nextComputer = 1;
-    (state as any).nextSwitch = 1;
-    (state as any).nextRouter = 1;
+    state.nameCounters = freshNameCounters();
   });
 
   it("creates a device in state.devices", () => {

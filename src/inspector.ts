@@ -1,5 +1,6 @@
-import type { Link } from "./types";
+import type { Link, DeviceType } from "./types";
 import { state, sync, pushUndo, captureUndoOnFocus } from "./state";
+import { DEVICE_SPECS } from "./device-registry";
 import { dom } from "./dom";
 import { escapeHtml, isValidIpv4, isValidMac, normaliseMacAddress, randomMac } from "./utils";
 import { ensureConfig, normaliseVlans } from "./normalise";
@@ -305,7 +306,7 @@ export function syncPanel(): void {
     `;
   } else {
     const neighbors = connectedIds(selected.id).map((id: string) => getDevice(id)).filter(isVisibleDevice);
-    const selectedType = selected.type === "computer" ? "Computer" : selected.type === "router" ? "Router" : selected.type === "firewall" ? "Firewall" : selected.type === "lan" ? "LAN" : "Switch";
+    const selectedType = DEVICE_SPECS[selected.type]?.label ?? "Device";
     const pcConfigFields = selected.type === "computer" ? `
       <div class="field">
         <label for="selectedIpv4">IPv4 address</label>
@@ -642,7 +643,7 @@ export function syncDeviceList(): void {
   dom.deviceList.innerHTML = visibleDevices.map(device => `
     <button class="device-row ${device.id === state.selectedId ? "active" : ""}" data-id="${device.id}">
       <span class="device-name">${escapeHtml(device.name)}</span>
-      <span class="device-type">${device.type === "computer" ? "Computer" : device.type === "router" ? "Router" : device.type === "firewall" ? "Firewall" : device.type === "lan" ? "LAN" : "Switch"}</span>
+      <span class="device-type">${DEVICE_SPECS[device.type as DeviceType]?.label ?? "Device"}</span>
     </button>
   `).join("");
   [...dom.deviceList.querySelectorAll(".device-row")].forEach((row: any) => {

@@ -11,7 +11,6 @@
 <body class="inspector-closed terminal-closed console-closed">
   <header class="ribbon" id="ribbon">
     <div class="ribbon-tabs">
-      <span class="ribbon-brand">RouteSim</span>
       <button class="ribbon-tab active" data-tab="file" type="button">File</button>
       <button class="ribbon-tab" data-tab="edit" type="button">Edit</button>
       <button class="ribbon-tab" data-tab="view" type="button">View</button>
@@ -30,9 +29,12 @@
           <button class="ribbon-btn" data-action="new" type="button"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M14 3v4a1 1 0 0 0 1 1h4"></path><path d="M17 21H7a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h7l5 5v11a2 2 0 0 1-2 2z"></path></svg><span>New</span></button>
         </div><span class="ribbon-label">New</span></div>
         <div class="ribbon-group"><div class="ribbon-items">
-          <button class="ribbon-btn" data-topology="basic" type="button"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 6h16"></path><path d="M4 12h16"></path><path d="M4 18h16"></path></svg><span>Basic</span></button>
-          <button class="ribbon-btn" data-topology="vlan-roas" type="button"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 6h16"></path><path d="M4 12h16"></path><path d="M4 18h16"></path></svg><span>VLAN RoaS</span></button>
-          <button class="ribbon-btn" data-topology="router-mesh" type="button"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 6h16"></path><path d="M4 12h16"></path><path d="M4 18h16"></path></svg><span>5-Router</span></button>
+          <select class="ribbon-select" id="topologySelect" aria-label="Load a built-in topology">
+            <option value="">Load topology…</option>
+            <option value="basic">Basic Network</option>
+            <option value="vlan-roas">VLAN Router-on-a-Stick</option>
+            <option value="router-mesh">5-Router Mesh</option>
+          </select>
         </div><span class="ribbon-label">Topologies</span></div>
         <div class="ribbon-group"><div class="ribbon-items">
           <button class="ribbon-btn" data-action="import-config" type="button"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 3v12"></path><path d="M7 10l5 5 5-5"></path><path d="M5 21h14"></path></svg><span>Config</span></button>

@@ -221,7 +221,6 @@
       height: 38px;
       border-bottom: 1px solid var(--line);
     }
-    .ribbon-brand { font-weight: 800; font-size: 15px; margin-right: 14px; color: var(--text); }
     .ribbon-tab {
       appearance: none;
       border: 0;
@@ -281,6 +280,23 @@
     .ribbon-btn:hover { background: var(--panel-soft); border-color: var(--line); }
     .ribbon-btn:disabled { opacity: 0.4; cursor: default; }
     .ribbon-btn:disabled:hover { background: transparent; border-color: transparent; }
+    .ribbon-select {
+      align-self: center;
+      appearance: none;
+      border: 1px solid var(--line);
+      background: var(--panel-soft);
+      color: var(--text);
+      font: inherit;
+      font-size: 12px;
+      padding: 7px 26px 7px 10px;
+      border-radius: 8px;
+      cursor: pointer;
+      background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%23888' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M6 9l6 6l6 -6'/%3E%3C/svg%3E");
+      background-repeat: no-repeat;
+      background-position: right 7px center;
+      background-size: 14px;
+    }
+    .ribbon-select:hover { border-color: var(--line-strong); }
     .ribbon-btn.active { color: var(--accent); background: var(--accent-soft); border-color: rgba(20, 116, 111, 0.35); }
     .ribbon-btn.danger:hover { color: var(--danger); border-color: rgba(188, 59, 59, 0.36); }
 
@@ -1507,7 +1523,6 @@
 <body class="inspector-closed terminal-closed console-closed">
   <header class="ribbon" id="ribbon">
     <div class="ribbon-tabs">
-      <span class="ribbon-brand">RouteSim</span>
       <button class="ribbon-tab active" data-tab="file" type="button">File</button>
       <button class="ribbon-tab" data-tab="edit" type="button">Edit</button>
       <button class="ribbon-tab" data-tab="view" type="button">View</button>
@@ -1526,9 +1541,12 @@
           <button class="ribbon-btn" data-action="new" type="button"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M14 3v4a1 1 0 0 0 1 1h4"></path><path d="M17 21H7a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h7l5 5v11a2 2 0 0 1-2 2z"></path></svg><span>New</span></button>
         </div><span class="ribbon-label">New</span></div>
         <div class="ribbon-group"><div class="ribbon-items">
-          <button class="ribbon-btn" data-topology="basic" type="button"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 6h16"></path><path d="M4 12h16"></path><path d="M4 18h16"></path></svg><span>Basic</span></button>
-          <button class="ribbon-btn" data-topology="vlan-roas" type="button"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 6h16"></path><path d="M4 12h16"></path><path d="M4 18h16"></path></svg><span>VLAN RoaS</span></button>
-          <button class="ribbon-btn" data-topology="router-mesh" type="button"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 6h16"></path><path d="M4 12h16"></path><path d="M4 18h16"></path></svg><span>5-Router</span></button>
+          <select class="ribbon-select" id="topologySelect" aria-label="Load a built-in topology">
+            <option value="">Load topology…</option>
+            <option value="basic">Basic Network</option>
+            <option value="vlan-roas">VLAN Router-on-a-Stick</option>
+            <option value="router-mesh">5-Router Mesh</option>
+          </select>
         </div><span class="ribbon-label">Topologies</span></div>
         <div class="ribbon-group"><div class="ribbon-items">
           <button class="ribbon-btn" data-action="import-config" type="button"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 3v12"></path><path d="M7 10l5 5 5-5"></path><path d="M5 21h14"></path></svg><span>Config</span></button>
@@ -2224,20 +2242,20 @@ Full legal text: https://creativecommons.org/publicdomain/zero/1.0/legalcode</pr
   var defaultConfig = {
     version: 1,
     devices: [
-      { id: "pc-a1", type: "computer", name: "PC-A1", x: -560, y: -250, config: { ipv4Address: "192.168.10.11", gatewayIpv4Address: "192.168.10.1", macAddress: "02:00:00:00:10:11" } },
-      { id: "pc-a2", type: "computer", name: "PC-A2", x: -560, y: -130, config: { ipv4Address: "192.168.10.12", gatewayIpv4Address: "192.168.10.1", macAddress: "02:00:00:00:10:12" } },
-      { id: "sw-a", type: "switch", name: "Access-SW-A", x: -360, y: -190, config: { managed: false, ethernetPorts: 8 } },
-      { id: "pc-b1", type: "computer", name: "PC-B1", x: -560, y: 90, config: { ipv4Address: "192.168.10.21", gatewayIpv4Address: "192.168.10.1", macAddress: "02:00:00:00:10:21" } },
-      { id: "pc-b2", type: "computer", name: "PC-B2", x: -560, y: 210, config: { ipv4Address: "192.168.10.22", gatewayIpv4Address: "192.168.10.1", macAddress: "02:00:00:00:10:22" } },
-      { id: "sw-b", type: "switch", name: "Access-SW-B", x: -360, y: 150, config: { managed: false, ethernetPorts: 8 } },
-      { id: "sw-core", type: "switch", name: "Core-SW", x: -80, y: -20, config: { managed: false, ethernetPorts: 8 } },
-      { id: "router", type: "router", name: "Router", x: 210, y: -20, config: { interfaces: [
+      { id: "pc-a1", type: "computer", name: "PC-A1", x: -560, y: -300, config: { ipv4Address: "192.168.10.11", gatewayIpv4Address: "192.168.10.1", macAddress: "02:00:00:00:10:11" } },
+      { id: "pc-a2", type: "computer", name: "PC-A2", x: -560, y: -150, config: { ipv4Address: "192.168.10.12", gatewayIpv4Address: "192.168.10.1", macAddress: "02:00:00:00:10:12" } },
+      { id: "sw-a", type: "switch", name: "Access-SW-A", x: -360, y: -225, config: { managed: false, ethernetPorts: 8 } },
+      { id: "pc-b1", type: "computer", name: "PC-B1", x: -560, y: 130, config: { ipv4Address: "192.168.10.21", gatewayIpv4Address: "192.168.10.1", macAddress: "02:00:00:00:10:21" } },
+      { id: "pc-b2", type: "computer", name: "PC-B2", x: -560, y: 280, config: { ipv4Address: "192.168.10.22", gatewayIpv4Address: "192.168.10.1", macAddress: "02:00:00:00:10:22" } },
+      { id: "sw-b", type: "switch", name: "Access-SW-B", x: -360, y: 205, config: { managed: false, ethernetPorts: 8 } },
+      { id: "sw-core", type: "switch", name: "Core-SW", x: -80, y: -10, config: { managed: false, ethernetPorts: 8 } },
+      { id: "router", type: "router", name: "Router", x: 210, y: -10, config: { interfaces: [
         { peerId: "sw-core", type: "ethernet", ipv4Address: "192.168.10.1" },
         { peerId: "sw-c", type: "ethernet", ipv4Address: "192.168.30.1" }
       ] } },
-      { id: "pc-c1", type: "computer", name: "PC-C1", x: 540, y: -80, config: { ipv4Address: "192.168.30.11", gatewayIpv4Address: "192.168.30.1", macAddress: "02:00:00:00:30:11" } },
-      { id: "pc-c2", type: "computer", name: "PC-C2", x: 540, y: 80, config: { ipv4Address: "192.168.30.12", gatewayIpv4Address: "192.168.30.1", macAddress: "02:00:00:00:30:12" } },
-      { id: "sw-c", type: "switch", name: "Access-SW-C", x: 360, y: 0, config: { managed: false, ethernetPorts: 8 } }
+      { id: "pc-c1", type: "computer", name: "PC-C1", x: 540, y: -110, config: { ipv4Address: "192.168.30.11", gatewayIpv4Address: "192.168.30.1", macAddress: "02:00:00:00:30:11" } },
+      { id: "pc-c2", type: "computer", name: "PC-C2", x: 540, y: 90, config: { ipv4Address: "192.168.30.12", gatewayIpv4Address: "192.168.30.1", macAddress: "02:00:00:00:30:12" } },
+      { id: "sw-c", type: "switch", name: "Access-SW-C", x: 360, y: -10, config: { managed: false, ethernetPorts: 8 } }
     ],
     links: [
       { from: "pc-a1", to: "sw-a" },
@@ -2276,7 +2294,7 @@ Full legal text: https://creativecommons.org/publicdomain/zero/1.0/legalcode</pr
         trunkAllowedVlans: {}
       } },
       // Edge switch A — VLAN 10
-      { id: "sw-a", type: "switch", name: "Edge-SW-A", x: -250, y: -200, config: {
+      { id: "sw-a", type: "switch", name: "Edge-SW-A", x: -250, y: -320, config: {
         managed: true,
         ethernetPorts: 8,
         vlans: [{ id: 1, name: "default" }, { id: 10, name: "Sales" }, { id: 20, name: "Engineering" }, { id: 30, name: "Servers" }],
@@ -2296,7 +2314,7 @@ Full legal text: https://creativecommons.org/publicdomain/zero/1.0/legalcode</pr
         trunkAllowedVlans: {}
       } },
       // Edge switch C — VLAN 30 + trunk to unmanaged switch D
-      { id: "sw-c", type: "switch", name: "Edge-SW-C", x: -250, y: 200, config: {
+      { id: "sw-c", type: "switch", name: "Edge-SW-C", x: -250, y: 320, config: {
         managed: true,
         ethernetPorts: 8,
         vlans: [{ id: 1, name: "default" }, { id: 10, name: "Sales" }, { id: 20, name: "Engineering" }, { id: 30, name: "Servers" }],
@@ -2306,23 +2324,23 @@ Full legal text: https://creativecommons.org/publicdomain/zero/1.0/legalcode</pr
         trunkAllowedVlans: {}
       } },
       // Edge switch D — unmanaged (passes through VLAN 30 traffic transparently)
-      { id: "sw-d", type: "switch", name: "Edge-SW-D", x: -520, y: 280, config: {
+      { id: "sw-d", type: "switch", name: "Edge-SW-D", x: -520, y: 560, config: {
         managed: false,
         ethernetPorts: 8
       } },
       // PCs — VLAN 10 (Sales)
-      { id: "pc-a1", type: "computer", name: "PC-A1", x: -520, y: -260, config: { ipv4Address: "192.168.10.11", gatewayIpv4Address: "192.168.10.1", macAddress: "02:00:0A:00:01:01" } },
-      { id: "pc-a2", type: "computer", name: "PC-A2", x: -520, y: -160, config: { ipv4Address: "192.168.10.12", gatewayIpv4Address: "192.168.10.1", macAddress: "02:00:0A:00:01:02" } },
+      { id: "pc-a1", type: "computer", name: "PC-A1", x: -520, y: -395, config: { ipv4Address: "192.168.10.11", gatewayIpv4Address: "192.168.10.1", macAddress: "02:00:0A:00:01:01" } },
+      { id: "pc-a2", type: "computer", name: "PC-A2", x: -520, y: -245, config: { ipv4Address: "192.168.10.12", gatewayIpv4Address: "192.168.10.1", macAddress: "02:00:0A:00:01:02" } },
       // PCs — VLAN 20 (Engineering)
-      { id: "pc-b1", type: "computer", name: "PC-B1", x: -520, y: -60, config: { ipv4Address: "192.168.20.11", gatewayIpv4Address: "192.168.20.1", macAddress: "02:00:14:00:01:01" } },
-      { id: "pc-b2", type: "computer", name: "PC-B2", x: -520, y: 40, config: { ipv4Address: "192.168.20.12", gatewayIpv4Address: "192.168.20.1", macAddress: "02:00:14:00:01:02" } },
+      { id: "pc-b1", type: "computer", name: "PC-B1", x: -520, y: -75, config: { ipv4Address: "192.168.20.11", gatewayIpv4Address: "192.168.20.1", macAddress: "02:00:14:00:01:01" } },
+      { id: "pc-b2", type: "computer", name: "PC-B2", x: -520, y: 75, config: { ipv4Address: "192.168.20.12", gatewayIpv4Address: "192.168.20.1", macAddress: "02:00:14:00:01:02" } },
       // PCs — VLAN 30 (Servers) on Edge-SW-C
-      { id: "pc-c1", type: "computer", name: "PC-C1", x: -520, y: 130, config: { ipv4Address: "192.168.30.11", gatewayIpv4Address: "192.168.30.1", macAddress: "02:00:1E:00:01:01" } },
-      { id: "pc-c2", type: "computer", name: "PC-C2", x: -520, y: 210, config: { ipv4Address: "192.168.30.12", gatewayIpv4Address: "192.168.30.1", macAddress: "02:00:1E:00:01:02" } },
+      { id: "pc-c1", type: "computer", name: "PC-C1", x: -520, y: 245, config: { ipv4Address: "192.168.30.11", gatewayIpv4Address: "192.168.30.1", macAddress: "02:00:1E:00:01:01" } },
+      { id: "pc-c2", type: "computer", name: "PC-C2", x: -520, y: 395, config: { ipv4Address: "192.168.30.12", gatewayIpv4Address: "192.168.30.1", macAddress: "02:00:1E:00:01:02" } },
       // PCs — VLAN 30 (Servers) on Edge-SW-D (unmanaged)
-      { id: "pc-d1", type: "computer", name: "PC-D1", x: -760, y: 200, config: { ipv4Address: "192.168.30.21", gatewayIpv4Address: "192.168.30.1", macAddress: "02:00:1E:00:02:01" } },
-      { id: "pc-d2", type: "computer", name: "PC-D2", x: -760, y: 290, config: { ipv4Address: "192.168.30.22", gatewayIpv4Address: "192.168.30.1", macAddress: "02:00:1E:00:02:02" } },
-      { id: "pc-d3", type: "computer", name: "PC-D3", x: -760, y: 380, config: { ipv4Address: "192.168.30.23", gatewayIpv4Address: "192.168.30.1", macAddress: "02:00:1E:00:02:03" } }
+      { id: "pc-d1", type: "computer", name: "PC-D1", x: -760, y: 460, config: { ipv4Address: "192.168.30.21", gatewayIpv4Address: "192.168.30.1", macAddress: "02:00:1E:00:02:01" } },
+      { id: "pc-d2", type: "computer", name: "PC-D2", x: -760, y: 610, config: { ipv4Address: "192.168.30.22", gatewayIpv4Address: "192.168.30.1", macAddress: "02:00:1E:00:02:02" } },
+      { id: "pc-d3", type: "computer", name: "PC-D3", x: -760, y: 760, config: { ipv4Address: "192.168.30.23", gatewayIpv4Address: "192.168.30.1", macAddress: "02:00:1E:00:02:03" } }
     ],
     links: [
       // Core-SW to Router (trunk)
@@ -2445,16 +2463,16 @@ Full legal text: https://creativecommons.org/publicdomain/zero/1.0/legalcode</pr
       // ── Switches ─────────────────────────────────────────────────────
       { id: "sw1", type: "switch", name: "SW1", x: -320, y: -60, config: { managed: false, ethernetPorts: 8 } },
       { id: "sw2", type: "switch", name: "SW2", x: 600, y: -60, config: { managed: false, ethernetPorts: 8 } },
-      { id: "sw4", type: "switch", name: "SW4", x: 80, y: 460, config: { managed: false, ethernetPorts: 8 } },
+      { id: "sw4", type: "switch", name: "SW4", x: 80, y: 510, config: { managed: false, ethernetPorts: 8 } },
       // ── PCs — Subnet 192.168.1.0/24 (R1/SW1) ────────────────────────
-      { id: "pc-a1", type: "computer", name: "PC-A1", x: -520, y: -120, config: { ipv4Address: "192.168.1.11", gatewayIpv4Address: "192.168.1.1", macAddress: "02:00:01:00:01:11" } },
-      { id: "pc-a2", type: "computer", name: "PC-A2", x: -520, y: -10, config: { ipv4Address: "192.168.1.12", gatewayIpv4Address: "192.168.1.1", macAddress: "02:00:01:00:01:12" } },
+      { id: "pc-a1", type: "computer", name: "PC-A1", x: -520, y: -150, config: { ipv4Address: "192.168.1.11", gatewayIpv4Address: "192.168.1.1", macAddress: "02:00:01:00:01:11" } },
+      { id: "pc-a2", type: "computer", name: "PC-A2", x: -520, y: 20, config: { ipv4Address: "192.168.1.12", gatewayIpv4Address: "192.168.1.1", macAddress: "02:00:01:00:01:12" } },
       // ── PCs — Subnet 192.168.2.0/24 (R2/SW2) ────────────────────────
-      { id: "pc-b1", type: "computer", name: "PC-B1", x: 800, y: -120, config: { ipv4Address: "192.168.2.11", gatewayIpv4Address: "192.168.2.1", macAddress: "02:00:02:00:01:11" } },
-      { id: "pc-b2", type: "computer", name: "PC-B2", x: 800, y: -10, config: { ipv4Address: "192.168.2.12", gatewayIpv4Address: "192.168.2.1", macAddress: "02:00:02:00:01:12" } },
+      { id: "pc-b1", type: "computer", name: "PC-B1", x: 800, y: -150, config: { ipv4Address: "192.168.2.11", gatewayIpv4Address: "192.168.2.1", macAddress: "02:00:02:00:01:11" } },
+      { id: "pc-b2", type: "computer", name: "PC-B2", x: 800, y: 20, config: { ipv4Address: "192.168.2.12", gatewayIpv4Address: "192.168.2.1", macAddress: "02:00:02:00:01:12" } },
       // ── PCs — Subnet 192.168.4.0/24 (R4/SW4) ────────────────────────
-      { id: "pc-d1", type: "computer", name: "PC-D1", x: -100, y: 530, config: { ipv4Address: "192.168.4.11", gatewayIpv4Address: "192.168.4.1", macAddress: "02:00:04:00:01:11" } },
-      { id: "pc-d2", type: "computer", name: "PC-D2", x: 260, y: 530, config: { ipv4Address: "192.168.4.12", gatewayIpv4Address: "192.168.4.1", macAddress: "02:00:04:00:01:12" } }
+      { id: "pc-d1", type: "computer", name: "PC-D1", x: -100, y: 600, config: { ipv4Address: "192.168.4.11", gatewayIpv4Address: "192.168.4.1", macAddress: "02:00:04:00:01:11" } },
+      { id: "pc-d2", type: "computer", name: "PC-D2", x: 260, y: 600, config: { ipv4Address: "192.168.4.12", gatewayIpv4Address: "192.168.4.1", macAddress: "02:00:04:00:01:12" } }
     ],
     links: [
       // LAN connections
@@ -2595,6 +2613,7 @@ Full legal text: https://creativecommons.org/publicdomain/zero/1.0/legalcode</pr
     scenarioCloseButton: document.getElementById("scenarioCloseButton"),
     themeButtons: Array.from(document.querySelectorAll("[data-theme-id]")),
     ribbonScenarioList: document.getElementById("ribbonScenarioList"),
+    topologySelect: document.getElementById("topologySelect"),
     coordReadout: document.getElementById("coordReadout"),
     simPlayPause: document.getElementById("simPlayPause"),
     simStep: document.getElementById("simStep"),
@@ -7346,12 +7365,8 @@ APIPA: assigned link-local ${apipaIp}`);
       "help-about": openAbout
     };
     document.addEventListener("click", (event) => {
-      const el = event.target?.closest?.("[data-action],[data-topology],[data-scenario],[data-theme-id]");
+      const el = event.target?.closest?.("[data-action],[data-scenario],[data-theme-id]");
       if (!el) return;
-      if (el.dataset.topology) {
-        loadTopology(el.dataset.topology);
-        return;
-      }
       if (el.dataset.scenario) {
         loadScenario(el.dataset.scenario);
         return;
@@ -7361,6 +7376,11 @@ APIPA: assigned link-local ${apipaIp}`);
         return;
       }
       if (el.dataset.action) ribbonActions[el.dataset.action]?.();
+    });
+    dom.topologySelect.addEventListener("change", () => {
+      const name = dom.topologySelect.value;
+      if (name) loadTopology(name);
+      dom.topologySelect.value = "";
     });
     dom.scenarioCheckButton.addEventListener("click", runActiveScenarioCheck);
     dom.scenarioCloseButton.addEventListener("click", dismissScenario);

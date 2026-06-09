@@ -39,6 +39,7 @@ export const dom = {
   scenarioCloseButton: document.getElementById("scenarioCloseButton")!,
   themeButtons: Array.from(document.querySelectorAll<HTMLElement>("[data-theme-id]")),
   ribbonScenarioList: document.getElementById("ribbonScenarioList")!,
+  topologySelect: document.getElementById("topologySelect") as HTMLSelectElement,
   coordReadout: document.getElementById("coordReadout")!,
   simPlayPause: document.getElementById("simPlayPause")!,
   simStep: document.getElementById("simStep")!,

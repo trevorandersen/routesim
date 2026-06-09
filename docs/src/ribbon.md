@@ -12,7 +12,7 @@ The MS-Office-style ribbon: a row of tabs (**File · Edit · View · Simulate ·
 The ribbon is **markup-driven**: `template.html` holds the tabs and panels, and individual buttons carry data attributes that `ui.ts` wires by delegation:
 
 - `data-tool` → `setTool` (the drawing tools, folded into the Edit tab).
-- `data-topology` → `loadTopology` (File tab).
+- Built-in topologies load from the **Topologies `<select>`** (`#topologySelect` → `loadTopology`, File tab).
 - `data-scenario` → `loadScenario` (dynamic, Scenarios tab).
 - `data-theme-id` → `setTheme` (View tab; the three theme buttons).
 - `data-action` → a small action map in `setupUI` (new/undo/delete, import-*/export-* via `io.ts`, panel toggles, fit, scenario check/dismiss, help).

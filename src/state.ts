@@ -157,20 +157,20 @@ export const deviceIcons: Record<string, string[]> = {
 export const defaultConfig = {
   version: 1,
   devices: [
-    { id: "pc-a1", type: "computer", name: "PC-A1", x: -560, y: -250, config: { ipv4Address: "192.168.10.11", gatewayIpv4Address: "192.168.10.1", macAddress: "02:00:00:00:10:11" } },
-    { id: "pc-a2", type: "computer", name: "PC-A2", x: -560, y: -130, config: { ipv4Address: "192.168.10.12", gatewayIpv4Address: "192.168.10.1", macAddress: "02:00:00:00:10:12" } },
-    { id: "sw-a", type: "switch", name: "Access-SW-A", x: -360, y: -190, config: { managed: false, ethernetPorts: 8 } },
-    { id: "pc-b1", type: "computer", name: "PC-B1", x: -560, y: 90, config: { ipv4Address: "192.168.10.21", gatewayIpv4Address: "192.168.10.1", macAddress: "02:00:00:00:10:21" } },
-    { id: "pc-b2", type: "computer", name: "PC-B2", x: -560, y: 210, config: { ipv4Address: "192.168.10.22", gatewayIpv4Address: "192.168.10.1", macAddress: "02:00:00:00:10:22" } },
-    { id: "sw-b", type: "switch", name: "Access-SW-B", x: -360, y: 150, config: { managed: false, ethernetPorts: 8 } },
-    { id: "sw-core", type: "switch", name: "Core-SW", x: -80, y: -20, config: { managed: false, ethernetPorts: 8 } },
-    { id: "router", type: "router", name: "Router", x: 210, y: -20, config: { interfaces: [
+    { id: "pc-a1", type: "computer", name: "PC-A1", x: -560, y: -300, config: { ipv4Address: "192.168.10.11", gatewayIpv4Address: "192.168.10.1", macAddress: "02:00:00:00:10:11" } },
+    { id: "pc-a2", type: "computer", name: "PC-A2", x: -560, y: -150, config: { ipv4Address: "192.168.10.12", gatewayIpv4Address: "192.168.10.1", macAddress: "02:00:00:00:10:12" } },
+    { id: "sw-a", type: "switch", name: "Access-SW-A", x: -360, y: -225, config: { managed: false, ethernetPorts: 8 } },
+    { id: "pc-b1", type: "computer", name: "PC-B1", x: -560, y: 130, config: { ipv4Address: "192.168.10.21", gatewayIpv4Address: "192.168.10.1", macAddress: "02:00:00:00:10:21" } },
+    { id: "pc-b2", type: "computer", name: "PC-B2", x: -560, y: 280, config: { ipv4Address: "192.168.10.22", gatewayIpv4Address: "192.168.10.1", macAddress: "02:00:00:00:10:22" } },
+    { id: "sw-b", type: "switch", name: "Access-SW-B", x: -360, y: 205, config: { managed: false, ethernetPorts: 8 } },
+    { id: "sw-core", type: "switch", name: "Core-SW", x: -80, y: -10, config: { managed: false, ethernetPorts: 8 } },
+    { id: "router", type: "router", name: "Router", x: 210, y: -10, config: { interfaces: [
       { peerId: "sw-core", type: "ethernet", ipv4Address: "192.168.10.1" },
       { peerId: "sw-c", type: "ethernet", ipv4Address: "192.168.30.1" }
     ] } },
-    { id: "pc-c1", type: "computer", name: "PC-C1", x: 540, y: -80, config: { ipv4Address: "192.168.30.11", gatewayIpv4Address: "192.168.30.1", macAddress: "02:00:00:00:30:11" } },
-    { id: "pc-c2", type: "computer", name: "PC-C2", x: 540, y: 80, config: { ipv4Address: "192.168.30.12", gatewayIpv4Address: "192.168.30.1", macAddress: "02:00:00:00:30:12" } },
-    { id: "sw-c", type: "switch", name: "Access-SW-C", x: 360, y: 0, config: { managed: false, ethernetPorts: 8 } }
+    { id: "pc-c1", type: "computer", name: "PC-C1", x: 540, y: -110, config: { ipv4Address: "192.168.30.11", gatewayIpv4Address: "192.168.30.1", macAddress: "02:00:00:00:30:11" } },
+    { id: "pc-c2", type: "computer", name: "PC-C2", x: 540, y: 90, config: { ipv4Address: "192.168.30.12", gatewayIpv4Address: "192.168.30.1", macAddress: "02:00:00:00:30:12" } },
+    { id: "sw-c", type: "switch", name: "Access-SW-C", x: 360, y: -10, config: { managed: false, ethernetPorts: 8 } }
   ],
   links: [
     { from: "pc-a1", to: "sw-a" },
@@ -208,7 +208,7 @@ export const vlanRoasConfig = {
       trunkAllowedVlans: {}
     }},
     // Edge switch A — VLAN 10
-    { id: "sw-a", type: "switch", name: "Edge-SW-A", x: -250, y: -200, config: {
+    { id: "sw-a", type: "switch", name: "Edge-SW-A", x: -250, y: -320, config: {
       managed: true, ethernetPorts: 8,
       vlans: [{ id: 1, name: "default" }, { id: 10, name: "Sales" }, { id: 20, name: "Engineering" }, { id: 30, name: "Servers" }],
       portVlans: { Ethernet2: 10, Ethernet3: 10 },
@@ -226,7 +226,7 @@ export const vlanRoasConfig = {
       trunkAllowedVlans: {}
     }},
     // Edge switch C — VLAN 30 + trunk to unmanaged switch D
-    { id: "sw-c", type: "switch", name: "Edge-SW-C", x: -250, y: 200, config: {
+    { id: "sw-c", type: "switch", name: "Edge-SW-C", x: -250, y: 320, config: {
       managed: true, ethernetPorts: 8,
       vlans: [{ id: 1, name: "default" }, { id: 10, name: "Sales" }, { id: 20, name: "Engineering" }, { id: 30, name: "Servers" }],
       portVlans: { Ethernet2: 30, Ethernet3: 30 },
@@ -235,22 +235,22 @@ export const vlanRoasConfig = {
       trunkAllowedVlans: {}
     }},
     // Edge switch D — unmanaged (passes through VLAN 30 traffic transparently)
-    { id: "sw-d", type: "switch", name: "Edge-SW-D", x: -520, y: 280, config: {
+    { id: "sw-d", type: "switch", name: "Edge-SW-D", x: -520, y: 560, config: {
       managed: false, ethernetPorts: 8
     }},
     // PCs — VLAN 10 (Sales)
-    { id: "pc-a1", type: "computer", name: "PC-A1", x: -520, y: -260, config: { ipv4Address: "192.168.10.11", gatewayIpv4Address: "192.168.10.1", macAddress: "02:00:0A:00:01:01" }},
-    { id: "pc-a2", type: "computer", name: "PC-A2", x: -520, y: -160, config: { ipv4Address: "192.168.10.12", gatewayIpv4Address: "192.168.10.1", macAddress: "02:00:0A:00:01:02" }},
+    { id: "pc-a1", type: "computer", name: "PC-A1", x: -520, y: -395, config: { ipv4Address: "192.168.10.11", gatewayIpv4Address: "192.168.10.1", macAddress: "02:00:0A:00:01:01" }},
+    { id: "pc-a2", type: "computer", name: "PC-A2", x: -520, y: -245, config: { ipv4Address: "192.168.10.12", gatewayIpv4Address: "192.168.10.1", macAddress: "02:00:0A:00:01:02" }},
     // PCs — VLAN 20 (Engineering)
-    { id: "pc-b1", type: "computer", name: "PC-B1", x: -520, y: -60, config: { ipv4Address: "192.168.20.11", gatewayIpv4Address: "192.168.20.1", macAddress: "02:00:14:00:01:01" }},
-    { id: "pc-b2", type: "computer", name: "PC-B2", x: -520, y: 40, config: { ipv4Address: "192.168.20.12", gatewayIpv4Address: "192.168.20.1", macAddress: "02:00:14:00:01:02" }},
+    { id: "pc-b1", type: "computer", name: "PC-B1", x: -520, y: -75, config: { ipv4Address: "192.168.20.11", gatewayIpv4Address: "192.168.20.1", macAddress: "02:00:14:00:01:01" }},
+    { id: "pc-b2", type: "computer", name: "PC-B2", x: -520, y: 75, config: { ipv4Address: "192.168.20.12", gatewayIpv4Address: "192.168.20.1", macAddress: "02:00:14:00:01:02" }},
     // PCs — VLAN 30 (Servers) on Edge-SW-C
-    { id: "pc-c1", type: "computer", name: "PC-C1", x: -520, y: 130, config: { ipv4Address: "192.168.30.11", gatewayIpv4Address: "192.168.30.1", macAddress: "02:00:1E:00:01:01" }},
-    { id: "pc-c2", type: "computer", name: "PC-C2", x: -520, y: 210, config: { ipv4Address: "192.168.30.12", gatewayIpv4Address: "192.168.30.1", macAddress: "02:00:1E:00:01:02" }},
+    { id: "pc-c1", type: "computer", name: "PC-C1", x: -520, y: 245, config: { ipv4Address: "192.168.30.11", gatewayIpv4Address: "192.168.30.1", macAddress: "02:00:1E:00:01:01" }},
+    { id: "pc-c2", type: "computer", name: "PC-C2", x: -520, y: 395, config: { ipv4Address: "192.168.30.12", gatewayIpv4Address: "192.168.30.1", macAddress: "02:00:1E:00:01:02" }},
     // PCs — VLAN 30 (Servers) on Edge-SW-D (unmanaged)
-    { id: "pc-d1", type: "computer", name: "PC-D1", x: -760, y: 200, config: { ipv4Address: "192.168.30.21", gatewayIpv4Address: "192.168.30.1", macAddress: "02:00:1E:00:02:01" }},
-    { id: "pc-d2", type: "computer", name: "PC-D2", x: -760, y: 290, config: { ipv4Address: "192.168.30.22", gatewayIpv4Address: "192.168.30.1", macAddress: "02:00:1E:00:02:02" }},
-    { id: "pc-d3", type: "computer", name: "PC-D3", x: -760, y: 380, config: { ipv4Address: "192.168.30.23", gatewayIpv4Address: "192.168.30.1", macAddress: "02:00:1E:00:02:03" }}
+    { id: "pc-d1", type: "computer", name: "PC-D1", x: -760, y: 460, config: { ipv4Address: "192.168.30.21", gatewayIpv4Address: "192.168.30.1", macAddress: "02:00:1E:00:02:01" }},
+    { id: "pc-d2", type: "computer", name: "PC-D2", x: -760, y: 610, config: { ipv4Address: "192.168.30.22", gatewayIpv4Address: "192.168.30.1", macAddress: "02:00:1E:00:02:02" }},
+    { id: "pc-d3", type: "computer", name: "PC-D3", x: -760, y: 760, config: { ipv4Address: "192.168.30.23", gatewayIpv4Address: "192.168.30.1", macAddress: "02:00:1E:00:02:03" }}
   ],
   links: [
     // Core-SW to Router (trunk)
@@ -369,16 +369,16 @@ export const routerMeshConfig = {
     // ── Switches ─────────────────────────────────────────────────────
     { id: "sw1", type: "switch", name: "SW1", x: -320, y: -60, config: { managed: false, ethernetPorts: 8 } },
     { id: "sw2", type: "switch", name: "SW2", x: 600, y: -60, config: { managed: false, ethernetPorts: 8 } },
-    { id: "sw4", type: "switch", name: "SW4", x: 80, y: 460, config: { managed: false, ethernetPorts: 8 } },
+    { id: "sw4", type: "switch", name: "SW4", x: 80, y: 510, config: { managed: false, ethernetPorts: 8 } },
     // ── PCs — Subnet 192.168.1.0/24 (R1/SW1) ────────────────────────
-    { id: "pc-a1", type: "computer", name: "PC-A1", x: -520, y: -120, config: { ipv4Address: "192.168.1.11", gatewayIpv4Address: "192.168.1.1", macAddress: "02:00:01:00:01:11" } },
-    { id: "pc-a2", type: "computer", name: "PC-A2", x: -520, y: -10, config:  { ipv4Address: "192.168.1.12", gatewayIpv4Address: "192.168.1.1", macAddress: "02:00:01:00:01:12" } },
+    { id: "pc-a1", type: "computer", name: "PC-A1", x: -520, y: -150, config: { ipv4Address: "192.168.1.11", gatewayIpv4Address: "192.168.1.1", macAddress: "02:00:01:00:01:11" } },
+    { id: "pc-a2", type: "computer", name: "PC-A2", x: -520, y: 20, config:  { ipv4Address: "192.168.1.12", gatewayIpv4Address: "192.168.1.1", macAddress: "02:00:01:00:01:12" } },
     // ── PCs — Subnet 192.168.2.0/24 (R2/SW2) ────────────────────────
-    { id: "pc-b1", type: "computer", name: "PC-B1", x: 800, y: -120, config: { ipv4Address: "192.168.2.11", gatewayIpv4Address: "192.168.2.1", macAddress: "02:00:02:00:01:11" } },
-    { id: "pc-b2", type: "computer", name: "PC-B2", x: 800, y: -10, config:  { ipv4Address: "192.168.2.12", gatewayIpv4Address: "192.168.2.1", macAddress: "02:00:02:00:01:12" } },
+    { id: "pc-b1", type: "computer", name: "PC-B1", x: 800, y: -150, config: { ipv4Address: "192.168.2.11", gatewayIpv4Address: "192.168.2.1", macAddress: "02:00:02:00:01:11" } },
+    { id: "pc-b2", type: "computer", name: "PC-B2", x: 800, y: 20, config:  { ipv4Address: "192.168.2.12", gatewayIpv4Address: "192.168.2.1", macAddress: "02:00:02:00:01:12" } },
     // ── PCs — Subnet 192.168.4.0/24 (R4/SW4) ────────────────────────
-    { id: "pc-d1", type: "computer", name: "PC-D1", x: -100, y: 530, config: { ipv4Address: "192.168.4.11", gatewayIpv4Address: "192.168.4.1", macAddress: "02:00:04:00:01:11" } },
-    { id: "pc-d2", type: "computer", name: "PC-D2", x: 260, y: 530, config:  { ipv4Address: "192.168.4.12", gatewayIpv4Address: "192.168.4.1", macAddress: "02:00:04:00:01:12" } }
+    { id: "pc-d1", type: "computer", name: "PC-D1", x: -100, y: 600, config: { ipv4Address: "192.168.4.11", gatewayIpv4Address: "192.168.4.1", macAddress: "02:00:04:00:01:11" } },
+    { id: "pc-d2", type: "computer", name: "PC-D2", x: 260, y: 600, config:  { ipv4Address: "192.168.4.12", gatewayIpv4Address: "192.168.4.1", macAddress: "02:00:04:00:01:12" } }
   ],
   links: [
     // LAN connections

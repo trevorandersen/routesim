@@ -337,12 +337,18 @@ export function setupUI(): void {
     "help-about": openAbout,
   };
   document.addEventListener("click", (event) => {
-    const el = (event.target as HTMLElement)?.closest?.("[data-action],[data-topology],[data-scenario],[data-theme-id]") as HTMLElement | null;
+    const el = (event.target as HTMLElement)?.closest?.("[data-action],[data-scenario],[data-theme-id]") as HTMLElement | null;
     if (!el) return;
-    if (el.dataset.topology) { loadTopology(el.dataset.topology); return; }
     if (el.dataset.scenario) { loadScenario(el.dataset.scenario); return; }
     if (el.dataset.themeId) { setTheme(el.dataset.themeId); return; }
     if (el.dataset.action) ribbonActions[el.dataset.action]?.();
+  });
+
+  // Topologies dropdown (File tab).
+  dom.topologySelect.addEventListener("change", () => {
+    const name = dom.topologySelect.value;
+    if (name) loadTopology(name);
+    dom.topologySelect.value = ""; // reset to the placeholder
   });
 
   // Scenario goal banner.

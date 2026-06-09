@@ -169,7 +169,7 @@ Every link records frames that traverse it (`link.frameHistory[]`). Click a link
 
 ## UI panels
 
-- **Ribbon** — the top toolbar: tabs **File / Edit / View / Simulate / Scenarios / Help**, each swapping a strip of grouped buttons (`ribbon.ts` + `template.html`). The drawing tools live in Edit. Buttons are wired by data attribute in `ui.ts` (`data-tool`/`data-topology`/`data-scenario`/`data-action`). No left tool rail.
+- **Ribbon** — the top toolbar: tabs **File / Edit / View / Simulate / Scenarios / Help**, each swapping a strip of grouped buttons (`ribbon.ts` + `template.html`). The drawing tools live in Edit. Buttons are wired by data attribute in `ui.ts` (`data-tool`/`data-scenario`/`data-theme-id`/`data-action`); built-in topologies load from a `<select>` (`#topologySelect`). No brand text, no left tool rail.
 - **Coordinate readout** — `#coordReadout`, bottom-right of the canvas: cursor world coords (on move) + the selected device's coords. Updated from the pointermove handler and the `syncCoordReadout` callback (refreshes on selection).
 - **Sim controls** — play/pause/step/stop/speed live in the Simulate ribbon tab.
 - **Sim log panel** — floats top-right during simulation. Color-coded frame processing log.
@@ -210,7 +210,7 @@ Every link records frames that traverse it (`link.frameHistory[]`). Click a link
 
 **Adding a scenario**: Append a `Scenario` (initial `topology` + a `checks` goal) to `SCENARIOS` in `scenarios.ts`. It appears automatically in the chooser, the console (`scenario list/load/check`), and the goal banner. Checks reuse the headless runner. See `docs/scenarios.md`.
 
-**Built-in topologies**: The topology chooser dropdown (`loadTopology` in `config.ts`) offers three built-in topologies: Basic Network, VLAN Router-on-a-Stick, and 5-Router Partial Mesh.
+**Built-in topologies**: The File-tab Topologies `<select>` (`loadTopology` in `config.ts`) offers three built-in topologies: Basic Network, VLAN Router-on-a-Stick, and 5-Router Partial Mesh. Their coordinates are spaced so label text (name/IP/MAC/VLAN + router interface lines) never overlaps another device — keep ≥150px vertical spacing for stacked computers when editing them.
 
 ## Style notes
 

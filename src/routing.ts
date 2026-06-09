@@ -9,7 +9,7 @@ import type { Device, RouteEntry } from "./types";
 import { state } from "./state";
 import { getDevice, routerInterfacesWithNames } from "./devices";
 import { normaliseStaticRoutes } from "./normalise";
-import { isValidIpv4, ipv4ToInt, sameSubnet24 } from "./utils";
+import { isValidIpv4, sameSubnet, networkOf, cidrContains, prefixLengthOfCidr, prefixOf } from "./utils";
 
 export function buildRoutingTable(router: Device): RouteEntry[] {
   const table: RouteEntry[] = [];
@@ -20,8 +20,7 @@ export function buildRoutingTable(router: Device): RouteEntry[] {
   for (const iface of ifaces) {
     const ip = iface.config?.ipv4Address;
     if (!ip || !isValidIpv4(ip) || !iface.peer) continue;
-    const parts = ip.split(".");
-    const network = `${parts[0]}.${parts[1]}.${parts[2]}.0/24`;
+    const network = networkOf(ip, prefixOf(iface.config));
     if (seen.has(network)) continue;
     seen.add(network);
     table.push({ network, nextHop: "", interface: iface.name, type: "C", metric: 0 });
@@ -49,28 +48,27 @@ export function buildRoutingTable(router: Device): RouteEntry[] {
   return table;
 }
 
-function networkMatch(dstIp: string, network: string): boolean {
-  // Parse "x.x.x.0/24" and check if dstIp falls within
-  const slash = network.indexOf("/");
-  const netIp = slash >= 0 ? network.slice(0, slash) : network;
-  if (!isValidIpv4(netIp) || !isValidIpv4(dstIp)) return false;
-  // For /24 only: compare first 3 octets
-  return (ipv4ToInt(dstIp) >>> 8) === (ipv4ToInt(netIp) >>> 8);
+// The interface whose connected network contains the address (per-iface prefix).
+function ifaceOnSubnet(ifaces: any[], ip: string): any | undefined {
+  return ifaces.find((iface: any) =>
+    iface.ipv4Address && isValidIpv4(iface.ipv4Address) && sameSubnet(iface.ipv4Address, ip, prefixOf(iface))
+  );
 }
 
 export function routingLookup(router: Device, dstIp: string): { egressIface: any; nextHopIp: string } | null {
   const table = buildRoutingTable(router);
   const ifaces: any[] = router.config?.interfaces || [];
 
-  // Find best matching route
-  const route = table.find(r => networkMatch(dstIp, r.network));
+  // Longest-prefix match wins; ties resolve by metric (table is metric-sorted,
+  // so a stable sort by prefix length alone preserves metric order within a length).
+  const route = table
+    .filter(r => cidrContains(r.network, dstIp))
+    .sort((a, b) => prefixLengthOfCidr(b.network) - prefixLengthOfCidr(a.network))[0];
   if (!route) return null;
 
   if (route.type === "C") {
-    // Connected — egress interface is the one whose IP is on this subnet
-    const egressIface = ifaces.find((iface: any) =>
-      iface.ipv4Address && isValidIpv4(iface.ipv4Address) && sameSubnet24(iface.ipv4Address, dstIp)
-    );
+    // Connected — egress interface is the one whose network contains the destination
+    const egressIface = ifaceOnSubnet(ifaces, dstIp);
     return egressIface ? { egressIface, nextHopIp: dstIp } : null;
   }
 
@@ -78,9 +76,7 @@ export function routingLookup(router: Device, dstIp: string): { egressIface: any
   const nextHop = route.nextHop;
   if (!nextHop || !isValidIpv4(nextHop)) return null;
 
-  const egressIface = ifaces.find((iface: any) =>
-    iface.ipv4Address && isValidIpv4(iface.ipv4Address) && sameSubnet24(iface.ipv4Address, nextHop)
-  );
+  const egressIface = ifaceOnSubnet(ifaces, nextHop);
   return egressIface ? { egressIface, nextHopIp: nextHop } : null;
 }
 
@@ -99,14 +95,9 @@ function buildRipAdvertisements(ifaces: any[], ripNetworks: string[], learnedRou
   for (const iface of ifaces) {
     const ip = iface.config?.ipv4Address;
     if (!ip || !isValidIpv4(ip) || !iface.peer) continue;
-    const parts = ip.split(".");
-    const network = `${parts[0]}.${parts[1]}.${parts[2]}.0/24`;
-    const isAdvertised = ripNetworks.some(rn => {
-      const slash = rn.indexOf("/");
-      const rnIp = slash >= 0 ? rn.slice(0, slash) : rn;
-      if (!isValidIpv4(rnIp)) return false;
-      return (ipv4ToInt(rnIp) >>> 8) === (ipv4ToInt(ip) >>> 8);
-    });
+    const network = networkOf(ip, prefixOf(iface.config));
+    // `network <cidr>` enables RIP for interfaces whose address that cidr covers.
+    const isAdvertised = ripNetworks.some(rn => cidrContains(rn, ip));
     if (isAdvertised) {
       advertisements.push({ network, metric: 1, sourceInterface: iface.name });
     }
@@ -152,8 +143,7 @@ function applyRipUpdates(
       const neighborConnected = neighborIfaces.some((ni: any) => {
         const nip = ni.config?.ipv4Address;
         if (!nip || !isValidIpv4(nip) || !ni.peer) return false;
-        const parts = nip.split(".");
-        return `${parts[0]}.${parts[1]}.${parts[2]}.0/24` === ad.network;
+        return networkOf(nip, prefixOf(ni.config)) === ad.network;
       });
       if (neighborConnected) continue;
 

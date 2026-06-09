@@ -12,7 +12,7 @@ Small, dependency-free utility functions used everywhere. All are pure except th
 - **`clampPortCount`, `clampRouterPortCount`** — clamp port counts to allowed ranges.
 
 ### IPv4 maths
-- **`ipv4ToInt`, `ipv4Network24`, `sameSubnet24`** — integer conversion and /24 subnet comparison, used by routing and reachability logic.
+- **`ipv4ToInt`, `intToIpv4`** — IPv4 ↔ integer conversion, the basis of the subnet maths below.
 
 ### HTML
 - **`escapeHtml`** — escapes a value for safe insertion into `innerHTML`. Used throughout `inspector.ts`/`terminal.ts` to neutralise device/interface/VLAN names.
@@ -22,6 +22,9 @@ Small, dependency-free utility functions used everywhere. All are pure except th
 - **`clearCssColorCache()`** — clears the cache.
 
 > **Performance:** `cssColor` is called many times per device/link/frame in the render loop, and `getComputedStyle` forces a style recalc. The result is **memoised** in a `Map`; `clearCssColorCache()` is called from `setTheme` (`ui.ts`) so colours refresh when the theme changes (Warm Light / Dark / Blueprint). This avoids per-frame reflows.
+
+### Subnet prefix maths
+`sameSubnet(a, b, prefixLength)`, `networkOf(ip, prefixLength)`, `cidrContains(cidr, ip)`, `prefixLengthOfCidr(cidr)`, `clampPrefixLength(n)`, and `prefixOf(holder)` (reads a config/interface's `prefixLength`, defaulting to **/24**). All subnet decisions in the simulator go through these — there is no hardwired /24 logic.
 
 ## How it fits
 

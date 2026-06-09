@@ -4,7 +4,7 @@ import { clampPortCount, clampRouterPortCount } from "./utils";
 import {
   normaliseArpTable, normaliseMacTable, normaliseVlans, normalisePortVlans,
   normalisePortModes, normaliseTrunkAllowedVlans,
-  normaliseRouterInterfaces, normaliseConfig
+  normaliseRouterInterfaces, normaliseFirewallRules, normaliseConfig
 } from "./normalise";
 import { connectedIds, clearNetwork, nextDeviceNumber } from "./devices";
 import { DEVICE_TYPES } from "./device-registry";
@@ -29,6 +29,7 @@ export function buildConfigPayload(): any {
       ...(type === "computer" ? {
         config: {
           ipv4Address: config?.ipv4Address || "",
+          ...(config?.prefixLength != null ? { prefixLength: config.prefixLength } : {}),
           gatewayIpv4Address: config?.gatewayIpv4Address || "",
           macAddress: config?.macAddress || "",
           arpTable: normaliseArpTable(config?.arpTable || [])
@@ -55,6 +56,13 @@ export function buildConfigPayload(): any {
           interfaces: routerInterfacesForPayload({ id, config }),
           ...(config?.staticRoutes?.length ? { staticRoutes: config.staticRoutes } : {}),
           ...(config?.rip?.enabled ? { rip: config.rip } : {}),
+        }
+      } : {}),
+      ...(type === "firewall" ? {
+        config: {
+          ethernetPorts: config?.ethernetPorts ?? 2,
+          rules: normaliseFirewallRules(config?.rules || []),
+          policy: { forward: config?.policy?.forward === "drop" ? "drop" : "accept" }
         }
       } : {}),
       ...(type === "lan" ? {

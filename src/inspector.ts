@@ -2,7 +2,7 @@ import type { Link, DeviceType } from "./types";
 import { state, sync, pushUndo, captureUndoOnFocus } from "./state";
 import { DEVICE_SPECS } from "./device-registry";
 import { dom } from "./dom";
-import { escapeHtml, isValidIpv4, isValidMac, normaliseMacAddress, randomMac } from "./utils";
+import { escapeHtml, isValidIpv4, isValidMac, normaliseMacAddress, randomMac, parseIpv4Token } from "./utils";
 import { ensureConfig, normaliseVlans } from "./normalise";
 import {
   getDevice, isVisibleDevice, connectedIds, linkedPortsFor,
@@ -461,12 +461,14 @@ export function syncPanel(): void {
       captureUndoOnFocus(ipv4Input);
       ipv4Input.addEventListener("input", (event: any) => {
         const value = event.target.value.trim();
-        if (!isValidIpv4(value) && value !== "") {
-          event.target.setCustomValidity("Enter a valid IPv4 address.");
+        const parsed = value === "" ? null : parseIpv4Token(value);
+        if (value !== "" && !parsed) {
+          event.target.setCustomValidity("Enter a valid IPv4 address (optionally with /prefix).");
         } else {
           event.target.setCustomValidity("");
           selected.config = selected.config || {};
-          selected.config.ipv4Address = value;
+          selected.config.ipv4Address = parsed ? parsed.address : "";
+          if (parsed?.prefixLength != null) selected.config.prefixLength = parsed.prefixLength;
           sync().render();
         }
       });

@@ -2,7 +2,7 @@ import type {
   PortMode, ArpEntry, DhcpLease, MacTableEntry, Vlan, RouterInterface,
   RipConfig, StaticRoute, DeviceConfig, DeviceType, Device, Link, FirewallRule
 } from "./types";
-import { normaliseMacAddress, isValidMac, isValidIpv4, clampPortCount, clampRouterPortCount, normaliseVlanId } from "./utils";
+import { normaliseMacAddress, isValidMac, isValidIpv4, clampPortCount, clampRouterPortCount, clampPrefixLength, normaliseVlanId } from "./utils";
 import { DEVICE_SPECS } from "./device-registry";
 
 export function normaliseArpTable(entries: unknown): ArpEntry[] {
@@ -82,6 +82,7 @@ export function normaliseRouterInterfaces(entries: unknown, routerId?: string): 
     type: entry.type === "serial" ? "serial" : "ethernet",
     name: String(entry.name || "").trim(),
     ipv4Address: String(entry.ipv4Address || entry.ip || "").trim(),
+    ...(entry.prefixLength != null ? { prefixLength: clampPrefixLength(entry.prefixLength) } : {}),
     macAddress: entry.macAddress || generateRouterIfaceMac(routerId || "", index),
     arpTable: normaliseArpTable(entry.arpTable || []),
     dhcpLeases: normaliseDhcpLeases(entry.dhcpLeases || []),
@@ -213,6 +214,7 @@ export function normaliseDeviceConfig(device: any): DeviceConfig {
   }
   return {
     ipv4Address,
+    ...(device.config?.prefixLength != null ? { prefixLength: clampPrefixLength(device.config.prefixLength) } : {}),
     gatewayIpv4Address,
     macAddress,
     arpTable: normaliseArpTable(device.config?.arpTable || device.arpTable || [])

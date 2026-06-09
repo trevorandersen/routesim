@@ -5,7 +5,7 @@
 import type { Device } from "../types";
 import { state, sync, pushUndo } from "../state";
 import { dom } from "../dom";
-import { isValidIpv4, parseIpv4Token } from "../utils";
+import { isValidIpv4, parseIpv4Token, prefixOf, clampPrefixLength } from "../utils";
 import { normaliseArpTable, ensureConfig } from "../normalise";
 import { buildPingEvents, buildDhcpEvents } from "../simulation";
 import { startSimulation, runTraceroute } from "../engine";
@@ -14,7 +14,7 @@ import { terminalLine } from "./core";
 export function showHostIp(device: Device): string {
   const ipv4 = device.config?.ipv4Address || "unassigned";
   const mac = device.config?.macAddress || "unassigned";
-  const inetLine = device.config?.ipv4Address ? `    inet ${ipv4}/24 scope global eth0` : "    inet unassigned";
+  const inetLine = device.config?.ipv4Address ? `    inet ${ipv4}/${prefixOf(device.config)} scope global eth0` : "    inet unassigned";
   return [
     "1: eth0: <BROADCAST,MULTICAST,UP> mtu 1500",
     `    link/ether ${mac} brd ff:ff:ff:ff:ff:ff`,
@@ -42,9 +42,10 @@ export function setHostIp(device: Device, address: string): string {
   pushUndo();
   ensureConfig(device);
   device.config.ipv4Address = parsed.address;
+  if (parsed.prefixLength != null) device.config.prefixLength = clampPrefixLength(parsed.prefixLength);
   sync().syncPanel();
   sync().render();
-  return `Assigned ${parsed.address}${parsed.prefixLength == null ? "" : `/${parsed.prefixLength}`} to eth0.`;
+  return `Assigned ${parsed.address}/${prefixOf(device.config)} to eth0.`;
 }
 
 export function flushHostIp(device: Device): string {

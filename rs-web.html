@@ -1772,9 +1772,41 @@ Full legal text: https://creativecommons.org/publicdomain/zero/1.0/legalcode</pr
     const parts = ip.split(".").map(Number);
     return (parts[0] << 24 | parts[1] << 16 | parts[2] << 8 | parts[3]) >>> 0;
   }
-  function sameSubnet24(a, b) {
+  function intToIpv4(value) {
+    return [value >>> 24 & 255, value >>> 16 & 255, value >>> 8 & 255, value & 255].join(".");
+  }
+  var DEFAULT_PREFIX_LENGTH = 24;
+  function clampPrefixLength(value, fallback = DEFAULT_PREFIX_LENGTH) {
+    const n = Number(value);
+    if (!Number.isInteger(n) || n < 0 || n > 32) return fallback;
+    return n;
+  }
+  function prefixOf(holder) {
+    return clampPrefixLength(holder?.prefixLength);
+  }
+  function maskOfPrefix(prefixLength) {
+    return prefixLength <= 0 ? 0 : ~0 << 32 - prefixLength >>> 0;
+  }
+  function sameSubnet(a, b, prefixLength) {
     if (!a || !b || !isValidIpv4(a) || !isValidIpv4(b)) return false;
-    return ipv4ToInt(a) >>> 8 === ipv4ToInt(b) >>> 8;
+    const mask = maskOfPrefix(clampPrefixLength(prefixLength));
+    return (ipv4ToInt(a) & mask) === (ipv4ToInt(b) & mask);
+  }
+  function networkOf(ip, prefixLength) {
+    const len = clampPrefixLength(prefixLength);
+    if (!isValidIpv4(ip)) return `${ip}/${len}`;
+    return `${intToIpv4(ipv4ToInt(ip) & maskOfPrefix(len))}/${len}`;
+  }
+  function prefixLengthOfCidr(cidr, fallback = DEFAULT_PREFIX_LENGTH) {
+    const slash = String(cidr || "").indexOf("/");
+    if (slash < 0) return fallback;
+    return clampPrefixLength(Number(cidr.slice(slash + 1)), fallback);
+  }
+  function cidrContains(cidr, ip) {
+    const slash = String(cidr || "").indexOf("/");
+    const net = slash >= 0 ? cidr.slice(0, slash) : cidr;
+    if (!isValidIpv4(net) || !isValidIpv4(ip)) return false;
+    return sameSubnet(net, ip, prefixLengthOfCidr(cidr));
   }
   function normaliseMacAddress(value) {
     return String(value || "").trim().replaceAll("-", ":").toUpperCase();
@@ -1984,6 +2016,7 @@ Full legal text: https://creativecommons.org/publicdomain/zero/1.0/legalcode</pr
       type: entry.type === "serial" ? "serial" : "ethernet",
       name: String(entry.name || "").trim(),
       ipv4Address: String(entry.ipv4Address || entry.ip || "").trim(),
+      ...entry.prefixLength != null ? { prefixLength: clampPrefixLength(entry.prefixLength) } : {},
       macAddress: entry.macAddress || generateRouterIfaceMac(routerId || "", index),
       arpTable: normaliseArpTable(entry.arpTable || []),
       dhcpLeases: normaliseDhcpLeases(entry.dhcpLeases || []),
@@ -2102,6 +2135,7 @@ Full legal text: https://creativecommons.org/publicdomain/zero/1.0/legalcode</pr
     }
     return {
       ipv4Address,
+      ...device.config?.prefixLength != null ? { prefixLength: clampPrefixLength(device.config.prefixLength) } : {},
       gatewayIpv4Address,
       macAddress,
       arpTable: normaliseArpTable(device.config?.arpTable || device.arpTable || [])
@@ -3340,8 +3374,8 @@ Full legal text: https://creativecommons.org/publicdomain/zero/1.0/legalcode</pr
     const ipv4 = { type: "ipv4", srcIp: "0.0.0.0", dstIp: "255.255.255.255", ttl: 64, protocol: 17, payload: dhcp };
     return { id: nextFrameId(), srcMac: clientMac, dstMac: BROADCAST_MAC, etherType: 2048, vlanTag, payload: ipv4 };
   }
-  function createDhcpOffer(serverMac, serverIp, clientMac, assignedIp, transactionId, vlanTag = null) {
-    const dhcp = { type: "dhcp", messageType: "offer", transactionId, clientMac, assignedIp, gatewayIp: serverIp, serverIp };
+  function createDhcpOffer(serverMac, serverIp, clientMac, assignedIp, transactionId, vlanTag = null, prefixLength) {
+    const dhcp = { type: "dhcp", messageType: "offer", transactionId, clientMac, assignedIp, prefixLength, gatewayIp: serverIp, serverIp };
     const ipv4 = { type: "ipv4", srcIp: serverIp, dstIp: "255.255.255.255", ttl: 64, protocol: 17, payload: dhcp };
     return { id: nextFrameId(), srcMac: serverMac, dstMac: BROADCAST_MAC, etherType: 2048, vlanTag, payload: ipv4 };
   }
@@ -3350,8 +3384,8 @@ Full legal text: https://creativecommons.org/publicdomain/zero/1.0/legalcode</pr
     const ipv4 = { type: "ipv4", srcIp: "0.0.0.0", dstIp: "255.255.255.255", ttl: 64, protocol: 17, payload: dhcp };
     return { id: nextFrameId(), srcMac: clientMac, dstMac: BROADCAST_MAC, etherType: 2048, vlanTag, payload: ipv4 };
   }
-  function createDhcpAck(serverMac, serverIp, clientMac, assignedIp, transactionId, vlanTag = null) {
-    const dhcp = { type: "dhcp", messageType: "ack", transactionId, clientMac, assignedIp, gatewayIp: serverIp, serverIp };
+  function createDhcpAck(serverMac, serverIp, clientMac, assignedIp, transactionId, vlanTag = null, prefixLength) {
+    const dhcp = { type: "dhcp", messageType: "ack", transactionId, clientMac, assignedIp, prefixLength, gatewayIp: serverIp, serverIp };
     const ipv4 = { type: "ipv4", srcIp: serverIp, dstIp: "255.255.255.255", ttl: 64, protocol: 17, payload: dhcp };
     return { id: nextFrameId(), srcMac: serverMac, dstMac: BROADCAST_MAC, etherType: 2048, vlanTag, payload: ipv4 };
   }
@@ -3433,7 +3467,7 @@ Full legal text: https://creativecommons.org/publicdomain/zero/1.0/legalcode</pr
     const pendingArp = {};
     const firstHop = findFirstHop(source);
     if (!firstHop) return `ping: connect: Network is unreachable (no link)`;
-    if (sameSubnet24(srcIp, dstIp)) {
+    if (sameSubnet(srcIp, dstIp, prefixOf(source.config))) {
       const arpEntry = (source.config.arpTable || []).find((e) => e.ipv4Address === dstIp);
       let initialFrame2;
       if (arpEntry) {
@@ -3456,7 +3490,7 @@ Full legal text: https://creativecommons.org/publicdomain/zero/1.0/legalcode</pr
     }
     if (!source.config?.gatewayIpv4Address) return `ping: connect: Network is unreachable (no default gateway)`;
     const gwIp = source.config.gatewayIpv4Address;
-    if (!sameSubnet24(gwIp, srcIp)) return `ping: connect: Network is unreachable (gateway not on source subnet)`;
+    if (!sameSubnet(gwIp, srcIp, prefixOf(source.config))) return `ping: connect: Network is unreachable (gateway not on source subnet)`;
     const gwArpEntry = (source.config.arpTable || []).find((e) => e.ipv4Address === gwIp);
     let initialFrame;
     if (gwArpEntry) {
@@ -3899,8 +3933,7 @@ Full legal text: https://creativecommons.org/publicdomain/zero/1.0/legalcode</pr
     for (const iface of ifaces) {
       const ip = iface.config?.ipv4Address;
       if (!ip || !isValidIpv4(ip) || !iface.peer) continue;
-      const parts = ip.split(".");
-      const network = `${parts[0]}.${parts[1]}.${parts[2]}.0/24`;
+      const network = networkOf(ip, prefixOf(iface.config));
       if (seen.has(network)) continue;
       seen.add(network);
       table.push({ network, nextHop: "", interface: iface.name, type: "C", metric: 0 });
@@ -3921,28 +3954,23 @@ Full legal text: https://creativecommons.org/publicdomain/zero/1.0/legalcode</pr
     table.sort((a, b) => a.metric - b.metric);
     return table;
   }
-  function networkMatch(dstIp, network) {
-    const slash = network.indexOf("/");
-    const netIp = slash >= 0 ? network.slice(0, slash) : network;
-    if (!isValidIpv4(netIp) || !isValidIpv4(dstIp)) return false;
-    return ipv4ToInt(dstIp) >>> 8 === ipv4ToInt(netIp) >>> 8;
+  function ifaceOnSubnet(ifaces, ip) {
+    return ifaces.find(
+      (iface) => iface.ipv4Address && isValidIpv4(iface.ipv4Address) && sameSubnet(iface.ipv4Address, ip, prefixOf(iface))
+    );
   }
   function routingLookup(router, dstIp) {
     const table = buildRoutingTable(router);
     const ifaces = router.config?.interfaces || [];
-    const route = table.find((r) => networkMatch(dstIp, r.network));
+    const route = table.filter((r) => cidrContains(r.network, dstIp)).sort((a, b) => prefixLengthOfCidr(b.network) - prefixLengthOfCidr(a.network))[0];
     if (!route) return null;
     if (route.type === "C") {
-      const egressIface2 = ifaces.find(
-        (iface) => iface.ipv4Address && isValidIpv4(iface.ipv4Address) && sameSubnet24(iface.ipv4Address, dstIp)
-      );
+      const egressIface2 = ifaceOnSubnet(ifaces, dstIp);
       return egressIface2 ? { egressIface: egressIface2, nextHopIp: dstIp } : null;
     }
     const nextHop = route.nextHop;
     if (!nextHop || !isValidIpv4(nextHop)) return null;
-    const egressIface = ifaces.find(
-      (iface) => iface.ipv4Address && isValidIpv4(iface.ipv4Address) && sameSubnet24(iface.ipv4Address, nextHop)
-    );
+    const egressIface = ifaceOnSubnet(ifaces, nextHop);
     return egressIface ? { egressIface, nextHopIp: nextHop } : null;
   }
   function buildRipAdvertisements(ifaces, ripNetworks, learnedRoutes) {
@@ -3950,14 +3978,8 @@ Full legal text: https://creativecommons.org/publicdomain/zero/1.0/legalcode</pr
     for (const iface of ifaces) {
       const ip = iface.config?.ipv4Address;
       if (!ip || !isValidIpv4(ip) || !iface.peer) continue;
-      const parts = ip.split(".");
-      const network = `${parts[0]}.${parts[1]}.${parts[2]}.0/24`;
-      const isAdvertised = ripNetworks.some((rn) => {
-        const slash = rn.indexOf("/");
-        const rnIp = slash >= 0 ? rn.slice(0, slash) : rn;
-        if (!isValidIpv4(rnIp)) return false;
-        return ipv4ToInt(rnIp) >>> 8 === ipv4ToInt(ip) >>> 8;
-      });
+      const network = networkOf(ip, prefixOf(iface.config));
+      const isAdvertised = ripNetworks.some((rn) => cidrContains(rn, ip));
       if (isAdvertised) {
         advertisements.push({ network, metric: 1, sourceInterface: iface.name });
       }
@@ -3989,8 +4011,7 @@ Full legal text: https://creativecommons.org/publicdomain/zero/1.0/legalcode</pr
         const neighborConnected = neighborIfaces.some((ni) => {
           const nip = ni.config?.ipv4Address;
           if (!nip || !isValidIpv4(nip) || !ni.peer) return false;
-          const parts = nip.split(".");
-          return `${parts[0]}.${parts[1]}.${parts[2]}.0/24` === ad.network;
+          return networkOf(nip, prefixOf(ni.config)) === ad.network;
         });
         if (neighborConnected) continue;
         if (!neighborRip.learnedRoutes) neighborRip.learnedRoutes = [];
@@ -4347,6 +4368,7 @@ Full legal text: https://creativecommons.org/publicdomain/zero/1.0/legalcode</pr
         } else if (dhcp.messageType === "ack") {
           logStep(device, "sim-dhcp", `Received DHCP ACK: assigned ${dhcp.assignedIp}, gateway ${dhcp.gatewayIp}`);
           config.ipv4Address = dhcp.assignedIp || "";
+          if (dhcp.prefixLength != null) config.prefixLength = dhcp.prefixLength;
           config.gatewayIpv4Address = dhcp.gatewayIp || "";
           if (dhcp.gatewayIp && frame.srcMac && frame.srcMac !== BROADCAST_MAC) {
             learnArp(config, dhcp.gatewayIp, frame.srcMac);
@@ -4551,7 +4573,8 @@ Full legal text: https://creativecommons.org/publicdomain/zero/1.0/legalcode</pr
         dhcp.clientMac,
         allocatedIp,
         dhcp.transactionId,
-        ingressIface.vlanTag ?? null
+        ingressIface.vlanTag ?? null,
+        prefixOf(ingressIface)
       );
       outgoing.push({ frame: offer, toDeviceId: fromDeviceId });
     } else if (dhcp.messageType === "request") {
@@ -4572,7 +4595,8 @@ Full legal text: https://creativecommons.org/publicdomain/zero/1.0/legalcode</pr
         dhcp.clientMac,
         requestedIp,
         dhcp.transactionId,
-        ingressIface.vlanTag ?? null
+        ingressIface.vlanTag ?? null,
+        prefixOf(ingressIface)
       );
       outgoing.push({ frame: ack, toDeviceId: fromDeviceId });
     }
@@ -4703,11 +4727,12 @@ Full legal text: https://creativecommons.org/publicdomain/zero/1.0/legalcode</pr
   }
   function allocateDhcpIp(iface, router) {
     if (!iface.ipv4Address || !isValidIpv4(iface.ipv4Address)) return null;
+    const ifPrefix = prefixOf(iface);
     const parts = iface.ipv4Address.split(".");
-    const prefix = `${parts[0]}.${parts[1]}.${parts[2]}`;
+    const poolBase = `${parts[0]}.${parts[1]}.${parts[2]}`;
     const usedIps = /* @__PURE__ */ new Set();
     for (const ri of router.config?.interfaces || []) {
-      if (ri.ipv4Address && sameSubnet24(ri.ipv4Address, iface.ipv4Address)) {
+      if (ri.ipv4Address && sameSubnet(ri.ipv4Address, iface.ipv4Address, ifPrefix)) {
         usedIps.add(ri.ipv4Address);
       }
     }
@@ -4717,18 +4742,18 @@ Full legal text: https://creativecommons.org/publicdomain/zero/1.0/legalcode</pr
     for (const d of state.devices) {
       if (d.hidden) continue;
       const ip = d.config?.ipv4Address;
-      if (ip && isValidIpv4(ip) && sameSubnet24(ip, iface.ipv4Address)) {
+      if (ip && isValidIpv4(ip) && sameSubnet(ip, iface.ipv4Address, ifPrefix)) {
         usedIps.add(ip);
       }
     }
     for (let i = 100; i <= 254; i++) {
-      const candidate = `${prefix}.${i}`;
+      const candidate = `${poolBase}.${i}`;
       if (!usedIps.has(candidate)) return candidate;
     }
     return null;
   }
   function findEgressInterface(ifaces, dstIp) {
-    return ifaces.find((iface) => iface.ipv4Address && isValidIpv4(iface.ipv4Address) && sameSubnet24(iface.ipv4Address, dstIp)) || null;
+    return ifaces.find((iface) => iface.ipv4Address && isValidIpv4(iface.ipv4Address) && sameSubnet(iface.ipv4Address, dstIp, prefixOf(iface))) || null;
   }
   function ifaceName(iface) {
     return iface.name || iface.peerId || "unknown";
@@ -4839,7 +4864,7 @@ APIPA: assigned link-local ${apipaIp}`);
   function showHostIp(device) {
     const ipv4 = device.config?.ipv4Address || "unassigned";
     const mac = device.config?.macAddress || "unassigned";
-    const inetLine = device.config?.ipv4Address ? `    inet ${ipv4}/24 scope global eth0` : "    inet unassigned";
+    const inetLine = device.config?.ipv4Address ? `    inet ${ipv4}/${prefixOf(device.config)} scope global eth0` : "    inet unassigned";
     return [
       "1: eth0: <BROADCAST,MULTICAST,UP> mtu 1500",
       `    link/ether ${mac} brd ff:ff:ff:ff:ff:ff`,
@@ -4864,9 +4889,10 @@ APIPA: assigned link-local ${apipaIp}`);
     pushUndo();
     ensureConfig(device);
     device.config.ipv4Address = parsed.address;
+    if (parsed.prefixLength != null) device.config.prefixLength = clampPrefixLength(parsed.prefixLength);
     sync().syncPanel();
     sync().render();
-    return `Assigned ${parsed.address}${parsed.prefixLength == null ? "" : `/${parsed.prefixLength}`} to eth0.`;
+    return `Assigned ${parsed.address}/${prefixOf(device.config)} to eth0.`;
   }
   function flushHostIp(device) {
     if (!device.config?.ipv4Address) return "No IPv4 address configured on eth0.";
@@ -5089,7 +5115,7 @@ APIPA: assigned link-local ${apipaIp}`);
       ...interfaces.filter((iface) => iface.peer || iface.config.ipv4Address).flatMap((iface) => {
         const lines = [`interface ${iface.name}`];
         if (iface.config.vlanTag != null) lines.push(` encapsulation dot1q ${iface.config.vlanTag}`);
-        lines.push(iface.config.ipv4Address ? ` ip address ${iface.config.ipv4Address}/24` : " no ip address");
+        lines.push(iface.config.ipv4Address ? ` ip address ${iface.config.ipv4Address}/${prefixOf(iface.config)}` : " no ip address");
         lines.push(" exit", "!");
         return lines;
       }),
@@ -5111,6 +5137,7 @@ APIPA: assigned link-local ${apipaIp}`);
     pushUndo();
     const iface = routerInterfaceFor(router, peerId, vlanTag);
     iface.ipv4Address = parsed.address;
+    if (parsed.prefixLength != null) iface.prefixLength = clampPrefixLength(parsed.prefixLength);
     sync().syncPanel();
     sync().render();
     return "";
@@ -5412,13 +5439,13 @@ APIPA: assigned link-local ${apipaIp}`);
       terminalLine("", "RIP routing disabled. Learned routes cleared.");
       return true;
     }
-    const networkMatch2 = command.match(/^network\s+(\S+)$/i);
-    if (networkMatch2) {
+    const networkMatch = command.match(/^network\s+(\S+)$/i);
+    if (networkMatch) {
       if (state.terminal.mode !== "rip") {
         terminalLine("error", "% Enter router rip mode first.");
         return true;
       }
-      const networkToken = networkMatch2[1];
+      const networkToken = networkMatch[1];
       let network;
       const parsed = parseIpv4Token(networkToken);
       if (parsed) {
@@ -5434,7 +5461,7 @@ APIPA: assigned link-local ${apipaIp}`);
           return true;
         }
         const ip = iface.config.ipv4Address;
-        network = `${ip.split(".").slice(0, 3).join(".")}.0/24`;
+        network = networkOf(ip, prefixOf(iface.config));
       }
       pushUndo();
       if (!router.config.rip.networks.includes(network)) {
@@ -6605,12 +6632,14 @@ APIPA: assigned link-local ${apipaIp}`);
         captureUndoOnFocus(ipv4Input);
         ipv4Input.addEventListener("input", (event) => {
           const value = event.target.value.trim();
-          if (!isValidIpv4(value) && value !== "") {
-            event.target.setCustomValidity("Enter a valid IPv4 address.");
+          const parsed = value === "" ? null : parseIpv4Token(value);
+          if (value !== "" && !parsed) {
+            event.target.setCustomValidity("Enter a valid IPv4 address (optionally with /prefix).");
           } else {
             event.target.setCustomValidity("");
             selected.config = selected.config || {};
-            selected.config.ipv4Address = value;
+            selected.config.ipv4Address = parsed ? parsed.address : "";
+            if (parsed?.prefixLength != null) selected.config.prefixLength = parsed.prefixLength;
             sync().render();
           }
         });
@@ -7438,6 +7467,7 @@ APIPA: assigned link-local ${apipaIp}`);
         ...type === "computer" ? {
           config: {
             ipv4Address: config?.ipv4Address || "",
+            ...config?.prefixLength != null ? { prefixLength: config.prefixLength } : {},
             gatewayIpv4Address: config?.gatewayIpv4Address || "",
             macAddress: config?.macAddress || "",
             arpTable: normaliseArpTable(config?.arpTable || [])
@@ -7464,6 +7494,13 @@ APIPA: assigned link-local ${apipaIp}`);
             interfaces: routerInterfacesForPayload({ id, config }),
             ...config?.staticRoutes?.length ? { staticRoutes: config.staticRoutes } : {},
             ...config?.rip?.enabled ? { rip: config.rip } : {}
+          }
+        } : {},
+        ...type === "firewall" ? {
+          config: {
+            ethernetPorts: config?.ethernetPorts ?? 2,
+            rules: normaliseFirewallRules(config?.rules || []),
+            policy: { forward: config?.policy?.forward === "drop" ? "drop" : "accept" }
           }
         } : {},
         ...type === "lan" ? {

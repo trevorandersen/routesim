@@ -5,7 +5,7 @@
  */
 import type { Device } from "../types";
 import { state, sync, pushUndo } from "../state";
-import { isValidIpv4, parseIpv4Token, normaliseVlanId } from "../utils";
+import { isValidIpv4, parseIpv4Token, normaliseVlanId, prefixOf, clampPrefixLength, networkOf } from "../utils";
 import { normaliseArpTable, normaliseDhcpLeases, normaliseStaticRoutes, normaliseRipConfig } from "../normalise";
 import { routerInterfacesWithNames, routerInterfaceFor, routerInterfaceByName } from "../devices";
 import { buildRoutingTable, runRipConvergence } from "../engine";
@@ -123,7 +123,7 @@ export function showRouterRunningConfig(router: Device): string {
     ...interfaces.filter((iface: any) => iface.peer || iface.config.ipv4Address).flatMap((iface: any) => {
       const lines = [`interface ${iface.name}`];
       if (iface.config.vlanTag != null) lines.push(` encapsulation dot1q ${iface.config.vlanTag}`);
-      lines.push(iface.config.ipv4Address ? ` ip address ${iface.config.ipv4Address}/24` : " no ip address");
+      lines.push(iface.config.ipv4Address ? ` ip address ${iface.config.ipv4Address}/${prefixOf(iface.config)}` : " no ip address");
       lines.push(" exit", "!");
       return lines;
     }),
@@ -145,6 +145,7 @@ export function setRouterInterfaceIp(router: Device, peerId: string, address: st
   pushUndo();
   const iface = routerInterfaceFor(router, peerId, vlanTag);
   iface.ipv4Address = parsed.address;
+  if (parsed.prefixLength != null) iface.prefixLength = clampPrefixLength(parsed.prefixLength);
   sync().syncPanel();
   sync().render();
   return "";
@@ -503,7 +504,7 @@ function routerRipCommand(router: Device, command: string, lower: string): boole
         return true;
       }
       const ip = iface.config.ipv4Address;
-      network = `${ip.split(".").slice(0, 3).join(".")}.0/24`;
+      network = networkOf(ip, prefixOf(iface.config));
     }
     pushUndo();
     if (!router.config.rip!.networks.includes(network)) {

@@ -119,8 +119,8 @@ export function createDhcpDiscover(clientMac: string, transactionId: string, vla
   return { id: nextFrameId(), srcMac: clientMac, dstMac: BROADCAST_MAC, etherType: 0x0800, vlanTag, payload: ipv4 };
 }
 
-export function createDhcpOffer(serverMac: string, serverIp: string, clientMac: string, assignedIp: string, transactionId: string, vlanTag: number | null = null): EthernetFrame {
-  const dhcp: DhcpPayload = { type: "dhcp", messageType: "offer", transactionId, clientMac, assignedIp, gatewayIp: serverIp, serverIp };
+export function createDhcpOffer(serverMac: string, serverIp: string, clientMac: string, assignedIp: string, transactionId: string, vlanTag: number | null = null, prefixLength?: number): EthernetFrame {
+  const dhcp: DhcpPayload = { type: "dhcp", messageType: "offer", transactionId, clientMac, assignedIp, prefixLength, gatewayIp: serverIp, serverIp };
   const ipv4: Ipv4Payload = { type: "ipv4", srcIp: serverIp, dstIp: "255.255.255.255", ttl: 64, protocol: 17, payload: dhcp };
   return { id: nextFrameId(), srcMac: serverMac, dstMac: BROADCAST_MAC, etherType: 0x0800, vlanTag, payload: ipv4 };
 }
@@ -131,8 +131,8 @@ export function createDhcpRequest(clientMac: string, requestedIp: string, server
   return { id: nextFrameId(), srcMac: clientMac, dstMac: BROADCAST_MAC, etherType: 0x0800, vlanTag, payload: ipv4 };
 }
 
-export function createDhcpAck(serverMac: string, serverIp: string, clientMac: string, assignedIp: string, transactionId: string, vlanTag: number | null = null): EthernetFrame {
-  const dhcp: DhcpPayload = { type: "dhcp", messageType: "ack", transactionId, clientMac, assignedIp, gatewayIp: serverIp, serverIp };
+export function createDhcpAck(serverMac: string, serverIp: string, clientMac: string, assignedIp: string, transactionId: string, vlanTag: number | null = null, prefixLength?: number): EthernetFrame {
+  const dhcp: DhcpPayload = { type: "dhcp", messageType: "ack", transactionId, clientMac, assignedIp, prefixLength, gatewayIp: serverIp, serverIp };
   const ipv4: Ipv4Payload = { type: "ipv4", srcIp: serverIp, dstIp: "255.255.255.255", ttl: 64, protocol: 17, payload: dhcp };
   return { id: nextFrameId(), srcMac: serverMac, dstMac: BROADCAST_MAC, etherType: 0x0800, vlanTag, payload: ipv4 };
 }

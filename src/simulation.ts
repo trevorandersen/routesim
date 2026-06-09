@@ -2,7 +2,7 @@ import type { SimEvent, EthernetFrame } from "./types";
 import { state } from "./state";
 import { getDevice, linkedPortsFor, linksFor } from "./devices";
 import { normalisePortVlans, normalisePortModes, normaliseTrunkAllowedVlans } from "./normalise";
-import { isValidIpv4, sameSubnet24 } from "./utils";
+import { isValidIpv4, sameSubnet, prefixOf } from "./utils";
 import { createArpRequest, createIcmpEchoRequest, createDhcpDiscover } from "./frame";
 
 export interface PingSetup {
@@ -136,7 +136,7 @@ export function buildPingEvents(source: any, targetText: string, options: { ttl?
   const firstHop = findFirstHop(source);
   if (!firstHop) return `ping: connect: Network is unreachable (no link)`;
 
-  if (sameSubnet24(srcIp, dstIp)) {
+  if (sameSubnet(srcIp, dstIp, prefixOf(source.config))) {
     // Same subnet — check ARP cache
     const arpEntry = (source.config.arpTable || []).find((e: any) => e.ipv4Address === dstIp);
     let initialFrame;
@@ -163,7 +163,7 @@ export function buildPingEvents(source: any, targetText: string, options: { ttl?
   // Cross-subnet — need gateway
   if (!source.config?.gatewayIpv4Address) return `ping: connect: Network is unreachable (no default gateway)`;
   const gwIp = source.config.gatewayIpv4Address;
-  if (!sameSubnet24(gwIp, srcIp)) return `ping: connect: Network is unreachable (gateway not on source subnet)`;
+  if (!sameSubnet(gwIp, srcIp, prefixOf(source.config))) return `ping: connect: Network is unreachable (gateway not on source subnet)`;
 
   // Always hand the packet to the default gateway via an ARP (unless the gateway
   // MAC is already cached). Whether the destination is actually routable is then

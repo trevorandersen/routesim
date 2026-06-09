@@ -138,7 +138,7 @@ Ping generates real Ethernet frames (ARP + ICMP) that traverse the network hop b
 
 1. **Computer** issues ping → `buildPingEvents()` creates ARP request (if needed) + deferred ICMP in `pendingArp`.
 2. **Switch** MAC-learns on ingress, then forwards (known unicast) or floods (broadcast/unknown).
-3. **Router** matches ingress interface by peerId, handles ARP on-interface, routes IPv4 by longest /24 match, decrements TTL, rewrites L2 headers, may ARP-resolve on egress (buffering the frame in `pendingArp`).
+3. **Router** matches ingress interface by peerId, handles ARP on-interface, routes IPv4 by longest-prefix match, decrements TTL, rewrites L2 headers, may ARP-resolve on egress (buffering the frame in `pendingArp`).
 4. **Computer** receives ICMP echo reply → ping success.
 
 Each hop is an animated dot on the canvas (amber = ARP, blue = ICMP request, green = ICMP reply, red = ICMP Time-Exceeded, violet = DHCP). Speed is controlled by `simulation.speed` (ms per hop, default 1000).
@@ -149,7 +149,7 @@ A router checks the TTL **before** the forwarding decision: when a packet's TTL 
 
 ### Routing
 
-Routers forward IPv4 frames using a merged routing table built by `buildRoutingTable(router)` in `engine.ts`. The table combines three sources in priority order: connected routes (metric 0), static routes (metric 1), and RIP learned routes (metric 2+). `routingLookup(router, dstIp)` finds the best matching route and resolves the next-hop to an egress interface. Static routes are configured per-router via the `ip route` terminal command and stored in `config.staticRoutes`. The `RouteEntry` type (`types.ts`) holds `{ network, nextHop, interface, type: "C"|"S"|"R", metric }`.
+Routers forward IPv4 frames using a merged routing table built by `buildRoutingTable(router)` in `routing.ts`. The table combines three sources in priority order: connected routes (metric 0), static routes (metric 1), and RIP learned routes (metric 2+). `routingLookup(router, dstIp)` finds the best matching route and resolves the next-hop to an egress interface. Static routes are configured per-router via the `ip route` terminal command and stored in `config.staticRoutes`. The `RouteEntry` type (`types.ts`) holds `{ network, nextHop, interface, type: "C"|"S"|"R", metric }`.
 
 ### RIP
 

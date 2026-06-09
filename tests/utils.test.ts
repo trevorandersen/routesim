@@ -1,6 +1,7 @@
 import { describe, it, expect } from "bun:test";
 import {
-  isValidIpv4, ipv4Network24, ipv4ToInt, sameSubnet24,
+  isValidIpv4, ipv4ToInt, intToIpv4,
+  sameSubnet, networkOf, cidrContains, prefixLengthOfCidr, clampPrefixLength, prefixOf,
   normaliseMacAddress, isValidMac,
   clampPortCount, clampRouterPortCount,
   parseIpv4Token, normaliseVlanId,
@@ -34,26 +35,48 @@ describe("isValidIpv4", () => {
   });
 });
 
-describe("ipv4Network24", () => {
-  it("extracts /24 network address with CIDR notation", () => {
-    expect(ipv4Network24("192.168.1.42")).toBe("192.168.1.0/24");
-    expect(ipv4Network24("10.0.0.1")).toBe("10.0.0.0/24");
-  });
-});
-
-describe("sameSubnet24", () => {
-  it("returns true for same /24", () => {
-    expect(sameSubnet24("192.168.1.10", "192.168.1.20")).toBe(true);
+describe("subnet prefix maths", () => {
+  it("networkOf normalises an address to its CIDR network", () => {
+    expect(networkOf("192.168.1.42", 24)).toBe("192.168.1.0/24");
+    expect(networkOf("10.1.2.3", 16)).toBe("10.1.0.0/16");
+    expect(networkOf("192.168.1.6", 30)).toBe("192.168.1.4/30");
+    expect(networkOf("10.0.0.1", 8)).toBe("10.0.0.0/8");
   });
 
-  it("returns false for different /24", () => {
-    expect(sameSubnet24("192.168.1.10", "192.168.2.10")).toBe(false);
-    expect(sameSubnet24("10.0.0.1", "192.168.0.1")).toBe(false);
+  it("sameSubnet honours the prefix length", () => {
+    expect(sameSubnet("192.168.1.10", "192.168.1.20", 24)).toBe(true);
+    expect(sameSubnet("192.168.1.10", "192.168.2.10", 24)).toBe(false);
+    expect(sameSubnet("10.0.1.5", "10.0.2.5", 16)).toBe(true);   // same /16, different /24
+    expect(sameSubnet("192.168.1.1", "192.168.1.5", 30)).toBe(false); // different /30 blocks
+    expect(sameSubnet("1.2.3.4", "200.1.1.1", 0)).toBe(true);    // /0 matches everything
   });
 
-  it("returns false for invalid IPs", () => {
-    expect(sameSubnet24("", "192.168.1.1")).toBe(false);
-    expect(sameSubnet24("192.168.1.1", "")).toBe(false);
+  it("sameSubnet returns false for invalid IPs", () => {
+    expect(sameSubnet("", "192.168.1.1", 24)).toBe(false);
+    expect(sameSubnet("192.168.1.1", "", 24)).toBe(false);
+  });
+
+  it("cidrContains and prefixLengthOfCidr parse CIDR strings", () => {
+    expect(cidrContains("192.168.1.0/24", "192.168.1.99")).toBe(true);
+    expect(cidrContains("192.168.1.0/24", "192.168.2.1")).toBe(false);
+    expect(cidrContains("10.0.0.0/8", "10.200.1.1")).toBe(true);
+    expect(cidrContains("192.168.1.10", "192.168.1.99")).toBe(true); // bare IP → /24
+    expect(prefixLengthOfCidr("10.0.0.0/16")).toBe(16);
+    expect(prefixLengthOfCidr("10.0.0.0")).toBe(24);
+  });
+
+  it("clampPrefixLength and prefixOf default to /24", () => {
+    expect(clampPrefixLength(undefined)).toBe(24);
+    expect(clampPrefixLength(33)).toBe(24);
+    expect(clampPrefixLength(-1)).toBe(24);
+    expect(clampPrefixLength(16)).toBe(16);
+    expect(prefixOf({ prefixLength: 30 })).toBe(30);
+    expect(prefixOf({})).toBe(24);
+    expect(prefixOf(null)).toBe(24);
+  });
+
+  it("intToIpv4 round-trips with ipv4ToInt", () => {
+    expect(intToIpv4(ipv4ToInt("203.0.113.7"))).toBe("203.0.113.7");
   });
 });
 

@@ -17,20 +17,61 @@ export function isValidIpv4(value: string): boolean {
   });
 }
 
-export function ipv4Network24(value: string): string {
-  const parts = String(value || "").split(".");
-  if (parts.length !== 4) return value;
-  return `${parts[0]}.${parts[1]}.${parts[2]}.0/24`;
-}
-
 export function ipv4ToInt(ip: string): number {
   const parts = ip.split(".").map(Number);
   return ((parts[0] << 24) | (parts[1] << 16) | (parts[2] << 8) | parts[3]) >>> 0;
 }
 
-export function sameSubnet24(a: string, b: string): boolean {
+export function intToIpv4(value: number): string {
+  return [(value >>> 24) & 255, (value >>> 16) & 255, (value >>> 8) & 255, value & 255].join(".");
+}
+
+// ─── Subnet prefix maths ──────────────────────────────────────────────────────
+
+export const DEFAULT_PREFIX_LENGTH = 24;
+
+// Clamp anything to a usable prefix length (integer 0–32, defaulting to /24).
+export function clampPrefixLength(value: unknown, fallback = DEFAULT_PREFIX_LENGTH): number {
+  const n = Number(value);
+  if (!Number.isInteger(n) || n < 0 || n > 32) return fallback;
+  return n;
+}
+
+// The prefix length configured on a host config / router interface (default /24).
+export function prefixOf(holder: { prefixLength?: number } | null | undefined): number {
+  return clampPrefixLength(holder?.prefixLength);
+}
+
+export function maskOfPrefix(prefixLength: number): number {
+  return prefixLength <= 0 ? 0 : (~0 << (32 - prefixLength)) >>> 0;
+}
+
+export function sameSubnet(a: string, b: string, prefixLength: number): boolean {
   if (!a || !b || !isValidIpv4(a) || !isValidIpv4(b)) return false;
-  return (ipv4ToInt(a) >>> 8) === (ipv4ToInt(b) >>> 8);
+  const mask = maskOfPrefix(clampPrefixLength(prefixLength));
+  return (ipv4ToInt(a) & mask) === (ipv4ToInt(b) & mask);
+}
+
+// Normalised CIDR network for an address, e.g. networkOf("10.1.2.3", 16) → "10.1.0.0/16".
+export function networkOf(ip: string, prefixLength: number): string {
+  const len = clampPrefixLength(prefixLength);
+  if (!isValidIpv4(ip)) return `${ip}/${len}`;
+  return `${intToIpv4(ipv4ToInt(ip) & maskOfPrefix(len))}/${len}`;
+}
+
+// Prefix length of a CIDR string ("10.0.0.0/16" → 16; bare IPs fall back to /24).
+export function prefixLengthOfCidr(cidr: string, fallback = DEFAULT_PREFIX_LENGTH): number {
+  const slash = String(cidr || "").indexOf("/");
+  if (slash < 0) return fallback;
+  return clampPrefixLength(Number(cidr.slice(slash + 1)), fallback);
+}
+
+// Does the CIDR (or bare-IP-as-/24) contain the address?
+export function cidrContains(cidr: string, ip: string): boolean {
+  const slash = String(cidr || "").indexOf("/");
+  const net = slash >= 0 ? cidr.slice(0, slash) : cidr;
+  if (!isValidIpv4(net) || !isValidIpv4(ip)) return false;
+  return sameSubnet(net, ip, prefixLengthOfCidr(cidr));
 }
 
 export function normaliseMacAddress(value: string): string {

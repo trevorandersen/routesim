@@ -3,7 +3,7 @@ import { state, pushUndo, sync } from "./state";
 import { dom } from "./dom";
 import { getDevice, linkedPortsFor, routerInterfacesWithNames } from "./devices";
 import { normalisePortVlans, normalisePortModes, normaliseTrunkAllowedVlans, normaliseArpTable, normaliseMacTable, normaliseDhcpLeases, normaliseStaticRoutes } from "./normalise";
-import { sameSubnet24, isValidIpv4, escapeHtml, ipv4ToInt, normaliseMacAddress } from "./utils";
+import { sameSubnet, prefixOf, isValidIpv4, escapeHtml, ipv4ToInt, normaliseMacAddress } from "./utils";
 import { createArpRequest, createArpReply, createIcmpEchoRequest, createIcmpEchoReply, createIcmpTimeExceeded, createDhcpOffer, createDhcpRequest, createDhcpAck, BROADCAST_MAC, frameLabel } from "./frame";
 import { terminalLine, syncTerminal } from "./terminal";
 import { buildPingEvents, findPingTarget } from "./simulation";
@@ -409,6 +409,7 @@ export function processAtComputer(device: Device, frame: EthernetFrame, fromDevi
       } else if (dhcp.messageType === "ack") {
         logStep(device, "sim-dhcp", `Received DHCP ACK: assigned ${dhcp.assignedIp}, gateway ${dhcp.gatewayIp}`);
         config.ipv4Address = dhcp.assignedIp || "";
+        if (dhcp.prefixLength != null) config.prefixLength = dhcp.prefixLength; // subnet-mask option
         config.gatewayIpv4Address = dhcp.gatewayIp || "";
         // Learn router MAC in ARP table
         if (dhcp.gatewayIp && frame.srcMac && frame.srcMac !== BROADCAST_MAC) {
@@ -669,7 +670,8 @@ function handleRouterDhcp(device: Device, ingressIface: any, fromDeviceId: strin
     logStep(device, "sim-dhcp", `DHCP Discover from ${dhcp.clientMac} — offering ${allocatedIp}`);
     const offer = createDhcpOffer(
       ingressIface.macAddress, ingressIface.ipv4Address,
-      dhcp.clientMac, allocatedIp, dhcp.transactionId, ingressIface.vlanTag ?? null
+      dhcp.clientMac, allocatedIp, dhcp.transactionId, ingressIface.vlanTag ?? null,
+      prefixOf(ingressIface)
     );
     outgoing.push({ frame: offer, toDeviceId: fromDeviceId });
   } else if (dhcp.messageType === "request") {
@@ -687,7 +689,8 @@ function handleRouterDhcp(device: Device, ingressIface: any, fromDeviceId: strin
     logStep(device, "sim-dhcp", `DHCP Request from ${dhcp.clientMac} for ${requestedIp} — sending ACK`);
     const ack = createDhcpAck(
       ingressIface.macAddress, ingressIface.ipv4Address,
-      dhcp.clientMac, requestedIp, dhcp.transactionId, ingressIface.vlanTag ?? null
+      dhcp.clientMac, requestedIp, dhcp.transactionId, ingressIface.vlanTag ?? null,
+      prefixOf(ingressIface)
     );
     outgoing.push({ frame: ack, toDeviceId: fromDeviceId });
   }
@@ -846,13 +849,16 @@ function generateApipaAddress(): string {
 
 function allocateDhcpIp(iface: any, router: Device): string | null {
   if (!iface.ipv4Address || !isValidIpv4(iface.ipv4Address)) return null;
+  const ifPrefix = prefixOf(iface);
+  // The pool draws from the interface's own /24 slice (.100–.254), which sits
+  // inside any larger network too; subnet-membership checks use the real prefix.
   const parts = iface.ipv4Address.split(".");
-  const prefix = `${parts[0]}.${parts[1]}.${parts[2]}`;
+  const poolBase = `${parts[0]}.${parts[1]}.${parts[2]}`;
 
   const usedIps = new Set<string>();
   // Router interface IPs in this subnet
   for (const ri of (router.config?.interfaces || [])) {
-    if (ri.ipv4Address && sameSubnet24(ri.ipv4Address, iface.ipv4Address)) {
+    if (ri.ipv4Address && sameSubnet(ri.ipv4Address, iface.ipv4Address, ifPrefix)) {
       usedIps.add(ri.ipv4Address);
     }
   }
@@ -864,20 +870,20 @@ function allocateDhcpIp(iface: any, router: Device): string | null {
   for (const d of state.devices) {
     if (d.hidden) continue;
     const ip = d.config?.ipv4Address;
-    if (ip && isValidIpv4(ip) && sameSubnet24(ip, iface.ipv4Address)) {
+    if (ip && isValidIpv4(ip) && sameSubnet(ip, iface.ipv4Address, ifPrefix)) {
       usedIps.add(ip);
     }
   }
 
   for (let i = 100; i <= 254; i++) {
-    const candidate = `${prefix}.${i}`;
+    const candidate = `${poolBase}.${i}`;
     if (!usedIps.has(candidate)) return candidate;
   }
   return null;
 }
 
 function findEgressInterface(ifaces: any[], dstIp: string): any | null {
-  return ifaces.find((iface: any) => iface.ipv4Address && isValidIpv4(iface.ipv4Address) && sameSubnet24(iface.ipv4Address, dstIp)) || null;
+  return ifaces.find((iface: any) => iface.ipv4Address && isValidIpv4(iface.ipv4Address) && sameSubnet(iface.ipv4Address, dstIp, prefixOf(iface))) || null;
 }
 
 function ifaceName(iface: any): string {

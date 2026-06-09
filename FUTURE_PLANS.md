@@ -5,10 +5,11 @@ tool that makes invisible network behaviour visible, faithfully and fast.* Each
 item notes rough effort and how it leverages what already exists. Nothing here is
 committed scope — it's a menu for "what next".
 
-> Status note (2026-06): **Traceroute** is done — ICMP Time-Exceeded (type 11),
-> a router that checks TTL before forwarding, `runTraceroute`, and a
-> `traceroute`/`tracert` command in the PC terminal and console. The items below
-> are the remainder.
+> Status note (2026-06): **Traceroute** is done (ICMP Time-Exceeded, TTL checked
+> before forwarding, `runTraceroute`, terminal/console command). **Real subnet
+> prefixes** are done — hosts and router interfaces carry a `prefixLength`
+> (default /24), routing is true longest-prefix match, DHCP carries the subnet
+> mask, and `sameSubnet24` is gone. The items below are the remainder.
 
 ## Tier 1 — best value for effort
 
@@ -75,8 +76,6 @@ Effort: moderate.
 - **Click-a-packet frame inspector** — click a transit dot to see full frame
   fields (we already record per-link frame history). Effort: low.
 - **Redo** — pair with the existing 80-deep undo stack. Effort: low.
-- **Arbitrary subnet masks** — the app assumes /24 in several places; supporting
-  real prefixes would deepen realism but is invasive. Effort: moderate–high.
 - **Annotations / notes on the canvas** — labels and callouts for teaching.
   Effort: low.
 - **Minimap / fit-to-content for large topologies.** Effort: low–moderate.

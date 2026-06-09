@@ -64,6 +64,7 @@ export interface RouterInterface {
   type: string;
   name: string;
   ipv4Address: string;
+  prefixLength?: number;  // subnet prefix for the interface network (default 24)
   macAddress: string;
   arpTable: ArpEntry[];
   dhcpLeases: DhcpLease[];
@@ -101,6 +102,7 @@ export interface RipConfig {
 
 export interface ComputerConfig {
   ipv4Address: string;
+  prefixLength?: number;  // subnet prefix (default 24)
   gatewayIpv4Address: string;
   macAddress: string;
   arpTable: ArpEntry[];
@@ -239,6 +241,7 @@ export interface DhcpPayload {
   transactionId: string;
   clientMac: string;
   assignedIp?: string;
+  prefixLength?: number;  // subnet-mask option carried in Offer/ACK
   gatewayIp?: string;
   serverIp?: string;
   requestedIp?: string;

@@ -6,15 +6,17 @@ The largest and most important module. Drives a ping/DHCP simulation through two
 - **`startSimulation(setup, sourceId, targetIp, mode?)`** — seeds the queue from a `PingSetup`/DHCP setup and starts the rAF animation loop.
 - **`stopSimulation`, `pauseSimulation`, `resumeSimulation`, `stepOnce`** — sim controls (wired to the on-canvas play/pause/step buttons).
 - **`syncSimLog()`** — rebuilds the floating sim-log panel.
+- **`runSimulationHeadless(setup, sourceId, targetIp, mode?)`** — drains the queue synchronously (no rAF, no per-step render/terminal output — it sets `sim.headless`) and returns a `SimResult` (`{ success, ttl, responderIp, timeExceeded, assignedIp, assignedGateway, log, steps }`). Powers the console `run` verb, `window.routesim`, scenario checks, and tests.
+- **`runTraceroute(source, target, maxHops?)`** — warms ARP along the path, then sends probes with increasing TTL (1..maxHops) via `runSimulationHeadless`, recording each hop's responder (a router's ICMP Time-Exceeded, or the destination's Echo Reply). Returns a `TracerouteResult`. Backs the `traceroute`/`tracert` command in the PC terminal and console.
 
-> Because `startSimulation` starts a `requestAnimationFrame` loop, it must **not** be called in unit tests (the test stub makes rAF synchronous → infinite recursion). Tests call the `processAt*` handlers directly. See [testing.md](../testing.md).
+> Because `startSimulation` starts a `requestAnimationFrame` loop, it must **not** be called in unit tests (the test stub makes rAF synchronous → infinite recursion). Tests call the `processAt*` handlers (or `runSimulationHeadless`/`runTraceroute`) directly. See [testing.md](../testing.md).
 
 ## Per-device processing
 Each handler takes a device, an incoming frame, and the ingress peer id, and returns `OutgoingFrame[]`:
 
 - **`processAtComputer`** — answers ARP for its own IP, replies to ICMP echo requests, marks ping success on echo reply, and drives the DHCP client (Discover→Offer→Request→Ack, assigning IP/gateway and learning the router MAC on Ack).
 - **`processAtSwitch`** — MAC-learns on ingress, then forwards (known unicast) or floods (broadcast/unknown). Managed switches enforce 802.1Q VLANs: access ports tag/untag, trunk ports carry allowed VLANs with a native VLAN.
-- **`processAtRouter`** — matches the ingress interface by peer, then dispatches: ARP → `handleRouterArp`, broadcast DHCP → `handleRouterDhcp` (allocates a lease, sends Offer/Ack), otherwise → `routeIpv4Frame`. Routing decrements TTL, rewrites L2 headers, and ARP-resolves on egress (buffering the frame in `pendingArp` on a miss). The self-IP branch answers ICMP echo to the router's own interface IP — and narrows on `payload.type === "icmp"` so a DHCP packet addressed to the router IP isn't mistaken for a self-ping.
+- **`processAtRouter`** — matches the ingress interface by peer, then dispatches: ARP → `handleRouterArp`, broadcast DHCP → `handleRouterDhcp` (allocates a lease, sends Offer/Ack), otherwise → `routeIpv4Frame`. Routing checks TTL **before** the forwarding decision (so an expired packet to an unrouteable destination still replies): on TTL 0 it drops the packet and sends an **ICMP Time-Exceeded** back from the ingress interface (the traceroute signal); otherwise it decrements TTL, rewrites L2 headers, and ARP-resolves on egress (buffering the frame in `pendingArp` on a miss). The self-IP branch answers ICMP echo to the router's own interface IP — and narrows on `payload.type === "icmp"` so a DHCP packet addressed to the router IP isn't mistaken for a self-ping.
 
 `processAtRouter` is decomposed into `handleRouterArp` / `handleRouterDhcp` / `routeIpv4Frame` for clarity; the orchestrator just matches the ingress interface and dispatches.
 

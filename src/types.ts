@@ -209,7 +209,7 @@ export interface ArpPayload {
 
 export interface IcmpPayload {
   type: "icmp";
-  icmpType: 8 | 0;   // 8 = echo request, 0 = echo reply
+  icmpType: 8 | 0 | 11;   // 8 = echo request, 0 = echo reply, 11 = time exceeded
   sequence: number;
 }
 
@@ -282,6 +282,9 @@ export interface SimulationState {
   pingTargetIp: string | null;
   pingSuccess: boolean;
   pingTtl: number;
+  pingResponderIp: string | null;   // who answered (echo reply, or a router's TTL-exceeded)
+  pingTimeExceeded: boolean;         // the last answer was an ICMP Time-Exceeded
+  headless: boolean;                 // running synchronously (no animation / terminal output)
   dhcpSuccess: boolean;
   dhcpAssignedIp: string | null;
   dhcpAssignedGateway: string | null;

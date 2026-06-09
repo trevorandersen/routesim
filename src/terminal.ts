@@ -5,7 +5,7 @@ import { escapeHtml, isValidIpv4, ipv4Network24, normaliseMacAddress, isValidMac
 import { normaliseArpTable, normaliseMacTable, normaliseDhcpLeases, normaliseVlans, normalisePortVlans, normalisePortModes, normaliseTrunkAllowedVlans, normaliseRouterInterfaces, normaliseStaticRoutes, normaliseRipConfig, ensureConfig } from "./normalise";
 import { getDevice, routerInterfacesWithNames, routerInterfaceFor, routerInterfaceByName, switchInterfacesWithNames, linkedPortsFor } from "./devices";
 import { buildPingEvents, buildDhcpEvents } from "./simulation";
-import { startSimulation, buildRoutingTable, runRipConvergence } from "./engine";
+import { startSimulation, buildRoutingTable, runRipConvergence, runTraceroute } from "./engine";
 
 export function terminalLine(kind: string, text: string): void {
   state.terminal.lines.push({ kind, text });
@@ -1067,6 +1067,7 @@ export function runTerminalCommand(rawCommand: string): void {
       "  ip route add default via <ipv4> dev eth0",
       "  arp -n",
       "  ping <pc-name|ipv4>",
+      "  traceroute <pc-name|ipv4>",
       "  dhcp",
       "  clear"
     ].join("\n"));
@@ -1114,6 +1115,22 @@ export function runTerminalCommand(rawCommand: string): void {
     } else {
       startSimulation(result, host.id, "", "dhcp");
       dom.terminalInput.disabled = true;
+    }
+    return;
+  }
+
+  const traceMatch = command.match(/^(?:traceroute|tracert)\s+(.+)$/i);
+  if (traceMatch) {
+    const result = runTraceroute(host, traceMatch[1].trim());
+    if (typeof result === "string") {
+      terminalLine("error", result);
+    } else {
+      const lines = [`traceroute to ${result.targetIp}, 30 hops max`];
+      for (const hop of result.hops) {
+        lines.push(` ${String(hop.ttl).padStart(2)}  ${hop.ip || "* (no response)"}`);
+      }
+      if (!result.reached) lines.push("(destination not reached within 30 hops)");
+      terminalLine("", lines.join("\n"));
     }
     return;
   }

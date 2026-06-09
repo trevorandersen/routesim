@@ -2100,6 +2100,9 @@ Full legal text: https://creativecommons.org/publicdomain/zero/1.0/legalcode</pr
       pingTargetIp: null,
       pingSuccess: false,
       pingTtl: 64,
+      pingResponderIp: null,
+      pingTimeExceeded: false,
+      headless: false,
       dhcpSuccess: false,
       dhcpAssignedIp: null,
       dhcpAssignedGateway: null
@@ -3199,6 +3202,11 @@ Full legal text: https://creativecommons.org/publicdomain/zero/1.0/legalcode</pr
       payload: ipv4
     };
   }
+  function createIcmpTimeExceeded(srcMac, dstMac, srcIp, dstIp, ttl = 64, vlanTag = null) {
+    const icmp = { type: "icmp", icmpType: 11, sequence: 0 };
+    const ipv4 = { type: "ipv4", srcIp, dstIp, ttl, protocol: 1, payload: icmp };
+    return { id: nextFrameId(), srcMac, dstMac, etherType: 2048, vlanTag, payload: ipv4 };
+  }
   function createDhcpDiscover(clientMac, transactionId, vlanTag = null) {
     const dhcp = { type: "dhcp", messageType: "discover", transactionId, clientMac };
     const ipv4 = { type: "ipv4", srcIp: "0.0.0.0", dstIp: "255.255.255.255", ttl: 64, protocol: 17, payload: dhcp };
@@ -3230,7 +3238,7 @@ Full legal text: https://creativecommons.org/publicdomain/zero/1.0/legalcode</pr
         const labels = { discover: "DHCP Disc", offer: "DHCP Offer", request: "DHCP Req", ack: "DHCP ACK" };
         label = labels[dhcp.messageType] || "DHCP";
       } else if (ipv4.payload.type === "icmp") {
-        label = ipv4.payload.icmpType === 8 ? "ICMP Echo" : "ICMP Reply";
+        label = ipv4.payload.icmpType === 8 ? "ICMP Echo" : ipv4.payload.icmpType === 11 ? "ICMP TTL Exceeded" : "ICMP Reply";
       } else {
         label = "Frame";
       }
@@ -3243,6 +3251,7 @@ Full legal text: https://creativecommons.org/publicdomain/zero/1.0/legalcode</pr
     const ipv4 = frame.payload;
     if (ipv4.payload.type === "dhcp") return "#a78bfa";
     if (ipv4.payload.type === "icmp" && ipv4.payload.icmpType === 8) return "#3b82f6";
+    if (ipv4.payload.type === "icmp" && ipv4.payload.icmpType === 11) return "#ef4444";
     return "#22c55e";
   }
 
@@ -3269,7 +3278,8 @@ Full legal text: https://creativecommons.org/publicdomain/zero/1.0/legalcode</pr
       (device) => device.type === "computer" && (String(device.config?.ipv4Address || "").toLowerCase() === target || device.name.toLowerCase() === target)
     );
   }
-  function buildPingEvents(source, targetText) {
+  function buildPingEvents(source, targetText, options = {}) {
+    const ttl = options.ttl ?? 64;
     if (!source.config?.ipv4Address) return `${source.name}: eth0 has no IPv4 address.`;
     if (!source.config?.macAddress) return `${source.name}: eth0 has no MAC address.`;
     const srcIp = source.config.ipv4Address;
@@ -3299,10 +3309,10 @@ Full legal text: https://creativecommons.org/publicdomain/zero/1.0/legalcode</pr
       const arpEntry = (source.config.arpTable || []).find((e) => e.ipv4Address === dstIp);
       let initialFrame2;
       if (arpEntry) {
-        initialFrame2 = createIcmpEchoRequest(srcMac, arpEntry.macAddress, srcIp, dstIp, 64, vlanTag);
+        initialFrame2 = createIcmpEchoRequest(srcMac, arpEntry.macAddress, srcIp, dstIp, ttl, vlanTag);
       } else {
         initialFrame2 = createArpRequest(srcMac, srcIp, dstIp, vlanTag);
-        const deferredIcmp = createIcmpEchoRequest(srcMac, "00:00:00:00:00:00", srcIp, dstIp, 64, vlanTag);
+        const deferredIcmp = createIcmpEchoRequest(srcMac, "00:00:00:00:00:00", srcIp, dstIp, ttl, vlanTag);
         pendingArp[`${source.id}:${dstIp}`] = [deferredIcmp];
       }
       return {
@@ -3322,10 +3332,10 @@ Full legal text: https://creativecommons.org/publicdomain/zero/1.0/legalcode</pr
     const gwArpEntry = (source.config.arpTable || []).find((e) => e.ipv4Address === gwIp);
     let initialFrame;
     if (gwArpEntry) {
-      initialFrame = createIcmpEchoRequest(srcMac, gwArpEntry.macAddress, srcIp, dstIp, 64, vlanTag);
+      initialFrame = createIcmpEchoRequest(srcMac, gwArpEntry.macAddress, srcIp, dstIp, ttl, vlanTag);
     } else {
       initialFrame = createArpRequest(srcMac, srcIp, gwIp, vlanTag);
-      const deferredIcmp = createIcmpEchoRequest(srcMac, "00:00:00:00:00:00", srcIp, dstIp, 64, vlanTag);
+      const deferredIcmp = createIcmpEchoRequest(srcMac, "00:00:00:00:00:00", srcIp, dstIp, ttl, vlanTag);
       pendingArp[`${source.id}:${gwIp}`] = [deferredIcmp];
     }
     return {
@@ -3798,6 +3808,7 @@ Full legal text: https://creativecommons.org/publicdomain/zero/1.0/legalcode</pr
     const sim = state.simulation;
     sim.status = "running";
     sim.mode = mode;
+    sim.headless = false;
     sim.events = setup.events;
     sim.log = [];
     sim.transits = [];
@@ -3807,6 +3818,8 @@ Full legal text: https://creativecommons.org/publicdomain/zero/1.0/legalcode</pr
     sim.pingTargetIp = targetIp;
     sim.pingSuccess = false;
     sim.pingTtl = 64;
+    sim.pingResponderIp = null;
+    sim.pingTimeExceeded = false;
     sim.dhcpSuccess = false;
     sim.dhcpAssignedIp = null;
     sim.dhcpAssignedGateway = null;
@@ -3859,6 +3872,7 @@ Full legal text: https://creativecommons.org/publicdomain/zero/1.0/legalcode</pr
     const sim = state.simulation;
     sim.status = "running";
     sim.mode = mode;
+    sim.headless = true;
     sim.events = setup.events;
     sim.log = [];
     sim.transits = [];
@@ -3868,6 +3882,8 @@ Full legal text: https://creativecommons.org/publicdomain/zero/1.0/legalcode</pr
     sim.pingTargetIp = targetIp;
     sim.pingSuccess = false;
     sim.pingTtl = 64;
+    sim.pingResponderIp = null;
+    sim.pingTimeExceeded = false;
     sim.dhcpSuccess = false;
     sim.dhcpAssignedIp = null;
     sim.dhcpAssignedGateway = null;
@@ -3883,11 +3899,33 @@ Full legal text: https://creativecommons.org/publicdomain/zero/1.0/legalcode</pr
     return {
       success: mode === "dhcp" ? sim.dhcpSuccess : sim.pingSuccess,
       ttl: sim.pingTtl,
+      responderIp: sim.pingResponderIp,
+      timeExceeded: sim.pingTimeExceeded,
       assignedIp: sim.dhcpAssignedIp,
       assignedGateway: sim.dhcpAssignedGateway,
       log: sim.log,
       steps: sim.stepIndex
     };
+  }
+  function runTraceroute(source, targetText, maxHops = 30) {
+    const target = findPingTarget(targetText);
+    const targetIp = target ? target.config?.ipv4Address || targetText : isValidIpv4(targetText.trim()) ? targetText.trim() : targetText.trim();
+    const warm = buildPingEvents(source, targetText);
+    if (typeof warm !== "string") runSimulationHeadless(warm, source.id, targetIp, "ping");
+    const hops = [];
+    let reached = false;
+    for (let ttl = 1; ttl <= maxHops; ttl++) {
+      const setup = buildPingEvents(source, targetText, { ttl });
+      if (typeof setup === "string") return setup;
+      const res = runSimulationHeadless(setup, source.id, targetIp, "ping");
+      if (res.success) {
+        hops.push({ ttl, ip: res.responderIp || targetIp, reached: true });
+        reached = true;
+        break;
+      }
+      hops.push({ ttl, ip: res.responderIp || null, reached: false });
+    }
+    return { targetIp, hops, reached };
   }
   var animFrameId = null;
   function startAnimationLoop() {
@@ -3979,8 +4017,10 @@ Full legal text: https://creativecommons.org/publicdomain/zero/1.0/legalcode</pr
         startTime: now
       });
     }
-    syncSimLog();
-    sync().render();
+    if (!sim.headless) {
+      syncSimLog();
+      sync().render();
+    }
     if (sim.transits.length === 0 && sim.events.length > 0 && sim.status === "running") {
       processNextStep();
       return;
@@ -4040,7 +4080,14 @@ Full legal text: https://creativecommons.org/publicdomain/zero/1.0/legalcode</pr
           if (device.id === sim.originDeviceId) {
             sim.pingSuccess = true;
             sim.pingTtl = ipv4.ttl;
+            sim.pingResponderIp = ipv4.srcIp;
             logStep(device, "sim-icmp", `Received ICMP Echo Reply from ${ipv4.srcIp} (TTL=${ipv4.ttl})`);
+          }
+        } else if (ipv4.payload.icmpType === 11) {
+          if (device.id === sim.originDeviceId) {
+            sim.pingResponderIp = ipv4.srcIp;
+            sim.pingTimeExceeded = true;
+            logStep(device, "sim-icmp", `Received ICMP Time-Exceeded from ${ipv4.srcIp}`);
           }
         }
       } else if (ipv4.payload.type === "dhcp") {
@@ -4304,16 +4351,29 @@ Full legal text: https://creativecommons.org/publicdomain/zero/1.0/legalcode</pr
       }
       return outgoing;
     }
+    if (ipv4.ttl <= 1) {
+      if (ingressIface.ipv4Address) {
+        logStep(device, "sim-drop", `TTL expired for packet to ${ipv4.dstIp} \u2014 sending ICMP Time-Exceeded to ${ipv4.srcIp}`);
+        const timeExceeded = createIcmpTimeExceeded(
+          ingressIface.macAddress,
+          frame.srcMac,
+          ingressIface.ipv4Address,
+          ipv4.srcIp,
+          64,
+          ingressIface.vlanTag ?? null
+        );
+        outgoing.push({ frame: timeExceeded, toDeviceId: fromDeviceId });
+      } else {
+        logStep(device, "sim-drop", `TTL expired for packet to ${ipv4.dstIp} \u2014 dropping`);
+      }
+      return outgoing;
+    }
     const routeResult = routingLookup(device, ipv4.dstIp);
     if (!routeResult) {
       logStep(device, "sim-drop", `No route to ${ipv4.dstIp} \u2014 dropping`);
       return outgoing;
     }
     const { egressIface, nextHopIp } = routeResult;
-    if (ipv4.ttl <= 1) {
-      logStep(device, "sim-drop", `TTL expired for packet to ${ipv4.dstIp} \u2014 dropping`);
-      return outgoing;
-    }
     const egressVlanTag = egressIface.vlanTag ?? null;
     const arpEntry = (egressIface.arpTable || []).find((e) => e.ipv4Address === nextHopIp);
     if (arpEntry) {
@@ -4477,7 +4537,7 @@ Full legal text: https://creativecommons.org/publicdomain/zero/1.0/legalcode</pr
     const sim = state.simulation;
     if (sim.mode === "dhcp") {
       if (sim.dhcpSuccess) {
-        terminalLine("", `DHCP configured:
+        if (!sim.headless) terminalLine("", `DHCP configured:
   IP address: ${sim.dhcpAssignedIp}
   Default gateway: ${sim.dhcpAssignedGateway}`);
       } else {
@@ -4488,10 +4548,10 @@ Full legal text: https://creativecommons.org/publicdomain/zero/1.0/legalcode</pr
           origin.config.gatewayIpv4Address = "";
         }
         sim.dhcpAssignedIp = apipaIp;
-        terminalLine("error", `DHCP: no response from server.
+        if (!sim.headless) terminalLine("error", `DHCP: no response from server.
 APIPA: assigned link-local ${apipaIp}`);
       }
-    } else {
+    } else if (!sim.headless) {
       const targetIp = sim.pingTargetIp || "?";
       if (sim.pingSuccess) {
         const ttl = sim.pingTtl;
@@ -4509,6 +4569,7 @@ APIPA: assigned link-local ${apipaIp}`);
       }
     }
     sim.status = "done";
+    if (sim.headless) return;
     const termInput = document.getElementById("terminalInput");
     if (termInput) termInput.disabled = false;
     syncSimLog();
@@ -5612,6 +5673,7 @@ APIPA: assigned link-local ${apipaIp}`);
         "  ip route add default via <ipv4> dev eth0",
         "  arp -n",
         "  ping <pc-name|ipv4>",
+        "  traceroute <pc-name|ipv4>",
         "  dhcp",
         "  clear"
       ].join("\n"));
@@ -5653,6 +5715,21 @@ APIPA: assigned link-local ${apipaIp}`);
       } else {
         startSimulation(result, host.id, "", "dhcp");
         dom.terminalInput.disabled = true;
+      }
+      return;
+    }
+    const traceMatch = command.match(/^(?:traceroute|tracert)\s+(.+)$/i);
+    if (traceMatch) {
+      const result = runTraceroute(host, traceMatch[1].trim());
+      if (typeof result === "string") {
+        terminalLine("error", result);
+      } else {
+        const lines = [`traceroute to ${result.targetIp}, 30 hops max`];
+        for (const hop of result.hops) {
+          lines.push(` ${String(hop.ttl).padStart(2)}  ${hop.ip || "* (no response)"}`);
+        }
+        if (!result.reached) lines.push("(destination not reached within 30 hops)");
+        terminalLine("", lines.join("\n"));
       }
       return;
     }
@@ -7336,6 +7413,18 @@ APIPA: assigned link-local ${apipaIp}`);
     }
     return err(`run: expected "ping <src> <dst>" or "dhcp <host>".`);
   }
+  function cmdTraceroute(args) {
+    const src = resolveDevice(args[0]);
+    if (typeof src === "string") return err(src);
+    const dst = args[1];
+    if (!dst) return err(`traceroute: expected "traceroute <src> <dst>".`);
+    const result = runTraceroute(src, dst);
+    if (typeof result === "string") return err(result);
+    const lines = [`traceroute to ${result.targetIp}, 30 hops max`];
+    for (const hop of result.hops) lines.push(` ${hop.ttl}  ${hop.ip || "* (no response)"}`);
+    if (!result.reached) lines.push("(destination not reached within 30 hops)");
+    return { ok: result.reached, data: result, output: lines };
+  }
   function cmdPlay() {
     resumeSimulation();
     return ok("Resumed.");
@@ -7520,6 +7609,8 @@ APIPA: assigned link-local ${apipaIp}`);
     ping: cmdPing,
     dhcp: cmdDhcp,
     run: cmdRun,
+    traceroute: cmdTraceroute,
+    tracert: cmdTraceroute,
     play: cmdPlay,
     pause: cmdPause,
     step: cmdStep,
@@ -7563,6 +7654,7 @@ APIPA: assigned link-local ${apipaIp}`);
     ping: "ping <src> <dst> (animated)",
     dhcp: "dhcp <host> (animated)",
     run: "run ping <src> <dst> | run dhcp <host> (headless, returns result)",
+    traceroute: "traceroute <src> <dst> (hop-by-hop via TTL)",
     play: "resume",
     pause: "pause",
     step: "advance one hop",

@@ -7,11 +7,11 @@ Builds the `EthernetFrame` objects that flow through the simulation, plus helper
 - **`BROADCAST_MAC`** — `ff:ff:ff:ff:ff:ff`.
 - **Factories** — each returns a fully-formed `EthernetFrame` with the right `etherType`, MACs, IPv4 envelope (where applicable), and a unique frame id:
   - `createArpRequest`, `createArpReply`
-  - `createIcmpEchoRequest`, `createIcmpEchoReply`
+  - `createIcmpEchoRequest`, `createIcmpEchoReply`, `createIcmpTimeExceeded` (type 11 — sent by a router on TTL 0; the signal traceroute discovers each hop from)
   - `createDhcpDiscover`, `createDhcpOffer`, `createDhcpRequest`, `createDhcpAck`
   - All accept an optional `vlanTag` for 802.1Q tagging.
-- **`frameLabel(frame)`** — a short human label (e.g. `"ARP request"`, `"ICMP echo reply"`, `"DHCP Offer"`) shown on transit dots and in link history.
-- **`frameColor(frame)`** — the colour class for the frame type (amber ARP, blue ICMP request, green ICMP reply, violet DHCP).
+- **`frameLabel(frame)`** — a short human label (e.g. `"ARP Req"`, `"ICMP Echo"`, `"ICMP TTL Exceeded"`, `"DHCP Offer"`) shown on transit dots and in link history.
+- **`frameColor(frame)`** — the colour for the frame type (amber ARP, blue ICMP request, green ICMP reply, red ICMP Time-Exceeded, violet DHCP).
 
 ## How it fits
 

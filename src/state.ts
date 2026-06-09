@@ -90,6 +90,9 @@ export const state: AppState = {
     pingTargetIp: null,
     pingSuccess: false,
     pingTtl: 64,
+    pingResponderIp: null,
+    pingTimeExceeded: false,
+    headless: false,
     dhcpSuccess: false,
     dhcpAssignedIp: null,
     dhcpAssignedGateway: null

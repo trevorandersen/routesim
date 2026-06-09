@@ -101,7 +101,8 @@ export function findPingTarget(value: string): any {
  * Validates inputs and generates the initial SimEvent(s) for a ping.
  * Returns a string error message if validation fails, or a PingSetup object.
  */
-export function buildPingEvents(source: any, targetText: string): PingSetup | string {
+export function buildPingEvents(source: any, targetText: string, options: { ttl?: number } = {}): PingSetup | string {
+  const ttl = options.ttl ?? 64;
   if (!source.config?.ipv4Address) return `${source.name}: eth0 has no IPv4 address.`;
   if (!source.config?.macAddress) return `${source.name}: eth0 has no MAC address.`;
 
@@ -140,11 +141,11 @@ export function buildPingEvents(source: any, targetText: string): PingSetup | st
     const arpEntry = (source.config.arpTable || []).find((e: any) => e.ipv4Address === dstIp);
     let initialFrame;
     if (arpEntry) {
-      initialFrame = createIcmpEchoRequest(srcMac, arpEntry.macAddress, srcIp, dstIp, 64, vlanTag);
+      initialFrame = createIcmpEchoRequest(srcMac, arpEntry.macAddress, srcIp, dstIp, ttl, vlanTag);
     } else {
       // ARP first, defer the ICMP
       initialFrame = createArpRequest(srcMac, srcIp, dstIp, vlanTag);
-      const deferredIcmp = createIcmpEchoRequest(srcMac, "00:00:00:00:00:00", srcIp, dstIp, 64, vlanTag);
+      const deferredIcmp = createIcmpEchoRequest(srcMac, "00:00:00:00:00:00", srcIp, dstIp, ttl, vlanTag);
       pendingArp[`${source.id}:${dstIp}`] = [deferredIcmp];
     }
     return {
@@ -172,10 +173,10 @@ export function buildPingEvents(source: any, targetText: string): PingSetup | st
   const gwArpEntry = (source.config.arpTable || []).find((e: any) => e.ipv4Address === gwIp);
   let initialFrame;
   if (gwArpEntry) {
-    initialFrame = createIcmpEchoRequest(srcMac, gwArpEntry.macAddress, srcIp, dstIp, 64, vlanTag);
+    initialFrame = createIcmpEchoRequest(srcMac, gwArpEntry.macAddress, srcIp, dstIp, ttl, vlanTag);
   } else {
     initialFrame = createArpRequest(srcMac, srcIp, gwIp, vlanTag);
-    const deferredIcmp = createIcmpEchoRequest(srcMac, "00:00:00:00:00:00", srcIp, dstIp, 64, vlanTag);
+    const deferredIcmp = createIcmpEchoRequest(srcMac, "00:00:00:00:00:00", srcIp, dstIp, ttl, vlanTag);
     pendingArp[`${source.id}:${gwIp}`] = [deferredIcmp];
   }
 

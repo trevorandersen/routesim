@@ -5,6 +5,7 @@ import { describe, it, expect, beforeAll, beforeEach } from "bun:test";
 import { state } from "../src/state";
 import { runConsoleCommand as exec, runConsoleScript, exportTopologyScript } from "../src/commands";
 import { registerNoopCallbacks, resetState } from "./helpers";
+import { routedTopology } from "./fixtures";
 
 beforeAll(() => registerNoopCallbacks());
 
@@ -105,6 +106,17 @@ describe("commands — headless simulation", () => {
     `);
     const r = exec("run ping PC1 PC2");
     expect(r.ok).toBe(false);
+  });
+
+  it("traceroute returns a hop list ending at the destination", () => {
+    const topo = routedTopology();
+    state.devices = topo.devices as any;
+    state.links = topo.links as any;
+    const r = exec("traceroute pc-a 192.168.20.10");
+    expect(r.ok).toBe(true);
+    expect(r.output[0]).toContain("traceroute to 192.168.20.10");
+    expect((r.data as any).hops.length).toBeGreaterThanOrEqual(2);
+    expect((r.data as any).reached).toBe(true);
   });
 });
 

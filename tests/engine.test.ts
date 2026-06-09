@@ -1,6 +1,6 @@
 import { describe, it, expect, beforeAll, beforeEach } from "bun:test";
 import { state } from "../src/state";
-import { processAtSwitch, processAtRouter, processAtComputer, runSimulationHeadless } from "../src/engine";
+import { processAtSwitch, processAtRouter, processAtComputer, runSimulationHeadless, runTraceroute } from "../src/engine";
 import { buildPingEvents } from "../src/simulation";
 import { createArpRequest, createArpReply, createIcmpEchoRequest, createIcmpEchoReply, createDhcpOffer, createDhcpAck, BROADCAST_MAC } from "../src/frame";
 import { registerNoopCallbacks, resetState } from "./helpers";
@@ -245,7 +245,7 @@ describe("processAtRouter", () => {
     expect(outgoing[0].frame.dstMac).toBe("02:00:00:00:20:10"); // destination MAC
   });
 
-  it("drops packet when TTL expires", () => {
+  it("sends ICMP Time-Exceeded back to the source when TTL expires", () => {
     const topo = routedTopology();
     state.devices = topo.devices as any;
     state.links = topo.links as any;
@@ -253,13 +253,19 @@ describe("processAtRouter", () => {
     rtr.config.interfaces[1].arpTable = [
       { ipv4Address: "192.168.20.10", macAddress: "02:00:00:00:20:10" },
     ];
-    // TTL = 1 means it should be dropped
+    // TTL = 1: the router drops the packet and replies with a Time-Exceeded.
     const frame = createIcmpEchoRequest(
       "02:00:00:00:10:10", "02:01:00:00:01:01",
       "192.168.10.10", "192.168.20.10", 1
     );
     const outgoing = processAtRouter(rtr, frame, "sw-a");
-    expect(outgoing).toHaveLength(0);
+    expect(outgoing).toHaveLength(1);
+    const te = outgoing[0];
+    expect(te.toDeviceId).toBe("sw-a");
+    const ipv4 = te.frame.payload as any;
+    expect(ipv4.payload.icmpType).toBe(11);       // ICMP Time-Exceeded
+    expect(ipv4.srcIp).toBe("192.168.10.1");      // ingress interface address
+    expect(ipv4.dstIp).toBe("192.168.10.10");     // original source
   });
 
   it("sends ARP request when egress ARP miss", () => {
@@ -635,5 +641,47 @@ describe("runSimulationHeadless", () => {
     // The host ARPed its gateway and the router made the drop decision.
     expect(result.log.some(l => /ARP Request/i.test(l.summary))).toBe(true);
     expect(result.log.some(l => /No route/i.test(l.summary))).toBe(true);
+  });
+});
+
+describe("traceroute", () => {
+  beforeEach(() => resetState());
+
+  it("a router emits ICMP Time-Exceeded when the TTL expires", () => {
+    const topo = routedTopology();
+    state.devices = topo.devices as any;
+    state.links = topo.links as any;
+    const pcA = state.devices.find(d => d.id === "pc-a")!;
+    const setup = buildPingEvents(pcA, "192.168.20.10", { ttl: 1 });
+    expect(typeof setup).not.toBe("string");
+    const res = runSimulationHeadless(setup as any, "pc-a", "192.168.20.10", "ping");
+    expect(res.success).toBe(false);
+    expect(res.timeExceeded).toBe(true);
+    expect(res.responderIp).toBe("192.168.10.1"); // router's ingress interface
+  });
+
+  it("discovers each hop via increasing TTL (cross-subnet)", () => {
+    const topo = routedTopology();
+    state.devices = topo.devices as any;
+    state.links = topo.links as any;
+    const pcA = state.devices.find(d => d.id === "pc-a")!;
+    const result = runTraceroute(pcA, "192.168.20.10") as any;
+    expect(typeof result).not.toBe("string");
+    expect(result.reached).toBe(true);
+    expect(result.hops.length).toBeGreaterThanOrEqual(2);
+    expect(result.hops[0].ip).toBe("192.168.10.1"); // first hop = router (TTL exceeded)
+    expect(result.hops[0].reached).toBe(false);
+    expect(result.hops[result.hops.length - 1].reached).toBe(true);
+  });
+
+  it("reaches a same-subnet host in a single hop", () => {
+    const topo = basicTopology();
+    state.devices = topo.devices as any;
+    state.links = topo.links as any;
+    const pc1 = state.devices.find(d => d.id === "pc1")!;
+    const result = runTraceroute(pc1, "192.168.1.20") as any;
+    expect(result.reached).toBe(true);
+    expect(result.hops.length).toBe(1);
+    expect(result.hops[0].reached).toBe(true);
   });
 });

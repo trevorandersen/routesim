@@ -15,7 +15,7 @@ import {
 } from "./devices";
 import {
   startSimulation, stopSimulation, pauseSimulation, resumeSimulation, stepOnce,
-  runSimulationHeadless,
+  runSimulationHeadless, runTraceroute,
 } from "./engine";
 import { buildPingEvents, buildDhcpEvents, findPingTarget } from "./simulation";
 import {
@@ -290,6 +290,19 @@ function cmdRun(args: string[]): CommandResult {
   return err(`run: expected "ping <src> <dst>" or "dhcp <host>".`);
 }
 
+function cmdTraceroute(args: string[]): CommandResult {
+  const src = resolveDevice(args[0]);
+  if (typeof src === "string") return err(src);
+  const dst = args[1];
+  if (!dst) return err(`traceroute: expected "traceroute <src> <dst>".`);
+  const result = runTraceroute(src, dst);
+  if (typeof result === "string") return err(result);
+  const lines = [`traceroute to ${result.targetIp}, 30 hops max`];
+  for (const hop of result.hops) lines.push(` ${hop.ttl}  ${hop.ip || "* (no response)"}`);
+  if (!result.reached) lines.push("(destination not reached within 30 hops)");
+  return { ok: result.reached, data: result, output: lines };
+}
+
 function cmdPlay(): CommandResult { resumeSimulation(); return ok("Resumed."); }
 function cmdPause(): CommandResult { pauseSimulation(); return ok("Paused."); }
 function cmdStep(): CommandResult { stepOnce(); return ok(`Stepped (step ${state.simulation.stepIndex}).`); }
@@ -467,7 +480,8 @@ const COMMANDS: Record<string, Handler> = {
   move: cmdMove, rename: cmdRename, clear: cmdClear, collapse: cmdCollapse, expand: cmdExpand,
   ip: cmdIp, gateway: cmdGateway, mac: cmdMac, interface: cmdInterface, route: cmdRoute,
   vlan: cmdVlan, port: cmdPort, cli: cmdCli,
-  ping: cmdPing, dhcp: cmdDhcp, run: cmdRun, play: cmdPlay, pause: cmdPause, step: cmdStep,
+  ping: cmdPing, dhcp: cmdDhcp, run: cmdRun, traceroute: cmdTraceroute, tracert: cmdTraceroute,
+  play: cmdPlay, pause: cmdPause, step: cmdStep,
   stop: cmdStop, speed: cmdSpeed,
   topology: cmdTopology, save: cmdSave, load: cmdLoad, undo: cmdUndo, export: cmdExport,
   list: cmdList, show: cmdShow, status: cmdStatus, log: cmdLog,
@@ -487,6 +501,7 @@ const HELP: Record<string, string> = {
   cli: "cli <device> <raw CLI command>",
   ping: "ping <src> <dst> (animated)", dhcp: "dhcp <host> (animated)",
   run: "run ping <src> <dst> | run dhcp <host> (headless, returns result)",
+  traceroute: "traceroute <src> <dst> (hop-by-hop via TTL)",
   play: "resume", pause: "pause", step: "advance one hop", stop: "stop", speed: "speed <ms-per-hop>",
   topology: "topology basic|vlan-roas|router-mesh", save: "save <name>", load: "load <name>",
   undo: "undo", export: "export topology as a reproducible script",

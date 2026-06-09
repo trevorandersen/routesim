@@ -115,7 +115,7 @@ fixed enums may be interpolated raw.
 | `simulation.ts` | `buildPingEvents()` — validates a ping command and returns initial `SimEvent[]` + `pendingArp` map for deferred ICMPs. Does **not** pre-compute reachability: a destination IP with no device still emits a real ARP (to the target on-subnet, or the gateway off-subnet) and the simulation/router decides the outcome. Also has `l2Reachable`. |
 | `frame.ts` | Factory functions: `createArpRequest`, `createArpReply`, `createIcmpEchoRequest`, `createIcmpEchoReply`. Also `frameLabel()` and `frameColor()` for rendering. |
 | `canvas.ts` | All drawing: grid, links, devices (icon rendering via SVG path data on canvas), frame transit dots with glow/labels, zoom/pan math. |
-| `terminal.ts` | Per-device CLI, each modelled on a real open-source NOS. Computers: Linux-ish (`ping`, `ip addr`, `arp -n`, …). Routers: **FRRouting** (vtysh) — `configure terminal`, `interface`, `router rip`, `show ip route`, `do <show>`, with prefix abbreviation (`sh ip ro`) and context-sensitive `?`. Managed switches: **SONiC** — flat `config vlan add/del`, `config vlan member add [-t] <vid> <port>`, `show vlan brief`/`mac`/`interfaces status`. Command history (up/down arrow). |
+| `terminal.ts` | Per-device CLI, each modelled on a real open-source NOS. Computers: Linux-ish (`ping`, `traceroute`, `ip addr`, `arp -n`, …). Routers: **FRRouting** (vtysh) — `configure terminal`, `interface`, `router rip`, `show ip route`, `do <show>`, with prefix abbreviation (`sh ip ro`) and context-sensitive `?`. Managed switches: **SONiC** — flat `config vlan add/del`, `config vlan member add [-t] <vid> <port>`, `show vlan brief`/`mac`/`interfaces status`. Command history (up/down arrow). |
 | `inspector.ts` | Right panel. Device selection shows config fields; link selection shows frame history (color-coded ARP/ICMP entries with step numbers). |
 | `devices.ts` | CRUD, hit testing (`findDeviceAt`, `findLinkAt`), port/interface enumeration, LAN collapse/expand (groups devices into a single node). |
 | `normalise.ts` | Defensive normalisation for all config shapes. `normaliseRouterInterfaces` auto-generates deterministic MACs (`02:RR:00:00:II:01`). |
@@ -137,7 +137,11 @@ Ping generates real Ethernet frames (ARP + ICMP) that traverse the network hop b
 3. **Router** matches ingress interface by peerId, handles ARP on-interface, routes IPv4 by longest /24 match, decrements TTL, rewrites L2 headers, may ARP-resolve on egress (buffering the frame in `pendingArp`).
 4. **Computer** receives ICMP echo reply → ping success.
 
-Each hop is an animated dot on the canvas (amber = ARP, blue = ICMP request, green = ICMP reply, violet = DHCP). Speed is controlled by `simulation.speed` (ms per hop, default 1000).
+Each hop is an animated dot on the canvas (amber = ARP, blue = ICMP request, green = ICMP reply, red = ICMP Time-Exceeded, violet = DHCP). Speed is controlled by `simulation.speed` (ms per hop, default 1000).
+
+### Traceroute / TTL
+
+A router checks the TTL **before** the forwarding decision: when a packet's TTL reaches 0 it drops it and (if the ingress interface has an address) sends an **ICMP Time-Exceeded** (type 11) back to the source — `createIcmpTimeExceeded` in `frame.ts`, handled in `routeIpv4Frame`. `runTraceroute(source, target)` (engine.ts) drives this: it warms ARP along the path, then sends probes with increasing TTL (1..30), recording who answered each round (a router's Time-Exceeded = intermediate hop; the destination's Echo Reply = final hop). Exposed as the `traceroute`/`tracert` command in the PC terminal and the console. It runs over `runSimulationHeadless`, which sets `sim.headless` so per-step rendering and terminal output are skipped.
 
 ### Routing
 

@@ -4,8 +4,9 @@ import { dom } from "./dom";
 import { getDevice, linkedPortsFor, routerInterfacesWithNames } from "./devices";
 import { normalisePortVlans, normalisePortModes, normaliseTrunkAllowedVlans, normaliseArpTable, normaliseMacTable, normaliseDhcpLeases, normaliseStaticRoutes } from "./normalise";
 import { sameSubnet24, isValidIpv4, escapeHtml, ipv4ToInt, normaliseMacAddress } from "./utils";
-import { createArpRequest, createArpReply, createIcmpEchoRequest, createIcmpEchoReply, createDhcpOffer, createDhcpRequest, createDhcpAck, BROADCAST_MAC, frameLabel } from "./frame";
+import { createArpRequest, createArpReply, createIcmpEchoRequest, createIcmpEchoReply, createIcmpTimeExceeded, createDhcpOffer, createDhcpRequest, createDhcpAck, BROADCAST_MAC, frameLabel } from "./frame";
 import { terminalLine, syncTerminal } from "./terminal";
+import { buildPingEvents, findPingTarget } from "./simulation";
 import type { PingSetup } from "./simulation";
 
 // ─── Public API ──────────────────────────────────────────────────────────────
@@ -17,6 +18,7 @@ export function startSimulation(setup: PingSetup, originDeviceId: string, target
   const sim = state.simulation;
   sim.status = "running";
   sim.mode = mode;
+  sim.headless = false;
   sim.events = setup.events;
   sim.log = [];
   sim.transits = [];
@@ -26,6 +28,8 @@ export function startSimulation(setup: PingSetup, originDeviceId: string, target
   sim.pingTargetIp = targetIp;
   sim.pingSuccess = false;
   sim.pingTtl = 64;
+  sim.pingResponderIp = null;
+  sim.pingTimeExceeded = false;
   sim.dhcpSuccess = false;
   sim.dhcpAssignedIp = null;
   sim.dhcpAssignedGateway = null;
@@ -82,6 +86,8 @@ export function stepOnce(): void {
 export interface SimResult {
   success: boolean;
   ttl?: number;
+  responderIp?: string | null;   // who answered (echo reply or a router's TTL-exceeded)
+  timeExceeded?: boolean;        // the answer was an ICMP Time-Exceeded
   assignedIp?: string | null;
   assignedGateway?: string | null;
   log: SimLogEntry[];
@@ -98,6 +104,7 @@ export function runSimulationHeadless(
   const sim = state.simulation;
   sim.status = "running";
   sim.mode = mode;
+  sim.headless = true;
   sim.events = setup.events;
   sim.log = [];
   sim.transits = [];
@@ -107,6 +114,8 @@ export function runSimulationHeadless(
   sim.pingTargetIp = targetIp;
   sim.pingSuccess = false;
   sim.pingTtl = 64;
+  sim.pingResponderIp = null;
+  sim.pingTimeExceeded = false;
   sim.dhcpSuccess = false;
   sim.dhcpAssignedIp = null;
   sim.dhcpAssignedGateway = null;
@@ -129,11 +138,46 @@ export function runSimulationHeadless(
   return {
     success: mode === "dhcp" ? sim.dhcpSuccess : sim.pingSuccess,
     ttl: sim.pingTtl,
+    responderIp: sim.pingResponderIp,
+    timeExceeded: sim.pingTimeExceeded,
     assignedIp: sim.dhcpAssignedIp,
     assignedGateway: sim.dhcpAssignedGateway,
     log: sim.log,
     steps: sim.stepIndex,
   };
+}
+
+export interface TracerouteHop { ttl: number; ip: string | null; reached: boolean }
+export interface TracerouteResult { targetIp: string; hops: TracerouteHop[]; reached: boolean }
+
+// Runs traceroute headlessly: sends probes with increasing TTL and records who
+// answered each round — a router's ICMP Time-Exceeded (intermediate hop) or the
+// destination's Echo Reply (final hop). Reuses runSimulationHeadless per probe.
+export function runTraceroute(source: Device, targetText: string, maxHops = 30): TracerouteResult | string {
+  const target = findPingTarget(targetText);
+  const targetIp = target ? (target.config?.ipv4Address || targetText)
+    : (isValidIpv4(targetText.trim()) ? targetText.trim() : targetText.trim());
+  // Warm ARP along the path first: a router's Time-Exceeded can't be delivered
+  // on a cold ARP cache within a single headless probe, which would show false
+  // "* no response" hops. A real router always answers TTL-exceeded, and
+  // traceroute populating ARP as a side effect is itself realistic.
+  const warm = buildPingEvents(source, targetText);
+  if (typeof warm !== "string") runSimulationHeadless(warm, source.id, targetIp, "ping");
+
+  const hops: TracerouteHop[] = [];
+  let reached = false;
+  for (let ttl = 1; ttl <= maxHops; ttl++) {
+    const setup = buildPingEvents(source, targetText, { ttl });
+    if (typeof setup === "string") return setup; // validation error (e.g. cannot resolve / no gateway)
+    const res = runSimulationHeadless(setup, source.id, targetIp, "ping");
+    if (res.success) {
+      hops.push({ ttl, ip: res.responderIp || targetIp, reached: true });
+      reached = true;
+      break;
+    }
+    hops.push({ ttl, ip: res.responderIp || null, reached: false });
+  }
+  return { targetIp, hops, reached };
 }
 
 // ─── Animation loop ──────────────────────────────────────────────────────────
@@ -250,8 +294,12 @@ function processNextStep(): void {
     });
   }
 
-  syncSimLog();
-  sync().render();
+  // Headless runs never touch the DOM — skip per-step rendering (faster, and it
+  // keeps probes like traceroute from flashing the canvas / sim-log panel).
+  if (!sim.headless) {
+    syncSimLog();
+    sync().render();
+  }
 
   // If no transits were created but events remain, process next immediately
   // (e.g., a device ignored a frame with no outgoing)
@@ -334,8 +382,16 @@ export function processAtComputer(device: Device, frame: EthernetFrame, fromDevi
         if (device.id === sim.originDeviceId) {
           sim.pingSuccess = true;
           sim.pingTtl = ipv4.ttl;
+          sim.pingResponderIp = ipv4.srcIp;
           logStep(device, "sim-icmp", `Received ICMP Echo Reply from ${ipv4.srcIp} (TTL=${ipv4.ttl})`);
           // Don't generate outgoing — simulation will end after this step
+        }
+      } else if (ipv4.payload.icmpType === 11) {
+        // ICMP Time-Exceeded — a router dropped the packet at TTL 0 (traceroute hop).
+        if (device.id === sim.originDeviceId) {
+          sim.pingResponderIp = ipv4.srcIp;
+          sim.pingTimeExceeded = true;
+          logStep(device, "sim-icmp", `Received ICMP Time-Exceeded from ${ipv4.srcIp}`);
         }
       }
     } else if (ipv4.payload.type === "dhcp") {
@@ -655,6 +711,26 @@ function routeIpv4Frame(device: Device, frame: EthernetFrame, ifaces: any[], ing
     return outgoing;
   }
 
+  // TTL check happens BEFORE the forwarding decision (as on a real router): when
+  // it expires, drop the packet and — if the ingress interface has an address —
+  // send an ICMP Time-Exceeded back to the source. This is exactly the signal
+  // traceroute relies on to discover each hop, regardless of whether the
+  // destination is routable.
+  if (ipv4.ttl <= 1) {
+    if (ingressIface.ipv4Address) {
+      logStep(device, "sim-drop", `TTL expired for packet to ${ipv4.dstIp} — sending ICMP Time-Exceeded to ${ipv4.srcIp}`);
+      const timeExceeded = createIcmpTimeExceeded(
+        ingressIface.macAddress, frame.srcMac,
+        ingressIface.ipv4Address, ipv4.srcIp,
+        64, ingressIface.vlanTag ?? null
+      );
+      outgoing.push({ frame: timeExceeded, toDeviceId: fromDeviceId });
+    } else {
+      logStep(device, "sim-drop", `TTL expired for packet to ${ipv4.dstIp} — dropping`);
+    }
+    return outgoing;
+  }
+
   // Route: find egress interface via routing table lookup
   const routeResult = routingLookup(device, ipv4.dstIp);
   if (!routeResult) {
@@ -662,12 +738,6 @@ function routeIpv4Frame(device: Device, frame: EthernetFrame, ifaces: any[], ing
     return outgoing;
   }
   const { egressIface, nextHopIp } = routeResult;
-
-  // TTL check
-  if (ipv4.ttl <= 1) {
-    logStep(device, "sim-drop", `TTL expired for packet to ${ipv4.dstIp} — dropping`);
-    return outgoing;
-  }
 
   // ARP lookup on egress interface — resolve next-hop IP (may differ from dstIp for static/RIP routes)
   const egressVlanTag = egressIface.vlanTag ?? null;
@@ -877,7 +947,7 @@ function finishSimulation(): void {
 
   if (sim.mode === "dhcp") {
     if (sim.dhcpSuccess) {
-      terminalLine("", `DHCP configured:\n  IP address: ${sim.dhcpAssignedIp}\n  Default gateway: ${sim.dhcpAssignedGateway}`);
+      if (!sim.headless) terminalLine("", `DHCP configured:\n  IP address: ${sim.dhcpAssignedIp}\n  Default gateway: ${sim.dhcpAssignedGateway}`);
     } else {
       // APIPA fallback
       const apipaIp = generateApipaAddress();
@@ -887,9 +957,9 @@ function finishSimulation(): void {
         origin.config.gatewayIpv4Address = "";
       }
       sim.dhcpAssignedIp = apipaIp;
-      terminalLine("error", `DHCP: no response from server.\nAPIPA: assigned link-local ${apipaIp}`);
+      if (!sim.headless) terminalLine("error", `DHCP: no response from server.\nAPIPA: assigned link-local ${apipaIp}`);
     }
-  } else {
+  } else if (!sim.headless) {
     const targetIp = sim.pingTargetIp || "?";
     if (sim.pingSuccess) {
       const ttl = sim.pingTtl;
@@ -901,6 +971,8 @@ function finishSimulation(): void {
   }
 
   sim.status = "done";
+  // Headless runs don't touch the DOM/terminal — the caller renders the result.
+  if (sim.headless) return;
   // Re-enable terminal input
   const termInput = document.getElementById("terminalInput") as HTMLInputElement | null;
   if (termInput) termInput.disabled = false;

@@ -98,6 +98,21 @@ export function createIcmpEchoReply(
   };
 }
 
+// ICMP Time-Exceeded (type 11) — sent by a router when a packet's TTL hits 0.
+// This is the mechanism traceroute relies on to discover each hop.
+export function createIcmpTimeExceeded(
+  srcMac: string,
+  dstMac: string,
+  srcIp: string,
+  dstIp: string,
+  ttl: number = 64,
+  vlanTag: number | null = null
+): EthernetFrame {
+  const icmp: IcmpPayload = { type: "icmp", icmpType: 11, sequence: 0 };
+  const ipv4: Ipv4Payload = { type: "ipv4", srcIp, dstIp, ttl, protocol: 1, payload: icmp };
+  return { id: nextFrameId(), srcMac, dstMac, etherType: 0x0800, vlanTag, payload: ipv4 };
+}
+
 export function createDhcpDiscover(clientMac: string, transactionId: string, vlanTag: number | null = null): EthernetFrame {
   const dhcp: DhcpPayload = { type: "dhcp", messageType: "discover", transactionId, clientMac };
   const ipv4: Ipv4Payload = { type: "ipv4", srcIp: "0.0.0.0", dstIp: "255.255.255.255", ttl: 64, protocol: 17, payload: dhcp };
@@ -133,7 +148,9 @@ export function frameLabel(frame: EthernetFrame): string {
       const labels: Record<string, string> = { discover: "DHCP Disc", offer: "DHCP Offer", request: "DHCP Req", ack: "DHCP ACK" };
       label = labels[dhcp.messageType] || "DHCP";
     } else if (ipv4.payload.type === "icmp") {
-      label = ipv4.payload.icmpType === 8 ? "ICMP Echo" : "ICMP Reply";
+      label = ipv4.payload.icmpType === 8 ? "ICMP Echo"
+        : ipv4.payload.icmpType === 11 ? "ICMP TTL Exceeded"
+        : "ICMP Reply";
     } else {
       label = "Frame";
     }
@@ -147,5 +164,6 @@ export function frameColor(frame: EthernetFrame): string {
   const ipv4 = frame.payload as Ipv4Payload;
   if (ipv4.payload.type === "dhcp") return "#a78bfa";    // violet
   if (ipv4.payload.type === "icmp" && ipv4.payload.icmpType === 8) return "#3b82f6"; // blue
+  if (ipv4.payload.type === "icmp" && ipv4.payload.icmpType === 11) return "#ef4444"; // red (TTL exceeded)
   return "#22c55e";                                        // green
 }

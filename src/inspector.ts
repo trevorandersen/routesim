@@ -136,6 +136,21 @@ export function renderRouterInterfaces(device: any): string {
   `;
 }
 
+export function renderFirewallRules(device: any): string {
+  const rules = (device.config?.rules || []).filter((r: any) => (r.chain || "forward") === "forward");
+  if (!rules.length) return `<p class="empty-state">No rules — the FORWARD policy applies to all traffic.</p>`;
+  return `<ol class="fw-rule-list">${rules.map((r: any) => {
+    const match = [
+      r.protocol ? `-p ${escapeHtml(r.protocol)}` : "",
+      r.src ? `-s ${escapeHtml(r.src)}` : "",
+      r.dst ? `-d ${escapeHtml(r.dst)}` : "",
+      r.icmpType ? `--icmp-type ${escapeHtml(r.icmpType)}` : "",
+      r.dport ? `--dport ${escapeHtml(String(r.dport))}` : "",
+    ].filter(Boolean).join(" ");
+    return `<li><span class="fw-target fw-${escapeHtml(r.target)}">${escapeHtml(String(r.target).toUpperCase())}</span> ${match || "(any)"}</li>`;
+  }).join("")}</ol>`;
+}
+
 export function renderArpTable(device: any): string {
   const entries = Array.isArray(device.config?.arpTable) ? device.config.arpTable : [];
   return `
@@ -290,7 +305,7 @@ export function syncPanel(): void {
     `;
   } else {
     const neighbors = connectedIds(selected.id).map((id: string) => getDevice(id)).filter(isVisibleDevice);
-    const selectedType = selected.type === "computer" ? "Computer" : selected.type === "router" ? "Router" : selected.type === "lan" ? "LAN" : "Switch";
+    const selectedType = selected.type === "computer" ? "Computer" : selected.type === "router" ? "Router" : selected.type === "firewall" ? "Firewall" : selected.type === "lan" ? "LAN" : "Switch";
     const pcConfigFields = selected.type === "computer" ? `
       <div class="field">
         <label for="selectedIpv4">IPv4 address</label>
@@ -367,6 +382,20 @@ export function syncPanel(): void {
         </div>
       </div>
     ` : "";
+    const firewallConfigFields = selected.type === "firewall" ? `
+      <div class="field">
+        <label for="selectedFwPorts">Ethernet ports</label>
+        <input id="selectedFwPorts" type="number" min="2" max="8" step="1" value="${escapeHtml(selected.config?.ethernetPorts ?? 2)}">
+      </div>
+      <div class="field">
+        <label>FORWARD policy</label>
+        <span class="pill">${escapeHtml(((selected.config?.policy || {}).forward || "accept").toUpperCase())}</span>
+      </div>
+      <div class="field">
+        <label>Rules (edit via the iptables terminal)</label>
+        ${renderFirewallRules(selected)}
+      </div>
+    ` : "";
     dom.detailsPanel.innerHTML = `
       <h2>${isConfiguring ? "Configure" : "Selection"}</h2>
       <div class="field">
@@ -387,7 +416,7 @@ export function syncPanel(): void {
         </button>
         <div style="height: 10px"></div>
       ` : ""}
-      ${(selected.type === "computer" || selected.type === "router" || (selected.type === "switch" && selected.config?.managed)) ? `
+      ${(selected.type === "computer" || selected.type === "router" || selected.type === "firewall" || (selected.type === "switch" && selected.config?.managed)) ? `
         <button class="wide-button" id="openSelectedTerminal">
           <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 17l6 -6l-6 -6"></path><path d="M12 19h8"></path></svg>
           Terminal
@@ -411,6 +440,7 @@ export function syncPanel(): void {
       ${pcConfigFields}
       ${switchConfigFields}
       ${routerConfigFields}
+      ${firewallConfigFields}
       <div class="pill-row">
         <span class="pill">${selectedType}</span>
         <span class="pill">${neighbors.length} links</span>
@@ -530,6 +560,21 @@ export function syncPanel(): void {
         }
       });
     }
+    const fwPortsInput = document.getElementById("selectedFwPorts") as HTMLInputElement;
+    if (fwPortsInput) {
+      captureUndoOnFocus(fwPortsInput);
+      fwPortsInput.addEventListener("input", (event: any) => {
+        const value = Number(event.target.value);
+        if (!Number.isInteger(value) || value < 2 || value > 8) {
+          event.target.setCustomValidity("Enter a port count from 2 to 8.");
+        } else {
+          event.target.setCustomValidity("");
+          ensureConfig(selected);
+          selected.config.ethernetPorts = value;
+          sync().render();
+        }
+      });
+    }
     document.querySelectorAll(".router-interface-ip").forEach(input => {
       captureUndoOnFocus(input as HTMLInputElement);
       input.addEventListener("input", (event: any) => {
@@ -597,7 +642,7 @@ export function syncDeviceList(): void {
   dom.deviceList.innerHTML = visibleDevices.map(device => `
     <button class="device-row ${device.id === state.selectedId ? "active" : ""}" data-id="${device.id}">
       <span class="device-name">${escapeHtml(device.name)}</span>
-      <span class="device-type">${device.type === "computer" ? "Computer" : device.type === "router" ? "Router" : device.type === "lan" ? "LAN" : "Switch"}</span>
+      <span class="device-type">${device.type === "computer" ? "Computer" : device.type === "router" ? "Router" : device.type === "firewall" ? "Firewall" : device.type === "lan" ? "LAN" : "Switch"}</span>
     </button>
   `).join("");
   [...dom.deviceList.querySelectorAll(".device-row")].forEach((row: any) => {

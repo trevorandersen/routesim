@@ -73,6 +73,7 @@ export const state: AppState = {
   nextComputer: 1,
   nextSwitch: 1,
   nextRouter: 1,
+  nextFirewall: 1,
   configStore: { version: 1, configs: {} },
   undoStack: [],
   isApplyingCompositeChange: false,
@@ -106,6 +107,7 @@ export const toolCopy: Record<string, [string, string]> = {
   switch: ["Add switch", "Click the canvas to place a switch."],
   connect: ["Connect devices", "Click one device, then another device to connect them."],
   router: ["Add router", "Click the canvas to place a router."],
+  firewall: ["Add firewall", "Click the canvas to place a firewall."],
   configure: ["Configure device", "Click a device to edit its static configuration."]
 };
 
@@ -137,6 +139,11 @@ export const deviceIcons: Record<string, string[]> = {
     "M10 7l2 -2l2 2",
     "M12 14v5",
     "M10 17l2 2l2 -2"
+  ],
+  firewall: [
+    // Tabler "shield-check" — security/firewall.
+    "M12 3a12 12 0 0 0 8.5 3a12 12 0 0 1 -8.5 15a12 12 0 0 1 -8.5 -15a12 12 0 0 0 8.5 -3",
+    "M9 12l2 2l4 -4"
   ],
   lan: [
     "M7 18a4.6 4.4 0 0 1 -1.2 -8.9a5.8 5.6 0 0 1 10.8 -1.9a4.7 4.5 0 0 1 1.4 8.8",
@@ -410,7 +417,8 @@ export function networkSnapshot(): string {
     configuringId: state.configuringId,
     nextComputer: state.nextComputer,
     nextSwitch: state.nextSwitch,
-    nextRouter: state.nextRouter
+    nextRouter: state.nextRouter,
+    nextFirewall: state.nextFirewall
   });
 }
 
@@ -440,6 +448,7 @@ export function restoreSnapshot(snapshot: string): void {
   state.nextComputer = restored.nextComputer;
   state.nextSwitch = restored.nextSwitch;
   state.nextRouter = restored.nextRouter || 1;
+  state.nextFirewall = restored.nextFirewall || 1;
   state.linkStartId = null;
   state.selectedLinkId = null;
   state.drag = null;

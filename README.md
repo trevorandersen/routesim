@@ -99,7 +99,7 @@ sync().syncPanel();
 ## Features
 
 - **Canvas editor** — pan, zoom, drag devices, auto-grid snapping
-- **Device types** — computers, switches (managed/unmanaged), routers
+- **Device types** — computers, switches (managed/unmanaged), routers, firewalls (transparent inline iptables filter)
 - **Connections** — click-to-connect tool with link visualization
 - **PC terminal** — `ip addr`, `ip route`, `ping`, `arp -n`, `clear`
 - **Router terminal** — `show ip interface brief`, `show arp`, interface configuration

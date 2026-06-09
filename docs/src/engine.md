@@ -20,6 +20,8 @@ Each handler takes a device, an incoming frame, and the ingress peer id, and ret
 
 `processAtRouter` is decomposed into `handleRouterArp` / `handleRouterDhcp` / `routeIpv4Frame` for clarity; the orchestrator just matches the ingress interface and dispatches.
 
+- **`processAtFirewall`** — a transparent inline packet filter: bridges ARP/control frames to the other port(s) and evaluates each IPv4 packet against the FORWARD chain via `evaluateFirewall` (first-match-wins, else the chain policy) + `firewallRuleMatches` (src/dst CIDR, protocol, ICMP type). ACCEPT forwards, DROP/REJECT discards (logged `Firewall DROP …`). See [firewall.md](firewall.md).
+
 ## Routing & RIP
 - **`buildRoutingTable(router)`** — merges three route sources by priority: connected (metric 0), static (metric 1), RIP-learned (metric 2+). Returns `RouteEntry[]`. A longest-/24-match lookup resolves the egress interface.
 - **`runRipConvergence()`** — runs automatically before each simulation. Iterates up to 15 rounds exchanging advertisements between RIP-enabled routers until no route changes. Implements split-horizon (don't advertise a route back out the interface it was learned on) and metric 16 = unreachable. Decomposed into advertisement-building and update-applying helpers. Router interface normalisation is **memoised per run** for performance, and the whole thing is benchmarked.

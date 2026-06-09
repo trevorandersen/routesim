@@ -147,6 +147,7 @@ export function handleGlobalKeydown(event: KeyboardEvent): void {
   if (event.key.toLowerCase() === "c") setTool("computer");
   if (event.key.toLowerCase() === "s") setTool("switch");
   if (event.key.toLowerCase() === "r") setTool("router");
+  if (event.key.toLowerCase() === "f") setTool("firewall");
   if (event.key.toLowerCase() === "l") setTool("connect");
   if (event.key.toLowerCase() === "w") setTool("configure");
 }
@@ -162,8 +163,8 @@ export function setupUI(): void {
     const world = screenToWorld(pointer);
     const device = findDeviceAt(world);
 
-    if (state.tool === "computer" || state.tool === "switch" || state.tool === "router") {
-      addDevice(state.tool, world.x, world.y);
+    if (state.tool === "computer" || state.tool === "switch" || state.tool === "router" || state.tool === "firewall") {
+      addDevice(state.tool as any, world.x, world.y);
       return;
     }
 
@@ -331,7 +332,7 @@ export function setupUI(): void {
     "fit": fitNetwork,
     "scenario-check": runActiveScenarioCheck,
     "scenario-dismiss": dismissScenario,
-    "help-shortcuts": () => { dom.hint.textContent = "Shortcuts: V select · C computer · S switch · R router · L connect · W configure · Del delete · Esc cancel · Ctrl/Cmd+Z undo · scroll to zoom."; },
+    "help-shortcuts": () => { dom.hint.textContent = "Shortcuts: V select · C computer · S switch · R router · F firewall · L connect · W configure · Del delete · Esc cancel · Ctrl/Cmd+Z undo · scroll to zoom."; },
     "help-commands": () => { closeTerminal(); openConsole(); },
     "help-about": openAbout,
   };

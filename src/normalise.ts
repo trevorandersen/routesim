@@ -1,6 +1,6 @@
 import type {
   PortMode, ArpEntry, DhcpLease, MacTableEntry, Vlan, RouterInterface,
-  RipConfig, StaticRoute, DeviceConfig, DeviceType, Device, Link
+  RipConfig, StaticRoute, DeviceConfig, DeviceType, Device, Link, FirewallRule
 } from "./types";
 import { normaliseMacAddress, isValidMac, isValidIpv4, clampPortCount, clampRouterPortCount, normaliseVlanId } from "./utils";
 
@@ -124,6 +124,25 @@ function generateRouterIfaceMac(routerId: string, ifaceIndex: number): string {
   return `02:${rr}:00:00:${ii}:01`;
 }
 
+const FIREWALL_TARGETS = new Set(["accept", "drop", "reject"]);
+const FIREWALL_PROTOCOLS = new Set(["icmp", "udp", "tcp", "all"]);
+
+export function normaliseFirewallRules(raw: any): FirewallRule[] {
+  if (!Array.isArray(raw)) return [];
+  return raw.map((r: any) => {
+    const target = String(r?.target || "").toLowerCase();
+    if (!FIREWALL_TARGETS.has(target)) return null;
+    const rule: FirewallRule = { chain: String(r?.chain || "forward").toLowerCase(), target: target as any };
+    const proto = String(r?.protocol || "").toLowerCase();
+    if (FIREWALL_PROTOCOLS.has(proto) && proto !== "all") rule.protocol = proto as any;
+    if (r?.src) rule.src = String(r.src);
+    if (r?.dst) rule.dst = String(r.dst);
+    if (r?.icmpType) rule.icmpType = String(r.icmpType).toLowerCase();
+    if (r?.dport != null && Number.isFinite(Number(r.dport))) rule.dport = Number(r.dport);
+    return rule;
+  }).filter(Boolean) as FirewallRule[];
+}
+
 export function normaliseDeviceConfig(device: any): DeviceConfig {
   if (device.type === "switch") {
     const ethernetPorts = clampPortCount(device.config?.ethernetPorts ?? device.ethernetPorts ?? 8);
@@ -156,6 +175,15 @@ export function normaliseDeviceConfig(device: any): DeviceConfig {
       interfaces,
       staticRoutes: normaliseStaticRoutes(device.config?.staticRoutes || []),
       ...(ripConfig.enabled ? { rip: ripConfig } : {})
+    };
+  }
+  if (device.type === "firewall") {
+    const ethernetPorts = clampPortCount(device.config?.ethernetPorts ?? device.ethernetPorts ?? 2);
+    const rawPolicy = device.config?.policy || {};
+    return {
+      ethernetPorts,
+      rules: normaliseFirewallRules(device.config?.rules || device.rules || []),
+      policy: { forward: rawPolicy.forward === "drop" ? "drop" : "accept" }
     };
   }
   if (device.type === "lan") {
@@ -197,8 +225,8 @@ export function normaliseConfig(parsed: any): { devices: Device[]; links: Link[]
 
   const seenIds = new Set<string>();
   const devices = parsed.devices.map((device: any, index: number) => {
-    if (!device || !["computer", "switch", "router", "lan"].includes(device.type)) {
-      throw new Error(`Device ${index + 1} needs type computer, switch, router, or lan.`);
+    if (!device || !["computer", "switch", "router", "firewall", "lan"].includes(device.type)) {
+      throw new Error(`Device ${index + 1} needs type computer, switch, router, firewall, or lan.`);
     }
 
     const id = String(device.id || `device-${index + 1}`);
@@ -275,6 +303,7 @@ export function defaultDeviceConfig(type: DeviceType): DeviceConfig {
   if (type === "computer") return { ipv4Address: "", gatewayIpv4Address: "", macAddress: "", arpTable: [] };
   if (type === "switch") return { managed: false, ethernetPorts: 8, macTable: [], vlans: [], portVlans: {}, portModes: {}, trunkAllowedVlans: {}, trunkNativeVlans: {} };
   if (type === "router") return { ethernetPorts: 4, serialPorts: 4, interfaces: [] };
+  if (type === "firewall") return { ethernetPorts: 2, rules: [], policy: { forward: "accept" } };
   if (type === "lan") return { members: [] };
   return {};
 }
@@ -294,11 +323,13 @@ export function shiftToPositive(config: any, margin = 80): any {
 export function deviceSize(type: string): { width: number; height: number } {
   if (type === "computer") return { width: 92, height: 68 };
   if (type === "router") return { width: 92, height: 70 };
+  if (type === "firewall") return { width: 96, height: 66 };
   if (type === "lan") return { width: 112, height: 72 };
   return { width: 104, height: 58 };
 }
 
 export function defaultNameForType(type: string, fallbackNumber: number): string {
   if (type === "router") return `RTR-${fallbackNumber}`;
+  if (type === "firewall") return `FW-${fallbackNumber}`;
   return type === "computer" ? `PC-${fallbackNumber}` : `SW-${fallbackNumber}`;
 }

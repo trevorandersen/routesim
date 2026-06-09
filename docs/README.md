@@ -29,6 +29,7 @@ It is a single-page app with **no framework and no runtime dependencies** — it
 | `src/devices.ts` | [devices.md](src/devices.md) | Device/link CRUD, hit-testing, lookup indexes, LAN grouping |
 | `src/config.ts` | [config.md](src/config.md) | Save/load `config.json`, built-in + embedded configs |
 | `src/engine.ts` | [engine.md](src/engine.md) | The simulation engine: per-device frame processing, routing, RIP, headless runs |
+| (firewall) | [firewall.md](src/firewall.md) | The transparent inline firewall device (iptables CLI + packet filtering) |
 | `src/commands.ts` | [scripting.md](scripting.md) | The text-command engine (parser, verb registry, topology export) |
 | `src/console.ts` | [scripting.md](scripting.md) | The command console panel UI |
 | `src/scenarios.ts` | [scenarios.md](scenarios.md) | Scenario data model, registry, and goal checking |

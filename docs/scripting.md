@@ -24,7 +24,7 @@ routesim.snapshot()                             // { devices, links, simulation 
 ### Topology
 | Command | Effect |
 |---------|--------|
-| `add <computer\|switch\|router> [name] [at <x> <y>]` | Create a device (computers get a random MAC). |
+| `add <computer\|switch\|router\|firewall> [name] [at <x> <y>]` | Create a device (computers get a random MAC). |
 | `remove <ref>` / `delete <ref>` | Delete a device and its links. |
 | `link <a> <b> [portA portB]` | Connect two devices (optional explicit ports). |
 | `unlink <a> <b>` | Remove the link between two devices. |
@@ -101,6 +101,7 @@ cli R1 enable
 cli R1 configure terminal
 cli R1 interface Ethernet1
 cli R1 ip address 192.168.10.1/24
+cli FW1 iptables -A FORWARD -p icmp -s 192.168.1.0/24 -j DROP
 ```
 
 …or the clean convenience verbs (no mode machine):

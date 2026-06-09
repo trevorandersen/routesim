@@ -91,6 +91,14 @@ export function devicePalette(type: string): { fill: string; stroke: string; acc
       dark: cssColor("--router-icon")
     };
   }
+  if (type === "firewall") {
+    return {
+      fill: cssColor("--fw-fill"),
+      stroke: cssColor("--fw-stroke"),
+      accent: cssColor("--fw-accent"),
+      dark: cssColor("--fw-icon")
+    };
+  }
   if (type === "lan") {
     return {
       fill: cssColor("--lan-fill"),
@@ -264,6 +272,8 @@ function drawDeviceIcon(device: any): void {
     drawComputer(device, palette);
   } else if (device.type === "router") {
     drawRouter(device, palette);
+  } else if (device.type === "firewall") {
+    drawIconDevice(device, palette, "firewall", 10);
   } else if (device.type === "lan") {
     drawIconDevice(device, palette, "lan", 14);
   } else {

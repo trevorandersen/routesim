@@ -36,6 +36,18 @@ redundant links, elect a root) or at least loop detection + a visualised storm.
 Closes a real correctness gap and teaches a core switching concept.
 Effort: moderate–high (touches L2 forwarding in `engine.ts`).
 
+### Firewall — beyond basic packet filtering
+The **transparent inline firewall** device (iptables CLI, FORWARD chain, L3
+matching) is **done** — see `docs/src/firewall.md`. Next layers:
+- **L4 traffic + ports.** The frame model has no TCP/UDP ports yet, so `-p tcp` /
+  `--dport` rules parse but never match. Add a TCP/UDP "connection test" traffic
+  generator (e.g. `nc`/`curl`-style) so port rules become meaningful.
+- **Routers as routing firewalls.** Let a router be put into a firewall-enabled
+  mode (exactly like switches' managed/unmanaged toggle), reusing the same
+  iptables rule engine on its INPUT/FORWARD path — a realistic perimeter device.
+- **Stateful filtering + REJECT replies** (conntrack-style `-m state`, and an
+  ICMP-unreachable for REJECT instead of a silent drop).
+
 ### NAT / PAT on routers
 Source NAT / port address translation on a router's "outside" interface. Rich,
 high-value concept and the realistic way to revisit an internet edge later.

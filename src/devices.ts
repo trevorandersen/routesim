@@ -104,6 +104,7 @@ export function clearNetwork(): void {
   state.nextComputer = 1;
   state.nextSwitch = 1;
   state.nextRouter = 1;
+  state.nextFirewall = 1;
   sync().syncPanel();
   sync().syncTerminal();
   sync().render();
@@ -265,6 +266,7 @@ export function linkedPortsFor(id: string): any[] {
 export function nextName(type: string): string {
   if (type === "computer") return `PC-${state.nextComputer++}`;
   if (type === "router") return `RTR-${state.nextRouter++}`;
+  if (type === "firewall") return `FW-${state.nextFirewall++}`;
   return `SW-${state.nextSwitch++}`;
 }
 

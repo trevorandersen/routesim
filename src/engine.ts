@@ -1,4 +1,4 @@
-import type { EthernetFrame, ArpPayload, Ipv4Payload, DhcpPayload, SimEvent, SimLogEntry, ActiveTransit, FrameHistoryEntry, RouteEntry, Device } from "./types";
+import type { EthernetFrame, ArpPayload, Ipv4Payload, DhcpPayload, SimEvent, SimLogEntry, ActiveTransit, FrameHistoryEntry, RouteEntry, Device, FirewallRule, FirewallTarget } from "./types";
 import { state, pushUndo, sync } from "./state";
 import { dom } from "./dom";
 import { getDevice, linkedPortsFor, routerInterfacesWithNames } from "./devices";
@@ -275,6 +275,8 @@ function processNextStep(): void {
     outgoing = processAtSwitch(device, event.frame, event.fromDeviceId);
   } else if (device.type === "router") {
     outgoing = processAtRouter(device, event.frame, event.fromDeviceId);
+  } else if (device.type === "firewall") {
+    outgoing = processAtFirewall(device, event.frame, event.fromDeviceId);
   } else {
     outgoing = [];
   }
@@ -766,6 +768,72 @@ function routeIpv4Frame(device: Device, frame: EthernetFrame, ifaces: any[], ing
     outgoing.push({ frame: arpReq, toDeviceId: egressIface.peerId });
   }
 
+  return outgoing;
+}
+
+// ─── Firewall (transparent inline packet filter) ─────────────────────────────
+
+function icmpTypeName(t: number): string {
+  return t === 8 ? "echo-request" : t === 0 ? "echo-reply" : t === 11 ? "time-exceeded" : `type-${t}`;
+}
+
+// Match an IPv4 address against an exact IP or a CIDR (e.g. "192.168.1.0/24").
+function ipMatchesCidr(ip: string, pattern: string): boolean {
+  if (!isValidIpv4(ip)) return false;
+  const slash = pattern.indexOf("/");
+  if (slash < 0) return ip === pattern;
+  const net = pattern.slice(0, slash);
+  const bits = parseInt(pattern.slice(slash + 1), 10);
+  if (!isValidIpv4(net) || !(bits >= 0 && bits <= 32)) return false;
+  const mask = bits === 0 ? 0 : (~0 << (32 - bits)) >>> 0;
+  return (ipv4ToInt(ip) & mask) === (ipv4ToInt(net) & mask);
+}
+
+export function firewallRuleMatches(rule: FirewallRule, ipv4: Ipv4Payload): boolean {
+  if (rule.protocol && rule.protocol !== "all") {
+    const proto = ipv4.protocol === 1 ? "icmp" : ipv4.protocol === 17 ? "udp" : "other";
+    if (rule.protocol !== proto) return false; // tcp/udp-port rules never match (no L4 traffic yet)
+  }
+  if (rule.icmpType) {
+    if (ipv4.payload.type !== "icmp") return false;
+    if (icmpTypeName(ipv4.payload.icmpType) !== rule.icmpType) return false;
+  }
+  if (rule.src && !ipMatchesCidr(ipv4.srcIp, rule.src)) return false;
+  if (rule.dst && !ipMatchesCidr(ipv4.dstIp, rule.dst)) return false;
+  return true;
+}
+
+// First-match-wins over the chain's rules, else the chain's default policy.
+export function evaluateFirewall(device: Device, ipv4: Ipv4Payload, chain = "forward"): FirewallTarget {
+  const rules = (device.config?.rules || []).filter(r => (r.chain || "forward") === chain);
+  for (const rule of rules) {
+    if (firewallRuleMatches(rule, ipv4)) return rule.target;
+  }
+  return (device.config?.policy || {})[chain] || "accept";
+}
+
+export function processAtFirewall(device: Device, frame: EthernetFrame, fromDeviceId: string | null): OutgoingFrame[] {
+  const outgoing: OutgoingFrame[] = [];
+  if (device.poweredOff) return outgoing;
+
+  // Transparent bridge: forward to every linked port except the ingress one.
+  const egress = linkedPortsFor(device.id)
+    .map((p: any) => p.peer.id)
+    .filter((id: string) => id !== fromDeviceId);
+
+  // Filter IPv4 on the FORWARD chain; pass ARP and other control frames through.
+  if (frame.payload.type === "ipv4") {
+    const ipv4 = frame.payload as Ipv4Payload;
+    const verdict = evaluateFirewall(device, ipv4, "forward");
+    if (verdict !== "accept") {
+      logStep(device, "sim-drop", `Firewall ${verdict.toUpperCase()} ${frameLabel(frame)} ${ipv4.srcIp}→${ipv4.dstIp} (FORWARD)`);
+      return outgoing;
+    }
+    logStep(device, "sim-forward", `Firewall ACCEPT ${frameLabel(frame)} ${ipv4.srcIp}→${ipv4.dstIp} (FORWARD)`);
+  }
+  egress.forEach((toDeviceId: string, i: number) => {
+    outgoing.push({ frame: { ...frame, id: `${frame.id}-fw${i}` }, toDeviceId });
+  });
   return outgoing;
 }
 

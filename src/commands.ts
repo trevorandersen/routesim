@@ -65,8 +65,8 @@ function targetIpFor(ref: string): string {
 
 function cmdAdd(args: string[]): CommandResult {
   const type = (args[0] || "").toLowerCase();
-  if (!["computer", "switch", "router"].includes(type)) {
-    return err(`add: type must be computer|switch|router.`);
+  if (!["computer", "switch", "router", "firewall"].includes(type)) {
+    return err(`add: type must be computer|switch|router|firewall.`);
   }
   let name: string | undefined;
   let pos = spawnPosition();
@@ -409,8 +409,8 @@ function cmdSelect(args: string[]): CommandResult {
 
 function cmdTool(args: string[]): CommandResult {
   const tool = (args[0] || "").toLowerCase();
-  if (!["select", "computer", "switch", "router", "connect", "configure"].includes(tool)) {
-    return err(`tool: expected select|computer|switch|router|connect|configure.`);
+  if (!["select", "computer", "switch", "router", "firewall", "connect", "configure"].includes(tool)) {
+    return err(`tool: expected select|computer|switch|router|firewall|connect|configure.`);
   }
   setTool(tool);
   return ok(`Tool: ${tool}.`);
@@ -491,7 +491,7 @@ const COMMANDS: Record<string, Handler> = {
 };
 
 const HELP: Record<string, string> = {
-  add: "add <computer|switch|router> [name] [at <x> <y>]",
+  add: "add <computer|switch|router|firewall> [name] [at <x> <y>]",
   remove: "remove <device>", link: "link <a> <b> [portA portB]", unlink: "unlink <a> <b>",
   move: "move <device> <x> <y>", rename: "rename <device> <name>", clear: "remove all devices",
   collapse: "collapse <switch> into a LAN", expand: "expand <lan>",

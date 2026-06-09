@@ -56,6 +56,10 @@
       --lan-stroke: #6f8192;
       --lan-accent: #293242;
       --lan-icon: #b7c4d1;
+      --fw-fill: #2b1a1a;
+      --fw-stroke: #c0564e;
+      --fw-accent: #3a2020;
+      --fw-icon: #e88a82;
       --shadow: 0 18px 40px rgba(0, 0, 0, 0.34);
       --inspector-width: 320px;
       --terminal-height: 280px;
@@ -108,6 +112,10 @@
       --lan-stroke: #837a6b;
       --lan-accent: #ece5d8;
       --lan-icon: #5a5246;
+      --fw-fill: #fbf2f0;
+      --fw-stroke: #b5443c;
+      --fw-accent: #f6dedb;
+      --fw-icon: #8a3026;
       --shadow: 0 10px 28px rgba(60, 50, 35, 0.14);
     }
 
@@ -158,6 +166,10 @@
       --lan-stroke: #9cc0f0;
       --lan-accent: #1a4ea3;
       --lan-icon: #dcebff;
+      --fw-fill: #123f8f;
+      --fw-stroke: #ff9a9a;
+      --fw-accent: #1a4ea3;
+      --fw-icon: #ffd0d0;
       --shadow: 0 14px 36px rgba(0, 0, 0, 0.4);
     }
 
@@ -941,6 +953,25 @@
       line-height: 1.45;
     }
 
+    .fw-rule-list {
+      margin: 0;
+      padding-left: 22px;
+      font: 12px/1.6 ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+      color: var(--text);
+    }
+    .fw-rule-list li { margin: 2px 0; }
+    .fw-target {
+      display: inline-block;
+      min-width: 52px;
+      padding: 0 5px;
+      border-radius: 4px;
+      font-weight: 700;
+      text-align: center;
+    }
+    .fw-accept { background: rgba(34, 197, 94, 0.18); color: #16a34a; }
+    .fw-drop { background: rgba(239, 68, 68, 0.18); color: var(--danger); }
+    .fw-reject { background: rgba(245, 158, 11, 0.2); color: #d97706; }
+
     .wide-button {
       width: 100%;
       height: 40px;
@@ -1519,6 +1550,7 @@
           <button class="ribbon-btn tool-button" data-tool="computer" type="button"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M3 5a1 1 0 0 1 1 -1h16a1 1 0 0 1 1 1v10a1 1 0 0 1 -1 1h-16a1 1 0 0 1 -1 -1v-10"></path><path d="M7 20h10"></path><path d="M9 16v4"></path><path d="M15 16v4"></path></svg><span>Computer</span></button>
           <button class="ribbon-btn tool-button" data-tool="switch" type="button"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M16 3l4 4l-4 4"></path><path d="M10 7l10 0"></path><path d="M8 13l-4 4l4 4"></path><path d="M4 17l9 0"></path></svg><span>Switch</span></button>
           <button class="ribbon-btn tool-button" data-tool="router" type="button"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 12m-9 0a9 9 0 1 0 18 0a9 9 0 1 0 -18 0"></path><path d="M6 12h5"></path><path d="M8 10l3 2l-3 2"></path><path d="M18 12h-5"></path><path d="M16 10l-3 2l3 2"></path></svg><span>Router</span></button>
+          <button class="ribbon-btn tool-button" data-tool="firewall" type="button"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 3a12 12 0 0 0 8.5 3a12 12 0 0 1 -8.5 15a12 12 0 0 1 -8.5 -15a12 12 0 0 0 8.5 -3"></path><path d="M9 12l2 2l4 -4"></path></svg><span>Firewall</span></button>
           <button class="ribbon-btn tool-button" data-tool="connect" type="button"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M7 7m-3 0a3 3 0 1 0 6 0a3 3 0 1 0 -6 0"></path><path d="M17 17m-3 0a3 3 0 1 0 6 0a3 3 0 1 0 -6 0"></path><path d="M9 9l6 6"></path></svg><span>Connect</span></button>
           <button class="ribbon-btn tool-button" data-tool="configure" type="button"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M16 5l3 3l-11 11h-3v-3z"></path><path d="M14 7l3 3"></path></svg><span>Configure</span></button>
         </div><span class="ribbon-label">Tools</span></div>
@@ -1876,6 +1908,23 @@ Full legal text: https://creativecommons.org/publicdomain/zero/1.0/legalcode</pr
     const ii = ((ifaceIndex + 1) % 256).toString(16).padStart(2, "0");
     return `02:${rr}:00:00:${ii}:01`;
   }
+  var FIREWALL_TARGETS = /* @__PURE__ */ new Set(["accept", "drop", "reject"]);
+  var FIREWALL_PROTOCOLS = /* @__PURE__ */ new Set(["icmp", "udp", "tcp", "all"]);
+  function normaliseFirewallRules(raw) {
+    if (!Array.isArray(raw)) return [];
+    return raw.map((r) => {
+      const target = String(r?.target || "").toLowerCase();
+      if (!FIREWALL_TARGETS.has(target)) return null;
+      const rule = { chain: String(r?.chain || "forward").toLowerCase(), target };
+      const proto = String(r?.protocol || "").toLowerCase();
+      if (FIREWALL_PROTOCOLS.has(proto) && proto !== "all") rule.protocol = proto;
+      if (r?.src) rule.src = String(r.src);
+      if (r?.dst) rule.dst = String(r.dst);
+      if (r?.icmpType) rule.icmpType = String(r.icmpType).toLowerCase();
+      if (r?.dport != null && Number.isFinite(Number(r.dport))) rule.dport = Number(r.dport);
+      return rule;
+    }).filter(Boolean);
+  }
   function normaliseDeviceConfig(device) {
     if (device.type === "switch") {
       const ethernetPorts = clampPortCount(device.config?.ethernetPorts ?? device.ethernetPorts ?? 8);
@@ -1908,6 +1957,15 @@ Full legal text: https://creativecommons.org/publicdomain/zero/1.0/legalcode</pr
         interfaces,
         staticRoutes: normaliseStaticRoutes(device.config?.staticRoutes || []),
         ...ripConfig.enabled ? { rip: ripConfig } : {}
+      };
+    }
+    if (device.type === "firewall") {
+      const ethernetPorts = clampPortCount(device.config?.ethernetPorts ?? device.ethernetPorts ?? 2);
+      const rawPolicy = device.config?.policy || {};
+      return {
+        ethernetPorts,
+        rules: normaliseFirewallRules(device.config?.rules || device.rules || []),
+        policy: { forward: rawPolicy.forward === "drop" ? "drop" : "accept" }
       };
     }
     if (device.type === "lan") {
@@ -1943,8 +2001,8 @@ Full legal text: https://creativecommons.org/publicdomain/zero/1.0/legalcode</pr
     }
     const seenIds = /* @__PURE__ */ new Set();
     const devices = parsed.devices.map((device, index) => {
-      if (!device || !["computer", "switch", "router", "lan"].includes(device.type)) {
-        throw new Error(`Device ${index + 1} needs type computer, switch, router, or lan.`);
+      if (!device || !["computer", "switch", "router", "firewall", "lan"].includes(device.type)) {
+        throw new Error(`Device ${index + 1} needs type computer, switch, router, firewall, or lan.`);
       }
       const id = String(device.id || `device-${index + 1}`);
       if (seenIds.has(id)) throw new Error(`Duplicate device id: ${id}`);
@@ -2001,6 +2059,7 @@ Full legal text: https://creativecommons.org/publicdomain/zero/1.0/legalcode</pr
     if (type === "computer") return { ipv4Address: "", gatewayIpv4Address: "", macAddress: "", arpTable: [] };
     if (type === "switch") return { managed: false, ethernetPorts: 8, macTable: [], vlans: [], portVlans: {}, portModes: {}, trunkAllowedVlans: {}, trunkNativeVlans: {} };
     if (type === "router") return { ethernetPorts: 4, serialPorts: 4, interfaces: [] };
+    if (type === "firewall") return { ethernetPorts: 2, rules: [], policy: { forward: "accept" } };
     if (type === "lan") return { members: [] };
     return {};
   }
@@ -2018,11 +2077,13 @@ Full legal text: https://creativecommons.org/publicdomain/zero/1.0/legalcode</pr
   function deviceSize(type) {
     if (type === "computer") return { width: 92, height: 68 };
     if (type === "router") return { width: 92, height: 70 };
+    if (type === "firewall") return { width: 96, height: 66 };
     if (type === "lan") return { width: 112, height: 72 };
     return { width: 104, height: 58 };
   }
   function defaultNameForType(type, fallbackNumber) {
     if (type === "router") return `RTR-${fallbackNumber}`;
+    if (type === "firewall") return `FW-${fallbackNumber}`;
     return type === "computer" ? `PC-${fallbackNumber}` : `SW-${fallbackNumber}`;
   }
 
@@ -2083,6 +2144,7 @@ Full legal text: https://creativecommons.org/publicdomain/zero/1.0/legalcode</pr
     nextComputer: 1,
     nextSwitch: 1,
     nextRouter: 1,
+    nextFirewall: 1,
     configStore: { version: 1, configs: {} },
     undoStack: [],
     isApplyingCompositeChange: false,
@@ -2115,6 +2177,7 @@ Full legal text: https://creativecommons.org/publicdomain/zero/1.0/legalcode</pr
     switch: ["Add switch", "Click the canvas to place a switch."],
     connect: ["Connect devices", "Click one device, then another device to connect them."],
     router: ["Add router", "Click the canvas to place a router."],
+    firewall: ["Add firewall", "Click the canvas to place a firewall."],
     configure: ["Configure device", "Click a device to edit its static configuration."]
   };
   var colors = {
@@ -2144,6 +2207,11 @@ Full legal text: https://creativecommons.org/publicdomain/zero/1.0/legalcode</pr
       "M10 7l2 -2l2 2",
       "M12 14v5",
       "M10 17l2 2l2 -2"
+    ],
+    firewall: [
+      // Tabler "shield-check" — security/firewall.
+      "M12 3a12 12 0 0 0 8.5 3a12 12 0 0 1 -8.5 15a12 12 0 0 1 -8.5 -15a12 12 0 0 0 8.5 -3",
+      "M9 12l2 2l4 -4"
     ],
     lan: [
       "M7 18a4.6 4.4 0 0 1 -1.2 -8.9a5.8 5.6 0 0 1 10.8 -1.9a4.7 4.5 0 0 1 1.4 8.8",
@@ -2420,7 +2488,8 @@ Full legal text: https://creativecommons.org/publicdomain/zero/1.0/legalcode</pr
       configuringId: state.configuringId,
       nextComputer: state.nextComputer,
       nextSwitch: state.nextSwitch,
-      nextRouter: state.nextRouter
+      nextRouter: state.nextRouter,
+      nextFirewall: state.nextFirewall
     });
   }
   function pushUndo() {
@@ -2446,6 +2515,7 @@ Full legal text: https://creativecommons.org/publicdomain/zero/1.0/legalcode</pr
     state.nextComputer = restored.nextComputer;
     state.nextSwitch = restored.nextSwitch;
     state.nextRouter = restored.nextRouter || 1;
+    state.nextFirewall = restored.nextFirewall || 1;
     state.linkStartId = null;
     state.selectedLinkId = null;
     state.drag = null;
@@ -2640,6 +2710,7 @@ Full legal text: https://creativecommons.org/publicdomain/zero/1.0/legalcode</pr
     state.nextComputer = 1;
     state.nextSwitch = 1;
     state.nextRouter = 1;
+    state.nextFirewall = 1;
     sync().syncPanel();
     sync().syncTerminal();
     sync().render();
@@ -2758,6 +2829,7 @@ Full legal text: https://creativecommons.org/publicdomain/zero/1.0/legalcode</pr
   function nextName(type) {
     if (type === "computer") return `PC-${state.nextComputer++}`;
     if (type === "router") return `RTR-${state.nextRouter++}`;
+    if (type === "firewall") return `FW-${state.nextFirewall++}`;
     return `SW-${state.nextSwitch++}`;
   }
   function nextDeviceNumber(type) {
@@ -3454,6 +3526,14 @@ Full legal text: https://creativecommons.org/publicdomain/zero/1.0/legalcode</pr
         dark: cssColor("--router-icon")
       };
     }
+    if (type === "firewall") {
+      return {
+        fill: cssColor("--fw-fill"),
+        stroke: cssColor("--fw-stroke"),
+        accent: cssColor("--fw-accent"),
+        dark: cssColor("--fw-icon")
+      };
+    }
     if (type === "lan") {
       return {
         fill: cssColor("--lan-fill"),
@@ -3609,6 +3689,8 @@ Full legal text: https://creativecommons.org/publicdomain/zero/1.0/legalcode</pr
       drawComputer(device, palette);
     } else if (device.type === "router") {
       drawRouter(device, palette);
+    } else if (device.type === "firewall") {
+      drawIconDevice(device, palette, "firewall", 10);
     } else if (device.type === "lan") {
       drawIconDevice(device, palette, "lan", 14);
     } else {
@@ -4001,6 +4083,8 @@ Full legal text: https://creativecommons.org/publicdomain/zero/1.0/legalcode</pr
       outgoing = processAtSwitch(device, event.frame, event.fromDeviceId);
     } else if (device.type === "router") {
       outgoing = processAtRouter(device, event.frame, event.fromDeviceId);
+    } else if (device.type === "firewall") {
+      outgoing = processAtFirewall(device, event.frame, event.fromDeviceId);
     } else {
       outgoing = [];
     }
@@ -4398,6 +4482,57 @@ Full legal text: https://creativecommons.org/publicdomain/zero/1.0/legalcode</pr
     }
     return outgoing;
   }
+  function icmpTypeName(t) {
+    return t === 8 ? "echo-request" : t === 0 ? "echo-reply" : t === 11 ? "time-exceeded" : `type-${t}`;
+  }
+  function ipMatchesCidr(ip, pattern) {
+    if (!isValidIpv4(ip)) return false;
+    const slash = pattern.indexOf("/");
+    if (slash < 0) return ip === pattern;
+    const net = pattern.slice(0, slash);
+    const bits = parseInt(pattern.slice(slash + 1), 10);
+    if (!isValidIpv4(net) || !(bits >= 0 && bits <= 32)) return false;
+    const mask = bits === 0 ? 0 : ~0 << 32 - bits >>> 0;
+    return (ipv4ToInt(ip) & mask) === (ipv4ToInt(net) & mask);
+  }
+  function firewallRuleMatches(rule, ipv4) {
+    if (rule.protocol && rule.protocol !== "all") {
+      const proto = ipv4.protocol === 1 ? "icmp" : ipv4.protocol === 17 ? "udp" : "other";
+      if (rule.protocol !== proto) return false;
+    }
+    if (rule.icmpType) {
+      if (ipv4.payload.type !== "icmp") return false;
+      if (icmpTypeName(ipv4.payload.icmpType) !== rule.icmpType) return false;
+    }
+    if (rule.src && !ipMatchesCidr(ipv4.srcIp, rule.src)) return false;
+    if (rule.dst && !ipMatchesCidr(ipv4.dstIp, rule.dst)) return false;
+    return true;
+  }
+  function evaluateFirewall(device, ipv4, chain = "forward") {
+    const rules = (device.config?.rules || []).filter((r) => (r.chain || "forward") === chain);
+    for (const rule of rules) {
+      if (firewallRuleMatches(rule, ipv4)) return rule.target;
+    }
+    return (device.config?.policy || {})[chain] || "accept";
+  }
+  function processAtFirewall(device, frame, fromDeviceId) {
+    const outgoing = [];
+    if (device.poweredOff) return outgoing;
+    const egress = linkedPortsFor(device.id).map((p) => p.peer.id).filter((id) => id !== fromDeviceId);
+    if (frame.payload.type === "ipv4") {
+      const ipv4 = frame.payload;
+      const verdict = evaluateFirewall(device, ipv4, "forward");
+      if (verdict !== "accept") {
+        logStep(device, "sim-drop", `Firewall ${verdict.toUpperCase()} ${frameLabel(frame)} ${ipv4.srcIp}\u2192${ipv4.dstIp} (FORWARD)`);
+        return outgoing;
+      }
+      logStep(device, "sim-forward", `Firewall ACCEPT ${frameLabel(frame)} ${ipv4.srcIp}\u2192${ipv4.dstIp} (FORWARD)`);
+    }
+    egress.forEach((toDeviceId, i) => {
+      outgoing.push({ frame: { ...frame, id: `${frame.id}-fw${i}` }, toDeviceId });
+    });
+    return outgoing;
+  }
   function generateApipaAddress() {
     const second = 1 + Math.floor(Math.random() * 254);
     const fourth = 1 + Math.floor(Math.random() * 254);
@@ -4703,6 +4838,7 @@ APIPA: assigned link-local ${apipaIp}`);
   function terminalPromptText(device) {
     if (device.type === "computer") return `${device.name}$`;
     if (device.type === "switch") return `${device.name}#`;
+    if (device.type === "firewall") return `root@${device.name}#`;
     if (state.terminal.mode === "config") return `${device.name}(config)#`;
     if (state.terminal.mode === "interface") return `${device.name}(config-if)#`;
     if (state.terminal.mode === "rip") return `${device.name}(config-router)#`;
@@ -5641,10 +5777,187 @@ APIPA: assigned link-local ${apipaIp}`);
     }
     terminalLine("error", `% Unknown command: ${command}`);
   }
+  function fwChain(raw) {
+    return (raw || "").toLowerCase() === "forward" ? "forward" : null;
+  }
+  function showFirewallRules(device, lineNumbers) {
+    const policy = (device.config?.policy || {}).forward || "accept";
+    const rules = (device.config?.rules || []).filter((r) => (r.chain || "forward") === "forward");
+    const lines = [
+      `Chain FORWARD (policy ${policy.toUpperCase()})`,
+      `${lineNumbers ? "num  " : ""}target     prot   source                destination`
+    ];
+    rules.forEach((r, i) => {
+      const num = lineNumbers ? String(i + 1).padEnd(5) : "";
+      const extra = [r.icmpType ? `icmp-type ${r.icmpType}` : "", r.dport ? `dpt:${r.dport}` : ""].filter(Boolean).join(" ");
+      lines.push(
+        num + r.target.toUpperCase().padEnd(11) + (r.protocol || "all").padEnd(7) + (r.src || "anywhere").padEnd(22) + (r.dst || "anywhere") + (extra ? "  " + extra : "")
+      );
+    });
+    if (!rules.length) lines.push("(no rules)");
+    return lines.join("\n");
+  }
+  function parseFirewallRule(chain, toks) {
+    const rule = { chain, target: "accept" };
+    let hasTarget = false;
+    for (let i = 0; i < toks.length; i++) {
+      const t = toks[i];
+      const val = toks[i + 1];
+      if (t === "-s" || t === "--source") {
+        if (!val) return "iptables: -s needs an address";
+        rule.src = val;
+        i++;
+      } else if (t === "-d" || t === "--destination") {
+        if (!val) return "iptables: -d needs an address";
+        rule.dst = val;
+        i++;
+      } else if (t === "-p" || t === "--protocol") {
+        const p = (val || "").toLowerCase();
+        if (!["icmp", "udp", "tcp", "all"].includes(p)) return `iptables: unknown protocol "${val}"`;
+        if (p !== "all") rule.protocol = p;
+        i++;
+      } else if (t === "--icmp-type") {
+        if (!val) return "iptables: --icmp-type needs a value";
+        rule.icmpType = val.toLowerCase();
+        i++;
+      } else if (t === "--dport") {
+        rule.dport = Number(val);
+        i++;
+      } else if (t === "-j" || t === "--jump") {
+        const tgt = (val || "").toLowerCase();
+        if (!["accept", "drop", "reject"].includes(tgt)) return `iptables: unknown target "${val}"`;
+        rule.target = tgt;
+        hasTarget = true;
+        i++;
+      } else return `iptables: unknown option "${t}"`;
+    }
+    if (!hasTarget) return "iptables: rule needs -j ACCEPT|DROP|REJECT";
+    return rule;
+  }
+  function runFirewallTerminalCommand(device, command) {
+    const lower = command.toLowerCase().trim();
+    if (lower === "clear") {
+      state.terminal.lines = [];
+      return;
+    }
+    if (lower === "help" || lower === "?" || lower === "iptables -h" || lower === "iptables --help") {
+      terminalLine("muted", [
+        "iptables -L [FORWARD] [--line-numbers]           list rules + policy",
+        "iptables -A FORWARD [match...] -j TARGET         append a rule",
+        "iptables -I FORWARD [pos] [match...] -j TARGET   insert a rule",
+        "iptables -D FORWARD <rulenum>                    delete rule N",
+        "iptables -P FORWARD ACCEPT|DROP                  set the default policy",
+        "iptables -F [FORWARD]                            flush all rules",
+        "  matches: -s <ip/cidr>  -d <ip/cidr>  -p icmp|udp|all  --icmp-type <t>",
+        "  targets: ACCEPT  DROP  REJECT",
+        "  Note: only FORWARD + L3 matches act today; -p tcp / --dport parse but never match (no L4 traffic yet).",
+        "clear"
+      ].join("\n"));
+      return;
+    }
+    const tokens = command.trim().split(/\s+/);
+    if (tokens[0].toLowerCase() !== "iptables") {
+      terminalLine("error", `${command}: command not found (try "iptables ..." or "help")`);
+      return;
+    }
+    const args = tokens.slice(1);
+    const op = (args[0] || "").toLowerCase();
+    ensureConfig(device);
+    const cfg = device.config;
+    cfg.rules = cfg.rules || [];
+    cfg.policy = cfg.policy || { forward: "accept" };
+    const fwdRules = () => cfg.rules.filter((r) => (r.chain || "forward") === "forward");
+    const onlyForward = "iptables: only the FORWARD chain is supported in transparent mode.";
+    if (op === "-l" || op === "--list") {
+      if (args[1] && !args[1].startsWith("-") && fwChain(args[1]) === null) {
+        terminalLine("error", onlyForward);
+        return;
+      }
+      terminalLine("", showFirewallRules(device, args.includes("--line-numbers")));
+      return;
+    }
+    if (op === "-f" || op === "--flush") {
+      if (args[1] && !args[1].startsWith("-") && fwChain(args[1]) === null) {
+        terminalLine("error", onlyForward);
+        return;
+      }
+      pushUndo();
+      cfg.rules = cfg.rules.filter((r) => (r.chain || "forward") !== "forward");
+      sync().syncPanel();
+      terminalLine("", "Flushed FORWARD rules.");
+      return;
+    }
+    if (op === "-p" || op === "--policy") {
+      if (fwChain(args[1]) === null) {
+        terminalLine("error", onlyForward);
+        return;
+      }
+      const pol = (args[2] || "").toLowerCase();
+      if (pol !== "accept" && pol !== "drop") {
+        terminalLine("error", "iptables: policy must be ACCEPT or DROP.");
+        return;
+      }
+      pushUndo();
+      cfg.policy.forward = pol;
+      sync().syncPanel();
+      terminalLine("", `Set FORWARD policy to ${pol.toUpperCase()}.`);
+      return;
+    }
+    if (op === "-d" || op === "--delete") {
+      if (fwChain(args[1]) === null) {
+        terminalLine("error", onlyForward);
+        return;
+      }
+      const rules = fwdRules();
+      const n = parseInt(args[2], 10);
+      if (!Number.isInteger(n) || n < 1 || n > rules.length) {
+        terminalLine("error", `iptables: no rule ${args[2]} in FORWARD.`);
+        return;
+      }
+      pushUndo();
+      const victim = rules[n - 1];
+      cfg.rules = cfg.rules.filter((r) => r !== victim);
+      sync().syncPanel();
+      terminalLine("", `Deleted FORWARD rule ${n}.`);
+      return;
+    }
+    if (op === "-a" || op === "--append" || op === "-i" || op === "--insert") {
+      if (fwChain(args[1]) === null) {
+        terminalLine("error", onlyForward);
+        return;
+      }
+      const inserting = op === "-i" || op === "--insert";
+      let rest = args.slice(2);
+      let pos = -1;
+      if (inserting && rest[0] && /^\d+$/.test(rest[0])) {
+        pos = parseInt(rest[0], 10);
+        rest = rest.slice(1);
+      }
+      const parsed = parseFirewallRule("forward", rest);
+      if (typeof parsed === "string") {
+        terminalLine("error", parsed);
+        return;
+      }
+      pushUndo();
+      if (inserting) {
+        const fwd = fwdRules();
+        const insertAt = pos >= 1 ? Math.min(pos - 1, fwd.length) : 0;
+        const anchor = fwd[insertAt];
+        const idx = anchor ? cfg.rules.indexOf(anchor) : cfg.rules.length;
+        cfg.rules.splice(idx, 0, parsed);
+      } else {
+        cfg.rules.push(parsed);
+      }
+      sync().syncPanel();
+      terminalLine("", `${inserting ? "Inserted" : "Appended"} FORWARD rule (${parsed.target.toUpperCase()}).`);
+      return;
+    }
+    terminalLine("error", `iptables: unknown operation "${args[0] || ""}". Try "help".`);
+  }
   function runTerminalCommand(rawCommand) {
     const host = getDevice(state.terminal.deviceId);
     const command = rawCommand.trim();
-    if (!host || !["computer", "router", "switch"].includes(host.type)) {
+    if (!host || !["computer", "router", "switch", "firewall"].includes(host.type)) {
       terminalLine("error", "No device is attached to this terminal.");
       return;
     }
@@ -5656,6 +5969,10 @@ APIPA: assigned link-local ${apipaIp}`);
     }
     if (host.type === "switch") {
       runSwitchTerminalCommand(host, command);
+      return;
+    }
+    if (host.type === "firewall") {
+      runFirewallTerminalCommand(host, command);
       return;
     }
     const lower = command.toLowerCase();
@@ -5756,7 +6073,7 @@ APIPA: assigned link-local ${apipaIp}`);
     return target?.config?.ipv4Address || targetText;
   }
   function openTerminalFor(device) {
-    if (!device || !["computer", "router", "switch"].includes(device.type)) {
+    if (!device || !["computer", "router", "switch", "firewall"].includes(device.type)) {
       state.terminal.open = true;
       state.terminal.deviceId = null;
       state.terminal.mode = "exec";
@@ -5785,7 +6102,7 @@ APIPA: assigned link-local ${apipaIp}`);
       state.terminal.interfacePeerId = null;
       state.terminal.interfaceVlanTag = null;
       state.terminal.lines = [
-        { kind: "muted", text: `Connected to ${device.name}. Type "${device.type === "computer" ? "help" : "?"}" for commands.` }
+        { kind: "muted", text: `Connected to ${device.name}. Type "${device.type === "switch" || device.type === "router" ? "?" : "help"}" for commands.` }
       ];
     }
     sync().syncPanel();
@@ -5798,7 +6115,7 @@ APIPA: assigned link-local ${apipaIp}`);
   }
   function syncTerminal() {
     const host = getDevice(state.terminal.deviceId);
-    if (!host || !["computer", "router", "switch"].includes(host.type)) {
+    if (!host || !["computer", "router", "switch", "firewall"].includes(host.type)) {
       state.terminal.deviceId = null;
       state.terminal.mode = "exec";
       state.terminal.interfacePeerId = null;
@@ -5963,6 +6280,20 @@ APIPA: assigned link-local ${apipaIp}`);
     </div>
   `;
   }
+  function renderFirewallRules(device) {
+    const rules = (device.config?.rules || []).filter((r) => (r.chain || "forward") === "forward");
+    if (!rules.length) return `<p class="empty-state">No rules \u2014 the FORWARD policy applies to all traffic.</p>`;
+    return `<ol class="fw-rule-list">${rules.map((r) => {
+      const match = [
+        r.protocol ? `-p ${escapeHtml(r.protocol)}` : "",
+        r.src ? `-s ${escapeHtml(r.src)}` : "",
+        r.dst ? `-d ${escapeHtml(r.dst)}` : "",
+        r.icmpType ? `--icmp-type ${escapeHtml(r.icmpType)}` : "",
+        r.dport ? `--dport ${escapeHtml(String(r.dport))}` : ""
+      ].filter(Boolean).join(" ");
+      return `<li><span class="fw-target fw-${escapeHtml(r.target)}">${escapeHtml(String(r.target).toUpperCase())}</span> ${match || "(any)"}</li>`;
+    }).join("")}</ol>`;
+  }
   function renderArpTable(device) {
     const entries = Array.isArray(device.config?.arpTable) ? device.config.arpTable : [];
     return `
@@ -6109,7 +6440,7 @@ APIPA: assigned link-local ${apipaIp}`);
     `;
     } else {
       const neighbors = connectedIds(selected.id).map((id) => getDevice(id)).filter(isVisibleDevice);
-      const selectedType = selected.type === "computer" ? "Computer" : selected.type === "router" ? "Router" : selected.type === "lan" ? "LAN" : "Switch";
+      const selectedType = selected.type === "computer" ? "Computer" : selected.type === "router" ? "Router" : selected.type === "firewall" ? "Firewall" : selected.type === "lan" ? "LAN" : "Switch";
       const pcConfigFields = selected.type === "computer" ? `
       <div class="field">
         <label for="selectedIpv4">IPv4 address</label>
@@ -6186,6 +6517,20 @@ APIPA: assigned link-local ${apipaIp}`);
         </div>
       </div>
     ` : "";
+      const firewallConfigFields = selected.type === "firewall" ? `
+      <div class="field">
+        <label for="selectedFwPorts">Ethernet ports</label>
+        <input id="selectedFwPorts" type="number" min="2" max="8" step="1" value="${escapeHtml(selected.config?.ethernetPorts ?? 2)}">
+      </div>
+      <div class="field">
+        <label>FORWARD policy</label>
+        <span class="pill">${escapeHtml(((selected.config?.policy || {}).forward || "accept").toUpperCase())}</span>
+      </div>
+      <div class="field">
+        <label>Rules (edit via the iptables terminal)</label>
+        ${renderFirewallRules(selected)}
+      </div>
+    ` : "";
       dom.detailsPanel.innerHTML = `
       <h2>${isConfiguring ? "Configure" : "Selection"}</h2>
       <div class="field">
@@ -6206,7 +6551,7 @@ APIPA: assigned link-local ${apipaIp}`);
         </button>
         <div style="height: 10px"></div>
       ` : ""}
-      ${selected.type === "computer" || selected.type === "router" || selected.type === "switch" && selected.config?.managed ? `
+      ${selected.type === "computer" || selected.type === "router" || selected.type === "firewall" || selected.type === "switch" && selected.config?.managed ? `
         <button class="wide-button" id="openSelectedTerminal">
           <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 17l6 -6l-6 -6"></path><path d="M12 19h8"></path></svg>
           Terminal
@@ -6230,6 +6575,7 @@ APIPA: assigned link-local ${apipaIp}`);
       ${pcConfigFields}
       ${switchConfigFields}
       ${routerConfigFields}
+      ${firewallConfigFields}
       <div class="pill-row">
         <span class="pill">${selectedType}</span>
         <span class="pill">${neighbors.length} links</span>
@@ -6348,6 +6694,21 @@ APIPA: assigned link-local ${apipaIp}`);
           }
         });
       }
+      const fwPortsInput = document.getElementById("selectedFwPorts");
+      if (fwPortsInput) {
+        captureUndoOnFocus(fwPortsInput);
+        fwPortsInput.addEventListener("input", (event) => {
+          const value = Number(event.target.value);
+          if (!Number.isInteger(value) || value < 2 || value > 8) {
+            event.target.setCustomValidity("Enter a port count from 2 to 8.");
+          } else {
+            event.target.setCustomValidity("");
+            ensureConfig(selected);
+            selected.config.ethernetPorts = value;
+            sync().render();
+          }
+        });
+      }
       document.querySelectorAll(".router-interface-ip").forEach((input) => {
         captureUndoOnFocus(input);
         input.addEventListener("input", (event) => {
@@ -6413,7 +6774,7 @@ APIPA: assigned link-local ${apipaIp}`);
     dom.deviceList.innerHTML = visibleDevices.map((device) => `
     <button class="device-row ${device.id === state.selectedId ? "active" : ""}" data-id="${device.id}">
       <span class="device-name">${escapeHtml(device.name)}</span>
-      <span class="device-type">${device.type === "computer" ? "Computer" : device.type === "router" ? "Router" : device.type === "lan" ? "LAN" : "Switch"}</span>
+      <span class="device-type">${device.type === "computer" ? "Computer" : device.type === "router" ? "Router" : device.type === "firewall" ? "Firewall" : device.type === "lan" ? "LAN" : "Switch"}</span>
     </button>
   `).join("");
     [...dom.deviceList.querySelectorAll(".device-row")].forEach((row) => {
@@ -6796,6 +7157,7 @@ APIPA: assigned link-local ${apipaIp}`);
     if (event.key.toLowerCase() === "c") setTool("computer");
     if (event.key.toLowerCase() === "s") setTool("switch");
     if (event.key.toLowerCase() === "r") setTool("router");
+    if (event.key.toLowerCase() === "f") setTool("firewall");
     if (event.key.toLowerCase() === "l") setTool("connect");
     if (event.key.toLowerCase() === "w") setTool("configure");
   }
@@ -6808,7 +7170,7 @@ APIPA: assigned link-local ${apipaIp}`);
       const pointer = pointerFromEvent(event);
       const world = screenToWorld(pointer);
       const device = findDeviceAt(world);
-      if (state.tool === "computer" || state.tool === "switch" || state.tool === "router") {
+      if (state.tool === "computer" || state.tool === "switch" || state.tool === "router" || state.tool === "firewall") {
         addDevice(state.tool, world.x, world.y);
         return;
       }
@@ -6975,7 +7337,7 @@ APIPA: assigned link-local ${apipaIp}`);
       "scenario-check": runActiveScenarioCheck,
       "scenario-dismiss": dismissScenario,
       "help-shortcuts": () => {
-        dom.hint.textContent = "Shortcuts: V select \xB7 C computer \xB7 S switch \xB7 R router \xB7 L connect \xB7 W configure \xB7 Del delete \xB7 Esc cancel \xB7 Ctrl/Cmd+Z undo \xB7 scroll to zoom.";
+        dom.hint.textContent = "Shortcuts: V select \xB7 C computer \xB7 S switch \xB7 R router \xB7 F firewall \xB7 L connect \xB7 W configure \xB7 Del delete \xB7 Esc cancel \xB7 Ctrl/Cmd+Z undo \xB7 scroll to zoom.";
       },
       "help-commands": () => {
         closeTerminal();
@@ -7197,8 +7559,8 @@ APIPA: assigned link-local ${apipaIp}`);
   }
   function cmdAdd(args) {
     const type = (args[0] || "").toLowerCase();
-    if (!["computer", "switch", "router"].includes(type)) {
-      return err(`add: type must be computer|switch|router.`);
+    if (!["computer", "switch", "router", "firewall"].includes(type)) {
+      return err(`add: type must be computer|switch|router|firewall.`);
     }
     let name;
     let pos = spawnPosition();
@@ -7530,8 +7892,8 @@ APIPA: assigned link-local ${apipaIp}`);
   }
   function cmdTool(args) {
     const tool = (args[0] || "").toLowerCase();
-    if (!["select", "computer", "switch", "router", "connect", "configure"].includes(tool)) {
-      return err(`tool: expected select|computer|switch|router|connect|configure.`);
+    if (!["select", "computer", "switch", "router", "firewall", "connect", "configure"].includes(tool)) {
+      return err(`tool: expected select|computer|switch|router|firewall|connect|configure.`);
     }
     setTool(tool);
     return ok(`Tool: ${tool}.`);
@@ -7634,7 +7996,7 @@ APIPA: assigned link-local ${apipaIp}`);
     help: cmdHelp
   };
   var HELP = {
-    add: "add <computer|switch|router> [name] [at <x> <y>]",
+    add: "add <computer|switch|router|firewall> [name] [at <x> <y>]",
     remove: "remove <device>",
     link: "link <a> <b> [portA portB]",
     unlink: "unlink <a> <b>",

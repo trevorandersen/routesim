@@ -11,7 +11,7 @@ import { describe, it, expect, beforeAll, beforeEach } from "bun:test";
 import { state } from "../src/state";
 import { getDevice, linkedPortsFor, connectedIds } from "../src/devices";
 import { l2Reachable } from "../src/simulation";
-import { processAtSwitch, processAtRouter, buildRoutingTable, runRipConvergence } from "../src/engine";
+import { processAtSwitch, processAtRouter, buildRoutingTable, runRipConvergence, evaluateFirewall } from "../src/engine";
 import { createArpRequest, createArpReply, createIcmpEchoRequest, BROADCAST_MAC } from "../src/frame";
 import { registerNoopCallbacks, resetState } from "./helpers";
 import { bench, printResults, type BenchResult } from "./bench-harness";
@@ -269,6 +269,30 @@ describe("bench: processAtSwitch", () => {
       state.simulation.log.length = 0;
       processAtSwitch(sw, frame, "pc-0");
     }, { budget: 100 }));
+    expect(results[results.length - 1].passed).toBe(true);
+  });
+
+  it("prints results", () => {
+    if (results.length) printResults(results);
+  });
+});
+
+// ── 3b. Firewall rule evaluation ─────────────────────────────────────────────
+
+describe("bench: firewall", () => {
+  const results: BenchResult[] = [];
+
+  it("evaluateFirewall — fall through 50 rules", () => {
+    // 50 non-matching rules → worst case (full scan, then the chain policy).
+    const rules = Array.from({ length: 50 }, (_, i) => ({
+      chain: "forward", target: "drop" as const, protocol: "icmp" as const,
+      src: `10.${i}.0.0/16`,
+    }));
+    const fw: any = { config: { rules, policy: { forward: "accept" } } };
+    const ipv4: any = { type: "ipv4", srcIp: "192.168.1.10", dstIp: "192.168.1.20", ttl: 64, protocol: 1, payload: { type: "icmp", icmpType: 8, sequence: 1 } };
+    results.push(bench("evaluateFirewall — 50 rules (miss)", () => {
+      evaluateFirewall(fw, ipv4, "forward");
+    }, { budget: 30 }));
     expect(results[results.length - 1].passed).toBe(true);
   });
 

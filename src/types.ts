@@ -1,4 +1,4 @@
-export type DeviceType = "computer" | "switch" | "router" | "lan";
+export type DeviceType = "computer" | "switch" | "router" | "firewall" | "lan";
 export type PortMode = "access" | "trunk";
 
 export interface Point {
@@ -131,11 +131,31 @@ export interface LanConfig {
   absorbedLans?: string[];
 }
 
+// A transparent inline firewall: a 2-port node that bridges ARP and filters
+// IPv4 on the FORWARD chain (first match wins, else the chain policy). Matching
+// is limited to L3 fields for now — `dport` parses but is inert until the sim
+// models L4 (TCP/UDP) traffic. See docs/src/firewall.md.
+export type FirewallTarget = "accept" | "drop" | "reject";
+export interface FirewallRule {
+  chain: string;                              // "forward" (v1); "input"/"output" reserved
+  target: FirewallTarget;
+  protocol?: "icmp" | "udp" | "tcp" | "all";  // default "all"
+  src?: string;                               // IPv4 or CIDR
+  dst?: string;                               // IPv4 or CIDR
+  icmpType?: string;                          // e.g. "echo-request"
+  dport?: number;                             // parsed but inert (no L4 ports yet)
+}
+export interface FirewallConfig {
+  ethernetPorts: number;
+  rules: FirewallRule[];
+  policy: Record<string, "accept" | "drop">;  // chain → default policy
+}
+
 // Permissive superset (every field optional) so existing `device.config?.x`
 // access sites compile unchanged, while typos and wrong field types are caught.
 // The strict per-type interfaces above type the normalise layer and the
 // asComputer/asSwitch/asRouter/asLan accessors.
-export type DeviceConfig = Partial<ComputerConfig & SwitchConfig & RouterConfig & LanConfig>;
+export type DeviceConfig = Partial<ComputerConfig & SwitchConfig & RouterConfig & FirewallConfig & LanConfig>;
 
 export interface DragState {
   id: string;
@@ -331,6 +351,7 @@ export interface AppState {
   nextComputer: number;
   nextSwitch: number;
   nextRouter: number;
+  nextFirewall: number;
   configStore: ConfigStore;
   undoStack: string[];
   isApplyingCompositeChange: boolean;

@@ -9,13 +9,17 @@ import { state, sync } from "./state";
 import { getDevice } from "./devices";
 import { applyConfig } from "./config";
 import { normaliseConfig, shiftToPositive } from "./normalise";
-import { buildPingEvents, buildDhcpEvents } from "./simulation";
+import { buildPingEvents, buildDhcpEvents, buildConnectEvents } from "./simulation";
+import { CURRICULUM } from "./scenario-library";
 import { runSimulationHeadless } from "./engine";
 
 export type ScenarioCheck =
   | { kind: "link"; a: string; b: string; label: string }
   | { kind: "config"; device: string; field: string; equals: unknown; label: string }
   | { kind: "ping"; from: string; to: string; label: string }
+  | { kind: "ping-fail"; from: string; to: string; label: string }   // isolation: the ping must NOT succeed
+  | { kind: "tcp"; from: string; to: string; port: number; label: string }
+  | { kind: "tcp-fail"; from: string; to: string; port: number; label: string }
   | { kind: "dhcp"; host: string; label: string };
 
 export interface Scenario {
@@ -54,10 +58,10 @@ const connectLan: Scenario = {
   ],
 };
 
-// Keep built-in scenario topologies in positive coordinate space.
-shiftToPositive(connectLan.topology);
+export const SCENARIOS: Scenario[] = [connectLan, ...CURRICULUM];
 
-export const SCENARIOS: Scenario[] = [connectLan];
+// Keep built-in scenario topologies in positive coordinate space.
+for (const scenario of SCENARIOS) shiftToPositive(scenario.topology);
 
 export function getScenario(id: string | null): Scenario | undefined {
   return SCENARIOS.find(s => s.id === id);
@@ -102,12 +106,23 @@ function evaluate(check: ScenarioCheck): boolean {
     const d = resolve(check.device);
     return !!d && (d.config as any)?.[check.field] === check.equals;
   }
-  if (check.kind === "ping") {
+  if (check.kind === "ping" || check.kind === "ping-fail") {
     const from = resolve(check.from);
     if (!from) return false;
-    const setup = buildPingEvents(from, check.to);
-    if (typeof setup === "string") return false;
-    return runSimulationHeadless(setup, from.id, check.to, "ping").success;
+    const to = resolve(check.to)?.config?.ipv4Address || check.to;
+    const setup = buildPingEvents(from, to);
+    const success = typeof setup === "string" ? false
+      : runSimulationHeadless(setup, from.id, to, "ping").success;
+    return check.kind === "ping" ? success : !success;
+  }
+  if (check.kind === "tcp" || check.kind === "tcp-fail") {
+    const from = resolve(check.from);
+    if (!from) return false;
+    const to = resolve(check.to)?.config?.ipv4Address || check.to;
+    const setup = buildConnectEvents(from, to, check.port);
+    const success = typeof setup === "string" ? false
+      : runSimulationHeadless(setup, from.id, to, "tcp", check.port).success;
+    return check.kind === "tcp" ? success : !success;
   }
   if (check.kind === "dhcp") {
     const host = resolve(check.host);

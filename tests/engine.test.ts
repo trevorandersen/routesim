@@ -517,6 +517,7 @@ describe("processAtComputer", () => {
     state.links = topo.links as any;
     state.simulation.status = "running";
     state.simulation.originDeviceId = "pc1";
+    state.simulation.pingTargetIp = "192.168.1.20"; // success requires the reply to come from the pinged address
     const pc1 = state.devices.find(d => d.id === "pc1")!;
     // ICMP echo reply arriving at origin
     const frame = createIcmpEchoReply("02:00:00:00:01:20", "02:00:00:00:01:10", "192.168.1.20", "192.168.1.10", 64);

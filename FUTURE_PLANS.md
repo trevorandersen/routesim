@@ -9,24 +9,21 @@ committed scope — it's a menu for "what next".
 > before forwarding, `runTraceroute`, terminal/console command). **Real subnet
 > prefixes** are done — hosts and router interfaces carry a `prefixLength`
 > (default /24), routing is true longest-prefix match, DHCP carries the subnet
-> mask, and `sameSubnet24` is gone. The items below are the remainder.
+> mask, and `sameSubnet24` is gone. The **L4 TCP layer** and the **scenario
+> curriculum** (8 scenarios, tested solutions) are done. The items below are the
+> remainder.
 
 ## Tier 1 — best value for effort
 
-### Scenario curriculum (+ optional authoring UI)
-The scenario framework is complete (`scenarios.ts`, `checkScenario`, the headless
-runner, the goal banner, JSON import/export) but ships with **one** scenario
-(`connect-lan`). Content is the missing piece. A progression turns RouteSim from a
-sandbox into a course:
-- Connect a LAN (done) → VLAN segmentation → router-on-a-stick → static routing
-  across subnets → DHCP setup → RIP convergence.
-- **Troubleshooting** scenarios that start broken: missing default gateway, wrong
-  trunk/native VLAN, duplicate IP, powered-off device, wrong subnet mask.
-- Optional: an in-app **scenario editor** (define topology + goal checks from the
-  UI, export as JSON).
-
-Effort: low–moderate (mostly data + a few new check kinds). Highest absolute
-teaching value.
+### More scenarios + an authoring UI
+The **8-scenario curriculum is done** (`scenario-library.ts`): connect-lan, VLAN
+segmentation, router-on-a-stick, static routes, DHCP service, RIP convergence,
+firewall guard, and a broken-gateway troubleshooter — each with a tested
+reference solution. Remaining ideas:
+- More **troubleshooting** scenarios (wrong trunk/native VLAN, duplicate IP,
+  powered-off device, wrong subnet mask, firewall blocking the wrong thing).
+- An in-app **scenario editor** (define topology + goal checks from the UI,
+  export as JSON).
 
 ## Tier 2 — richer, more effort
 

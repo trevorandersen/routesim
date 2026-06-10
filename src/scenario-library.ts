@@ -1,0 +1,227 @@
+/**
+ * Scenario library — the built-in curriculum. A progression from L2 basics to
+ * routing, services, and security, ending with troubleshooting:
+ *
+ *   1. connect-lan         (in scenarios.ts — the original)
+ *   2. vlan-segmentation   VLANs isolate departments on one switch
+ *   3. router-on-a-stick   inter-VLAN routing via sub-interfaces
+ *   4. static-routes       route between two router LANs
+ *   5. dhcp-service        bring up DHCP for an unconfigured host
+ *   6. rip-convergence     dynamic routing across a 3-router chain
+ *   7. firewall-guard      allow SSH, block Telnet with iptables
+ *   8. troubleshoot-gateway fix a broken default gateway
+ *
+ * Data only — evaluation lives in scenarios.ts. Type-only import: no cycle.
+ */
+import type { Scenario } from "./scenarios";
+
+const vlanSegmentation: Scenario = {
+  id: "vlan-segmentation",
+  name: "VLAN segmentation",
+  objective: "Sales (PC-S1, PC-S2) and Engineering (PC-E1, PC-E2) share one switch. Create VLAN 10 (Sales: Ethernet1-2) and VLAN 20 (Engineering: Ethernet3-4) so each team can only reach itself.",
+  topology: {
+    version: 1,
+    devices: [
+      { id: "v2-sw", type: "switch", name: "MSW-1", x: 0, y: 0,
+        config: { managed: true, ethernetPorts: 8, macTable: [], vlans: [], portVlans: {}, portModes: {} } },
+      { id: "v2-s1", type: "computer", name: "PC-S1", x: -260, y: -240, config: { ipv4Address: "192.168.1.11", gatewayIpv4Address: "", macAddress: "02:00:00:00:01:11", arpTable: [] } },
+      { id: "v2-s2", type: "computer", name: "PC-S2", x: 260, y: -240, config: { ipv4Address: "192.168.1.12", gatewayIpv4Address: "", macAddress: "02:00:00:00:01:12", arpTable: [] } },
+      { id: "v2-e1", type: "computer", name: "PC-E1", x: -260, y: 240, config: { ipv4Address: "192.168.1.21", gatewayIpv4Address: "", macAddress: "02:00:00:00:01:21", arpTable: [] } },
+      { id: "v2-e2", type: "computer", name: "PC-E2", x: 260, y: 240, config: { ipv4Address: "192.168.1.22", gatewayIpv4Address: "", macAddress: "02:00:00:00:01:22", arpTable: [] } },
+    ],
+    links: [
+      { from: "v2-sw", to: "v2-s1", fromPort: 1 },
+      { from: "v2-sw", to: "v2-s2", fromPort: 2 },
+      { from: "v2-sw", to: "v2-e1", fromPort: 3 },
+      { from: "v2-sw", to: "v2-e2", fromPort: 4 },
+    ],
+  },
+  checks: [
+    { kind: "ping", from: "PC-S1", to: "PC-S2", label: "Sales can reach Sales" },
+    { kind: "ping", from: "PC-E1", to: "PC-E2", label: "Engineering can reach Engineering" },
+    { kind: "ping-fail", from: "PC-S1", to: "PC-E1", label: "Sales cannot reach Engineering" },
+    { kind: "ping-fail", from: "PC-E2", to: "PC-S2", label: "Engineering cannot reach Sales" },
+  ],
+};
+
+const routerOnAStick: Scenario = {
+  id: "router-on-a-stick",
+  name: "Router on a stick",
+  objective: "VLAN 10 and VLAN 20 are configured on MSW-1 with a trunk to RTR-1, but the router has no sub-interfaces. Give RTR-1 a dot1q sub-interface per VLAN (192.168.10.1 on VLAN 10, 192.168.20.1 on VLAN 20) so the VLANs can reach each other.",
+  topology: {
+    version: 1,
+    devices: [
+      { id: "v3-rtr", type: "router", name: "RTR-1", x: 300, y: 0, config: { ethernetPorts: 4, serialPorts: 0, interfaces: [] } },
+      { id: "v3-sw", type: "switch", name: "MSW-1", x: 0, y: 0, config: {
+        managed: true, ethernetPorts: 8, macTable: [],
+        vlans: [{ id: 10, name: "Sales" }, { id: 20, name: "Engineering" }],
+        portVlans: { Ethernet2: 10, Ethernet3: 20 },
+        portModes: { Ethernet1: "trunk" },
+      } },
+      { id: "v3-a", type: "computer", name: "PC-A", x: -280, y: -110, config: { ipv4Address: "192.168.10.10", gatewayIpv4Address: "192.168.10.1", macAddress: "02:00:00:00:03:0A", arpTable: [] } },
+      { id: "v3-b", type: "computer", name: "PC-B", x: -280, y: 110, config: { ipv4Address: "192.168.20.10", gatewayIpv4Address: "192.168.20.1", macAddress: "02:00:00:00:03:0B", arpTable: [] } },
+    ],
+    links: [
+      { from: "v3-sw", to: "v3-rtr", fromPort: 1 },
+      { from: "v3-sw", to: "v3-a", fromPort: 2 },
+      { from: "v3-sw", to: "v3-b", fromPort: 3 },
+    ],
+  },
+  checks: [
+    { kind: "ping", from: "PC-A", to: "PC-B", label: "VLAN 10 can reach VLAN 20" },
+    { kind: "ping", from: "PC-B", to: "PC-A", label: "VLAN 20 can reach VLAN 10" },
+  ],
+};
+
+const staticRoutes: Scenario = {
+  id: "static-routes",
+  name: "Static routes",
+  objective: "Two offices connect over a serial link (10.0.0.0/24) but neither router knows about the other's LAN. Add a static route on each router so PC-A and PC-B can reach each other.",
+  topology: {
+    version: 1,
+    devices: [
+      { id: "v4-r1", type: "router", name: "R1", x: -140, y: 0, config: { ethernetPorts: 2, serialPorts: 2, interfaces: [
+        { peerId: "v4-swa", type: "ethernet", ipv4Address: "192.168.1.1" },
+        { peerId: "v4-r2", type: "serial", ipv4Address: "10.0.0.1" },
+      ] } },
+      { id: "v4-r2", type: "router", name: "R2", x: 140, y: 0, config: { ethernetPorts: 2, serialPorts: 2, interfaces: [
+        { peerId: "v4-swb", type: "ethernet", ipv4Address: "192.168.2.1" },
+        { peerId: "v4-r1", type: "serial", ipv4Address: "10.0.0.2" },
+      ] } },
+      { id: "v4-swa", type: "switch", name: "SW-A", x: -400, y: 0, config: { managed: false, ethernetPorts: 4, macTable: [] } },
+      { id: "v4-swb", type: "switch", name: "SW-B", x: 400, y: 0, config: { managed: false, ethernetPorts: 4, macTable: [] } },
+      { id: "v4-a", type: "computer", name: "PC-A", x: -640, y: 0, config: { ipv4Address: "192.168.1.10", gatewayIpv4Address: "192.168.1.1", macAddress: "02:00:00:00:04:0A", arpTable: [] } },
+      { id: "v4-b", type: "computer", name: "PC-B", x: 640, y: 0, config: { ipv4Address: "192.168.2.10", gatewayIpv4Address: "192.168.2.1", macAddress: "02:00:00:00:04:0B", arpTable: [] } },
+    ],
+    links: [
+      { from: "v4-a", to: "v4-swa" },
+      { from: "v4-swa", to: "v4-r1" },
+      { from: "v4-r1", to: "v4-r2" },
+      { from: "v4-r2", to: "v4-swb" },
+      { from: "v4-swb", to: "v4-b" },
+    ],
+  },
+  checks: [
+    { kind: "ping", from: "PC-A", to: "PC-B", label: "PC-A can reach PC-B" },
+    { kind: "ping", from: "PC-B", to: "PC-A", label: "PC-B can reach PC-A" },
+  ],
+};
+
+const dhcpService: Scenario = {
+  id: "dhcp-service",
+  name: "DHCP service",
+  objective: "PC-A has no address and nothing is cabled. Wire PC-A to SW-1 and SW-1 to R1, then obtain a lease (R1 serves 192.168.50.0/24 on its LAN interface).",
+  topology: {
+    version: 1,
+    devices: [
+      { id: "v5-a", type: "computer", name: "PC-A", x: -440, y: 0, config: { ipv4Address: "", gatewayIpv4Address: "", macAddress: "02:00:00:00:05:0A", arpTable: [] } },
+      { id: "v5-sw", type: "switch", name: "SW-1", x: -150, y: 0, config: { managed: false, ethernetPorts: 4, macTable: [] } },
+      { id: "v5-r1", type: "router", name: "R1", x: 150, y: 0, config: { ethernetPorts: 2, serialPorts: 0, interfaces: [
+        { peerId: "v5-sw", type: "ethernet", ipv4Address: "192.168.50.1" },
+      ] } },
+    ],
+    links: [],
+  },
+  checks: [
+    { kind: "link", a: "PC-A", b: "SW-1", label: "PC-A linked to SW-1" },
+    { kind: "link", a: "SW-1", b: "R1", label: "SW-1 linked to R1" },
+    { kind: "dhcp", host: "PC-A", label: "PC-A obtains a DHCP lease" },
+  ],
+};
+
+const ripConvergence: Scenario = {
+  id: "rip-convergence",
+  name: "RIP convergence",
+  objective: "Three routers in a chain, no routes between the end LANs. Enable RIP on R1, R2, and R3 (advertise each router's connected networks) so PC-A and PC-C can reach each other.",
+  topology: {
+    version: 1,
+    devices: [
+      { id: "v6-r1", type: "router", name: "R1", x: -300, y: 0, config: { ethernetPorts: 2, serialPorts: 2, interfaces: [
+        { peerId: "v6-a", type: "ethernet", ipv4Address: "192.168.1.1" },
+        { peerId: "v6-r2", type: "serial", ipv4Address: "10.0.12.1" },
+      ] } },
+      { id: "v6-r2", type: "router", name: "R2", x: 0, y: 0, config: { ethernetPorts: 2, serialPorts: 2, interfaces: [
+        { peerId: "v6-r1", type: "serial", ipv4Address: "10.0.12.2" },
+        { peerId: "v6-r3", type: "serial", ipv4Address: "10.0.23.2" },
+      ] } },
+      { id: "v6-r3", type: "router", name: "R3", x: 300, y: 0, config: { ethernetPorts: 2, serialPorts: 2, interfaces: [
+        { peerId: "v6-r2", type: "serial", ipv4Address: "10.0.23.3" },
+        { peerId: "v6-c", type: "ethernet", ipv4Address: "192.168.3.1" },
+      ] } },
+      { id: "v6-a", type: "computer", name: "PC-A", x: -560, y: 0, config: { ipv4Address: "192.168.1.10", gatewayIpv4Address: "192.168.1.1", macAddress: "02:00:00:00:06:0A", arpTable: [] } },
+      { id: "v6-c", type: "computer", name: "PC-C", x: 560, y: 0, config: { ipv4Address: "192.168.3.10", gatewayIpv4Address: "192.168.3.1", macAddress: "02:00:00:00:06:0C", arpTable: [] } },
+    ],
+    links: [
+      { from: "v6-a", to: "v6-r1" },
+      { from: "v6-r1", to: "v6-r2" },
+      { from: "v6-r2", to: "v6-r3" },
+      { from: "v6-r3", to: "v6-c" },
+    ],
+  },
+  checks: [
+    { kind: "ping", from: "PC-A", to: "PC-C", label: "PC-A can reach PC-C" },
+    { kind: "ping", from: "PC-C", to: "PC-A", label: "PC-C can reach PC-A" },
+  ],
+};
+
+const firewallGuard: Scenario = {
+  id: "firewall-guard",
+  name: "Firewall: allow SSH, block Telnet",
+  objective: "SRV-1 runs SSH (22) and Telnet (23). Configure FW-1 with iptables so Telnet from PC-A is blocked while SSH and ping keep working.",
+  topology: {
+    version: 1,
+    devices: [
+      { id: "v7-a", type: "computer", name: "PC-A", x: -440, y: 0, config: { ipv4Address: "192.168.1.10", gatewayIpv4Address: "", macAddress: "02:00:00:00:07:0A", arpTable: [] } },
+      { id: "v7-fw", type: "firewall", name: "FW-1", x: -150, y: 0, config: { ethernetPorts: 2, rules: [], policy: { forward: "accept" } } },
+      { id: "v7-sw", type: "switch", name: "SW-1", x: 150, y: 0, config: { managed: false, ethernetPorts: 4, macTable: [] } },
+      { id: "v7-srv", type: "computer", name: "SRV-1", x: 440, y: 0, config: { ipv4Address: "192.168.1.20", gatewayIpv4Address: "", macAddress: "02:00:00:00:07:1F", arpTable: [], openPorts: [22, 23] } },
+    ],
+    links: [
+      { from: "v7-a", to: "v7-fw" },
+      { from: "v7-fw", to: "v7-sw" },
+      { from: "v7-sw", to: "v7-srv" },
+    ],
+  },
+  checks: [
+    { kind: "ping", from: "PC-A", to: "SRV-1", label: "Ping still works" },
+    { kind: "tcp", from: "PC-A", to: "SRV-1", port: 22, label: "SSH (22) still connects" },
+    { kind: "tcp-fail", from: "PC-A", to: "SRV-1", port: 23, label: "Telnet (23) is blocked" },
+  ],
+};
+
+const troubleshootGateway: Scenario = {
+  id: "troubleshoot-gateway",
+  name: "Troubleshoot: broken gateway",
+  objective: "Users report PC-A cannot reach the 192.168.2.0/24 office, but replies from there work. Find the misconfiguration and fix it (hint: traceroute / ip route show on PC-A).",
+  topology: {
+    version: 1,
+    devices: [
+      { id: "v8-a", type: "computer", name: "PC-A", x: -440, y: 0, config: { ipv4Address: "192.168.1.10", gatewayIpv4Address: "192.168.1.254", macAddress: "02:00:00:00:08:0A", arpTable: [] } },
+      { id: "v8-sw", type: "switch", name: "SW-1", x: -150, y: 0, config: { managed: false, ethernetPorts: 4, macTable: [] } },
+      { id: "v8-r1", type: "router", name: "R1", x: 150, y: 0, config: { ethernetPorts: 2, serialPorts: 0, interfaces: [
+        { peerId: "v8-sw", type: "ethernet", ipv4Address: "192.168.1.1" },
+        { peerId: "v8-b", type: "ethernet", ipv4Address: "192.168.2.1" },
+      ] } },
+      { id: "v8-b", type: "computer", name: "PC-B", x: 440, y: 0, config: { ipv4Address: "192.168.2.10", gatewayIpv4Address: "192.168.2.1", macAddress: "02:00:00:00:08:0B", arpTable: [] } },
+    ],
+    links: [
+      { from: "v8-a", to: "v8-sw" },
+      { from: "v8-sw", to: "v8-r1" },
+      { from: "v8-r1", to: "v8-b" },
+    ],
+  },
+  checks: [
+    { kind: "ping", from: "PC-A", to: "PC-B", label: "PC-A can reach PC-B" },
+    { kind: "ping", from: "PC-B", to: "PC-A", label: "PC-B can reach PC-A" },
+  ],
+};
+
+export const CURRICULUM: Scenario[] = [
+  vlanSegmentation,
+  routerOnAStick,
+  staticRoutes,
+  dhcpService,
+  ripConvergence,
+  firewallGuard,
+  troubleshootGateway,
+];

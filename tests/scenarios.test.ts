@@ -5,7 +5,7 @@ import { describe, it, expect, beforeAll, beforeEach } from "bun:test";
 import { state, defaultConfig, vlanRoasConfig, routerMeshConfig } from "../src/state";
 import { SCENARIOS, getScenario, loadScenario, checkScenario } from "../src/scenarios";
 import { addLink } from "../src/devices";
-import { runConsoleCommand as exec } from "../src/commands";
+import { runConsoleCommand as exec, runConsoleScript } from "../src/commands";
 import { registerNoopCallbacks, resetState } from "./helpers";
 
 describe("built-in topologies & scenarios — positive coordinates", () => {
@@ -75,4 +75,81 @@ describe("scenarios — console parity", () => {
     expect(after.ok).toBe(true);
     expect((after.data as any).passed).toBe(true);
   });
+});
+
+// ─── Curriculum solvability ────────────────────────────────────────────────────
+// Every scenario must (a) not be already-solved when loaded and (b) pass after
+// applying its reference solution via the console — proof the curriculum works.
+
+const SOLUTIONS: Record<string, string> = {
+  "connect-lan": `
+    link PC-A Switch-1
+    link PC-B Switch-1
+  `,
+  "vlan-segmentation": `
+    cli MSW-1 config vlan add 10
+    cli MSW-1 config vlan add 20
+    cli MSW-1 config vlan member add 10 Ethernet1
+    cli MSW-1 config vlan member add 10 Ethernet2
+    cli MSW-1 config vlan member add 20 Ethernet3
+    cli MSW-1 config vlan member add 20 Ethernet4
+  `,
+  "router-on-a-stick": `
+    interface RTR-1 MSW-1 ip 192.168.10.1 vlan 10
+    interface RTR-1 MSW-1 ip 192.168.20.1 vlan 20
+  `,
+  "static-routes": `
+    route R1 192.168.2.0/24 10.0.0.2
+    route R2 192.168.1.0/24 10.0.0.1
+  `,
+  "dhcp-service": `
+    link PC-A SW-1
+    link SW-1 R1
+  `,
+  "rip-convergence": `
+    cli R1 enable
+    cli R1 configure terminal
+    cli R1 router rip
+    cli R1 network 192.168.1.0/24
+    cli R1 network 10.0.12.0/24
+    cli R2 enable
+    cli R2 configure terminal
+    cli R2 router rip
+    cli R2 network 10.0.12.0/24
+    cli R2 network 10.0.23.0/24
+    cli R3 enable
+    cli R3 configure terminal
+    cli R3 router rip
+    cli R3 network 10.0.23.0/24
+    cli R3 network 192.168.3.0/24
+  `,
+  "firewall-guard": `
+    cli FW-1 iptables -A FORWARD -p tcp --dport 23 -j DROP
+  `,
+  "troubleshoot-gateway": `
+    gateway PC-A 192.168.1.1
+  `,
+};
+
+describe("scenarios — every curriculum entry is solvable", () => {
+  beforeEach(() => resetState());
+
+  for (const scenario of SCENARIOS) {
+    it(`${scenario.id}: fails fresh, passes after the reference solution`, () => {
+      const solution = SOLUTIONS[scenario.id];
+      expect(solution, `missing reference solution for ${scenario.id}`).toBeDefined();
+      expect(loadScenario(scenario.id)).toBe(true);
+
+      const before = checkScenario(scenario);
+      expect(before.passed, `${scenario.id} must not be pre-solved`).toBe(false);
+
+      const results = runConsoleScript(solution);
+      const failed = results.filter(r => !r.ok);
+      expect(failed.map(f => f.output.join(" ")), `${scenario.id} solution commands all succeed`).toEqual([]);
+
+      const after = checkScenario(scenario);
+      expect(after.checks.filter(c => !c.passed).map(c => c.label), `${scenario.id} checks after solving`).toEqual([]);
+      expect(after.passed).toBe(true);
+    });
+  }
 });

@@ -381,6 +381,9 @@ export function processAtComputer(device: Device, frame: EthernetFrame, fromDevi
     const ipv4 = frame.payload as Ipv4Payload;
 
     if (ipv4.payload.type === "icmp") {
+      // Hosts only answer ICMP addressed to their own IP — a frame that leaks
+      // here (e.g. flooded unknown unicast) must not be answered for someone else.
+      if (ipv4.dstIp !== config.ipv4Address) return outgoing;
       if (ipv4.payload.icmpType === 8) {
         // ICMP Echo Request — send reply
         logStep(device, "sim-icmp", `Received ICMP Echo Request from ${ipv4.srcIp} — sending Reply`);
@@ -391,8 +394,8 @@ export function processAtComputer(device: Device, frame: EthernetFrame, fromDevi
         );
         if (fromDeviceId) outgoing.push({ frame: reply, toDeviceId: fromDeviceId });
       } else if (ipv4.payload.icmpType === 0) {
-        // ICMP Echo Reply — ping success!
-        if (device.id === sim.originDeviceId) {
+        // ICMP Echo Reply — ping success only if it came from the pinged address.
+        if (device.id === sim.originDeviceId && ipv4.srcIp === sim.pingTargetIp) {
           sim.pingSuccess = true;
           sim.pingTtl = ipv4.ttl;
           sim.pingResponderIp = ipv4.srcIp;
@@ -678,14 +681,19 @@ function handleRouterArp(device: Device, frame: EthernetFrame, ifaces: any[], in
     if (pending && pending.length > 0) {
       for (const pf of pending) {
         const ipv4 = pf.payload as Ipv4Payload;
-        const egressIface = findEgressInterface(ifaces, ipv4.dstIp);
-        if (egressIface) {
-          pf.srcMac = egressIface.macAddress;
+        // Re-run the routing decision: the buffered frame may be destined for a
+        // network reached VIA the next-hop we just resolved (static/RIP route),
+        // so the egress lookup must use the route, not the final destination.
+        const route = routingLookup(device, ipv4.dstIp);
+        if (route && route.nextHopIp === arp.senderIp) {
+          pf.srcMac = route.egressIface.macAddress;
           pf.dstMac = arp.senderMac;
-          pf.vlanTag = egressIface.vlanTag ?? null;
-          logStep(device, "sim-forward", `Forward deferred ICMP to ${ipv4.dstIp} via ${ifaceName(egressIface)} (TTL ${ipv4.ttl}→${ipv4.ttl - 1})`);
+          pf.vlanTag = route.egressIface.vlanTag ?? null;
+          logStep(device, "sim-forward", `Forward deferred ${frameLabel(pf)} to ${ipv4.dstIp} via ${ifaceName(route.egressIface)} (TTL ${ipv4.ttl}→${ipv4.ttl - 1})`);
           ipv4.ttl--;
-          outgoing.push({ frame: pf, toDeviceId: egressIface.peerId });
+          outgoing.push({ frame: pf, toDeviceId: route.egressIface.peerId });
+        } else {
+          logStep(device, "sim-drop", `Deferred frame to ${ipv4.dstIp}: no route via ${arp.senderIp} — dropping`);
         }
       }
       delete sim.pendingArp[pendingKey];

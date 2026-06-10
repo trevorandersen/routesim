@@ -59,11 +59,15 @@ export function routingLookup(router: Device, dstIp: string): { egressIface: any
   const table = buildRoutingTable(router);
   const ifaces: any[] = router.config?.interfaces || [];
 
-  // Longest-prefix match wins; ties resolve by metric (table is metric-sorted,
-  // so a stable sort by prefix length alone preserves metric order within a length).
-  const route = table
-    .filter(r => cidrContains(r.network, dstIp))
-    .sort((a, b) => prefixLengthOfCidr(b.network) - prefixLengthOfCidr(a.network))[0];
+  // Longest-prefix match wins; ties resolve by metric. Single allocation-free
+  // pass — this runs per routed frame and is benchmarked.
+  let route: RouteEntry | null = null;
+  let bestLen = -1;
+  for (const r of table) {
+    if (!cidrContains(r.network, dstIp)) continue;
+    const len = prefixLengthOfCidr(r.network);
+    if (len > bestLen) { route = r; bestLen = len; } // equal length: keep first (lower metric — table is metric-sorted)
+  }
   if (!route) return null;
 
   if (route.type === "C") {

@@ -10,6 +10,9 @@
  *   6. rip-convergence     dynamic routing across a 3-router chain
  *   7. firewall-guard      allow SSH, block Telnet with iptables
  *   8. troubleshoot-gateway fix a broken default gateway
+ *   9. troubleshoot-vlan     find the misassigned switch port
+ *  10. troubleshoot-firewall fix a rule that blocks the wrong port
+ *  11. troubleshoot-static-route fix a typo'd next-hop
  *
  * Data only — evaluation lives in scenarios.ts. Type-only import: no cycle.
  */
@@ -216,6 +219,102 @@ const troubleshootGateway: Scenario = {
   ],
 };
 
+const troubleshootVlan: Scenario = {
+  id: "troubleshoot-vlan",
+  name: "Troubleshoot: wrong VLAN",
+  objective: "PC-W was re-cabled during maintenance and can no longer reach its team. All of Sales should be on VLAN 10 — find the misassigned switch port and fix it.",
+  topology: {
+    version: 1,
+    devices: [
+      { id: "v9-sw", type: "switch", name: "MSW-1", x: 0, y: 0, config: {
+        managed: true, ethernetPorts: 8, macTable: [],
+        vlans: [{ id: 10, name: "Sales" }, { id: 20, name: "Guests" }],
+        portVlans: { Ethernet1: 10, Ethernet2: 20, Ethernet3: 10 },  // Ethernet2 is wrong
+        portModes: {},
+      } },
+      { id: "v9-a", type: "computer", name: "PC-A", x: -280, y: -160, config: { ipv4Address: "192.168.1.11", gatewayIpv4Address: "", macAddress: "02:00:00:00:09:0A", arpTable: [] } },
+      { id: "v9-w", type: "computer", name: "PC-W", x: -280, y: 160, config: { ipv4Address: "192.168.1.12", gatewayIpv4Address: "", macAddress: "02:00:00:00:09:0B", arpTable: [] } },
+      { id: "v9-c", type: "computer", name: "PC-C", x: 280, y: 0, config: { ipv4Address: "192.168.1.13", gatewayIpv4Address: "", macAddress: "02:00:00:00:09:0C", arpTable: [] } },
+    ],
+    links: [
+      { from: "v9-sw", to: "v9-a", fromPort: 1 },
+      { from: "v9-sw", to: "v9-w", fromPort: 2 },
+      { from: "v9-sw", to: "v9-c", fromPort: 3 },
+    ],
+  },
+  checks: [
+    { kind: "ping", from: "PC-A", to: "PC-W", label: "PC-A can reach PC-W" },
+    { kind: "ping", from: "PC-W", to: "PC-C", label: "PC-W can reach PC-C" },
+  ],
+};
+
+const troubleshootFirewall: Scenario = {
+  id: "troubleshoot-firewall",
+  name: "Troubleshoot: overzealous firewall",
+  objective: "A change request asked for Telnet (23) to be blocked, but since the change users cannot SSH to SRV-1 — and Telnet still works. Inspect FW-1's rules (iptables -L --line-numbers) and fix them.",
+  topology: {
+    version: 1,
+    devices: [
+      { id: "v10-a", type: "computer", name: "PC-A", x: -440, y: 0, config: { ipv4Address: "192.168.1.10", gatewayIpv4Address: "", macAddress: "02:00:00:00:0A:0A", arpTable: [] } },
+      { id: "v10-fw", type: "firewall", name: "FW-1", x: -150, y: 0, config: {
+        ethernetPorts: 2,
+        rules: [{ chain: "forward", target: "drop", protocol: "tcp", dport: 22 }],  // wrong port blocked
+        policy: { forward: "accept" },
+      } },
+      { id: "v10-sw", type: "switch", name: "SW-1", x: 150, y: 0, config: { managed: false, ethernetPorts: 4, macTable: [] } },
+      { id: "v10-srv", type: "computer", name: "SRV-1", x: 440, y: 0, config: { ipv4Address: "192.168.1.20", gatewayIpv4Address: "", macAddress: "02:00:00:00:0A:1F", arpTable: [], openPorts: [22, 23] } },
+    ],
+    links: [
+      { from: "v10-a", to: "v10-fw" },
+      { from: "v10-fw", to: "v10-sw" },
+      { from: "v10-sw", to: "v10-srv" },
+    ],
+  },
+  checks: [
+    { kind: "tcp", from: "PC-A", to: "SRV-1", port: 22, label: "SSH (22) connects" },
+    { kind: "tcp-fail", from: "PC-A", to: "SRV-1", port: 23, label: "Telnet (23) is blocked" },
+    { kind: "ping", from: "PC-A", to: "SRV-1", label: "Ping still works" },
+  ],
+};
+
+const troubleshootStaticRoute: Scenario = {
+  id: "troubleshoot-static-route",
+  name: "Troubleshoot: bad static route",
+  objective: "The two offices stopped reaching each other after a maintenance window. Check the routing tables (show ip route) — one router's static route has a typo'd next-hop.",
+  topology: {
+    version: 1,
+    devices: [
+      { id: "v11-r1", type: "router", name: "R1", x: -140, y: 0, config: { ethernetPorts: 2, serialPorts: 2,
+        staticRoutes: [{ network: "192.168.2.0/24", nextHop: "10.0.0.5" }],  // typo: should be .2
+        interfaces: [
+          { peerId: "v11-swa", type: "ethernet", ipv4Address: "192.168.1.1" },
+          { peerId: "v11-r2", type: "serial", ipv4Address: "10.0.0.1" },
+        ] } },
+      { id: "v11-r2", type: "router", name: "R2", x: 140, y: 0, config: { ethernetPorts: 2, serialPorts: 2,
+        staticRoutes: [{ network: "192.168.1.0/24", nextHop: "10.0.0.1" }],
+        interfaces: [
+          { peerId: "v11-swb", type: "ethernet", ipv4Address: "192.168.2.1" },
+          { peerId: "v11-r1", type: "serial", ipv4Address: "10.0.0.2" },
+        ] } },
+      { id: "v11-swa", type: "switch", name: "SW-A", x: -400, y: 0, config: { managed: false, ethernetPorts: 4, macTable: [] } },
+      { id: "v11-swb", type: "switch", name: "SW-B", x: 400, y: 0, config: { managed: false, ethernetPorts: 4, macTable: [] } },
+      { id: "v11-a", type: "computer", name: "PC-A", x: -640, y: 0, config: { ipv4Address: "192.168.1.10", gatewayIpv4Address: "192.168.1.1", macAddress: "02:00:00:00:0B:0A", arpTable: [] } },
+      { id: "v11-b", type: "computer", name: "PC-B", x: 640, y: 0, config: { ipv4Address: "192.168.2.10", gatewayIpv4Address: "192.168.2.1", macAddress: "02:00:00:00:0B:0B", arpTable: [] } },
+    ],
+    links: [
+      { from: "v11-a", to: "v11-swa" },
+      { from: "v11-swa", to: "v11-r1" },
+      { from: "v11-r1", to: "v11-r2" },
+      { from: "v11-r2", to: "v11-swb" },
+      { from: "v11-swb", to: "v11-b" },
+    ],
+  },
+  checks: [
+    { kind: "ping", from: "PC-A", to: "PC-B", label: "PC-A can reach PC-B" },
+    { kind: "ping", from: "PC-B", to: "PC-A", label: "PC-B can reach PC-A" },
+  ],
+};
+
 export const CURRICULUM: Scenario[] = [
   vlanSegmentation,
   routerOnAStick,
@@ -224,4 +323,7 @@ export const CURRICULUM: Scenario[] = [
   ripConvergence,
   firewallGuard,
   troubleshootGateway,
+  troubleshootVlan,
+  troubleshootFirewall,
+  troubleshootStaticRoute,
 ];

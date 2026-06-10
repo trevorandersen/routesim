@@ -1,4 +1,4 @@
-import type { DeviceType } from "./types";
+import type { DeviceType, ActiveTransit } from "./types";
 import { state, colors } from "./state";
 import { dom } from "./dom";
 import { cssColor } from "./utils";
@@ -369,6 +369,25 @@ export function render(): void {
   ctx.restore();
 }
 
+// Hit-test a world point against the transit dots (click-a-packet inspector).
+export function findTransitAt(world: { x: number; y: number }): ActiveTransit | null {
+  const transits = state.simulation.transits;
+  if (!transits || transits.length === 0) return null;
+  // Generous radius; dots are drawn at 7 world units. Scan in reverse so the
+  // most recently drawn (topmost) dot wins.
+  const HIT = 14;
+  for (let i = transits.length - 1; i >= 0; i--) {
+    const transit = transits[i];
+    const fromDevice = getDevice(transit.fromDeviceId);
+    const toDevice = getDevice(transit.toDeviceId);
+    if (!fromDevice || !toDevice) continue;
+    const x = fromDevice.x + (toDevice.x - fromDevice.x) * transit.progress;
+    const y = fromDevice.y + (toDevice.y - fromDevice.y) * transit.progress;
+    if (Math.hypot(world.x - x, world.y - y) <= HIT) return transit;
+  }
+  return null;
+}
+
 function drawFrameTransits(): void {
   const transits = state.simulation.transits;
   if (!transits || transits.length === 0) return;
@@ -389,6 +408,15 @@ function drawFrameTransits(): void {
     ctx.save();
     ctx.shadowColor = color;
     ctx.shadowBlur = 8;
+
+    // Selection ring for the inspected frame
+    if (state.inspectedFrame && state.inspectedFrame.id === transit.frame.id) {
+      ctx.strokeStyle = colors.selected;
+      ctx.lineWidth = 2.5;
+      ctx.beginPath();
+      ctx.arc(x, y, 12, 0, Math.PI * 2);
+      ctx.stroke();
+    }
 
     // Draw dot
     ctx.fillStyle = color;

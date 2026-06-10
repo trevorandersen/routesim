@@ -128,7 +128,7 @@ fixed enums may be interpolated raw.
 | `ribbon.ts` | Tabbed ribbon (File/Edit/View/Simulate/Scenarios/Help): tab switching + dynamic scenario buttons. Button clicks are wired by data attribute in `ui.ts`. |
 | `commands.ts` | Text-command engine: parses a line, resolves device refs, dispatches to the action functions. `runConsoleCommand`/`runConsoleScript`/`exportTopologyScript`. Pure (no panel UI) so it's reused by the console, `window.routesim`, and tests. See `docs/scripting.md`. |
 | `console.ts` | The command console panel UI (distinct from per-device terminals); drives `commands.ts`. |
-| `scenarios.ts` | Guided-challenge scenarios: data model, `SCENARIOS` registry, `loadScenario`, and `checkScenario` (goal evaluation reusing `runSimulationHeadless`). The 8-scenario curriculum lives in `scenario-library.ts`; `scenario-ui.ts` renders the goal banner. See `docs/scenarios.md`. |
+| `scenarios.ts` | Guided-challenge scenarios: data model, `SCENARIOS` registry, `loadScenario`, and `checkScenario` (goal evaluation reusing `runSimulationHeadless`). The 11-scenario curriculum lives in `scenario-library.ts`; `scenario-ui.ts` renders the goal banner. See `docs/scenarios.md`. |
 | `test-server.ts` | Dev server (Bun). Serves static files (`/` → `rs-web.html`) + `/api/tests` (list test suites) + `/api/run` (execute `bun test` with optional file/pattern filters). Powers `test.html` and `benchmark.html`. |
 | `build-inline.ts` | Inlines CSS + bundled JS into `template.html` → named output file. Uses replacer functions to avoid `$`-pattern corruption. Called by `build.sh` per variant. |
 
@@ -178,6 +178,7 @@ Every link records frames that traverse it (`link.frameHistory[]`). Click a link
 ## UI panels
 
 - **Ribbon** — the top toolbar: tabs **File / Edit / View / Simulate / Scenarios / Help**, each swapping a strip of grouped buttons (`ribbon.ts` + `template.html`). The drawing tools live in Edit. Buttons are wired by data attribute in `ui.ts` (`data-tool`/`data-scenario`/`data-theme-id`/`data-action`); built-in topologies load from a `<select>` (`#topologySelect`). No brand text, no left tool rail.
+- **Frame inspector** — in select mode, clicking a transit dot pauses the simulation and shows the frame's full field breakdown in the inspector (`findTransitAt` in `canvas.ts`, `renderFramePanel` in `inspector.ts`, `state.inspectedFrame`). Cleared by clicking elsewhere, Close, or starting a new run.
 - **Coordinate readout** — `#coordReadout`, bottom-right of the canvas: cursor world coords (on move) + the selected device's coords. Updated from the pointermove handler and the `syncCoordReadout` callback (refreshes on selection).
 - **Sim controls** — play/pause/step/stop/speed live in the Simulate ribbon tab.
 - **Sim log panel** — floats top-right during simulation. Color-coded frame processing log.
@@ -203,6 +204,7 @@ Every link records frames that traverse it (`link.frameHistory[]`). Click a link
 | `Delete`/`Backspace` | Delete selected device |
 | `Escape` | Cancel, return to select |
 | `Ctrl/Cmd+Z` | Undo |
+| `Ctrl/Cmd+Shift+Z` / `Ctrl/Cmd+Y` | Redo |
 | Double-click device | Configure |
 | Scroll wheel | Zoom |
 

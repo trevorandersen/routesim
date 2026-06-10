@@ -68,3 +68,6 @@ The curriculum is a progression from L2 basics to routing, services, security, a
 | `rip-convergence` | RIP convergence | Enable RIP (with the right `network` statements) on a 3-router chain so the end LANs converge. |
 | `firewall-guard` | Firewall: allow SSH, block Telnet | Write iptables rules on FW-1 so Telnet (23) is blocked while SSH (22) and ping keep working. |
 | `troubleshoot-gateway` | Troubleshoot: broken gateway | One-way reachability — find and fix PC-A's wrong default gateway. |
+| `troubleshoot-vlan` | Troubleshoot: wrong VLAN | A re-cabled PC landed on the wrong access VLAN — find the misassigned port. |
+| `troubleshoot-firewall` | Troubleshoot: overzealous firewall | The change blocked SSH (22) instead of Telnet (23) — inspect and fix the rules. |
+| `troubleshoot-static-route` | Troubleshoot: bad static route | A typo'd next-hop broke inter-office routing — read `show ip route` and repair it. |

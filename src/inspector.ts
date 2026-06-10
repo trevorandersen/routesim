@@ -282,10 +282,61 @@ function renderLinkPanel(link: Link): void {
   });
 }
 
+// Click-a-packet inspector: a full field breakdown of one captured frame.
+export function renderFramePanel(frame: any): void {
+  const rows: [string, string][] = [
+    ["Frame id", frame.id],
+    ["Src MAC", frame.srcMac],
+    ["Dst MAC", frame.dstMac],
+    ["EtherType", frame.etherType === 0x0806 ? "0x0806 (ARP)" : "0x0800 (IPv4)"],
+    ["802.1Q VLAN", frame.vlanTag != null ? String(frame.vlanTag) : "untagged"],
+  ];
+  const p = frame.payload;
+  if (p.type === "arp") {
+    rows.push(["ARP operation", p.operation], ["Sender MAC", p.senderMac], ["Sender IP", p.senderIp],
+      ["Target MAC", p.targetMac], ["Target IP", p.targetIp]);
+  } else if (p.type === "ipv4") {
+    rows.push(["Src IP", p.srcIp], ["Dst IP", p.dstIp], ["TTL", String(p.ttl)],
+      ["Protocol", p.protocol === 1 ? "1 (ICMP)" : p.protocol === 6 ? "6 (TCP)" : p.protocol === 17 ? "17 (UDP)" : String(p.protocol)]);
+    const inner = p.payload;
+    if (inner.type === "icmp") {
+      const names: Record<number, string> = { 8: "echo request", 0: "echo reply", 11: "time exceeded" };
+      rows.push(["ICMP type", `${inner.icmpType} (${names[inner.icmpType] || "?"})`], ["Sequence", String(inner.sequence)]);
+    } else if (inner.type === "tcp") {
+      rows.push(["Src port", String(inner.srcPort)], ["Dst port", String(inner.dstPort)], ["TCP flags", inner.flags.toUpperCase()]);
+    } else if (inner.type === "dhcp") {
+      rows.push(["DHCP message", inner.messageType], ["Client MAC", inner.clientMac]);
+      if (inner.assignedIp) rows.push(["Assigned IP", inner.assignedIp]);
+      if (inner.prefixLength != null) rows.push(["Prefix length", `/${inner.prefixLength}`]);
+      if (inner.gatewayIp) rows.push(["Gateway", inner.gatewayIp]);
+    }
+  }
+  dom.detailsPanel.innerHTML = `
+    <h2>Frame</h2>
+    <p class="empty-state">Captured in flight — the simulation is paused. Click elsewhere or press Resume to continue.</p>
+    <table class="data-table frame-detail">
+      <tbody>
+        ${rows.map(([k, v]) => `<tr><th>${escapeHtml(k)}</th><td>${escapeHtml(v)}</td></tr>`).join("")}
+      </tbody>
+    </table>
+    <div style="height: 10px"></div>
+    <button class="wide-button" id="closeFramePanel">Close</button>
+  `;
+  document.getElementById("closeFramePanel")?.addEventListener("click", () => {
+    state.inspectedFrame = null;
+    syncPanel();
+    sync().render();
+  });
+}
+
 export function syncPanel(): void {
   dom.deviceCount.textContent = String(state.devices.filter(isVisibleDevice).length);
   dom.linkCount.textContent = String(state.links.filter(link => !link.hidden).length);
   sync().syncCoordReadout();
+  if (state.inspectedFrame) {
+    renderFramePanel(state.inspectedFrame);
+    return;
+  }
   const selected = getDevice(state.selectedId);
   const isConfiguring = selected && state.configuringId === selected.id;
 

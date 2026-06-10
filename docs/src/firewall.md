@@ -47,7 +47,7 @@ Scriptable via the console: `cli <fw> iptables -A FORWARD -p icmp -j DROP`.
 Matching covers **src/dst IP (CIDR), protocol (`icmp`/`tcp`/`udp`/`all`), ICMP
 type, and TCP destination port** (`-p tcp --dport 80` — exercised by the
 `nc`/`connect` TCP traffic generator). REJECT behaves like DROP for now (no
-ICMP-unreachable reply). See `FUTURE_PLANS.md` for stateful filtering and the
+ICMP-unreachable reply). See `ROADMAP.md` for stateful filtering and the
 plan to let **routers** be configured as routing firewalls (reusing this rule
 engine on the INPUT/FORWARD path, like switches' managed mode).
 

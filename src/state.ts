@@ -74,6 +74,8 @@ export const state: AppState = {
   nameCounters: freshNameCounters(),
   configStore: { version: 1, configs: {} },
   undoStack: [],
+  redoStack: [],
+  inspectedFrame: null,
   isApplyingCompositeChange: false,
   simulation: {
     status: "idle",
@@ -390,12 +392,15 @@ export function pushUndoSnapshot(snapshot: string): void {
   if (state.undoStack[state.undoStack.length - 1] !== snapshot) {
     state.undoStack.push(snapshot);
     if (state.undoStack.length > 80) state.undoStack.shift();
+    state.redoStack = []; // a new mutation invalidates the redo branch
   }
   syncUndoButton();
 }
 
 export function syncUndoButton(): void {
   (document.getElementById("undoButton") as HTMLButtonElement).disabled = state.undoStack.length === 0;
+  const redoButton = document.getElementById("redoButton") as HTMLButtonElement | null;
+  if (redoButton) redoButton.disabled = state.redoStack.length === 0;
 }
 
 export function restoreSnapshot(snapshot: string): void {
@@ -428,6 +433,20 @@ export function undo(): void {
   }
   const snapshot = state.undoStack.pop();
   if (!snapshot) return;
+  state.redoStack.push(networkSnapshot()); // so redo can return here
+  if (state.redoStack.length > 80) state.redoStack.shift();
+  restoreSnapshot(snapshot);
+  syncUndoButton();
+}
+
+export function redo(): void {
+  const snapshot = state.redoStack.pop();
+  if (!snapshot) return;
+  // Re-entering this state must land on the undo stack without clearing redo.
+  if (state.undoStack[state.undoStack.length - 1] !== networkSnapshot()) {
+    state.undoStack.push(networkSnapshot());
+    if (state.undoStack.length > 80) state.undoStack.shift();
+  }
   restoreSnapshot(snapshot);
   syncUndoButton();
 }

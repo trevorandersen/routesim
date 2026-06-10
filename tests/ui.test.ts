@@ -4,8 +4,9 @@
  * event-shaped objects.
  */
 import { describe, it, expect, beforeAll, beforeEach } from "bun:test";
-import { state, THEMES, DEFAULT_THEME } from "../src/state";
+import { state, THEMES, DEFAULT_THEME, undo as undoState, redo as redoState } from "../src/state";
 import { handleGlobalKeydown, setTheme, toggleTheme } from "../src/ui";
+import { runConsoleCommand as exec } from "../src/commands";
 import { registerNoopCallbacks, resetState } from "./helpers";
 
 beforeAll(() => registerNoopCallbacks());
@@ -93,5 +94,38 @@ describe("handleGlobalKeydown — tool shortcuts", () => {
     state.tool = "select";
     handleGlobalKeydown(key("r", { tagName: "INPUT" }));
     expect(state.tool).toBe("select");
+  });
+});
+
+describe("undo / redo", () => {
+  beforeEach(() => resetState());
+
+  it("redo restores an undone change; a new mutation clears the redo branch", () => {
+    exec("add computer PC1 at 100 100");
+    exec("add computer PC2 at 300 100");
+    expect(state.devices).toHaveLength(2);
+
+    undoState();
+    expect(state.devices).toHaveLength(1);
+    expect(state.redoStack.length).toBeGreaterThan(0);
+
+    redoState();
+    expect(state.devices).toHaveLength(2);
+    expect(state.devices.map(d => d.name)).toContain("PC2");
+
+    // Undo again, then mutate — redo branch must be invalidated.
+    undoState();
+    expect(state.devices).toHaveLength(1);
+    exec("add switch SW1 at 200 200");
+    expect(state.redoStack).toHaveLength(0);
+    redoState(); // no-op
+    expect(state.devices.map(d => d.name).sort()).toEqual(["PC1", "SW1"]);
+  });
+
+  it("redo with an empty stack is a no-op", () => {
+    exec("add computer PC1");
+    const before = state.devices.length;
+    redoState();
+    expect(state.devices).toHaveLength(before);
   });
 });

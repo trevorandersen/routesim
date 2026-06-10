@@ -7,7 +7,7 @@
  * tests. See docs/scripting.md for the command reference.
  */
 import type { Device, DeviceType } from "./types";
-import { state, undo, sync, THEMES } from "./state";
+import { state, undo, redo, sync, THEMES } from "./state";
 import { USER_ADDABLE_TYPES } from "./device-registry";
 import { dom } from "./dom";
 import {
@@ -366,6 +366,7 @@ function cmdLoad(args: string[]): CommandResult {
 }
 
 function cmdUndo(): CommandResult { undo(); return ok("Undone."); }
+function cmdRedo(): CommandResult { redo(); return ok("Redone."); }
 
 function cmdExport(): CommandResult {
   const script = exportTopologyScript();
@@ -509,7 +510,7 @@ const COMMANDS: Record<string, Handler> = {
   ping: cmdPing, dhcp: cmdDhcp, connect: cmdConnect, run: cmdRun, traceroute: cmdTraceroute, tracert: cmdTraceroute,
   play: cmdPlay, pause: cmdPause, step: cmdStep,
   stop: cmdStop, speed: cmdSpeed,
-  topology: cmdTopology, save: cmdSave, load: cmdLoad, undo: cmdUndo, export: cmdExport,
+  topology: cmdTopology, save: cmdSave, load: cmdLoad, undo: cmdUndo, redo: cmdRedo, export: cmdExport,
   list: cmdList, show: cmdShow, status: cmdStatus, log: cmdLog,
   select: cmdSelect, tool: cmdTool, theme: cmdTheme, zoom: cmdZoom, fit: cmdFit,
   scenario: cmdScenario,
@@ -530,7 +531,7 @@ const HELP: Record<string, string> = {
   traceroute: "traceroute <src> <dst> (hop-by-hop via TTL)",
   play: "resume", pause: "pause", step: "advance one hop", stop: "stop", speed: "speed <ms-per-hop>",
   topology: "topology basic|vlan-roas|router-mesh", save: "save <name>", load: "load <name>",
-  undo: "undo", export: "export topology as a reproducible script",
+  undo: "undo", redo: "redo", export: "export topology as a reproducible script",
   list: "list [links]", show: "show <device>", status: "simulation status + last result", log: "hop-by-hop log",
   select: "select <device>", tool: "tool <name>", theme: "theme warm-light|dark|blueprint", zoom: "zoom <scale>", fit: "fit to view",
   scenario: "scenario list | load <id> | goal | check",

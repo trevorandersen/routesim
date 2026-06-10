@@ -4,7 +4,10 @@
  */
 import { describe, it, expect, beforeAll, beforeEach } from "bun:test";
 import { state } from "../src/state";
-import { renderSwitchPorts, renderSwitchVlans } from "../src/inspector";
+import { renderSwitchPorts, renderSwitchVlans, renderFramePanel } from "../src/inspector";
+import { findTransitAt } from "../src/canvas";
+import { createIcmpEchoRequest, createTcpSegment } from "../src/frame";
+import { dom } from "../src/dom";
 import { registerNoopCallbacks, resetState } from "./helpers";
 import { basicTopology, vlanTopology } from "./fixtures";
 
@@ -50,5 +53,31 @@ describe("renderSwitchVlans", () => {
     // VLAN 10 (Sales) and 20 (Engineering) defined in the fixture
     expect(html).toContain("Sales");
     expect(html).toContain("Engineering");
+  });
+});
+
+describe("click-a-packet frame inspector", () => {
+  beforeEach(() => resetState());
+
+  it("findTransitAt hit-tests the interpolated dot position", () => {
+    state.devices = [
+      { id: "a", type: "computer", name: "A", x: 0, y: 0, width: 92, height: 68, config: {} },
+      { id: "b", type: "computer", name: "B", x: 200, y: 0, width: 92, height: 68, config: {} },
+    ] as any;
+    const frame = createIcmpEchoRequest("02:00:00:00:00:01", "02:00:00:00:00:02", "10.0.0.1", "10.0.0.2", 64);
+    state.simulation.transits = [{ frame, linkId: "l1", fromDeviceId: "a", toDeviceId: "b", progress: 0.5, startTime: 0 }];
+    expect(findTransitAt({ x: 100, y: 0 })?.frame.id).toBe(frame.id);   // on the dot
+    expect(findTransitAt({ x: 100, y: 10 })?.frame.id).toBe(frame.id);  // within radius
+    expect(findTransitAt({ x: 150, y: 0 })).toBeNull();                 // off the dot
+  });
+
+  it("renderFramePanel shows the field breakdown for a TCP frame", () => {
+    const frame = createTcpSegment("02:00:00:00:00:01", "02:00:00:00:00:02", "10.0.0.1", "10.0.0.2", 31000, 443, "syn");
+    renderFramePanel(frame);
+    const html = (dom.detailsPanel as any).innerHTML as string;
+    expect(html).toContain("10.0.0.1");
+    expect(html).toContain("443");
+    expect(html).toContain("SYN");
+    expect(html).toContain("6 (TCP)");
   });
 });

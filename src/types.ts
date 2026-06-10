@@ -369,6 +369,8 @@ export interface AppState {
   nameCounters: Record<DeviceType, number>;
   configStore: ConfigStore;
   undoStack: string[];
+  redoStack: string[];
+  inspectedFrame: EthernetFrame | null;  // click-a-packet: frame shown in the inspector
   isApplyingCompositeChange: boolean;
   simulation: SimulationState;
   portSelection: PortSelectionState | null;

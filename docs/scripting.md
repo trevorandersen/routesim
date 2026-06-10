@@ -66,7 +66,7 @@ routesim.snapshot()                             // { devices, links, simulation 
 |---------|--------|
 | `topology <basic\|vlan-roas\|router-mesh>` | Load a built-in topology. |
 | `save <name>` / `load <name>` | Save/load to the in-memory config store. |
-| `undo` | Undo the last change. |
+| `undo` / `redo` | Undo / redo the last change. |
 | `export` | Print the current topology as a reproducible command script. |
 
 ### Query

@@ -19,6 +19,7 @@ export function startSimulation(setup: PingSetup, originDeviceId: string, target
   // Run RIP convergence before simulation to populate learned routes
   runRipConvergence();
   pushUndo();
+  state.inspectedFrame = null; // a new run invalidates the inspected frame
   const sim = state.simulation;
   sim.status = "running";
   sim.mode = mode;

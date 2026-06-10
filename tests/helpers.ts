@@ -29,6 +29,7 @@ export function resetState(): void {
   state.configuringId = null;
   state.linkStartId = null;
   state.undoStack = [];
+  state.redoStack = [];
   state.tool = "select";
   state.drag = null;
   state.panDrag = null;

@@ -5,6 +5,7 @@ Builds the right-hand inspector panel: device configuration forms, the device li
 ## Key exports
 
 ### Panel orchestration
+- **`renderFramePanel(frame)`** — the click-a-packet view: a full field table (Ethernet/ARP/IPv4/ICMP/TCP/DHCP) for a transit dot clicked mid-flight; shown while `state.inspectedFrame` is set (the simulation pauses on capture).
 - **`syncPanel()`** — the entry point. Rebuilds the panel for the current selection: a link (frame history), nothing, or a device. For a device it emits the name field plus type-specific config fields and wires all the inputs/buttons. Called via `sync().syncPanel()` whenever selection or config changes.
 - **`syncDeviceList()`** — rebuilds the network device list (each row selects its device).
 

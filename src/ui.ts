@@ -1,7 +1,7 @@
-import { state, toolCopy, networkSnapshot, pushUndoSnapshot, undo, THEMES, DEFAULT_THEME } from "./state";
+import { state, toolCopy, networkSnapshot, pushUndoSnapshot, undo, redo, THEMES, DEFAULT_THEME } from "./state";
 import { dom } from "./dom";
 import { addDevice, addLink, deleteSelection, clearNetwork, findDeviceAt, findLinkAt, getDevice, configureDevice, openPortSelectionModal, confirmPortSelection, cancelPortSelection } from "./devices";
-import { render, resizeCanvas, screenToWorld, setZoom, syncZoomLevel, fitNetwork } from "./canvas";
+import { render, resizeCanvas, screenToWorld, setZoom, syncZoomLevel, fitNetwork, findTransitAt } from "./canvas";
 import { clearCssColorCache } from "./utils";
 import { syncPanel, syncOptionControls, syncNetworkPanel, setNetworkPanel, setInspectorWidth, startInspectorResize, moveInspectorResize, stopInspectorResize } from "./inspector";
 import { openTerminalFor, closeTerminal, syncTerminal, submitTerminalCommand, handleTerminalKeydown } from "./terminal";
@@ -120,7 +120,12 @@ function endAboutDrag(event: PointerEvent): void {
 export function handleGlobalKeydown(event: KeyboardEvent): void {
   if ((event.metaKey || event.ctrlKey) && event.key.toLowerCase() === "z") {
     event.preventDefault();
-    undo();
+    if (event.shiftKey) redo(); else undo();
+    return;
+  }
+  if ((event.metaKey || event.ctrlKey) && event.key.toLowerCase() === "y") {
+    event.preventDefault();
+    redo();
     return;
   }
   // Escape is handled before the input guard so it also works while a field
@@ -158,7 +163,9 @@ export function setupUI(): void {
   });
 
   dom.canvas.addEventListener("pointerdown", (event: PointerEvent) => {
-    dom.canvas.setPointerCapture(event.pointerId);
+    // Synthetic events (UI automation/tests) carry pointer ids the browser
+    // doesn't know — capture is best-effort, never fatal.
+    try { dom.canvas.setPointerCapture(event.pointerId); } catch { /* synthetic event */ }
     const pointer = pointerFromEvent(event);
     const world = screenToWorld(pointer);
     const device = findDeviceAt(world);
@@ -199,6 +206,23 @@ export function setupUI(): void {
         render();
       }
       return;
+    }
+
+    // Click-a-packet: in select mode a transit dot takes priority. Capture the
+    // frame, pause the simulation, and show the field breakdown.
+    if (state.tool === "select") {
+      const transit = findTransitAt(world);
+      if (transit) {
+        state.inspectedFrame = transit.frame;
+        pauseSimulation();
+        if (!state.options.networkPanelOpen) setNetworkPanel(true);
+        syncPanel();
+        render();
+        return;
+      }
+    }
+    if (state.inspectedFrame) {
+      state.inspectedFrame = null; // clicking elsewhere dismisses the frame panel
     }
 
     if (device) {
@@ -316,6 +340,7 @@ export function setupUI(): void {
   const ribbonActions: Record<string, () => void> = {
     "new": clearNetwork,
     "undo": undo,
+    "redo": redo,
     "delete": deleteSelection,
     "import-config": () => { void io.importConfig(); },
     "export-config": io.exportConfig,

@@ -3,7 +3,7 @@
  * from engine.ts. buildRoutingTable merges connected/static/RIP routes by
  * metric; routingLookup resolves a destination to an egress interface;
  * runRipConvergence exchanges advertisements until stable (split horizon,
- * metric 16 = unreachable). All /24 assumptions live here (see FUTURE_PLANS).
+ * metric 16 = unreachable). Subnet decisions honour per-interface prefixes.
  */
 import type { Device, RouteEntry } from "./types";
 import { state } from "./state";

@@ -129,6 +129,19 @@ const SOLUTIONS: Record<string, string> = {
   "troubleshoot-gateway": `
     gateway PC-A 192.168.1.1
   `,
+  "troubleshoot-vlan": `
+    cli MSW-1 config vlan member add 10 Ethernet2
+  `,
+  "troubleshoot-firewall": `
+    cli FW-1 iptables -D FORWARD 1
+    cli FW-1 iptables -A FORWARD -p tcp --dport 23 -j DROP
+  `,
+  "troubleshoot-static-route": `
+    cli R1 enable
+    cli R1 configure terminal
+    cli R1 no ip route 192.168.2.0/24
+    cli R1 ip route 192.168.2.0/24 10.0.0.2
+  `,
 };
 
 describe("scenarios — every curriculum entry is solvable", () => {

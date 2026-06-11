@@ -11,7 +11,7 @@ import { describe, it, expect, beforeAll, beforeEach } from "bun:test";
 import { state } from "../src/state";
 import { getDevice, linkedPortsFor, connectedIds } from "../src/devices";
 import { l2Reachable } from "../src/simulation";
-import { processAtSwitch, processAtRouter, buildRoutingTable, runRipConvergence, evaluateFirewall } from "../src/engine";
+import { processAtSwitch, processAtRouter, processAtServer, buildRoutingTable, runRipConvergence, evaluateFirewall } from "../src/engine";
 import { createArpRequest, createArpReply, createIcmpEchoRequest, BROADCAST_MAC } from "../src/frame";
 import { registerNoopCallbacks, resetState } from "./helpers";
 import { bench, printResults, type BenchResult } from "./bench-harness";
@@ -292,6 +292,35 @@ describe("bench: firewall", () => {
     const ipv4: any = { type: "ipv4", srcIp: "192.168.1.10", dstIp: "192.168.1.20", ttl: 64, protocol: 1, payload: { type: "icmp", icmpType: 8, sequence: 1 } };
     results.push(bench("evaluateFirewall — 50 rules (miss)", () => {
       evaluateFirewall(fw, ipv4, "forward");
+    }, { budget: 100 }));
+    expect(results[results.length - 1].passed).toBe(true);
+  });
+
+  it("prints results", () => {
+    if (results.length) printResults(results);
+  });
+});
+
+// ── 3c. DNS lookup at the server ─────────────────────────────────────────────
+
+describe("bench: dns", () => {
+  const results: BenchResult[] = [];
+
+  beforeEach(() => resetState());
+
+  it("processAtServer — A-record lookup among 50 records", () => {
+    const records = Array.from({ length: 50 }, (_, i) => ({ name: `host${i}.corp`, ip: `10.0.${i}.10` }));
+    const srv: any = {
+      id: "srv", type: "server", name: "SRV",
+      config: { ipv4Address: "192.168.1.53", gatewayIpv4Address: "", macAddress: "02:00:00:00:00:53", arpTable: [], dnsmasqRunning: true, dnsRecords: records },
+    };
+    state.devices = [srv];
+    const query: any = {
+      id: "f1", srcMac: "02:00:00:00:00:0A", dstMac: "02:00:00:00:00:53", etherType: 0x0800, vlanTag: null,
+      payload: { type: "ipv4", srcIp: "192.168.1.10", dstIp: "192.168.1.53", ttl: 64, protocol: 17, payload: { type: "dns", op: "query", id: 7, name: "host49.corp", address: null } },
+    };
+    results.push(bench("processAtServer — DNS, 50 records", () => {
+      processAtServer(srv, query, "pc");
     }, { budget: 100 }));
     expect(results[results.length - 1].passed).toBe(true);
   });

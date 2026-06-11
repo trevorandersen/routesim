@@ -68,10 +68,12 @@ export function syncZoomLevel(): void {
   dom.zoomLevel.textContent = `${Math.round(state.scale * 100)}%`;
 }
 
+const HOST_TYPES = new Set(["computer", "server"]);
+
 export function linkColorFor(from: any, to: any): string {
   if (from.type === "router" && to.type === "router") return cssColor("--link-router");
   if (from.type === "switch" || to.type === "switch") {
-    if (from.type !== "computer" && to.type !== "computer") return cssColor("--link-switch");
+    if (!HOST_TYPES.has(from.type) && !HOST_TYPES.has(to.type)) return cssColor("--link-switch");
   }
   return cssColor("--link-host");
 }
@@ -250,20 +252,20 @@ export function drawDevice(device: any): void {
     ctx.fillText(label, device.x, labelY);
     labelY += 17;
   }
-  if (device.type === "computer" && state.options.showIpAddresses && device.config?.ipv4Address) {
+  if (HOST_TYPES.has(device.type) && state.options.showIpAddresses && device.config?.ipv4Address) {
     ctx.fillStyle = cssColor("--label-ip");
     ctx.font = FONT_SECONDARY;
     ctx.fillText(device.config.ipv4Address, device.x, labelY);
     labelY += 15;
   }
-  if (device.type === "computer" && state.options.showMacAddresses && device.config?.macAddress) {
+  if (HOST_TYPES.has(device.type) && state.options.showMacAddresses && device.config?.macAddress) {
     ctx.fillStyle = cssColor("--label-mac");
     ctx.font = FONT_SMALL;
     ctx.fillText(device.config.macAddress, device.x, labelY);
     labelY += 13;
   }
-  // VLAN label for computers
-  if (device.type === "computer" && state.options.showIpAddresses) {
+  // VLAN label for hosts (computers and servers)
+  if (HOST_TYPES.has(device.type) && state.options.showIpAddresses) {
     const vlan = getVlanForDevice(device.id);
     if (vlan > 1) {
       const color = vlanColor(vlan);

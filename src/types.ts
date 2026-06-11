@@ -1,4 +1,4 @@
-export type DeviceType = "computer" | "switch" | "router" | "firewall" | "lan";
+export type DeviceType = "computer" | "server" | "switch" | "router" | "firewall" | "lan";
 export type PortMode = "access" | "trunk";
 
 export interface Point {
@@ -110,6 +110,27 @@ export interface ComputerConfig {
   // TCP listener model: undefined = accept connections on any port (permissive
   // teaching default); a list = only these ports answer SYN, others send RST.
   openPorts?: number[];
+  // The resolver (/etc/resolv.conf nameserver). Set by hand or learned via
+  // DHCP option 6. Empty/undefined = names cannot be resolved.
+  dnsServerIp?: string;
+}
+
+// One dnsmasq A-record: `address=/name/ip`.
+export interface DnsRecord {
+  name: string;
+  ip: string;
+}
+
+// A server is a host (same L2/L3 endpoint behaviour as a computer) that also
+// runs dnsmasq — DNS A-records plus DHCP, exactly like the real daemon: DHCP
+// activates when a dhcp-range is set, and stopping the service stops both.
+export interface ServerConfig extends ComputerConfig {
+  dnsmasqRunning?: boolean;     // systemctl start/stop dnsmasq (default true)
+  dnsRecords?: DnsRecord[];     // address=/name/ip lines
+  dhcpRangeStart?: string;      // dhcp-range=<start>,<end> — presence enables DHCP
+  dhcpRangeEnd?: string;
+  dhcpRouterIp?: string;        // dhcp-option=option:router,<ip> (default: the server itself)
+  dhcpLeases?: DhcpLease[];
 }
 
 export interface SwitchConfig {
@@ -125,9 +146,9 @@ export interface SwitchConfig {
 
 // One PAT (overload) translation: an inside flow mapped onto the router's
 // outside interface address. `insidePort`/`outsidePort` hold the TCP source
-// port, or the ICMP sequence used as the flow identifier.
+// port, the ICMP sequence, or the DNS transaction id used as the flow identifier.
 export interface NatEntry {
-  protocol: "icmp" | "tcp";
+  protocol: "icmp" | "tcp" | "udp";
   insideIp: string;
   insidePort: number;
   outsideIp: string;
@@ -176,7 +197,7 @@ export interface FirewallConfig {
 // access sites compile unchanged, while typos and wrong field types are caught.
 // The strict per-type interfaces above type the normalise layer and the
 // asComputer/asSwitch/asRouter/asLan accessors.
-export type DeviceConfig = Partial<ComputerConfig & SwitchConfig & RouterConfig & FirewallConfig & LanConfig>;
+export type DeviceConfig = Partial<ComputerConfig & ServerConfig & SwitchConfig & RouterConfig & FirewallConfig & LanConfig>;
 
 export interface DragState {
   id: string;
@@ -273,6 +294,18 @@ export interface DhcpPayload {
   gatewayIp?: string;
   serverIp?: string;
   requestedIp?: string;
+  dnsServerIp?: string;   // DNS-server option (6) carried in Offer/ACK
+}
+
+// A DNS exchange over UDP/53: one question (an A-record name), one answer
+// (the address, or null = NXDOMAIN). `id` is the transaction identifier —
+// it also serves as the PAT flow id when the query crosses a NAT router.
+export interface DnsPayload {
+  type: "dns";
+  op: "query" | "response";
+  id: number;
+  name: string;
+  address: string | null;
 }
 
 export interface Ipv4Payload {
@@ -280,8 +313,8 @@ export interface Ipv4Payload {
   srcIp: string;
   dstIp: string;
   ttl: number;
-  protocol: number;   // 1 = ICMP, 6 = TCP, 17 = UDP/DHCP
-  payload: IcmpPayload | DhcpPayload | TcpPayload;
+  protocol: number;   // 1 = ICMP, 6 = TCP, 17 = UDP (DHCP/DNS)
+  payload: IcmpPayload | DhcpPayload | TcpPayload | DnsPayload;
 }
 
 export interface EthernetFrame {
@@ -321,7 +354,7 @@ export interface SimLogEntry {
 
 export interface SimulationState {
   status: "idle" | "running" | "paused" | "done";
-  mode: "ping" | "dhcp" | "tcp";
+  mode: "ping" | "dhcp" | "tcp" | "dns";
   events: SimEvent[];
   log: SimLogEntry[];
   transits: ActiveTransit[];
@@ -339,6 +372,10 @@ export interface SimulationState {
   tcpRefused: boolean;               // destination answered RST (port closed)
   tcpTargetPort: number | null;
   headless: boolean;                 // running synchronously (no animation / terminal output)
+  dnsName: string | null;            // name being resolved (DNS flows and ping/tcp-by-name)
+  dnsResolvedIp: string | null;      // the answer, once the DNS response arrives
+  resolveThen: "ping" | "tcp" | null; // follow-on flow the origin starts after resolution
+  dhcpOfferTaken: boolean;           // client accepted an Offer (ignore competing servers)
   dhcpSuccess: boolean;
   dhcpAssignedIp: string | null;
   dhcpAssignedGateway: string | null;

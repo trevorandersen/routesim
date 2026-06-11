@@ -1,6 +1,6 @@
 # RouteSim
 
-A portable, single-file network topology simulator. Build a network of PCs, switches, and routers on an interactive canvas, then open device terminals to run CLI commands like `ping`, `arp -n`, and `show ip interface brief`. The simulator models L2/L3 reachability with VLAN enforcement, ARP/MAC learning, and subnet-aware routing.
+A portable, single-file network topology simulator. Build a network of PCs, servers, switches, routers, and firewalls on an interactive canvas, then open device terminals to run CLI commands like `ping`, `arp -n`, `nslookup`, and `show ip interface brief`. The simulator models L2/L3 reachability with VLAN enforcement, ARP/MAC learning, subnet-aware routing, NAT, netfilter chains, and DNS/DHCP services.
 
 The app builds into a single self-contained **`rs-web.html`** — no server, no runtime dependencies, no network requests. Just open it in a browser. Default topologies and scenarios are built in; configs, scenarios, scripts, and logs import/export as JSON files.
 
@@ -30,23 +30,35 @@ routesim/
 ├── test-server.ts      # Dev server + test/benchmark API (bun)
 ├── tsconfig.json       # TypeScript config (strict, ES2022, no emit)
 ├── template.html       # HTML shell with {{STYLES}} and {{SCRIPT}} placeholders
-├── styles.css          # All CSS (dark/light theme via custom properties)
+├── styles.css          # All CSS (three themes via custom properties)
 ├── rs-web.html         # Build output — the single portable file
-├── IMPROVEMENTS.md     # Notes on improvements made during refactor
+├── docs/               # Architecture, build, testing, scripting, scenario docs
+├── tests/              # Bun test suites + benchmark harness
 └── src/
-    ├── app.ts          # Entry point — wires callbacks, initializes the app
+    ├── app.ts          # Entry point — wires callbacks, initialises the app
     ├── types.ts        # Interfaces and type definitions
     ├── dom.ts          # Typed references to DOM elements
-    ├── utils.ts        # Pure utility functions (IP validation, MAC formatting)
-    ├── normalize.ts    # Data normalization (ARP tables, MAC tables, VLANs, configs)
-    ├── state.ts        # Global state singleton, undo system, callback registry
+    ├── utils.ts        # Pure utility functions (IP/subnet maths, MAC formatting)
+    ├── normalise.ts    # Defensive config normalisation + per-type defaults
+    ├── device-registry.ts # Per-type device spec (label, icon, palette, defaults)
+    ├── state.ts        # Global state singleton, undo/redo, callback registry
     ├── devices.ts      # Device/link CRUD, LAN collapse/expand
-    ├── simulation.ts   # Ping simulation, L2 reachability, ARP/MAC learning
-    ├── terminal.ts     # CLI emulation (Linux-style, IOS-style, switch CLI)
+    ├── engine.ts       # Simulation engine: per-device frame processing
+    ├── routing.ts      # Routing table, longest-prefix match, RIP convergence
+    ├── simulation.ts   # Event builders (ping/TCP/DNS/DHCP), L2 reachability
+    ├── frame.ts        # Ethernet frame factories, labels, colours
+    ├── terminal/       # Per-device CLIs: host, server (dnsmasq), router (FRR), switch (SONiC), firewall (iptables)
+    ├── commands.ts     # Console command engine (also window.routesim + scripts)
+    ├── console.ts      # Command console panel UI
+    ├── scenarios.ts    # Scenario model, registry, goal checking
+    ├── scenario-library.ts # The built-in 16-scenario curriculum
+    ├── scenario-ui.ts  # Scenario goal banner
     ├── canvas.ts       # Canvas rendering (devices, links, labels, pan/zoom)
     ├── inspector.ts    # Right-side panel (device details, metrics, options)
-    ├── config.ts       # Config persistence via File System Access API
-    └── ui.ts           # Event handlers, toolbar, keyboard shortcuts
+    ├── ribbon.ts       # Tabbed ribbon UI
+    ├── io.ts           # JSON import/export (config/scenario/script/log)
+    ├── config.ts       # Topology serialise/apply + built-in topologies
+    └── ui.ts           # Event handlers, tools, keyboard shortcuts
 ```
 
 ## How the build works
@@ -65,17 +77,19 @@ Modules are organized to keep concerns separate while producing a flat IIFE bund
 
 | Module | Responsibility |
 |---|---|
-| `types.ts` | Shared interfaces (`Device`, `Link`, `AppState`, etc.) |
+| `types.ts` | Shared interfaces (`Device`, `Link`, `AppState`, frame payloads, etc.) |
 | `dom.ts` | Cached `getElementById` references, typed |
-| `utils.ts` | Pure functions — IP/MAC validation, subnet math |
-| `normalize.ts` | Sanitize and normalize device configs, ARP/MAC/VLAN tables |
-| `state.ts` | The single `state` object, undo stack, and a **callback registry** for breaking circular deps |
+| `utils.ts` | Pure functions — IP/MAC validation, subnet/prefix maths |
+| `normalise.ts` | Sanitise and normalise device configs, ARP/MAC/VLAN/DNS tables |
+| `device-registry.ts` | One spec per device type: label, name prefix, size, palette, icon, defaults |
+| `state.ts` | The single `state` object, undo/redo stacks, and a **callback registry** for breaking circular deps |
 | `devices.ts` | Add/remove/move devices and links, LAN group logic |
-| `simulation.ts` | `pingFromHost`, L2 BFS reachability, VLAN checks, ARP/MAC learning |
-| `terminal.ts` | Per-device-type CLI emulation (PC: Linux commands, Router: IOS-style, Switch: basic CLI) |
-| `canvas.ts` | `<canvas>` rendering loop — device icons, link lines, labels, selection highlight, grid |
-| `inspector.ts` | Right panel DOM — device details, interface tables, MAC/ARP table views |
-| `config.ts` | Save/load topologies via the File System Access API, config store management |
+| `engine.ts` + `routing.ts` | Frame-level simulation: per-device processors, headless runs, traceroute, routing/RIP |
+| `simulation.ts` | Event builders (`buildPingEvents`/`buildConnectEvents`/`buildResolveEvents`/`buildDhcpEvents`), L2 BFS reachability |
+| `terminal/` | Per-device-type CLIs (PC: Linux; server: dnsmasq; router: FRRouting; switch: SONiC; firewall: iptables) |
+| `canvas.ts` | `<canvas>` rendering loop — device icons, link lines, labels, transit dots, grid |
+| `inspector.ts` | Right panel DOM — device details, service config, MAC/ARP table views |
+| `config.ts` + `io.ts` | Topology serialise/apply, built-in topologies, JSON import/export |
 | `ui.ts` | Mouse/keyboard event wiring, tool switching, drag, zoom, undo shortcuts |
 | `app.ts` | Boots everything — registers cross-module callbacks, loads config, starts render loop |
 
@@ -99,15 +113,17 @@ sync().syncPanel();
 ## Features
 
 - **Canvas editor** — pan, zoom, drag devices, auto-grid snapping
-- **Device types** — computers, switches (managed/unmanaged), routers, firewalls (transparent inline iptables filter)
-- **Connections** — click-to-connect tool with link visualization
-- **PC terminal** — `ip addr`, `ip route`, `ping`, `arp -n`, `clear`
-- **Router terminal** — `show ip interface brief`, `show arp`, interface configuration
-- **Switch terminal** — `show mac-address-table`, managed VLAN support
+- **Device types** — computers, servers (dnsmasq: DNS + DHCP), switches (managed/unmanaged), routers, firewalls (transparent inline iptables filter)
+- **PC terminal** — `ip addr`, `ip route`, `ping`, `traceroute`, `nslookup`, `nc -z`, `arp -n`, `/etc/resolv.conf`
+- **Server terminal** — Linux shell + dnsmasq (`/etc/dnsmasq.conf` directives, `systemctl`)
+- **Router terminal** — FRRouting (vtysh): interfaces, static routes, RIP, NAT/PAT, iptables INPUT/FORWARD
+- **Switch terminal** — SONiC: VLANs, port membership, MAC tables
+- **DNS** — hosts resolve names via real UDP/53 frames before they ping/connect; NXDOMAIN, option 6 via DHCP
 - **Subnet-aware ping** — same-subnet uses L2 BFS; cross-subnet routes through a gateway router
 - **VLAN enforcement** — managed switches enforce VLAN membership on L2 paths
 - **ARP/MAC learning** — ping populates ARP tables on hosts and routers, MAC tables on switches
-- **Undo** — single-level undo for topology and config changes
+- **Scenarios** — a 16-entry guided curriculum with goal checking, every entry solvable (tested)
+- **Undo/redo** — snapshot-based history for topology and config changes
 - **Persistence** — import/export configs, scenarios, scripts, and logs as JSON files
 - **Dark/light theme** — toggle via toolbar, implemented with CSS custom properties
 - **LAN grouping** — collapse multiple devices into a LAN cloud

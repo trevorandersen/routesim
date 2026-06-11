@@ -155,6 +155,16 @@ const SOLUTIONS: Record<string, string> = {
     cli R1 enable
     cli R1 iptables -A INPUT -p icmp -j DROP
   `,
+  "dns-service": `
+    cli PC-A echo nameserver 192.168.1.53 > /etc/resolv.conf
+    cli SRV-1 echo address=/web.corp/192.168.1.80 >> /etc/dnsmasq.conf
+  `,
+  "troubleshoot-dns": `
+    cli SRV-1 echo address=/web.corp/192.168.1.80 >> /etc/dnsmasq.conf
+  `,
+  "server-dhcp": `
+    cli SRV-1 echo dhcp-range=192.168.1.100,192.168.1.200 >> /etc/dnsmasq.conf
+  `,
 };
 
 describe("scenarios — every curriculum entry is solvable", () => {

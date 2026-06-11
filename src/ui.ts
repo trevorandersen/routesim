@@ -150,6 +150,7 @@ export function handleGlobalKeydown(event: KeyboardEvent): void {
   if (event.key === "Delete" || event.key === "Backspace") deleteSelection();
   if (event.key.toLowerCase() === "v") setTool("select");
   if (event.key.toLowerCase() === "c") setTool("computer");
+  if (event.key.toLowerCase() === "e") setTool("server");
   if (event.key.toLowerCase() === "s") setTool("switch");
   if (event.key.toLowerCase() === "r") setTool("router");
   if (event.key.toLowerCase() === "f") setTool("firewall");
@@ -170,7 +171,7 @@ export function setupUI(): void {
     const world = screenToWorld(pointer);
     const device = findDeviceAt(world);
 
-    if (state.tool === "computer" || state.tool === "switch" || state.tool === "router" || state.tool === "firewall") {
+    if (state.tool === "computer" || state.tool === "server" || state.tool === "switch" || state.tool === "router" || state.tool === "firewall") {
       addDevice(state.tool as any, world.x, world.y);
       return;
     }
@@ -357,7 +358,7 @@ export function setupUI(): void {
     "fit": fitNetwork,
     "scenario-check": runActiveScenarioCheck,
     "scenario-dismiss": dismissScenario,
-    "help-shortcuts": () => { dom.hint.textContent = "Shortcuts: V select · C computer · S switch · R router · F firewall · L connect · W configure · Del delete · Esc cancel · Ctrl/Cmd+Z undo · scroll to zoom."; },
+    "help-shortcuts": () => { dom.hint.textContent = "Shortcuts: V select · C computer · E server · S switch · R router · F firewall · L connect · W configure · Del delete · Esc cancel · Ctrl/Cmd+Z undo · scroll to zoom."; },
     "help-commands": () => { closeTerminal(); openConsole(); },
     "help-about": openAbout,
   };

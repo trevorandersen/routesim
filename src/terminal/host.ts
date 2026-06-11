@@ -7,7 +7,7 @@ import { state, sync, pushUndo } from "../state";
 import { dom } from "../dom";
 import { isValidIpv4, parseIpv4Token, prefixOf, clampPrefixLength } from "../utils";
 import { normaliseArpTable, ensureConfig } from "../normalise";
-import { buildPingEvents, buildDhcpEvents, buildConnectEvents } from "../simulation";
+import { buildPingEvents, buildDhcpEvents, buildConnectEvents, buildResolveEvents } from "../simulation";
 import { startSimulation, runTraceroute } from "../engine";
 import { terminalLine } from "./core";
 
@@ -70,6 +70,23 @@ export function setHostGateway(device: Device, address: string): string {
   return `Default gateway set to ${parsed.address}.`;
 }
 
+// The resolver address (/etc/resolv.conf). Shared with the inspector GUI and
+// the console `nameserver` command.
+export function setHostDns(device: Device, address: string): string {
+  const parsed = parseIpv4Token(address);
+  if (!parsed) return `Invalid IPv4 address: ${address}`;
+  pushUndo();
+  ensureConfig(device);
+  device.config.dnsServerIp = parsed.address;
+  sync().syncPanel();
+  return `nameserver ${parsed.address} > /etc/resolv.conf`;
+}
+
+export function showResolvConf(device: Device): string {
+  const ns = device.config?.dnsServerIp;
+  return ns ? `nameserver ${ns}` : "# /etc/resolv.conf is empty (no nameserver configured)";
+}
+
 export function runHostTerminalCommand(host: Device, command: string): void {
   const lower = command.toLowerCase();
   if (lower === "clear") {
@@ -77,20 +94,7 @@ export function runHostTerminalCommand(host: Device, command: string): void {
     return;
   }
   if (lower === "help") {
-    terminalLine("muted", [
-      "Commands:",
-      "  ip addr show",
-      "  ip addr add <ipv4>/24 dev eth0",
-      "  ip addr flush dev eth0",
-      "  ip route show",
-      "  ip route add default via <ipv4> dev eth0",
-      "  arp -n",
-      "  ping <pc-name|ipv4>",
-      "  traceroute <pc-name|ipv4>",
-      "  nc -z <pc-name|ipv4> <port>   (TCP connection test)",
-      "  dhcp",
-      "  clear"
-    ].join("\n"));
+    terminalLine("muted", hostHelpLines().join("\n"));
     return;
   }
   if (lower === "ip" || lower === "ip addr" || lower === "ip address" || lower === "ip addr show" || lower === "ip address show" || lower === "ip addr show dev eth0" || lower === "ip address show dev eth0" || lower === "ip a") {
@@ -105,6 +109,31 @@ export function runHostTerminalCommand(host: Device, command: string): void {
 
   if (lower === "arp" || lower === "arp -a" || lower === "arp -n" || lower === "ip neigh" || lower === "ip neigh show" || lower === "ip neighbour" || lower === "ip neighbour show") {
     terminalLine("", showHostArp(host));
+    return;
+  }
+
+  if (lower === "cat /etc/resolv.conf") {
+    terminalLine("", showResolvConf(host));
+    return;
+  }
+
+  const nsSetMatch = command.match(/^echo\s+['"]?nameserver\s+(\S+?)['"]?\s*>{1,2}\s*\/etc\/resolv\.conf$/i)
+    || command.match(/^set\s+nameserver\s+(\S+)$/i);
+  if (nsSetMatch) {
+    const result = setHostDns(host, nsSetMatch[1]);
+    terminalLine(result.startsWith("Invalid") ? "error" : "", result);
+    return;
+  }
+
+  const lookupMatch = command.match(/^(?:nslookup|host|dig)\s+(\S+)$/i);
+  if (lookupMatch) {
+    const result = buildResolveEvents(host, lookupMatch[1], null, null);
+    if (typeof result === "string") {
+      terminalLine("error", result);
+    } else {
+      startSimulation(result, host.id, lookupMatch[1], "dns");
+      dom.terminalInput.disabled = true;
+    }
     return;
   }
 
@@ -186,12 +215,33 @@ export function runHostTerminalCommand(host: Device, command: string): void {
   terminalLine("error", `${command}: command not found`);
 }
 
+// Shared host command list — the server terminal appends its dnsmasq commands.
+export function hostHelpLines(): string[] {
+  return [
+    "Commands:",
+    "  ip addr show",
+    "  ip addr add <ipv4>/24 dev eth0",
+    "  ip addr flush dev eth0",
+    "  ip route show",
+    "  ip route add default via <ipv4> dev eth0",
+    "  arp -n",
+    "  cat /etc/resolv.conf",
+    "  echo nameserver <ipv4> > /etc/resolv.conf",
+    "  ping <name|ipv4>",
+    "  traceroute <name|ipv4>",
+    "  nslookup <name>               (DNS lookup)",
+    "  nc -z <name|ipv4> <port>      (TCP connection test)",
+    "  dhcp",
+    "  clear"
+  ];
+}
+
 function resolvePingTargetIp(targetText: string): string {
   // If it's already an IP, return it
   if (isValidIpv4(targetText)) return targetText;
   // Otherwise find the target device by name
   const target = state.devices.find(d =>
-    d.type === "computer" && d.name.toLowerCase() === targetText.toLowerCase()
+    (d.type === "computer" || d.type === "server") && d.name.toLowerCase() === targetText.toLowerCase()
   );
   return target?.config?.ipv4Address || targetText;
 }

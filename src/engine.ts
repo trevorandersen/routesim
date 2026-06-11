@@ -1,12 +1,12 @@
-import type { EthernetFrame, ArpPayload, Ipv4Payload, DhcpPayload, TcpPayload, NatEntry, SimEvent, SimLogEntry, ActiveTransit, FrameHistoryEntry, RouteEntry, Device, DeviceType, FirewallRule, FirewallTarget } from "./types";
+import type { EthernetFrame, ArpPayload, Ipv4Payload, DhcpPayload, TcpPayload, DnsPayload, NatEntry, SimEvent, SimLogEntry, ActiveTransit, FrameHistoryEntry, RouteEntry, Device, DeviceType, FirewallRule, FirewallTarget } from "./types";
 import { state, pushUndo, sync } from "./state";
 import { dom } from "./dom";
 import { getDevice, linkedPortsFor, routerInterfacesWithNames } from "./devices";
 import { normalisePortVlans, normalisePortModes, normaliseTrunkAllowedVlans, normaliseArpTable, normaliseMacTable, normaliseDhcpLeases, normaliseStaticRoutes, ensureConfig } from "./normalise";
-import { sameSubnet, prefixOf, isValidIpv4, escapeHtml, ipv4ToInt, normaliseMacAddress } from "./utils";
-import { createArpRequest, createArpReply, createIcmpEchoRequest, createIcmpEchoReply, createIcmpTimeExceeded, createDhcpOffer, createDhcpRequest, createDhcpAck, createTcpSegment, BROADCAST_MAC, frameLabel } from "./frame";
+import { sameSubnet, prefixOf, isValidIpv4, escapeHtml, ipv4ToInt, intToIpv4, normaliseMacAddress } from "./utils";
+import { createArpRequest, createArpReply, createIcmpEchoRequest, createIcmpEchoReply, createIcmpTimeExceeded, createDhcpOffer, createDhcpRequest, createDhcpAck, createTcpSegment, createDnsResponse, BROADCAST_MAC, frameLabel } from "./frame";
 import { terminalLine, syncTerminal } from "./terminal";
-import { buildPingEvents, findPingTarget } from "./simulation";
+import { buildPingEvents, buildResolveEvents, findPingTarget } from "./simulation";
 import type { PingSetup } from "./simulation";
 import { routingLookup, runRipConvergence } from "./routing";
 
@@ -15,7 +15,7 @@ export { buildRoutingTable, routingLookup, runRipConvergence } from "./routing";
 
 // ─── Public API ──────────────────────────────────────────────────────────────
 
-export function startSimulation(setup: PingSetup, originDeviceId: string, targetIp: string, mode: "ping" | "dhcp" | "tcp" = "ping", targetPort: number | null = null): void {
+export function startSimulation(setup: PingSetup, originDeviceId: string, targetIp: string, mode: "ping" | "dhcp" | "tcp" | "dns" = "ping", targetPort: number | null = null): void {
   // Run RIP convergence before simulation to populate learned routes
   runRipConvergence();
   pushUndo();
@@ -30,20 +30,26 @@ export function startSimulation(setup: PingSetup, originDeviceId: string, target
   sim.pendingArp = { ...setup.pendingArp };
   sim.stepIndex = 0;
   sim.originDeviceId = originDeviceId;
-  sim.pingTargetIp = targetIp;
+  sim.pingTargetIp = setup.dns ? null : targetIp;
   sim.pingSuccess = false;
   sim.pingTtl = 64;
   sim.pingResponderIp = null;
   sim.pingTimeExceeded = false;
   sim.tcpSuccess = false;
   sim.tcpRefused = false;
-  sim.tcpTargetPort = targetPort;
+  sim.tcpTargetPort = setup.dns?.port ?? targetPort;
+  sim.dnsName = setup.dns?.name ?? null;
+  sim.dnsResolvedIp = null;
+  sim.resolveThen = setup.dns?.then ?? null;
+  sim.dhcpOfferTaken = false;
   sim.dhcpSuccess = false;
   sim.dhcpAssignedIp = null;
   sim.dhcpAssignedGateway = null;
+  const target = setup.dns ? setup.dns.name : targetIp;
   const label = mode === "dhcp" ? "Requesting DHCP lease..."
-    : mode === "tcp" ? `Opening TCP connection to ${targetIp}:${targetPort ?? "?"}...`
-    : `Simulating ping to ${targetIp}...`;
+    : mode === "tcp" ? `Opening TCP connection to ${target}:${sim.tcpTargetPort ?? "?"}...`
+    : mode === "dns" ? `Resolving ${target}...`
+    : `Simulating ping to ${target}...`;
   state.terminal.lines.push({ kind: "sim", text: label });
   syncTerminal();
   syncSimLog();
@@ -99,6 +105,7 @@ export interface SimResult {
   ttl?: number;
   responderIp?: string | null;   // who answered (echo reply or a router's TTL-exceeded)
   timeExceeded?: boolean;        // the answer was an ICMP Time-Exceeded
+  resolvedIp?: string | null;    // DNS answer (mode "dns" or a by-name ping/tcp flow)
   assignedIp?: string | null;
   assignedGateway?: string | null;
   log: SimLogEntry[];
@@ -109,7 +116,7 @@ export interface SimResult {
 // and returns the result plus the hop-by-hop log. Reuses the same process handlers as
 // the animated path; powers the console `run` command, window.routesim, and tests.
 export function runSimulationHeadless(
-  setup: PingSetup, originDeviceId: string, targetIp: string, mode: "ping" | "dhcp" | "tcp" = "ping", targetPort: number | null = null
+  setup: PingSetup, originDeviceId: string, targetIp: string, mode: "ping" | "dhcp" | "tcp" | "dns" = "ping", targetPort: number | null = null
 ): SimResult {
   runRipConvergence();
   const sim = state.simulation;
@@ -122,14 +129,18 @@ export function runSimulationHeadless(
   sim.pendingArp = { ...setup.pendingArp };
   sim.stepIndex = 0;
   sim.originDeviceId = originDeviceId;
-  sim.pingTargetIp = targetIp;
+  sim.pingTargetIp = setup.dns ? null : targetIp;
   sim.pingSuccess = false;
   sim.pingTtl = 64;
   sim.pingResponderIp = null;
   sim.pingTimeExceeded = false;
   sim.tcpSuccess = false;
   sim.tcpRefused = false;
-  sim.tcpTargetPort = targetPort;
+  sim.tcpTargetPort = setup.dns?.port ?? targetPort;
+  sim.dnsName = setup.dns?.name ?? null;
+  sim.dnsResolvedIp = null;
+  sim.resolveThen = setup.dns?.then ?? null;
+  sim.dhcpOfferTaken = false;
   sim.dhcpSuccess = false;
   sim.dhcpAssignedIp = null;
   sim.dhcpAssignedGateway = null;
@@ -150,11 +161,15 @@ export function runSimulationHeadless(
   if ((sim.status as string) !== "done") finishSimulation();
 
   return {
-    success: mode === "dhcp" ? sim.dhcpSuccess : mode === "tcp" ? sim.tcpSuccess : sim.pingSuccess,
+    success: mode === "dhcp" ? sim.dhcpSuccess
+      : mode === "tcp" ? sim.tcpSuccess
+      : mode === "dns" ? sim.dnsResolvedIp != null
+      : sim.pingSuccess,
     refused: sim.tcpRefused,
     ttl: sim.pingTtl,
     responderIp: sim.pingResponderIp,
     timeExceeded: sim.pingTimeExceeded,
+    resolvedIp: sim.dnsResolvedIp,
     assignedIp: sim.dhcpAssignedIp,
     assignedGateway: sim.dhcpAssignedGateway,
     log: sim.log,
@@ -170,19 +185,29 @@ export interface TracerouteResult { targetIp: string; hops: TracerouteHop[]; rea
 // destination's Echo Reply (final hop). Reuses runSimulationHeadless per probe.
 export function runTraceroute(source: Device, targetText: string, maxHops = 30): TracerouteResult | string {
   const target = findPingTarget(targetText);
-  const targetIp = target ? (target.config?.ipv4Address || targetText)
-    : (isValidIpv4(targetText.trim()) ? targetText.trim() : targetText.trim());
+  let targetIp = target ? (target.config?.ipv4Address || targetText) : targetText.trim();
+  if (!target && !isValidIpv4(targetIp)) {
+    // A real hostname: resolve it headlessly via the configured nameserver
+    // (real DNS frames), then trace the answer.
+    const lookup = buildResolveEvents(source, targetIp, null, null);
+    if (typeof lookup === "string") return `traceroute: unknown host ${targetIp}`;
+    const res = runSimulationHeadless(lookup, source.id, targetIp, "dns");
+    if (!res.resolvedIp) return `traceroute: unknown host ${targetIp}`;
+    targetIp = res.resolvedIp;
+  }
   // Warm ARP along the path first: a router's Time-Exceeded can't be delivered
   // on a cold ARP cache within a single headless probe, which would show false
   // "* no response" hops. A real router always answers TTL-exceeded, and
   // traceroute populating ARP as a side effect is itself realistic.
-  const warm = buildPingEvents(source, targetText);
+  // Probes target the resolved IP directly (per-probe TTLs must apply to the
+  // ICMP leg, not a DNS round-trip).
+  const warm = buildPingEvents(source, targetIp);
   if (typeof warm !== "string") runSimulationHeadless(warm, source.id, targetIp, "ping");
 
   const hops: TracerouteHop[] = [];
   let reached = false;
   for (let ttl = 1; ttl <= maxHops; ttl++) {
-    const setup = buildPingEvents(source, targetText, { ttl });
+    const setup = buildPingEvents(source, targetIp, { ttl });
     if (typeof setup === "string") return setup; // validation error (e.g. cannot resolve / no gateway)
     const res = runSimulationHeadless(setup, source.id, targetIp, "ping");
     if (res.success) {
@@ -328,6 +353,7 @@ export interface OutgoingFrame {
 // Frame processing per device type; a type absent here (e.g. lan) ignores frames.
 const PROCESSORS: Partial<Record<DeviceType, (device: Device, frame: EthernetFrame, fromDeviceId: string | null) => OutgoingFrame[]>> = {
   computer: processAtComputer,
+  server: processAtServer,
   switch: processAtSwitch,
   router: processAtRouter,
   firewall: processAtFirewall,
@@ -450,12 +476,40 @@ export function processAtComputer(device: Device, frame: EthernetFrame, fromDevi
       } else if (tcp.flags === "ack") {
         logStep(device, "sim-tcp", `TCP ACK from ${ipv4.srcIp} — handshake complete`);
       }
+    } else if (ipv4.payload.type === "dns") {
+      const dns = ipv4.payload as DnsPayload;
+      if (ipv4.dstIp !== config.ipv4Address) return outgoing; // not for us
+      if (dns.op === "response" && device.id === sim.originDeviceId && dns.name === sim.dnsName) {
+        if (dns.address) {
+          sim.dnsResolvedIp = dns.address;
+          logStep(device, "sim-dns", `DNS: ${dns.name} is ${dns.address}`);
+          // Resolve-then-act: launch the flow the name lookup was for.
+          if (sim.resolveThen && fromDeviceId) {
+            sim.pingTargetIp = dns.address;
+            const followOn = buildFollowOnFrames(device, config, dns.address, sim.resolveThen, sim.tcpTargetPort, frame.vlanTag);
+            if (typeof followOn === "string") {
+              logStep(device, "sim-drop", followOn);
+            } else {
+              for (const f of followOn) outgoing.push({ frame: f, toDeviceId: fromDeviceId });
+            }
+          }
+        } else {
+          logStep(device, "sim-drop", `DNS: ${dns.name} — NXDOMAIN (no such name)`);
+        }
+      }
     } else if (ipv4.payload.type === "dhcp") {
       const dhcp = ipv4.payload as DhcpPayload;
       // Only process DHCP meant for this client
       if (dhcp.clientMac !== config.macAddress) return outgoing;
 
       if (dhcp.messageType === "offer") {
+        // First offer wins: with several DHCP servers on the segment the
+        // client requests from whoever answered first and ignores the rest.
+        if (sim.dhcpOfferTaken) {
+          logStep(device, "sim-dhcp", `Ignoring competing DHCP Offer from ${dhcp.serverIp} (already requesting)`);
+          return outgoing;
+        }
+        sim.dhcpOfferTaken = true;
         logStep(device, "sim-dhcp", `Received DHCP Offer: ${dhcp.assignedIp} from ${dhcp.serverIp}`);
         const request = createDhcpRequest(config.macAddress, dhcp.assignedIp!, dhcp.serverIp!, dhcp.transactionId, frame.vlanTag);
         if (fromDeviceId) outgoing.push({ frame: request, toDeviceId: fromDeviceId });
@@ -464,6 +518,7 @@ export function processAtComputer(device: Device, frame: EthernetFrame, fromDevi
         config.ipv4Address = dhcp.assignedIp || "";
         if (dhcp.prefixLength != null) config.prefixLength = dhcp.prefixLength; // subnet-mask option
         config.gatewayIpv4Address = dhcp.gatewayIp || "";
+        if (dhcp.dnsServerIp) config.dnsServerIp = dhcp.dnsServerIp; // DNS option (6)
         // Learn router MAC in ARP table
         if (dhcp.gatewayIp && frame.srcMac && frame.srcMac !== BROADCAST_MAC) {
           learnArp(config, dhcp.gatewayIp, frame.srcMac);
@@ -476,6 +531,134 @@ export function processAtComputer(device: Device, frame: EthernetFrame, fromDevi
   }
 
   return outgoing;
+}
+
+// After a DNS answer, the origin host starts the flow it resolved the name
+// for: an ICMP echo (ping) or a TCP SYN (nc). Same next-hop decision as the
+// setup builders — on-subnet direct, otherwise via the default gateway — with
+// the real frame buffered behind an ARP request when the MAC is unknown.
+function buildFollowOnFrames(device: Device, config: any, dstIp: string, then: "ping" | "tcp", port: number | null, vlanTag: number | null): EthernetFrame[] | string {
+  const sim = state.simulation;
+  const srcIp = config.ipv4Address;
+  const srcMac = config.macAddress;
+  let nextHopIp = dstIp;
+  if (!sameSubnet(srcIp, dstIp, prefixOf(config))) {
+    if (!config.gatewayIpv4Address) return `Cannot reach ${dstIp} — no default gateway`;
+    nextHopIp = config.gatewayIpv4Address;
+  }
+  const srcPort = 30000 + (sim.stepIndex % 20000); // deterministic ephemeral port
+  const make = (dstMac: string) => then === "tcp"
+    ? createTcpSegment(srcMac, dstMac, srcIp, dstIp, srcPort, port ?? 80, "syn", 64, vlanTag)
+    : createIcmpEchoRequest(srcMac, dstMac, srcIp, dstIp, 64, vlanTag);
+  const arpEntry = (config.arpTable || []).find((e: any) => e.ipv4Address === nextHopIp);
+  if (arpEntry) return [make(arpEntry.macAddress)];
+  const pendingKey = `${device.id}:${nextHopIp}`;
+  if (!sim.pendingArp[pendingKey]) sim.pendingArp[pendingKey] = [];
+  sim.pendingArp[pendingKey].push(make("00:00:00:00:00:00"));
+  return [createArpRequest(srcMac, srcIp, nextHopIp, vlanTag)];
+}
+
+// ─── Server processing (dnsmasq: DNS + DHCP) ─────────────────────────────────
+
+// A server is a host that also runs dnsmasq. Service frames (DNS queries to
+// its address, DHCP broadcasts) are answered here; everything else — ARP,
+// ICMP, TCP, its own client flows — falls through to the host handler.
+export function processAtServer(device: Device, frame: EthernetFrame, fromDeviceId: string | null): OutgoingFrame[] {
+  const config = device.config;
+  if (!device.poweredOff && config && frame.payload.type === "ipv4") {
+    const ipv4 = frame.payload as Ipv4Payload;
+    const running = config.dnsmasqRunning !== false;
+
+    // DHCP: dnsmasq serves leases once a dhcp-range is configured.
+    if (running && ipv4.dstIp === "255.255.255.255" && ipv4.payload.type === "dhcp"
+        && config.dhcpRangeStart && config.dhcpRangeEnd && config.ipv4Address) {
+      return handleServerDhcp(device, fromDeviceId!, ipv4.payload as DhcpPayload, frame);
+    }
+
+    // DNS: answer A-record queries addressed to this server.
+    if (ipv4.payload.type === "dns" && ipv4.payload.op === "query" && ipv4.dstIp === config.ipv4Address) {
+      if (!running) {
+        logStep(device, "sim-drop", `DNS query for ${ipv4.payload.name} — dnsmasq is not running`);
+        return [];
+      }
+      if (!hostHasReturnRoute(config, ipv4.srcIp)) {
+        logStep(device, "sim-drop", `Cannot answer ${ipv4.srcIp} — no route (no default gateway)`);
+        return [];
+      }
+      learnArp(config, ipv4.srcIp, frame.srcMac);
+      const dns = ipv4.payload as DnsPayload;
+      const record = (config.dnsRecords || []).find(r => r.name === dns.name.toLowerCase());
+      const address = record?.ip ?? null;
+      logStep(device, address ? "sim-dns" : "sim-drop",
+        address ? `DNS query: ${dns.name} → ${address}` : `DNS query: ${dns.name} — NXDOMAIN`);
+      const reply = createDnsResponse(config.macAddress || "", frame.srcMac,
+        config.ipv4Address || "", ipv4.srcIp, dns.name, address, dns.id, 64, frame.vlanTag);
+      return fromDeviceId ? [{ frame: reply, toDeviceId: fromDeviceId }] : [];
+    }
+  }
+  return processAtComputer(device, frame, fromDeviceId);
+}
+
+// The dnsmasq DHCP side: offer an address from the configured dhcp-range,
+// ACK requests addressed to this server, and hand out the subnet mask, the
+// router option (option:router, defaulting to the server itself — dnsmasq's
+// own default) and this server as the nameserver (option 6).
+function handleServerDhcp(device: Device, fromDeviceId: string, dhcp: DhcpPayload, frame: EthernetFrame): OutgoingFrame[] {
+  const outgoing: OutgoingFrame[] = [];
+  const config = device.config;
+  const serverIp = config.ipv4Address || "";
+  const routerIp = config.dhcpRouterIp || serverIp;
+
+  if (dhcp.messageType === "discover") {
+    const allocatedIp = allocateServerDhcpIp(device);
+    if (!allocatedIp) {
+      logStep(device, "sim-drop", `DHCP Discover from ${dhcp.clientMac}: no addresses available in dhcp-range`);
+      return outgoing;
+    }
+    logStep(device, "sim-dhcp", `DHCP Discover from ${dhcp.clientMac} — offering ${allocatedIp}`);
+    const offer = createDhcpOffer(config.macAddress || "", serverIp, dhcp.clientMac, allocatedIp,
+      dhcp.transactionId, frame.vlanTag, prefixOf(config), routerIp, serverIp);
+    outgoing.push({ frame: offer, toDeviceId: fromDeviceId });
+  } else if (dhcp.messageType === "request") {
+    // Only ACK requests addressed to this server (the client may have taken a
+    // competing server's offer).
+    if (dhcp.serverIp && dhcp.serverIp !== serverIp) return outgoing;
+    const requestedIp = dhcp.requestedIp || "";
+    if (!Array.isArray(config.dhcpLeases)) config.dhcpLeases = [];
+    config.dhcpLeases = normaliseDhcpLeases(config.dhcpLeases);
+    const existingLease = config.dhcpLeases.find(l => l.macAddress === dhcp.clientMac);
+    if (existingLease) existingLease.ipv4Address = requestedIp;
+    else config.dhcpLeases.push({ macAddress: dhcp.clientMac, ipv4Address: requestedIp });
+    learnArp(config, requestedIp, dhcp.clientMac);
+    logStep(device, "sim-dhcp", `DHCP Request from ${dhcp.clientMac} for ${requestedIp} — sending ACK`);
+    const ack = createDhcpAck(config.macAddress || "", serverIp, dhcp.clientMac, requestedIp,
+      dhcp.transactionId, frame.vlanTag, prefixOf(config), routerIp, serverIp);
+    outgoing.push({ frame: ack, toDeviceId: fromDeviceId });
+  }
+
+  return outgoing;
+}
+
+// Allocate the next free address in [dhcp-range start, end], skipping the
+// server's own address, existing leases, and any device's static IP.
+function allocateServerDhcpIp(device: Device): string | null {
+  const config = device.config;
+  const start = ipv4ToInt(config.dhcpRangeStart!);
+  const end = ipv4ToInt(config.dhcpRangeEnd!);
+  if (end < start) return null;
+  const used = new Set<string>();
+  if (config.ipv4Address) used.add(config.ipv4Address);
+  for (const lease of normaliseDhcpLeases(config.dhcpLeases || [])) used.add(lease.ipv4Address);
+  for (const d of state.devices) {
+    if (d.hidden) continue;
+    const ip = d.config?.ipv4Address;
+    if (ip && isValidIpv4(ip)) used.add(ip);
+  }
+  for (let i = start; i <= end; i++) {
+    const candidate = intToIpv4(i);
+    if (!used.has(candidate)) return candidate;
+  }
+  return null;
 }
 
 // ─── Switch processing ───────────────────────────────────────────────────────
@@ -733,6 +916,9 @@ function handleRouterDhcp(device: Device, ingressIface: any, fromDeviceId: strin
     );
     outgoing.push({ frame: offer, toDeviceId: fromDeviceId });
   } else if (dhcp.messageType === "request") {
+    // Only ACK requests addressed to this server — the client may have taken
+    // a competing DHCP server's offer (its Request names that server).
+    if (dhcp.serverIp && dhcp.serverIp !== ingressIface.ipv4Address) return outgoing;
     const requestedIp = dhcp.requestedIp || "";
     // Record lease
     if (!ingressIface.dhcpLeases) ingressIface.dhcpLeases = [];
@@ -803,6 +989,16 @@ function natTranslateOutbound(device: Device, ipv4: Ipv4Payload, egressIface: an
     }
     return { ...ipv4, srcIp: outsideIp, payload: { ...tcp, srcPort: entry.outsidePort } };
   }
+  if (ipv4.payload.type === "dns" && ipv4.payload.op === "query") {
+    // UDP/53: the DNS transaction id is the flow identifier.
+    const dns = ipv4.payload;
+    let entry = translations.find(t => t.protocol === "udp" && t.insideIp === ipv4.srcIp && t.insidePort === dns.id && t.destIp === ipv4.dstIp);
+    if (!entry) {
+      entry = { protocol: "udp", insideIp: ipv4.srcIp, insidePort: dns.id, outsideIp, outsidePort: allocNatId(translations), destIp: ipv4.dstIp };
+      translations.push(entry);
+    }
+    return { ...ipv4, srcIp: outsideIp, payload: { ...dns, id: entry.outsidePort } };
+  }
   return null;
 }
 
@@ -822,6 +1018,11 @@ function natRestoreInbound(device: Device, ipv4: Ipv4Payload, ifaces: any[]): Ip
     const tcp = ipv4.payload;
     const entry = translations.find(t => t.protocol === "tcp" && t.outsidePort === tcp.dstPort && t.destIp === ipv4.srcIp);
     if (entry) return { ...ipv4, dstIp: entry.insideIp, payload: { ...tcp, dstPort: entry.insidePort } };
+  }
+  if (ipv4.payload.type === "dns" && ipv4.payload.op === "response") {
+    const dns = ipv4.payload;
+    const entry = translations.find(t => t.protocol === "udp" && t.outsidePort === dns.id && t.destIp === ipv4.srcIp);
+    if (entry) return { ...ipv4, dstIp: entry.insideIp, payload: { ...dns, id: entry.insidePort } };
   }
   return null;
 }
@@ -1124,26 +1325,45 @@ function finishSimulation(): void {
       sim.dhcpAssignedIp = apipaIp;
       if (!sim.headless) terminalLine("error", `DHCP: no response from server.\nAPIPA: assigned link-local ${apipaIp}`);
     }
+  } else if (sim.mode === "dns") {
+    if (!sim.headless) {
+      const origin = getDevice(sim.originDeviceId);
+      const server = origin?.config?.dnsServerIp || "?";
+      if (sim.dnsResolvedIp) {
+        terminalLine("", `Server:\t\t${server}\nAddress:\t${server}#53\n\nName:\t${sim.dnsName}\nAddress: ${sim.dnsResolvedIp}`);
+      } else if (sim.log.some(e => e.kind === "sim-drop" && e.action.includes("NXDOMAIN"))) {
+        terminalLine("error", `** server can't find ${sim.dnsName}: NXDOMAIN`);
+      } else {
+        terminalLine("error", `;; connection timed out; no servers could be reached`);
+      }
+    }
   } else if (sim.mode === "tcp") {
     if (!sim.headless) {
-      const targetIp = sim.pingTargetIp || "?";
+      const target = sim.pingTargetIp || sim.dnsName || "?";
       const port = sim.tcpTargetPort ?? "?";
-      if (sim.tcpSuccess) {
-        terminalLine("", `Connection to ${targetIp} ${port} port [tcp/*] succeeded!`);
+      if (sim.dnsName && !sim.dnsResolvedIp) {
+        terminalLine("error", `nc: getaddrinfo for host "${sim.dnsName}" port ${port}: Name or service not known`);
+      } else if (sim.tcpSuccess) {
+        terminalLine("", `Connection to ${target} ${port} port [tcp/*] succeeded!`);
       } else if (sim.tcpRefused) {
-        terminalLine("error", `nc: connect to ${targetIp} port ${port} (tcp) failed: Connection refused`);
+        terminalLine("error", `nc: connect to ${target} port ${port} (tcp) failed: Connection refused`);
       } else {
-        terminalLine("error", `nc: connect to ${targetIp} port ${port} (tcp) failed: Operation timed out`);
+        terminalLine("error", `nc: connect to ${target} port ${port} (tcp) failed: Operation timed out`);
       }
     }
   } else if (!sim.headless) {
-    const targetIp = sim.pingTargetIp || "?";
-    if (sim.pingSuccess) {
-      const ttl = sim.pingTtl;
-      const rtt = sim.stepIndex < 15 ? "1.0" : "2.0";
-      terminalLine("", `PING ${targetIp}\n64 bytes from ${targetIp}: icmp_seq=1 ttl=${ttl} time=${rtt} ms\n\n--- ${targetIp} ping statistics ---\n1 packets transmitted, 1 received, 0% packet loss`);
+    if (sim.dnsName && !sim.dnsResolvedIp) {
+      terminalLine("error", `ping: ${sim.dnsName}: Name or service not known`);
     } else {
-      terminalLine("", `PING ${targetIp}\n\n--- ${targetIp} ping statistics ---\n1 packets transmitted, 0 received, 100% packet loss`);
+      const targetIp = sim.pingTargetIp || "?";
+      const name = sim.dnsName ? `${sim.dnsName} (${targetIp})` : targetIp;
+      if (sim.pingSuccess) {
+        const ttl = sim.pingTtl;
+        const rtt = sim.stepIndex < 15 ? "1.0" : "2.0";
+        terminalLine("", `PING ${name}\n64 bytes from ${targetIp}: icmp_seq=1 ttl=${ttl} time=${rtt} ms\n\n--- ${name} ping statistics ---\n1 packets transmitted, 1 received, 0% packet loss`);
+      } else {
+        terminalLine("", `PING ${name}\n\n--- ${name} ping statistics ---\n1 packets transmitted, 0 received, 100% packet loss`);
+      }
     }
   }
 

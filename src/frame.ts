@@ -1,4 +1,4 @@
-import type { EthernetFrame, ArpPayload, Ipv4Payload, IcmpPayload, DhcpPayload, TcpPayload, TcpFlags } from "./types";
+import type { EthernetFrame, ArpPayload, Ipv4Payload, IcmpPayload, DhcpPayload, TcpPayload, TcpFlags, DnsPayload } from "./types";
 
 let frameCounter = 0;
 function nextFrameId(): string {
@@ -127,14 +127,42 @@ export function createTcpSegment(
   return { id: nextFrameId(), srcMac, dstMac, etherType: 0x0800, vlanTag, payload: ipv4 };
 }
 
+// DNS over UDP/53 (protocol 17). One question per query; the response carries
+// the A-record address or null (NXDOMAIN). The id doubles as the PAT flow id.
+let dnsIdCounter = 0;
+
+export function createDnsQuery(
+  srcMac: string, dstMac: string,
+  srcIp: string, dstIp: string,
+  name: string,
+  id: number = ++dnsIdCounter,
+  ttl = 64, vlanTag: number | null = null
+): EthernetFrame {
+  const dns: DnsPayload = { type: "dns", op: "query", id, name, address: null };
+  const ipv4: Ipv4Payload = { type: "ipv4", srcIp, dstIp, ttl, protocol: 17, payload: dns };
+  return { id: nextFrameId(), srcMac, dstMac, etherType: 0x0800, vlanTag, payload: ipv4 };
+}
+
+export function createDnsResponse(
+  srcMac: string, dstMac: string,
+  srcIp: string, dstIp: string,
+  name: string, address: string | null,
+  id: number,
+  ttl = 64, vlanTag: number | null = null
+): EthernetFrame {
+  const dns: DnsPayload = { type: "dns", op: "response", id, name, address };
+  const ipv4: Ipv4Payload = { type: "ipv4", srcIp, dstIp, ttl, protocol: 17, payload: dns };
+  return { id: nextFrameId(), srcMac, dstMac, etherType: 0x0800, vlanTag, payload: ipv4 };
+}
+
 export function createDhcpDiscover(clientMac: string, transactionId: string, vlanTag: number | null = null): EthernetFrame {
   const dhcp: DhcpPayload = { type: "dhcp", messageType: "discover", transactionId, clientMac };
   const ipv4: Ipv4Payload = { type: "ipv4", srcIp: "0.0.0.0", dstIp: "255.255.255.255", ttl: 64, protocol: 17, payload: dhcp };
   return { id: nextFrameId(), srcMac: clientMac, dstMac: BROADCAST_MAC, etherType: 0x0800, vlanTag, payload: ipv4 };
 }
 
-export function createDhcpOffer(serverMac: string, serverIp: string, clientMac: string, assignedIp: string, transactionId: string, vlanTag: number | null = null, prefixLength?: number): EthernetFrame {
-  const dhcp: DhcpPayload = { type: "dhcp", messageType: "offer", transactionId, clientMac, assignedIp, prefixLength, gatewayIp: serverIp, serverIp };
+export function createDhcpOffer(serverMac: string, serverIp: string, clientMac: string, assignedIp: string, transactionId: string, vlanTag: number | null = null, prefixLength?: number, gatewayIp: string = serverIp, dnsServerIp?: string): EthernetFrame {
+  const dhcp: DhcpPayload = { type: "dhcp", messageType: "offer", transactionId, clientMac, assignedIp, prefixLength, gatewayIp, serverIp, ...(dnsServerIp ? { dnsServerIp } : {}) };
   const ipv4: Ipv4Payload = { type: "ipv4", srcIp: serverIp, dstIp: "255.255.255.255", ttl: 64, protocol: 17, payload: dhcp };
   return { id: nextFrameId(), srcMac: serverMac, dstMac: BROADCAST_MAC, etherType: 0x0800, vlanTag, payload: ipv4 };
 }
@@ -145,8 +173,8 @@ export function createDhcpRequest(clientMac: string, requestedIp: string, server
   return { id: nextFrameId(), srcMac: clientMac, dstMac: BROADCAST_MAC, etherType: 0x0800, vlanTag, payload: ipv4 };
 }
 
-export function createDhcpAck(serverMac: string, serverIp: string, clientMac: string, assignedIp: string, transactionId: string, vlanTag: number | null = null, prefixLength?: number): EthernetFrame {
-  const dhcp: DhcpPayload = { type: "dhcp", messageType: "ack", transactionId, clientMac, assignedIp, prefixLength, gatewayIp: serverIp, serverIp };
+export function createDhcpAck(serverMac: string, serverIp: string, clientMac: string, assignedIp: string, transactionId: string, vlanTag: number | null = null, prefixLength?: number, gatewayIp: string = serverIp, dnsServerIp?: string): EthernetFrame {
+  const dhcp: DhcpPayload = { type: "dhcp", messageType: "ack", transactionId, clientMac, assignedIp, prefixLength, gatewayIp, serverIp, ...(dnsServerIp ? { dnsServerIp } : {}) };
   const ipv4: Ipv4Payload = { type: "ipv4", srcIp: serverIp, dstIp: "255.255.255.255", ttl: 64, protocol: 17, payload: dhcp };
   return { id: nextFrameId(), srcMac: serverMac, dstMac: BROADCAST_MAC, etherType: 0x0800, vlanTag, payload: ipv4 };
 }
@@ -164,6 +192,9 @@ export function frameLabel(frame: EthernetFrame): string {
     } else if (ipv4.payload.type === "tcp") {
       const labels: Record<string, string> = { "syn": "TCP SYN", "syn-ack": "TCP SYN-ACK", "ack": "TCP ACK", "rst": "TCP RST" };
       label = labels[ipv4.payload.flags] || "TCP";
+    } else if (ipv4.payload.type === "dns") {
+      label = ipv4.payload.op === "query" ? "DNS Query"
+        : ipv4.payload.address ? "DNS Answer" : "DNS NXDOMAIN";
     } else if (ipv4.payload.type === "icmp") {
       label = ipv4.payload.icmpType === 8 ? "ICMP Echo"
         : ipv4.payload.icmpType === 11 ? "ICMP TTL Exceeded"
@@ -180,6 +211,7 @@ export function frameColor(frame: EthernetFrame): string {
   if (frame.payload.type === "arp") return "#f59e0b";    // amber
   const ipv4 = frame.payload as Ipv4Payload;
   if (ipv4.payload.type === "dhcp") return "#a78bfa";    // violet
+  if (ipv4.payload.type === "dns") return ipv4.payload.op === "response" && !ipv4.payload.address ? "#ef4444" : "#22d3ee"; // cyan (NXDOMAIN red)
   if (ipv4.payload.type === "tcp") return ipv4.payload.flags === "rst" ? "#ef4444" : "#fb923c"; // orange (RST red)
   if (ipv4.payload.type === "icmp" && ipv4.payload.icmpType === 8) return "#3b82f6"; // blue
   if (ipv4.payload.type === "icmp" && ipv4.payload.icmpType === 11) return "#ef4444"; // red (TTL exceeded)

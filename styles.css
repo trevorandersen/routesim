@@ -37,6 +37,10 @@
       --pc-stroke: #3b82c4;
       --pc-accent: #1d334d;
       --pc-icon: #8db7e8;
+      --server-fill: #221a33;
+      --server-stroke: #8a63d2;
+      --server-accent: #2e2347;
+      --server-icon: #bda4ec;
       --switch-fill: #122824;
       --switch-stroke: #1f8f86;
       --switch-accent: #173a35;
@@ -93,6 +97,10 @@
       --pc-stroke: #3264a8;
       --pc-accent: #e6edf6;
       --pc-icon: #244c84;
+      --server-fill: #f8f5fc;
+      --server-stroke: #6d4fc0;
+      --server-accent: #ebe3f8;
+      --server-icon: #4b3590;
       --switch-fill: #f6faf2;
       --switch-stroke: #14746f;
       --switch-accent: #dff0ea;
@@ -147,6 +155,10 @@
       --pc-stroke: #bcd8ff;
       --pc-accent: #1a4ea3;
       --pc-icon: #dcebff;
+      --server-fill: #123f8f;
+      --server-stroke: #d9bfff;
+      --server-accent: #1a4ea3;
+      --server-icon: #eee0ff;
       --switch-fill: #123f8f;
       --switch-stroke: #8ee0ff;
       --switch-accent: #1a4ea3;
@@ -1224,6 +1236,7 @@
     .terminal-line.sim-dhcp  { color: #a78bfa; }
     .terminal-line.sim-tcp   { color: #fb923c; }
     .terminal-line.sim-nat   { color: #2dd4bf; }
+    .terminal-line.sim-dns   { color: #22d3ee; }
 
     /* ─── Simulation log panel ────────────────────────────── */
 
@@ -1293,6 +1306,7 @@
     .sim-log-line.sim-forward { color: #7dd3fc; }
     .sim-log-line.sim-tcp     { color: #fb923c; }
     .sim-log-line.sim-nat     { color: #2dd4bf; }
+    .sim-log-line.sim-dns     { color: #22d3ee; }
     .sim-log-line.sim-drop    { color: #f87171; }
     .sim-log-line.sim-dhcp    { color: #a78bfa; }
 

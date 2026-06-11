@@ -97,6 +97,10 @@ export const state: AppState = {
     tcpRefused: false,
     tcpTargetPort: null,
     headless: false,
+    dnsName: null,
+    dnsResolvedIp: null,
+    resolveThen: null,
+    dhcpOfferTaken: false,
     dhcpSuccess: false,
     dhcpAssignedIp: null,
     dhcpAssignedGateway: null
@@ -107,6 +111,7 @@ export const state: AppState = {
 export const toolCopy: Record<string, [string, string]> = {
   select: ["Select and move devices", "Drag devices to arrange the network."],
   computer: ["Add computer", "Click the canvas to place a computer."],
+  server: ["Add server", "Click the canvas to place a server (DNS/DHCP via dnsmasq)."],
   switch: ["Add switch", "Click the canvas to place a switch."],
   connect: ["Connect devices", "Click one device, then another device to connect them."],
   router: ["Add router", "Click the canvas to place a router."],

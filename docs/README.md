@@ -1,6 +1,6 @@
 # RouteSim — Documentation
 
-RouteSim is an interactive network topology simulator: a canvas-based editor where you build networks of computers, switches, and routers, then run a discrete, frame-level ping/DHCP simulation that animates real Ethernet frames (ARP, ICMP, DHCP) hop-by-hop. Each device has an IOS-/Linux-style CLI terminal.
+RouteSim is an interactive network topology simulator: a canvas-based editor where you build networks of computers, servers, switches, routers, and firewalls, then run a discrete, frame-level simulation that animates real Ethernet frames (ARP, ICMP, DHCP, DNS, TCP) hop-by-hop. Each device has a CLI terminal modelled on a real open-source NOS.
 
 It is a single-page app with **no framework and no runtime dependencies** — it builds to one portable HTML file. The toolchain is just two binaries: `esbuild` (bundler) and `bun` (runtime, test runner, dev server, build inliner).
 
@@ -25,7 +25,7 @@ It is a single-page app with **no framework and no runtime dependencies** — it
 | `src/ui.ts` | [ui.md](src/ui.md) | Event wiring, tool switching, theme, keyboard shortcuts |
 | `src/canvas.ts` | [canvas.md](src/canvas.md) | All `<canvas>` drawing, pan/zoom, the render loop |
 | `src/inspector.ts` | [inspector.md](src/inspector.md) | Right panel: device config + link history |
-| `src/terminal/` | [terminal.md](src/terminal.md) | Per-device CLI: core dispatch/UI + host/router/switch/firewall modules |
+| `src/terminal/` | [terminal.md](src/terminal.md) | Per-device CLI: core dispatch/UI + host/server/router/switch/firewall modules |
 | `src/devices.ts` | [devices.md](src/devices.md) | Device/link CRUD, hit-testing, lookup indexes, LAN grouping |
 | `src/config.ts` | [config.md](src/config.md) | Save/load `config.json`, built-in + embedded configs |
 | `src/engine.ts` | [engine.md](src/engine.md) | The simulation engine: per-device frame processing, headless runs, traceroute |
@@ -33,6 +33,7 @@ It is a single-page app with **no framework and no runtime dependencies** — it
 | `src/device-registry.ts` | [architecture.md](architecture.md) | Per-type device spec: label, name prefix, size, palette, icon, defaults |
 | (firewall) | [firewall.md](src/firewall.md) | The transparent inline firewall device + router INPUT/FORWARD chains |
 | (NAT) | [nat.md](src/nat.md) | Source NAT / PAT on routers: interface marks, translation table, return-path restore |
+| (DNS/server) | [dns.md](src/dns.md) | The server device (dnsmasq): DNS A-records, name resolution flows, server-side DHCP |
 | `src/commands.ts` | [scripting.md](scripting.md) | The text-command engine (parser, verb registry, topology export) |
 | `src/console.ts` | [scripting.md](scripting.md) | The command console panel UI |
 | `src/scenarios.ts` | [scenarios.md](scenarios.md) | Scenario data model, registry, and goal checking |

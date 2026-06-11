@@ -3,7 +3,7 @@ import { state, sync, pushUndo, captureUndoOnFocus } from "./state";
 import { DEVICE_SPECS } from "./device-registry";
 import { dom } from "./dom";
 import { escapeHtml, isValidIpv4, isValidMac, normaliseMacAddress, randomMac, parseIpv4Token } from "./utils";
-import { ensureConfig, normaliseVlans } from "./normalise";
+import { ensureConfig, normaliseVlans, normaliseDnsRecords, normaliseDhcpLeases } from "./normalise";
 import {
   getDevice, isVisibleDevice, connectedIds, linkedPortsFor,
   routerInterfacesWithNames, routerInterfaceFor, switchInterfacesWithNames,
@@ -150,6 +150,127 @@ export function renderFirewallRules(device: any): string {
     ].filter(Boolean).join(" ");
     return `<li><span class="fw-target fw-${escapeHtml(r.target)}">${escapeHtml(String(r.target).toUpperCase())}</span> ${escapeHtml(String(r.chain || "forward").toUpperCase())} ${match || "(any)"}</li>`;
   }).join("")}</ol>`;
+}
+
+// The dnsmasq service panel on a server: daemon state, DNS A-records (with
+// add/remove), the DHCP range + router option, and current leases.
+function renderDnsmasqSection(device: any): string {
+  const config = device.config || {};
+  const records = normaliseDnsRecords(config.dnsRecords || []);
+  const leases = normaliseDhcpLeases(config.dhcpLeases || []);
+  return `
+    <div class="field">
+      <label for="dnsmasqRunning">dnsmasq service running</label>
+      <input id="dnsmasqRunning" type="checkbox" ${config.dnsmasqRunning !== false ? "checked" : ""}>
+    </div>
+    <div class="field">
+      <label>DNS records (address=/name/ip)</label>
+      ${records.length ? `
+      <table class="data-table">
+        <thead><tr><th>Name</th><th>IPv4</th><th></th></tr></thead>
+        <tbody>
+          ${records.map((r: any, i: number) => `
+            <tr>
+              <td>${escapeHtml(r.name)}</td>
+              <td>${escapeHtml(r.ip)}</td>
+              <td><button class="inline-button dns-record-remove" data-index="${i}" type="button" title="Remove record">&times;</button></td>
+            </tr>
+          `).join("")}
+        </tbody>
+      </table>` : `<p class="empty-state">No records — queries answer NXDOMAIN.</p>`}
+      <div class="input-with-button">
+        <input id="dnsRecordName" placeholder="web.corp" autocomplete="off">
+        <input id="dnsRecordIp" placeholder="192.168.1.80" autocomplete="off" inputmode="decimal">
+        <button class="inline-button" id="dnsRecordAdd" type="button" title="Add record">Add</button>
+      </div>
+    </div>
+    <div class="field">
+      <label for="dhcpRangeStart">DHCP range (empty = DHCP off)</label>
+      <div class="input-with-button">
+        <input id="dhcpRangeStart" value="${escapeHtml(config.dhcpRangeStart || "")}" placeholder="192.168.1.100" autocomplete="off" inputmode="decimal">
+        <input id="dhcpRangeEnd" value="${escapeHtml(config.dhcpRangeEnd || "")}" placeholder="192.168.1.200" autocomplete="off" inputmode="decimal">
+      </div>
+    </div>
+    <div class="field">
+      <label for="dhcpRouterIp">DHCP router option (default: this server)</label>
+      <input id="dhcpRouterIp" value="${escapeHtml(config.dhcpRouterIp || "")}" placeholder="192.168.1.1" autocomplete="off" inputmode="decimal">
+    </div>
+    ${leases.length ? `
+    <div class="field">
+      <label>DHCP leases</label>
+      <table class="data-table">
+        <thead><tr><th>MAC</th><th>IPv4</th></tr></thead>
+        <tbody>
+          ${leases.map((l: any) => `<tr><td>${escapeHtml(l.macAddress)}</td><td>${escapeHtml(l.ipv4Address)}</td></tr>`).join("")}
+        </tbody>
+      </table>
+    </div>` : ""}
+  `;
+}
+
+// Wire the dnsmasq panel controls (no-ops when the selection isn't a server —
+// the elements simply aren't in the DOM).
+function bindDnsmasqControls(selected: any): void {
+  const runningInput = document.getElementById("dnsmasqRunning") as HTMLInputElement | null;
+  if (runningInput) {
+    runningInput.addEventListener("change", (event: any) => {
+      pushUndo();
+      ensureConfig(selected);
+      selected.config.dnsmasqRunning = event.target.checked;
+      syncPanel();
+    });
+  }
+  const addButton = document.getElementById("dnsRecordAdd");
+  if (addButton) {
+    addButton.addEventListener("click", () => {
+      const nameInput = document.getElementById("dnsRecordName") as HTMLInputElement;
+      const ipInput = document.getElementById("dnsRecordIp") as HTMLInputElement;
+      const name = nameInput.value.trim().toLowerCase();
+      const ip = ipInput.value.trim();
+      if (!name || !isValidIpv4(ip)) {
+        ipInput.setCustomValidity("Enter a name and a valid IPv4 address.");
+        ipInput.reportValidity?.();
+        return;
+      }
+      pushUndo();
+      ensureConfig(selected);
+      const records = normaliseDnsRecords(selected.config.dnsRecords || []);
+      const existing = records.find((r: any) => r.name === name);
+      if (existing) existing.ip = ip;
+      else records.push({ name, ip });
+      selected.config.dnsRecords = records;
+      syncPanel();
+    });
+  }
+  document.querySelectorAll(".dns-record-remove").forEach(button => {
+    button.addEventListener("click", (event: any) => {
+      const index = Number(event.currentTarget.dataset.index);
+      pushUndo();
+      ensureConfig(selected);
+      const records = normaliseDnsRecords(selected.config.dnsRecords || []);
+      records.splice(index, 1);
+      selected.config.dnsRecords = records;
+      syncPanel();
+    });
+  });
+  const bindIpField = (id: string, field: string) => {
+    const input = document.getElementById(id) as HTMLInputElement | null;
+    if (!input) return;
+    captureUndoOnFocus(input);
+    input.addEventListener("input", (event: any) => {
+      const value = event.target.value.trim();
+      if (!isValidIpv4(value) && value !== "") {
+        event.target.setCustomValidity("Enter a valid IPv4 address.");
+      } else {
+        event.target.setCustomValidity("");
+        ensureConfig(selected);
+        (selected.config as any)[field] = value;
+      }
+    });
+  };
+  bindIpField("dhcpRangeStart", "dhcpRangeStart");
+  bindIpField("dhcpRangeEnd", "dhcpRangeEnd");
+  bindIpField("dhcpRouterIp", "dhcpRouterIp");
 }
 
 export function renderArpTable(device: any): string {
@@ -309,6 +430,10 @@ export function renderFramePanel(frame: any): void {
       if (inner.assignedIp) rows.push(["Assigned IP", inner.assignedIp]);
       if (inner.prefixLength != null) rows.push(["Prefix length", `/${inner.prefixLength}`]);
       if (inner.gatewayIp) rows.push(["Gateway", inner.gatewayIp]);
+      if (inner.dnsServerIp) rows.push(["DNS server", inner.dnsServerIp]);
+    } else if (inner.type === "dns") {
+      rows.push(["DNS", inner.op], ["Transaction id", String(inner.id)], ["Name", inner.name]);
+      if (inner.op === "response") rows.push(["Answer", inner.address || "NXDOMAIN"]);
     }
   }
   dom.detailsPanel.innerHTML = `
@@ -358,7 +483,8 @@ export function syncPanel(): void {
   } else {
     const neighbors = connectedIds(selected.id).map((id: string) => getDevice(id)).filter(isVisibleDevice);
     const selectedType = DEVICE_SPECS[selected.type]?.label ?? "Device";
-    const pcConfigFields = selected.type === "computer" ? `
+    const isHost = selected.type === "computer" || selected.type === "server";
+    const pcConfigFields = isHost ? `
       <div class="field">
         <label for="selectedIpv4">IPv4 address</label>
         <div class="input-with-button">
@@ -374,12 +500,20 @@ export function syncPanel(): void {
         </div>
       </div>
       <div class="field">
+        <label for="selectedDns">DNS nameserver</label>
+        <div class="input-with-button">
+          <input id="selectedDns" value="${escapeHtml(selected.config?.dnsServerIp || "")}" placeholder="192.168.1.53" autocomplete="off" inputmode="decimal">
+          <button class="inline-button" id="clearDns" type="button" title="Clear nameserver">&times;</button>
+        </div>
+      </div>
+      <div class="field">
         <label for="selectedMac">MAC address</label>
         <div class="input-with-button">
           <input id="selectedMac" value="${escapeHtml(selected.config?.macAddress || "")}" placeholder="02:00:00:00:00:01" autocomplete="off">
           <button class="inline-button" id="randomMac" type="button" title="Generate random MAC">Random</button>
         </div>
       </div>
+      ${selected.type === "server" ? renderDnsmasqSection(selected) : ""}
       <button class="wide-button danger" id="deleteSelected">
         <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M3 6h18"></path><path d="M8 6V4h8v2"></path><path d="M19 6l-1 14H6L5 6"></path></svg>
         Delete
@@ -478,7 +612,7 @@ export function syncPanel(): void {
         </button>
         <div style="height: 10px"></div>
       ` : ""}
-      ${(selected.type === "computer" || selected.type === "router" || selected.type === "firewall" || (selected.type === "switch" && selected.config?.managed)) ? `
+      ${(isHost || selected.type === "router" || selected.type === "firewall" || (selected.type === "switch" && selected.config?.managed)) ? `
         <button class="wide-button" id="openSelectedTerminal">
           <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 17l6 -6l-6 -6"></path><path d="M12 19h8"></path></svg>
           Terminal
@@ -492,7 +626,7 @@ export function syncPanel(): void {
         </button>
         <div style="height: 10px"></div>
       ` : ""}
-      ${selected.type !== "lan" && selected.type !== "computer" ? `
+      ${selected.type !== "lan" && !isHost ? `
         <button class="wide-button danger" id="deleteSelected">
           <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M3 6h18"></path><path d="M8 6V4h8v2"></path><path d="M19 6l-1 14H6L5 6"></path></svg>
           Delete
@@ -597,6 +731,31 @@ export function syncPanel(): void {
         sync().render();
       });
     }
+    const dnsInput = document.getElementById("selectedDns") as HTMLInputElement;
+    if (dnsInput) {
+      captureUndoOnFocus(dnsInput);
+      dnsInput.addEventListener("input", (event: any) => {
+        const value = event.target.value.trim();
+        if (!isValidIpv4(value) && value !== "") {
+          event.target.setCustomValidity("Enter a valid IPv4 address.");
+        } else {
+          event.target.setCustomValidity("");
+          ensureConfig(selected);
+          selected.config.dnsServerIp = value;
+        }
+      });
+    }
+    const clearDnsBtn = document.getElementById("clearDns");
+    if (clearDnsBtn && dnsInput) {
+      clearDnsBtn.addEventListener("click", () => {
+        pushUndo();
+        ensureConfig(selected);
+        selected.config.dnsServerIp = "";
+        dnsInput.value = "";
+        dnsInput.setCustomValidity("");
+      });
+    }
+    bindDnsmasqControls(selected);
     const managedInput = document.getElementById("selectedManaged") as HTMLInputElement;
     if (managedInput) {
       managedInput.addEventListener("change", (event: any) => {

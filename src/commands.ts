@@ -18,9 +18,9 @@ import {
   startSimulation, stopSimulation, pauseSimulation, resumeSimulation, stepOnce,
   runSimulationHeadless, runTraceroute,
 } from "./engine";
-import { buildPingEvents, buildDhcpEvents, buildConnectEvents, findPingTarget } from "./simulation";
+import { buildPingEvents, buildDhcpEvents, buildConnectEvents, buildResolveEvents, findPingTarget } from "./simulation";
 import {
-  setHostIp, setHostGateway, setRouterInterfaceIp, addSwitchVlan, removeSwitchVlan,
+  setHostIp, setHostGateway, setHostDns, setRouterInterfaceIp, addSwitchVlan, removeSwitchVlan,
   setSwitchPortVlan, setSwitchPortMode, setSwitchTrunkNative, modifySwitchTrunkAllowed,
   runTerminalCommand,
 } from "./terminal";
@@ -162,6 +162,7 @@ function hostMutator(args: string[], fn: (d: Device, v: string) => string): Comm
 
 function cmdIp(args: string[]): CommandResult { return hostMutator(args, setHostIp); }
 function cmdGateway(args: string[]): CommandResult { return hostMutator(args, setHostGateway); }
+function cmdNameserver(args: string[]): CommandResult { return hostMutator(args, setHostDns); }
 
 function cmdMac(args: string[]): CommandResult {
   const device = resolveDevice(args[0]);
@@ -312,7 +313,18 @@ function cmdRun(args: string[]): CommandResult {
     return { ok: r.success, data: r,
       output: [r.success ? `dhcp: assigned ${r.assignedIp} (gw ${r.assignedGateway})` : "dhcp: no response"] };
   }
-  return err(`run: expected "ping <src> <dst>", "connect <src> <dst> <port>", or "dhcp <host>".`);
+  if (mode === "resolve" || mode === "dns") {
+    const src = resolveDevice(args[1]);
+    if (typeof src === "string") return err(src);
+    const name = args[2];
+    if (!name) return err(`run resolve: expected "run resolve <src> <name>".`);
+    const setup = buildResolveEvents(src, name, null, null);
+    if (typeof setup === "string") return err(setup);
+    const r = runSimulationHeadless(setup, src.id, name, "dns");
+    return { ok: r.success, data: r,
+      output: [`resolve ${name}: ${r.resolvedIp || "no answer"} — ${r.steps} steps`] };
+  }
+  return err(`run: expected "ping <src> <dst>", "connect <src> <dst> <port>", "resolve <src> <name>", or "dhcp <host>".`);
 }
 
 function cmdTraceroute(args: string[]): CommandResult {
@@ -394,8 +406,15 @@ function cmdShow(args: string[]): CommandResult {
   if (typeof device === "string") return err(device);
   const c: any = device.config || {};
   const lines = [`${device.name} (${device.type})`];
-  if (device.type === "computer") {
+  if (device.type === "computer" || device.type === "server") {
     lines.push(`  ip: ${c.ipv4Address || "(unset)"}`, `  gateway: ${c.gatewayIpv4Address || "(unset)"}`, `  mac: ${c.macAddress || "(unset)"}`);
+    if (c.dnsServerIp) lines.push(`  nameserver: ${c.dnsServerIp}`);
+    if (device.type === "server") {
+      lines.push(`  dnsmasq: ${c.dnsmasqRunning !== false ? "running" : "stopped"}`);
+      for (const r of (c.dnsRecords || [])) lines.push(`  dns: ${r.name} → ${r.ip}`);
+      if (c.dhcpRangeStart && c.dhcpRangeEnd) lines.push(`  dhcp-range: ${c.dhcpRangeStart} – ${c.dhcpRangeEnd}`);
+      if (c.dhcpRouterIp) lines.push(`  dhcp router option: ${c.dhcpRouterIp}`);
+    }
   } else if (device.type === "switch") {
     lines.push(`  managed: ${Boolean(c.managed)}`, `  ports: ${c.ethernetPorts ?? 8}`);
     if (c.managed && c.vlans?.length) lines.push(`  vlans: ${c.vlans.map((v: any) => v.id).join(", ")}`);
@@ -505,7 +524,7 @@ type Handler = (args: string[], rest: string) => CommandResult;
 const COMMANDS: Record<string, Handler> = {
   add: cmdAdd, remove: cmdRemove, delete: cmdRemove, link: cmdLink, unlink: cmdUnlink,
   move: cmdMove, rename: cmdRename, clear: cmdClear, collapse: cmdCollapse, expand: cmdExpand,
-  ip: cmdIp, gateway: cmdGateway, mac: cmdMac, interface: cmdInterface, route: cmdRoute,
+  ip: cmdIp, gateway: cmdGateway, nameserver: cmdNameserver, mac: cmdMac, interface: cmdInterface, route: cmdRoute,
   vlan: cmdVlan, port: cmdPort, cli: cmdCli,
   ping: cmdPing, dhcp: cmdDhcp, connect: cmdConnect, run: cmdRun, traceroute: cmdTraceroute, tracert: cmdTraceroute,
   play: cmdPlay, pause: cmdPause, step: cmdStep,
@@ -518,16 +537,16 @@ const COMMANDS: Record<string, Handler> = {
 };
 
 const HELP: Record<string, string> = {
-  add: "add <computer|switch|router|firewall> [name] [at <x> <y>]",
+  add: "add <computer|server|switch|router|firewall> [name] [at <x> <y>]",
   remove: "remove <device>", link: "link <a> <b> [portA portB]", unlink: "unlink <a> <b>",
   move: "move <device> <x> <y>", rename: "rename <device> <name>", clear: "remove all devices",
   collapse: "collapse <switch> into a LAN", expand: "expand <lan>",
-  ip: "ip <host> <addr/prefix>", gateway: "gateway <host> <ip>", mac: "mac <host> <addr>",
+  ip: "ip <host> <addr/prefix>", gateway: "gateway <host> <ip>", nameserver: "nameserver <host> <ip>", mac: "mac <host> <addr>",
   interface: "interface <router> <peer> ip <addr> [vlan <tag>]", route: "route <router> <net/prefix> <nextHop>",
   vlan: "vlan <switch> add|del <id>", port: "port <switch> <EthN> vlan|mode|native|allowed ...",
   cli: "cli <device> <raw CLI command>",
   ping: "ping <src> <dst> (animated)", dhcp: "dhcp <host> (animated)", connect: "connect <src> <dst> <port> (animated TCP handshake)",
-  run: "run ping <src> <dst> | run connect <src> <dst> <port> | run dhcp <host> (headless, returns result)",
+  run: "run ping <src> <dst> | run connect <src> <dst> <port> | run resolve <src> <name> | run dhcp <host> (headless, returns result)",
   traceroute: "traceroute <src> <dst> (hop-by-hop via TTL)",
   play: "resume", pause: "pause", step: "advance one hop", stop: "stop", speed: "speed <ms-per-hop>",
   topology: "topology basic|vlan-roas|router-mesh", save: "save <name>", load: "load <name>",
@@ -579,10 +598,16 @@ export function exportTopologyScript(): string {
 
   for (const d of payload.devices) {
     const c = d.config || {};
-    if (d.type === "computer") {
+    if (d.type === "computer" || d.type === "server") {
       if (c.ipv4Address) lines.push(`ip ${d.name} ${c.ipv4Address}`);
       if (c.gatewayIpv4Address) lines.push(`gateway ${d.name} ${c.gatewayIpv4Address}`);
       if (c.macAddress) lines.push(`mac ${d.name} ${c.macAddress}`);
+      if (c.dnsServerIp) lines.push(`nameserver ${d.name} ${c.dnsServerIp}`);
+      // dnsmasq state replays through the server terminal (same as a human would type).
+      for (const r of (c.dnsRecords || [])) lines.push(`cli ${d.name} echo address=/${r.name}/${r.ip} >> /etc/dnsmasq.conf`);
+      if (c.dhcpRangeStart && c.dhcpRangeEnd) lines.push(`cli ${d.name} echo dhcp-range=${c.dhcpRangeStart},${c.dhcpRangeEnd} >> /etc/dnsmasq.conf`);
+      if (c.dhcpRouterIp) lines.push(`cli ${d.name} echo dhcp-option=option:router,${c.dhcpRouterIp} >> /etc/dnsmasq.conf`);
+      if (d.type === "server" && c.dnsmasqRunning === false) lines.push(`cli ${d.name} systemctl stop dnsmasq`);
     } else if (d.type === "switch" && c.managed) {
       for (const v of (c.vlans || [])) if (v.id !== 1) lines.push(`vlan ${d.name} add ${v.id}`);
       for (const [port, mode] of Object.entries(c.portModes || {})) lines.push(`port ${d.name} ${port} mode ${mode}`);

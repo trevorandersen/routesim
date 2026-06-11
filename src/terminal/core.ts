@@ -10,6 +10,7 @@ import { dom } from "../dom";
 import { escapeHtml } from "../utils";
 import { getDevice } from "../devices";
 import { runHostTerminalCommand } from "./host";
+import { runServerTerminalCommand } from "./server";
 import { runRouterTerminalCommand } from "./router";
 import { runSwitchTerminalCommand } from "./switch";
 import { runFirewallTerminalCommand } from "./firewall";
@@ -21,6 +22,7 @@ export function terminalLine(kind: string, text: string): void {
 
 export function terminalPromptText(device: Device): string {
   if (device.type === "computer") return `${device.name}$`;
+  if (device.type === "server") return `root@${device.name}:~#`;
   if (device.type === "switch") return `${device.name}#`;
   if (device.type === "firewall") return `root@${device.name}#`;
   if (state.terminal.mode === "config") return `${device.name}(config)#`;
@@ -32,6 +34,7 @@ export function terminalPromptText(device: Device): string {
 // One CLI per device type; a type absent here has no terminal.
 const CLI_DISPATCH: Partial<Record<DeviceType, (device: Device, command: string) => void>> = {
   computer: runHostTerminalCommand,
+  server: runServerTerminalCommand,
   router: runRouterTerminalCommand,
   switch: runSwitchTerminalCommand,
   firewall: runFirewallTerminalCommand,
@@ -61,7 +64,7 @@ export function openTerminalFor(device: Device | undefined): void {
     state.terminal.mode = "exec";
     state.terminal.interfacePeerId = null;
     state.terminal.interfaceVlanTag = null;
-    state.terminal.lines = [{ kind: "error", text: "Select a PC, router, or managed switch to open its terminal." }];
+    state.terminal.lines = [{ kind: "error", text: "Select a PC, server, router, or managed switch to open its terminal." }];
   } else if (device.poweredOff) {
     state.terminal.open = true;
     state.terminal.deviceId = null;
@@ -105,7 +108,7 @@ export function syncTerminal(): void {
     state.terminal.interfacePeerId = null;
     state.terminal.interfaceVlanTag = null;
     if (state.terminal.open) {
-      state.terminal.lines = [{ kind: "error", text: "Select a PC, router, or managed switch before opening the terminal." }];
+      state.terminal.lines = [{ kind: "error", text: "Select a PC, server, router, or managed switch before opening the terminal." }];
     }
   }
   const activeHost = getDevice(state.terminal.deviceId);

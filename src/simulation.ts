@@ -3,11 +3,15 @@ import { state } from "./state";
 import { getDevice, linkedPortsFor, linksFor } from "./devices";
 import { normalisePortVlans, normalisePortModes, normaliseTrunkAllowedVlans } from "./normalise";
 import { isValidIpv4, sameSubnet, prefixOf } from "./utils";
-import { createArpRequest, createIcmpEchoRequest, createDhcpDiscover, createTcpSegment } from "./frame";
+import { createArpRequest, createIcmpEchoRequest, createDhcpDiscover, createTcpSegment, createDnsQuery } from "./frame";
 
 export interface PingSetup {
   events: SimEvent[];
   pendingArp: Record<string, EthernetFrame[]>;
+  // Present when the flow starts with a DNS resolution: the name being
+  // resolved and the follow-on flow ("ping"/"tcp") the origin should launch
+  // once the answer arrives (null = bare lookup, e.g. nslookup).
+  dns?: { name: string; then: "ping" | "tcp" | null; port: number | null };
 }
 
 // ─── Utilities kept from original simulation ─────────────────────────────────
@@ -88,7 +92,7 @@ export function getVlanForDevice(deviceId: string): number {
 export function findPingTarget(value: string): any {
   const target = String(value || "").trim().toLowerCase();
   return state.devices.find(device =>
-    device.type === "computer" && (
+    (device.type === "computer" || device.type === "server") && (
       String(device.config?.ipv4Address || "").toLowerCase() === target ||
       device.name.toLowerCase() === target
     )
@@ -120,6 +124,10 @@ export function buildPingEvents(source: any, targetText: string, options: { ttl?
     dstIp = target.config.ipv4Address;
   } else if (isValidIpv4(targetText.trim())) {
     dstIp = targetText.trim();
+  } else if (source.config?.dnsServerIp) {
+    // A real hostname: resolve via the configured nameserver first (UDP/53),
+    // then ping the answer — the DNS exchange happens in real frames.
+    return buildResolveEvents(source, targetText.trim(), "ping", null);
   } else {
     return `ping: cannot resolve ${targetText}`;
   }
@@ -214,6 +222,8 @@ export function buildConnectEvents(source: any, targetText: string, port: number
     dstIp = target.config.ipv4Address;
   } else if (isValidIpv4(targetText.trim())) {
     dstIp = targetText.trim();
+  } else if (source.config?.dnsServerIp) {
+    return buildResolveEvents(source, targetText.trim(), "tcp", port);
   } else {
     return `nc: cannot resolve ${targetText}`;
   }
@@ -255,6 +265,57 @@ export function buildConnectEvents(source: any, targetText: string, port: number
       linkId: firstHop.linkId
     }],
     pendingArp
+  };
+}
+
+/**
+ * Builds the initial events for a DNS lookup: a UDP/53 query to the host's
+ * configured nameserver (ARP-ing the next hop first when its MAC is unknown,
+ * exactly like ping). `then` names the follow-on flow the origin launches when
+ * the answer arrives — "ping"/"tcp" for ping/nc-by-name, null for a bare
+ * lookup (nslookup). The engine handles the response (engine.ts).
+ */
+export function buildResolveEvents(source: any, name: string, then: "ping" | "tcp" | null = null, port: number | null = null): PingSetup | string {
+  if (!source.config?.ipv4Address) return `${source.name}: eth0 has no IPv4 address.`;
+  if (!source.config?.macAddress) return `${source.name}: eth0 has no MAC address.`;
+  const dnsIp = source.config?.dnsServerIp;
+  if (!dnsIp || !isValidIpv4(dnsIp)) return `;; no nameserver configured (/etc/resolv.conf)`;
+
+  const srcIp = source.config.ipv4Address;
+  const srcMac = source.config.macAddress;
+  const firstHop = findFirstHop(source);
+  if (!firstHop) return `;; connection timed out; no servers could be reached (no link)`;
+
+  // Next hop toward the nameserver: on-subnet → the server itself, otherwise
+  // the default gateway (same decision a ping makes).
+  let nextHopIp = dnsIp;
+  if (!sameSubnet(srcIp, dnsIp, prefixOf(source.config))) {
+    if (!source.config?.gatewayIpv4Address) return `;; no route to nameserver ${dnsIp} (no default gateway)`;
+    const gwIp = source.config.gatewayIpv4Address;
+    if (!sameSubnet(gwIp, srcIp, prefixOf(source.config))) return `;; no route to nameserver ${dnsIp} (gateway not on source subnet)`;
+    nextHopIp = gwIp;
+  }
+
+  const pendingArp: Record<string, EthernetFrame[]> = {};
+  const arpEntry = (source.config.arpTable || []).find((e: any) => e.ipv4Address === nextHopIp);
+  let initialFrame: EthernetFrame;
+  if (arpEntry) {
+    initialFrame = createDnsQuery(srcMac, arpEntry.macAddress, srcIp, dnsIp, name);
+  } else {
+    initialFrame = createArpRequest(srcMac, srcIp, nextHopIp, null);
+    pendingArp[`${source.id}:${nextHopIp}`] = [createDnsQuery(srcMac, "00:00:00:00:00:00", srcIp, dnsIp, name)];
+  }
+
+  return {
+    events: [{
+      type: "frame_arrive" as const,
+      frame: initialFrame,
+      deviceId: firstHop.peerId,
+      fromDeviceId: source.id,
+      linkId: firstHop.linkId
+    }],
+    pendingArp,
+    dns: { name, then, port }
   };
 }
 

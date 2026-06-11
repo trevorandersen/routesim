@@ -27,13 +27,14 @@ type ScenarioCheck =
   | { kind: "ping-fail"; from: string; to: string; label: string }          // isolation: the ping must NOT succeed
   | { kind: "tcp";       from: string; to: string; port: number; label: string }   // a TCP connect succeeds
   | { kind: "tcp-fail";  from: string; to: string; port: number; label: string }   // the TCP connect must NOT succeed
+  | { kind: "dns";       from: string; name: string; ip?: string; label: string }  // the name resolves (optionally to a given address)
   | { kind: "dhcp";      host: string; label: string };                     // a DHCP request from host succeeds (headless)
 ```
 
 Device references in checks/topology resolve by **name or id**. `checkScenario(scenario)` returns `{ id, name, passed, checks: [{ label, passed }] }` — `passed` is true when every check passes.
 
 - `loadScenario(id)` → `applyConfig(normaliseConfig(topology))` + sets `state.activeScenarioId` + refreshes the banner. Loading a plain topology or clearing the network drops the active scenario.
-- `ping`/`dhcp` checks reuse `buildPingEvents`/`buildDhcpEvents` (simulation.ts) + `runSimulationHeadless` (engine.ts).
+- `ping`/`dns`/`dhcp` checks reuse `buildPingEvents`/`buildResolveEvents`/`buildDhcpEvents` (simulation.ts) + `runSimulationHeadless` (engine.ts). A `ping`/`tcp` check whose `to` is neither a device nor an IP is a real hostname — the headless run performs the DNS resolution first, so name-based goals exercise the full resolver path.
 
 ## Adding a scenario
 
@@ -73,3 +74,6 @@ The curriculum is a progression from L2 basics to routing, services, security, a
 | `troubleshoot-static-route` | Troubleshoot: bad static route | A typo'd next-hop broke inter-office routing — read `show ip route` and repair it. |
 | `nat-gateway` | NAT gateway | The ISP server has no route back to the LAN — configure PAT (`ip nat inside/outside`) so the private network reaches it. |
 | `harden-gateway` | Harden the gateway | Drop pings to the router itself with the INPUT chain while traffic through it keeps flowing — INPUT vs FORWARD. |
+| `dns-service` | Name service (DNS) | Point PC-A at the nameserver (`/etc/resolv.conf`) and add a dnsmasq A-record so `web.corp` resolves, pings, and serves port 80 by name. |
+| `troubleshoot-dns` | Troubleshoot: name vs address | The IP pings but the name doesn't — find and fix the stale A-record on the dnsmasq server. |
+| `server-dhcp` | DHCP from the server | Enable `dhcp-range` on the dnsmasq server: the client leases address + nameserver (option 6) and reaches `web.corp` with zero manual config. |

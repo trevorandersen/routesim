@@ -37,6 +37,19 @@ export const DEVICE_SPECS: Record<DeviceType, DeviceSpec> = {
     ],
     defaultConfig: () => ({ ipv4Address: "", gatewayIpv4Address: "", macAddress: "", arpTable: [] })
   },
+  server: {
+    label: "Server", namePrefix: "SRV", width: 92, height: 70,
+    paletteVar: "server", iconRadius: 10, userAddable: true,
+    iconPaths: [
+      "M3 7a3 3 0 0 1 3 -3h12a3 3 0 0 1 3 3v2a3 3 0 0 1 -3 3h-12a3 3 0 0 1 -3 -3z",
+      "M3 15a3 3 0 0 1 3 -3h12a3 3 0 0 1 3 3v2a3 3 0 0 1 -3 3h-12a3 3 0 0 1 -3 -3z",
+      "M7 8l0 .01",
+      "M7 16l0 .01"
+    ],
+    // dnsmasq is modelled as preinstalled and running; DHCP activates once a
+    // dhcp-range is configured (exactly like the real daemon).
+    defaultConfig: () => ({ ipv4Address: "", gatewayIpv4Address: "", macAddress: "", arpTable: [], dnsmasqRunning: true, dnsRecords: [] })
+  },
   switch: {
     label: "Switch", namePrefix: "SW", width: 104, height: 58,
     paletteVar: "switch", iconRadius: 8, userAddable: true,

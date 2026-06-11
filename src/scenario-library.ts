@@ -15,6 +15,9 @@
  *  11. troubleshoot-static-route fix a typo'd next-hop
  *  12. nat-gateway          PAT a private LAN onto one public address
  *  13. harden-gateway       protect the router itself with the INPUT chain
+ *  14. dns-service          stand up dnsmasq so names resolve
+ *  15. troubleshoot-dns     the IP pings but the name doesn't
+ *  16. server-dhcp          zero-touch client config from dnsmasq DHCP
  *
  * Data only — evaluation lives in scenarios.ts. Type-only import: no cycle.
  */
@@ -367,6 +370,81 @@ const hardenGateway: Scenario = {
   ],
 };
 
+const dnsService: Scenario = {
+  id: "dns-service",
+  name: "Name service (DNS)",
+  objective: "PC-A should reach the web server by NAME, not address. Point PC-A at the nameserver (`echo nameserver 192.168.1.53 > /etc/resolv.conf` in its terminal), then add an A-record on SRV-1 (`echo address=/web.corp/192.168.1.80 >> /etc/dnsmasq.conf`).",
+  topology: {
+    version: 1,
+    devices: [
+      { id: "v14-a", type: "computer", name: "PC-A", x: -440, y: 0, config: { ipv4Address: "192.168.1.10", gatewayIpv4Address: "", macAddress: "02:00:00:00:0E:0A", arpTable: [] } },
+      { id: "v14-sw", type: "switch", name: "SW-1", x: 0, y: 0, config: { managed: false, ethernetPorts: 8, macTable: [] } },
+      { id: "v14-srv", type: "server", name: "SRV-1", x: 320, y: -170, config: { ipv4Address: "192.168.1.53", gatewayIpv4Address: "", macAddress: "02:00:00:00:0E:35", arpTable: [], dnsmasqRunning: true, dnsRecords: [] } },
+      { id: "v14-web", type: "computer", name: "WEB-1", x: 320, y: 170, config: { ipv4Address: "192.168.1.80", gatewayIpv4Address: "", macAddress: "02:00:00:00:0E:50", arpTable: [], openPorts: [80] } },
+    ],
+    links: [
+      { from: "v14-a", to: "v14-sw" },
+      { from: "v14-srv", to: "v14-sw" },
+      { from: "v14-web", to: "v14-sw" },
+    ],
+  },
+  checks: [
+    { kind: "dns", from: "PC-A", name: "web.corp", ip: "192.168.1.80", label: "web.corp resolves to 192.168.1.80" },
+    { kind: "ping", from: "PC-A", to: "web.corp", label: "PC-A can ping web.corp by name" },
+    { kind: "tcp", from: "PC-A", to: "web.corp", port: 80, label: "The web port (80) answers by name" },
+  ],
+};
+
+const troubleshootDns: Scenario = {
+  id: "troubleshoot-dns",
+  name: "Troubleshoot: name vs address",
+  objective: "The classic complaint: 192.168.1.80 pings fine but web.corp does not. PC-A's resolver is fine — inspect SRV-1's records (`cat /etc/dnsmasq.conf`) and fix the stale A-record (appending `address=/web.corp/<correct ip>` replaces it).",
+  topology: {
+    version: 1,
+    devices: [
+      { id: "v15-a", type: "computer", name: "PC-A", x: -440, y: 0, config: { ipv4Address: "192.168.1.10", gatewayIpv4Address: "", macAddress: "02:00:00:00:0F:0A", arpTable: [], dnsServerIp: "192.168.1.53" } },
+      { id: "v15-sw", type: "switch", name: "SW-1", x: 0, y: 0, config: { managed: false, ethernetPorts: 8, macTable: [] } },
+      { id: "v15-srv", type: "server", name: "SRV-1", x: 320, y: -170, config: { ipv4Address: "192.168.1.53", gatewayIpv4Address: "", macAddress: "02:00:00:00:0F:35", arpTable: [], dnsmasqRunning: true, dnsRecords: [{ name: "web.corp", ip: "192.168.1.99" }] } },
+      { id: "v15-web", type: "computer", name: "WEB-1", x: 320, y: 170, config: { ipv4Address: "192.168.1.80", gatewayIpv4Address: "", macAddress: "02:00:00:00:0F:50", arpTable: [], openPorts: [80] } },
+    ],
+    links: [
+      { from: "v15-a", to: "v15-sw" },
+      { from: "v15-srv", to: "v15-sw" },
+      { from: "v15-web", to: "v15-sw" },
+    ],
+  },
+  checks: [
+    { kind: "ping", from: "PC-A", to: "192.168.1.80", label: "The web server's address answers" },
+    { kind: "dns", from: "PC-A", name: "web.corp", ip: "192.168.1.80", label: "web.corp resolves to the web server" },
+    { kind: "ping", from: "PC-A", to: "web.corp", label: "web.corp answers pings" },
+  ],
+};
+
+const serverDhcp: Scenario = {
+  id: "server-dhcp",
+  name: "DHCP from the server",
+  objective: "Bring PC-A up with zero manual configuration. Enable DHCP on SRV-1 (`echo dhcp-range=192.168.1.100,192.168.1.200 >> /etc/dnsmasq.conf`) — dnsmasq hands out address, mask, and nameserver in one exchange, after which PC-A must reach web.corp by name.",
+  topology: {
+    version: 1,
+    devices: [
+      { id: "v16-a", type: "computer", name: "PC-A", x: -440, y: 0, config: { ipv4Address: "", gatewayIpv4Address: "", macAddress: "02:00:00:00:10:0A", arpTable: [] } },
+      { id: "v16-sw", type: "switch", name: "SW-1", x: 0, y: 0, config: { managed: false, ethernetPorts: 8, macTable: [] } },
+      { id: "v16-srv", type: "server", name: "SRV-1", x: 320, y: -170, config: { ipv4Address: "192.168.1.53", gatewayIpv4Address: "", macAddress: "02:00:00:00:10:35", arpTable: [], dnsmasqRunning: true, dnsRecords: [{ name: "web.corp", ip: "192.168.1.80" }] } },
+      { id: "v16-web", type: "computer", name: "WEB-1", x: 320, y: 170, config: { ipv4Address: "192.168.1.80", gatewayIpv4Address: "", macAddress: "02:00:00:00:10:50", arpTable: [], openPorts: [80] } },
+    ],
+    links: [
+      { from: "v16-a", to: "v16-sw" },
+      { from: "v16-srv", to: "v16-sw" },
+      { from: "v16-web", to: "v16-sw" },
+    ],
+  },
+  checks: [
+    { kind: "dhcp", host: "PC-A", label: "PC-A obtains a DHCP lease" },
+    { kind: "dns", from: "PC-A", name: "web.corp", ip: "192.168.1.80", label: "PC-A's leased resolver answers for web.corp" },
+    { kind: "ping", from: "PC-A", to: "web.corp", label: "PC-A can ping web.corp by name" },
+  ],
+};
+
 export const CURRICULUM: Scenario[] = [
   vlanSegmentation,
   routerOnAStick,
@@ -380,4 +458,7 @@ export const CURRICULUM: Scenario[] = [
   troubleshootStaticRoute,
   natGateway,
   hardenGateway,
+  dnsService,
+  troubleshootDns,
+  serverDhcp,
 ];

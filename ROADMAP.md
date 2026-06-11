@@ -9,35 +9,30 @@ committed scope — it's a menu for "what next".
 > prefixes (longest-prefix routing, DHCP mask option), the firewall device
 > (iptables, live `-p tcp --dport` rules), the L4 TCP layer (`nc`/`connect`
 > three-way handshake), the FRR/SONiC-faithful CLIs, the device registry +
-> terminal/engine split, and the curriculum — now **11 scenarios** with tested
-> reference solutions (now **13** with the NAT and gateway-hardening
-> scenarios) — plus redo, the click-a-packet frame inspector, **NAT/PAT on
-> routers** (`ip nat inside/outside`, translation table, un-PAT return path),
-> and **router netfilter chains** (iptables INPUT/FORWARD via a shared engine;
-> the transparent firewall device stays FORWARD-only).
+> terminal/engine split, redo, the click-a-packet frame inspector, **NAT/PAT
+> on routers** (`ip nat inside/outside`, translation table, un-PAT return
+> path), **router netfilter chains** (iptables INPUT/FORWARD via a shared
+> engine; the transparent firewall device stays FORWARD-only), and the
+> **server device with DNS + DHCP via dnsmasq** (A-records, UDP/53 frames,
+> resolve-then-ping/connect, `/etc/resolv.conf`, server `dhcp-range` leases
+> with nameserver option 6, DNS through NAT) — with the curriculum now at
+> **16 scenarios**, every one carrying a tested reference solution.
 
 ## Next up (ranked)
 
-### 1. Ship a release
-The project has crossed from "engine" to "product": one self-contained file with
-a course in it. Tag **v0.1.0** so there's a pinnable artifact; when the repo goes
-public, **GitHub Pages** can serve `rs-web.html` directly (it's tailor-made for
-it). An hour of work that converts everything above into something learners can
-open from a URL. Effort: low.
-
-### 2. DNS
-Small now that L4 exists: a DNS-server role (name → IP records on a host or
-router), UDP/53 query–response frames, and `ping web.corp` resolving before it
-ARPs. High realism-per-line-of-code, plus a classic troubleshooting scenario
-("the IP pings but the name doesn't"). Effort: low–moderate.
-
-### 3. STP / L2 loop handling
+### 1. STP / L2 loop handling
 The last real correctness gap: a switching loop is only saved by the engine's
 step-cap — broadcast storms aren't modelled and spanning tree doesn't exist.
 Add Spanning Tree (block redundant links, elect a root) or at least loop
 detection + a visualised storm. Effort: moderate–high.
 
 ## Later
+
+### Server — more services
+The server device is built to host more than dnsmasq: an HTTP service (a real
+GET riding the existing TCP handshake), DNAT/port-forwarding on NAT routers so
+inbound connections can reach an inside server, upstream DNS forwarding.
+Effort: low–moderate each.
 
 ### Firewall — beyond basic packet filtering
 **Stateful filtering + REJECT replies** (conntrack-style `-m state`, and an

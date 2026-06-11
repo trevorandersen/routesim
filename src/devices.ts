@@ -17,8 +17,8 @@ export function addDevice(type: DeviceType, x: number, y: number, name?: string)
     height: deviceSize(type).height,
     config: defaultDeviceConfig(type)
   };
-  // A new computer gets a NIC MAC so it can communicate immediately (GUI + scripts).
-  if (type === "computer") (device.config as any).macAddress = randomMac();
+  // A new computer/server gets a NIC MAC so it can communicate immediately (GUI + scripts).
+  if (type === "computer" || type === "server") (device.config as any).macAddress = randomMac();
   state.devices.push(device as any);
   state.selectedId = device.id;
   sync().syncPanel();
@@ -534,8 +534,8 @@ function buildPortList(deviceId: string): PortOption[] {
   const device = getDevice(deviceId);
   if (!device) return [];
 
-  if (device.type === "computer") {
-    // PCs have a single port — auto-select it
+  if (device.type === "computer" || device.type === "server") {
+    // Hosts have a single port — auto-select it
     const linked = linkedPortsFor(deviceId);
     const occupied = linked.length > 0;
     return [{
@@ -576,10 +576,10 @@ export function openPortSelectionModal(fromId: string, toId: string): void {
   const toDevice = getDevice(toId);
   if (!fromDevice || !toDevice) return;
 
-  const showFromPicker = fromDevice.type !== "computer";
-  const showToPicker = toDevice.type !== "computer";
+  const showFromPicker = fromDevice.type !== "computer" && fromDevice.type !== "server";
+  const showToPicker = toDevice.type !== "computer" && toDevice.type !== "server";
 
-  // If both are PCs, skip modal entirely
+  // If both are single-port hosts, skip modal entirely
   if (!showFromPicker && !showToPicker) {
     addLink(fromId, toId, 1, 1);
     return;

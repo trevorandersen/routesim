@@ -4,7 +4,7 @@ Interactive network topology simulator. Canvas-based editor with discrete frame-
 
 ## Goals & principles
 
-RouteSim is a teaching tool: it makes the invisible parts of a network visible by simulating real Ethernet frames (ARP, ICMP, DHCP) and watching them hop through switches and routers. Design decisions follow from a few principles:
+RouteSim is a teaching tool: it makes the invisible parts of a network visible by simulating real Ethernet frames (ARP, ICMP, DHCP, DNS, TCP) and watching them hop through switches and routers. Design decisions follow from a few principles:
 
 - **Zero-install, single file.** The whole app builds to one portable `rs-web.html` that runs offline by opening it in a browser with **zero runtime requests** — default topologies and scenarios are compiled in; persistence is JSON import/export.
 - **Minimal toolchain.** Only two binaries: `esbuild` (bundle) and `bun` (run, test, serve, inline). No Node.js, no npm, no `package.json`, no `node_modules`, no Python. Hard constraint — see Build.
@@ -72,7 +72,7 @@ app.ts (entry)
   ├── ui.ts          ← event listeners, tool switching, keyboard shortcuts
   ├── canvas.ts      ← render loop, pan/zoom, device/link/transit drawing
   ├── inspector.ts   ← right panel: device details, link frame history
-  ├── terminal/      ← bottom panel CLI: core (dispatch/UI) + host, router (FRR), switch (SONiC), firewall (iptables)
+  ├── terminal/      ← bottom panel CLI: core (dispatch/UI) + host, server (dnsmasq), router (FRR), switch (SONiC), firewall (iptables)
   ├── devices.ts     ← device/link CRUD, hit testing, LAN collapse/expand
   ├── device-registry.ts ← per-type spec: label, name prefix, size, palette, icon, default config
   ├── config.ts      ← topology serialise/apply + in-code default topologies
@@ -119,7 +119,7 @@ fixed enums may be interpolated raw.
 | `simulation.ts` | `buildPingEvents()` — validates a ping command and returns initial `SimEvent[]` + `pendingArp` map for deferred ICMPs. Does **not** pre-compute reachability: a destination IP with no device still emits a real ARP (to the target on-subnet, or the gateway off-subnet) and the simulation/router decides the outcome. Also has `l2Reachable`. |
 | `frame.ts` | Factory functions: `createArpRequest`, `createArpReply`, `createIcmpEchoRequest`, `createIcmpEchoReply`. Also `frameLabel()` and `frameColor()` for rendering. |
 | `canvas.ts` | All drawing: grid, links, devices (icon rendering via SVG path data on canvas), frame transit dots with glow/labels, zoom/pan math. |
-| `terminal/` | Per-device CLI, one file per NOS (`core` dispatch/UI + `host`/`router`/`switch`/`firewall`), public API re-exported via `terminal/index.ts`. Each modelled on a real open-source NOS. Computers: Linux-ish (`ping`, `traceroute`, `nc -z <host> <port>`, `ip addr`, `arp -n`, …). Routers: **FRRouting** (vtysh) — `configure terminal`, `interface`, `router rip`, `show ip route`, `do <show>`, with prefix abbreviation (`sh ip ro`) and context-sensitive `?` — plus `ip nat inside|outside`, `show ip nat translations`, and netfilter `iptables` (INPUT/FORWARD). Managed switches: **SONiC** — flat `config vlan add/del`, `config vlan member add [-t] <vid> <port>`, `show vlan brief`/`mac`/`interfaces status`. Firewalls: **iptables** — `iptables -A FORWARD … -j DROP`, `-L`/`-P`/`-F`. Command history (up/down arrow). |
+| `terminal/` | Per-device CLI, one file per NOS (`core` dispatch/UI + `host`/`server`/`router`/`switch`/`firewall`), public API re-exported via `terminal/index.ts`. Each modelled on a real open-source NOS. Computers: Linux-ish (`ping`, `traceroute`, `nslookup`, `nc -z <host> <port>`, `ip addr`, `arp -n`, `cat`/`echo … > /etc/resolv.conf`, …). Servers: the host shell plus **dnsmasq** (`cat`/`echo … >> /etc/dnsmasq.conf` with `address=/name/ip`, `dhcp-range=…`, `dhcp-option=option:router,…`; `systemctl start|stop|status dnsmasq`). Routers: **FRRouting** (vtysh) — `configure terminal`, `interface`, `router rip`, `show ip route`, `do <show>`, with prefix abbreviation (`sh ip ro`) and context-sensitive `?` — plus `ip nat inside|outside`, `show ip nat translations`, and netfilter `iptables` (INPUT/FORWARD). Managed switches: **SONiC** — flat `config vlan add/del`, `config vlan member add [-t] <vid> <port>`, `show vlan brief`/`mac`/`interfaces status`. Firewalls: **iptables** — `iptables -A FORWARD … -j DROP`, `-L`/`-P`/`-F`. Command history (up/down arrow). |
 | `inspector.ts` | Right panel. Device selection shows config fields; link selection shows frame history (color-coded ARP/ICMP entries with step numbers). |
 | `devices.ts` | CRUD, hit testing (`findDeviceAt`, `findLinkAt`), port/interface enumeration, LAN collapse/expand (groups devices into a single node). |
 | `normalise.ts` | Defensive normalisation for all config shapes. `normaliseRouterInterfaces` auto-generates deterministic MACs (`02:RR:00:00:II:01`). |
@@ -141,7 +141,7 @@ Ping generates real Ethernet frames (ARP + ICMP) that traverse the network hop b
 3. **Router** matches ingress interface by peerId, handles ARP on-interface, routes IPv4 by longest-prefix match, decrements TTL, rewrites L2 headers, may ARP-resolve on egress (buffering the frame in `pendingArp`).
 4. **Computer** receives ICMP echo reply → ping success.
 
-Each hop is an animated dot on the canvas (amber = ARP, blue = ICMP request, green = ICMP reply, red = ICMP Time-Exceeded/TCP RST, violet = DHCP, orange = TCP). Speed is controlled by `simulation.speed` (ms per hop, default 1000).
+Each hop is an animated dot on the canvas (amber = ARP, blue = ICMP request, green = ICMP reply, red = ICMP Time-Exceeded/TCP RST/DNS NXDOMAIN, violet = DHCP, orange = TCP, cyan = DNS). Speed is controlled by `simulation.speed` (ms per hop, default 1000).
 
 ### TCP connect (L4)
 
@@ -150,6 +150,10 @@ Each hop is an animated dot on the canvas (amber = ARP, blue = ICMP request, gre
 ### NAT / PAT
 
 Routers do Cisco-style source NAT with overload: mark interfaces `ip nat inside` / `ip nat outside` (interface mode) and every inside→outside flow is translated onto the outside interface address (`natTranslateOutbound`), recorded in `config.natTranslations`, and restored on the return path (`natRestoreInbound`, checked before the router's self-IP handling). TCP flows map by allocated source port, ICMP echo by sequence-as-flow-id. `show ip nat translations` / `clear ip nat translation *`. Routers also carry netfilter INPUT/FORWARD chains (`iptables …` in the router terminal, shared engine in `terminal/iptables.ts`) — INPUT guards the router itself, FORWARD filters routed traffic; the transparent firewall device stays FORWARD-only. See docs/src/nat.md.
+
+### DNS & the server device
+
+A **server** is a host that also runs **dnsmasq** (DNS A-records + DHCP, one daemon — `systemctl stop` kills both). Hosts resolve via their `/etc/resolv.conf` nameserver (`config.dnsServerIp`, set by terminal/inspector/console or learned from DHCP option 6). `ping`/`nc`/`traceroute` with a hostname **resolve first, then act**: a real UDP/53 query frame (`DnsPayload { op, id, name, address }`, protocol 17) travels to the nameserver — through switches, routers, firewalls (`-p udp`), and NAT (PAT keyed by the transaction id, `protocol: "udp"`) — and on the answer the origin launches the ICMP/TCP flow (`buildFollowOnFrames`); `address: null` = NXDOMAIN. `nslookup <name>` runs the lookup alone (sim mode `"dns"`). Device names still ping without DNS (the /etc/hosts-style convenience); only non-device names need a nameserver. `processAtServer` answers service frames and falls through to `processAtComputer`. See docs/src/dns.md.
 
 ### Traceroute / TTL
 
@@ -165,7 +169,7 @@ Routers forward IPv4 frames using a merged routing table built by `buildRoutingT
 
 ### DHCP
 
-`buildDhcpEvents(source)` in `simulation.ts` creates the initial DHCP Discover frame. The four-message exchange (Discover → Offer → Request → ACK) is handled by `processAtComputer` and `processAtRouter` in `engine.ts`. Frame factories in `frame.ts`: `createDhcpDiscover`, `createDhcpOffer`, `createDhcpRequest`, `createDhcpAck`. The router allocates IPs from the .100–.254 range of the interface subnet, avoiding existing leases and static IPs. On ACK, the computer assigns the IP and gateway, and learns the router's MAC in its ARP table.
+`buildDhcpEvents(source)` in `simulation.ts` creates the initial DHCP Discover frame. The four-message exchange (Discover → Offer → Request → ACK) is handled by `processAtComputer`, `processAtRouter`, and `processAtServer` in `engine.ts`. Frame factories in `frame.ts`: `createDhcpDiscover`, `createDhcpOffer`, `createDhcpRequest`, `createDhcpAck`. The router allocates IPs from the .100–.254 range of the interface subnet; a server allocates from its configured `dhcp-range` and additionally hands out the router option (`option:router`, defaulting to the server itself, as dnsmasq does) and itself as nameserver (option 6). On ACK, the client assigns IP/prefix/gateway (+ nameserver if offered) and learns the server's MAC. Multi-server segments behave correctly: the client takes the **first Offer** (`sim.dhcpOfferTaken`), and a server/router only ACKs Requests whose `serverIp` names it.
 
 ### Frame history
 
@@ -200,6 +204,7 @@ Every link records frames that traverse it (`link.frameHistory[]`). Click a link
 |-----|--------|
 | `V` | Select tool |
 | `C` | Add computer tool |
+| `E` | Add server tool |
 | `S` | Add switch tool |
 | `R` | Add router tool |
 | `F` | Add firewall tool |
@@ -222,7 +227,7 @@ Every link records frames that traverse it (`link.frameHistory[]`). Click a link
 
 **Adding a console command**: Add a handler to the `COMMANDS` registry (and a `HELP` entry) in `commands.ts`, reusing existing action functions. It's automatically available in the console panel, `window.routesim`, and scripts. For commands that build/observe state, prefer the headless `runSimulationHeadless` (engine.ts) over the animated path. See `docs/scripting.md`.
 
-**Adding a scenario**: Add a `Scenario` (initial `topology` + a `checks` goal) to `src/scenario-library.ts`. Check kinds: `link`, `config`, `ping`, `ping-fail` (isolation), `tcp`/`tcp-fail` (port reachability), `dhcp`. It appears automatically in the chooser, the console (`scenario list/load/check`), and the goal banner; checks reuse the headless runner. Add a reference solution to the solvability suite in `tests/scenarios.test.ts` (each scenario must start unsolved and pass after its solution). See `docs/scenarios.md`.
+**Adding a scenario**: Add a `Scenario` (initial `topology` + a `checks` goal) to `src/scenario-library.ts`. Check kinds: `link`, `config`, `ping`, `ping-fail` (isolation), `tcp`/`tcp-fail` (port reachability), `dns` (name resolution, optionally to a given address), `dhcp`. It appears automatically in the chooser, the console (`scenario list/load/check`), and the goal banner; checks reuse the headless runner. Add a reference solution to the solvability suite in `tests/scenarios.test.ts` (each scenario must start unsolved and pass after its solution). See `docs/scenarios.md`.
 
 **Built-in topologies**: The File-tab Topologies `<select>` (`loadTopology` in `config.ts`) offers three built-in topologies: Basic Network, VLAN Router-on-a-Stick, and 5-Router Partial Mesh. Their coordinates are spaced so label text (name/IP/MAC/VLAN + router interface lines) never overlaps another device — keep ≥150px vertical spacing for stacked computers when editing them.
 
@@ -236,4 +241,4 @@ Every link records frames that traverse it (`link.frameHistory[]`). Click a link
 - **Benchmark hot paths.** Add a `bench:` case in `tests/bench.test.ts` (with a p99 budget via `tests/bench-harness.ts`) for any new performance-sensitive code, and keep existing benchmarks within budget. Favour allocation-free, tight implementations on the simulation critical path.
 - CSS variables for theming (dark/light). All colours are CSS custom properties.
 - Terminal uses monospace font, dark background regardless of theme.
-- Sim log line classes: `sim-arp` (amber), `sim-icmp` (green), `sim-learn` (grey), `sim-forward` (blue), `sim-drop` (red), `sim-tcp` (orange), `sim-nat` (teal).
+- Sim log line classes: `sim-arp` (amber), `sim-icmp` (green), `sim-learn` (grey), `sim-forward` (blue), `sim-drop` (red), `sim-tcp` (orange), `sim-nat` (teal), `sim-dns` (cyan).

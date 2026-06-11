@@ -44,6 +44,10 @@
       --pc-stroke: #3b82c4;
       --pc-accent: #1d334d;
       --pc-icon: #8db7e8;
+      --server-fill: #221a33;
+      --server-stroke: #8a63d2;
+      --server-accent: #2e2347;
+      --server-icon: #bda4ec;
       --switch-fill: #122824;
       --switch-stroke: #1f8f86;
       --switch-accent: #173a35;
@@ -100,6 +104,10 @@
       --pc-stroke: #3264a8;
       --pc-accent: #e6edf6;
       --pc-icon: #244c84;
+      --server-fill: #f8f5fc;
+      --server-stroke: #6d4fc0;
+      --server-accent: #ebe3f8;
+      --server-icon: #4b3590;
       --switch-fill: #f6faf2;
       --switch-stroke: #14746f;
       --switch-accent: #dff0ea;
@@ -154,6 +162,10 @@
       --pc-stroke: #bcd8ff;
       --pc-accent: #1a4ea3;
       --pc-icon: #dcebff;
+      --server-fill: #123f8f;
+      --server-stroke: #d9bfff;
+      --server-accent: #1a4ea3;
+      --server-icon: #eee0ff;
       --switch-fill: #123f8f;
       --switch-stroke: #8ee0ff;
       --switch-accent: #1a4ea3;
@@ -1231,6 +1243,7 @@
     .terminal-line.sim-dhcp  { color: #a78bfa; }
     .terminal-line.sim-tcp   { color: #fb923c; }
     .terminal-line.sim-nat   { color: #2dd4bf; }
+    .terminal-line.sim-dns   { color: #22d3ee; }
 
     /* ─── Simulation log panel ────────────────────────────── */
 
@@ -1300,6 +1313,7 @@
     .sim-log-line.sim-forward { color: #7dd3fc; }
     .sim-log-line.sim-tcp     { color: #fb923c; }
     .sim-log-line.sim-nat     { color: #2dd4bf; }
+    .sim-log-line.sim-dns     { color: #22d3ee; }
     .sim-log-line.sim-drop    { color: #f87171; }
     .sim-log-line.sim-dhcp    { color: #a78bfa; }
 
@@ -1570,6 +1584,7 @@
         <div class="ribbon-group"><div class="ribbon-items">
           <button class="ribbon-btn tool-button active" data-tool="select" type="button"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 4l7 16l2 -7l7 -2z"></path></svg><span>Select</span></button>
           <button class="ribbon-btn tool-button" data-tool="computer" type="button"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M3 5a1 1 0 0 1 1 -1h16a1 1 0 0 1 1 1v10a1 1 0 0 1 -1 1h-16a1 1 0 0 1 -1 -1v-10"></path><path d="M7 20h10"></path><path d="M9 16v4"></path><path d="M15 16v4"></path></svg><span>Computer</span></button>
+          <button class="ribbon-btn tool-button" data-tool="server" type="button"><svg viewBox="0 0 24 24" aria-hidden="true"><rect x="3" y="4" width="18" height="8" rx="3"></rect><rect x="3" y="12" width="18" height="8" rx="3"></rect><path d="M7 8l0 .01"></path><path d="M7 16l0 .01"></path></svg><span>Server</span></button>
           <button class="ribbon-btn tool-button" data-tool="switch" type="button"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M16 3l4 4l-4 4"></path><path d="M10 7l10 0"></path><path d="M8 13l-4 4l4 4"></path><path d="M4 17l9 0"></path></svg><span>Switch</span></button>
           <button class="ribbon-btn tool-button" data-tool="router" type="button"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 12m-9 0a9 9 0 1 0 18 0a9 9 0 1 0 -18 0"></path><path d="M6 12h5"></path><path d="M8 10l3 2l-3 2"></path><path d="M18 12h-5"></path><path d="M16 10l-3 2l3 2"></path></svg><span>Router</span></button>
           <button class="ribbon-btn tool-button" data-tool="firewall" type="button"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 3a12 12 0 0 0 8.5 3a12 12 0 0 1 -8.5 15a12 12 0 0 1 -8.5 -15a12 12 0 0 0 8.5 -3"></path><path d="M9 12l2 2l4 -4"></path></svg><span>Firewall</span></button>
@@ -1880,6 +1895,24 @@ Full legal text: https://creativecommons.org/publicdomain/zero/1.0/legalcode</pr
       ],
       defaultConfig: () => ({ ipv4Address: "", gatewayIpv4Address: "", macAddress: "", arpTable: [] })
     },
+    server: {
+      label: "Server",
+      namePrefix: "SRV",
+      width: 92,
+      height: 70,
+      paletteVar: "server",
+      iconRadius: 10,
+      userAddable: true,
+      iconPaths: [
+        "M3 7a3 3 0 0 1 3 -3h12a3 3 0 0 1 3 3v2a3 3 0 0 1 -3 3h-12a3 3 0 0 1 -3 -3z",
+        "M3 15a3 3 0 0 1 3 -3h12a3 3 0 0 1 3 3v2a3 3 0 0 1 -3 3h-12a3 3 0 0 1 -3 -3z",
+        "M7 8l0 .01",
+        "M7 16l0 .01"
+      ],
+      // dnsmasq is modelled as preinstalled and running; DHCP activates once a
+      // dhcp-range is configured (exactly like the real daemon).
+      defaultConfig: () => ({ ipv4Address: "", gatewayIpv4Address: "", macAddress: "", arpTable: [], dnsmasqRunning: true, dnsRecords: [] })
+    },
     switch: {
       label: "Switch",
       namePrefix: "SW",
@@ -2076,6 +2109,39 @@ Full legal text: https://creativecommons.org/publicdomain/zero/1.0/legalcode</pr
       return rule;
     }).filter(Boolean);
   }
+  function normaliseDnsRecords(raw) {
+    if (!Array.isArray(raw)) return [];
+    return raw.map((r) => ({
+      name: String(r?.name || "").trim().toLowerCase(),
+      ip: String(r?.ip || r?.address || "").trim()
+    })).filter((r) => r.name && isValidIpv4(r.ip));
+  }
+  function normaliseHostFields(device) {
+    const ipv4Address = String(device.config?.ipv4Address || device.ipv4Address || "").trim();
+    const gatewayIpv4Address = String(device.config?.gatewayIpv4Address || device.gatewayIpv4Address || device.gateway || "").trim();
+    const macAddress = normaliseMacAddress(device.config?.macAddress || device.macAddress || "");
+    const dnsServerIp = String(device.config?.dnsServerIp || "").trim();
+    const label = device.name || device.id || (device.type === "server" ? "Server" : "Computer");
+    if (ipv4Address && !isValidIpv4(ipv4Address)) {
+      throw new Error(`${label} has an invalid IPv4 address.`);
+    }
+    if (gatewayIpv4Address && !isValidIpv4(gatewayIpv4Address)) {
+      throw new Error(`${label} has an invalid default gateway.`);
+    }
+    if (macAddress && !isValidMac(macAddress)) {
+      throw new Error(`${label} has an invalid MAC address.`);
+    }
+    const openPorts = Array.isArray(device.config?.openPorts) ? device.config.openPorts.map(Number).filter((p) => Number.isInteger(p) && p >= 1 && p <= 65535) : null;
+    return {
+      ipv4Address,
+      ...device.config?.prefixLength != null ? { prefixLength: clampPrefixLength(device.config.prefixLength) } : {},
+      gatewayIpv4Address,
+      macAddress,
+      arpTable: normaliseArpTable(device.config?.arpTable || device.arpTable || []),
+      ...openPorts ? { openPorts } : {},
+      ...isValidIpv4(dnsServerIp) ? { dnsServerIp } : {}
+    };
+  }
   function normaliseDeviceConfig(device) {
     if (device.type === "switch") {
       const ethernetPorts = clampPortCount(device.config?.ethernetPorts ?? device.ethernetPorts ?? 8);
@@ -2135,26 +2201,22 @@ Full legal text: https://creativecommons.org/publicdomain/zero/1.0/legalcode</pr
         absorbedLans: Array.isArray(device.config?.absorbedLans || device.absorbedLans) ? (device.config?.absorbedLans || device.absorbedLans).map((id) => String(id)) : []
       };
     }
+    if (device.type === "server") {
+      const dhcpRangeStart = String(device.config?.dhcpRangeStart || "").trim();
+      const dhcpRangeEnd = String(device.config?.dhcpRangeEnd || "").trim();
+      const dhcpRouterIp = String(device.config?.dhcpRouterIp || "").trim();
+      const rangeValid = isValidIpv4(dhcpRangeStart) && isValidIpv4(dhcpRangeEnd);
+      return {
+        ...normaliseHostFields(device),
+        dnsmasqRunning: device.config?.dnsmasqRunning !== false,
+        dnsRecords: normaliseDnsRecords(device.config?.dnsRecords),
+        ...rangeValid ? { dhcpRangeStart, dhcpRangeEnd } : {},
+        ...isValidIpv4(dhcpRouterIp) ? { dhcpRouterIp } : {},
+        dhcpLeases: normaliseDhcpLeases(device.config?.dhcpLeases || [])
+      };
+    }
     if (device.type !== "computer") return {};
-    const ipv4Address = String(device.config?.ipv4Address || device.ipv4Address || "").trim();
-    const gatewayIpv4Address = String(device.config?.gatewayIpv4Address || device.gatewayIpv4Address || device.gateway || "").trim();
-    const macAddress = normaliseMacAddress(device.config?.macAddress || device.macAddress || "");
-    if (ipv4Address && !isValidIpv4(ipv4Address)) {
-      throw new Error(`${device.name || device.id || "Computer"} has an invalid IPv4 address.`);
-    }
-    if (gatewayIpv4Address && !isValidIpv4(gatewayIpv4Address)) {
-      throw new Error(`${device.name || device.id || "Computer"} has an invalid default gateway.`);
-    }
-    if (macAddress && !isValidMac(macAddress)) {
-      throw new Error(`${device.name || device.id || "Computer"} has an invalid MAC address.`);
-    }
-    return {
-      ipv4Address,
-      ...device.config?.prefixLength != null ? { prefixLength: clampPrefixLength(device.config.prefixLength) } : {},
-      gatewayIpv4Address,
-      macAddress,
-      arpTable: normaliseArpTable(device.config?.arpTable || device.arpTable || [])
-    };
+    return normaliseHostFields(device);
   }
   function normaliseConfig(parsed) {
     if (!parsed || !Array.isArray(parsed.devices) || !Array.isArray(parsed.links)) {
@@ -2162,8 +2224,8 @@ Full legal text: https://creativecommons.org/publicdomain/zero/1.0/legalcode</pr
     }
     const seenIds = /* @__PURE__ */ new Set();
     const devices = parsed.devices.map((device, index) => {
-      if (!device || !["computer", "switch", "router", "firewall", "lan"].includes(device.type)) {
-        throw new Error(`Device ${index + 1} needs type computer, switch, router, firewall, or lan.`);
+      if (!device || !["computer", "server", "switch", "router", "firewall", "lan"].includes(device.type)) {
+        throw new Error(`Device ${index + 1} needs type computer, server, switch, router, firewall, or lan.`);
       }
       const id = String(device.id || `device-${index + 1}`);
       if (seenIds.has(id)) throw new Error(`Duplicate device id: ${id}`);
@@ -2319,6 +2381,10 @@ Full legal text: https://creativecommons.org/publicdomain/zero/1.0/legalcode</pr
       tcpRefused: false,
       tcpTargetPort: null,
       headless: false,
+      dnsName: null,
+      dnsResolvedIp: null,
+      resolveThen: null,
+      dhcpOfferTaken: false,
       dhcpSuccess: false,
       dhcpAssignedIp: null,
       dhcpAssignedGateway: null
@@ -2328,6 +2394,7 @@ Full legal text: https://creativecommons.org/publicdomain/zero/1.0/legalcode</pr
   var toolCopy = {
     select: ["Select and move devices", "Drag devices to arrange the network."],
     computer: ["Add computer", "Click the canvas to place a computer."],
+    server: ["Add server", "Click the canvas to place a server (DNS/DHCP via dnsmasq)."],
     switch: ["Add switch", "Click the canvas to place a switch."],
     connect: ["Connect devices", "Click one device, then another device to connect them."],
     router: ["Add router", "Click the canvas to place a router."],
@@ -2753,7 +2820,7 @@ Full legal text: https://creativecommons.org/publicdomain/zero/1.0/legalcode</pr
       height: deviceSize(type).height,
       config: defaultDeviceConfig(type)
     };
-    if (type === "computer") device.config.macAddress = randomMac();
+    if (type === "computer" || type === "server") device.config.macAddress = randomMac();
     state.devices.push(device);
     state.selectedId = device.id;
     sync().syncPanel();
@@ -3194,7 +3261,7 @@ Full legal text: https://creativecommons.org/publicdomain/zero/1.0/legalcode</pr
   function buildPortList(deviceId) {
     const device = getDevice(deviceId);
     if (!device) return [];
-    if (device.type === "computer") {
+    if (device.type === "computer" || device.type === "server") {
       const linked = linkedPortsFor(deviceId);
       const occupied = linked.length > 0;
       return [{
@@ -3228,8 +3295,8 @@ Full legal text: https://creativecommons.org/publicdomain/zero/1.0/legalcode</pr
     const fromDevice = getDevice(fromId);
     const toDevice = getDevice(toId);
     if (!fromDevice || !toDevice) return;
-    const showFromPicker = fromDevice.type !== "computer";
-    const showToPicker = toDevice.type !== "computer";
+    const showFromPicker = fromDevice.type !== "computer" && fromDevice.type !== "server";
+    const showToPicker = toDevice.type !== "computer" && toDevice.type !== "server";
     if (!showFromPicker && !showToPicker) {
       addLink(fromId, toId, 1, 1);
       return;
@@ -3409,13 +3476,24 @@ Full legal text: https://creativecommons.org/publicdomain/zero/1.0/legalcode</pr
     const ipv4 = { type: "ipv4", srcIp, dstIp, ttl, protocol: 6, payload: tcp };
     return { id: nextFrameId(), srcMac, dstMac, etherType: 2048, vlanTag, payload: ipv4 };
   }
+  var dnsIdCounter = 0;
+  function createDnsQuery(srcMac, dstMac, srcIp, dstIp, name, id = ++dnsIdCounter, ttl = 64, vlanTag = null) {
+    const dns = { type: "dns", op: "query", id, name, address: null };
+    const ipv4 = { type: "ipv4", srcIp, dstIp, ttl, protocol: 17, payload: dns };
+    return { id: nextFrameId(), srcMac, dstMac, etherType: 2048, vlanTag, payload: ipv4 };
+  }
+  function createDnsResponse(srcMac, dstMac, srcIp, dstIp, name, address, id, ttl = 64, vlanTag = null) {
+    const dns = { type: "dns", op: "response", id, name, address };
+    const ipv4 = { type: "ipv4", srcIp, dstIp, ttl, protocol: 17, payload: dns };
+    return { id: nextFrameId(), srcMac, dstMac, etherType: 2048, vlanTag, payload: ipv4 };
+  }
   function createDhcpDiscover(clientMac, transactionId, vlanTag = null) {
     const dhcp = { type: "dhcp", messageType: "discover", transactionId, clientMac };
     const ipv4 = { type: "ipv4", srcIp: "0.0.0.0", dstIp: "255.255.255.255", ttl: 64, protocol: 17, payload: dhcp };
     return { id: nextFrameId(), srcMac: clientMac, dstMac: BROADCAST_MAC, etherType: 2048, vlanTag, payload: ipv4 };
   }
-  function createDhcpOffer(serverMac, serverIp, clientMac, assignedIp, transactionId, vlanTag = null, prefixLength) {
-    const dhcp = { type: "dhcp", messageType: "offer", transactionId, clientMac, assignedIp, prefixLength, gatewayIp: serverIp, serverIp };
+  function createDhcpOffer(serverMac, serverIp, clientMac, assignedIp, transactionId, vlanTag = null, prefixLength, gatewayIp = serverIp, dnsServerIp) {
+    const dhcp = { type: "dhcp", messageType: "offer", transactionId, clientMac, assignedIp, prefixLength, gatewayIp, serverIp, ...dnsServerIp ? { dnsServerIp } : {} };
     const ipv4 = { type: "ipv4", srcIp: serverIp, dstIp: "255.255.255.255", ttl: 64, protocol: 17, payload: dhcp };
     return { id: nextFrameId(), srcMac: serverMac, dstMac: BROADCAST_MAC, etherType: 2048, vlanTag, payload: ipv4 };
   }
@@ -3424,8 +3502,8 @@ Full legal text: https://creativecommons.org/publicdomain/zero/1.0/legalcode</pr
     const ipv4 = { type: "ipv4", srcIp: "0.0.0.0", dstIp: "255.255.255.255", ttl: 64, protocol: 17, payload: dhcp };
     return { id: nextFrameId(), srcMac: clientMac, dstMac: BROADCAST_MAC, etherType: 2048, vlanTag, payload: ipv4 };
   }
-  function createDhcpAck(serverMac, serverIp, clientMac, assignedIp, transactionId, vlanTag = null, prefixLength) {
-    const dhcp = { type: "dhcp", messageType: "ack", transactionId, clientMac, assignedIp, prefixLength, gatewayIp: serverIp, serverIp };
+  function createDhcpAck(serverMac, serverIp, clientMac, assignedIp, transactionId, vlanTag = null, prefixLength, gatewayIp = serverIp, dnsServerIp) {
+    const dhcp = { type: "dhcp", messageType: "ack", transactionId, clientMac, assignedIp, prefixLength, gatewayIp, serverIp, ...dnsServerIp ? { dnsServerIp } : {} };
     const ipv4 = { type: "ipv4", srcIp: serverIp, dstIp: "255.255.255.255", ttl: 64, protocol: 17, payload: dhcp };
     return { id: nextFrameId(), srcMac: serverMac, dstMac: BROADCAST_MAC, etherType: 2048, vlanTag, payload: ipv4 };
   }
@@ -3442,6 +3520,8 @@ Full legal text: https://creativecommons.org/publicdomain/zero/1.0/legalcode</pr
       } else if (ipv4.payload.type === "tcp") {
         const labels = { "syn": "TCP SYN", "syn-ack": "TCP SYN-ACK", "ack": "TCP ACK", "rst": "TCP RST" };
         label = labels[ipv4.payload.flags] || "TCP";
+      } else if (ipv4.payload.type === "dns") {
+        label = ipv4.payload.op === "query" ? "DNS Query" : ipv4.payload.address ? "DNS Answer" : "DNS NXDOMAIN";
       } else if (ipv4.payload.type === "icmp") {
         label = ipv4.payload.icmpType === 8 ? "ICMP Echo" : ipv4.payload.icmpType === 11 ? "ICMP TTL Exceeded" : "ICMP Reply";
       } else {
@@ -3455,6 +3535,7 @@ Full legal text: https://creativecommons.org/publicdomain/zero/1.0/legalcode</pr
     if (frame.payload.type === "arp") return "#f59e0b";
     const ipv4 = frame.payload;
     if (ipv4.payload.type === "dhcp") return "#a78bfa";
+    if (ipv4.payload.type === "dns") return ipv4.payload.op === "response" && !ipv4.payload.address ? "#ef4444" : "#22d3ee";
     if (ipv4.payload.type === "tcp") return ipv4.payload.flags === "rst" ? "#ef4444" : "#fb923c";
     if (ipv4.payload.type === "icmp" && ipv4.payload.icmpType === 8) return "#3b82f6";
     if (ipv4.payload.type === "icmp" && ipv4.payload.icmpType === 11) return "#ef4444";
@@ -3481,7 +3562,7 @@ Full legal text: https://creativecommons.org/publicdomain/zero/1.0/legalcode</pr
   function findPingTarget(value) {
     const target = String(value || "").trim().toLowerCase();
     return state.devices.find(
-      (device) => device.type === "computer" && (String(device.config?.ipv4Address || "").toLowerCase() === target || device.name.toLowerCase() === target)
+      (device) => (device.type === "computer" || device.type === "server") && (String(device.config?.ipv4Address || "").toLowerCase() === target || device.name.toLowerCase() === target)
     );
   }
   function buildPingEvents(source, targetText, options = {}) {
@@ -3497,6 +3578,8 @@ Full legal text: https://creativecommons.org/publicdomain/zero/1.0/legalcode</pr
       dstIp = target.config.ipv4Address;
     } else if (isValidIpv4(targetText.trim())) {
       dstIp = targetText.trim();
+    } else if (source.config?.dnsServerIp) {
+      return buildResolveEvents(source, targetText.trim(), "ping", null);
     } else {
       return `ping: cannot resolve ${targetText}`;
     }
@@ -3569,6 +3652,8 @@ Full legal text: https://creativecommons.org/publicdomain/zero/1.0/legalcode</pr
       dstIp = target.config.ipv4Address;
     } else if (isValidIpv4(targetText.trim())) {
       dstIp = targetText.trim();
+    } else if (source.config?.dnsServerIp) {
+      return buildResolveEvents(source, targetText.trim(), "tcp", port);
     } else {
       return `nc: cannot resolve ${targetText}`;
     }
@@ -3606,6 +3691,43 @@ Full legal text: https://creativecommons.org/publicdomain/zero/1.0/legalcode</pr
         linkId: firstHop.linkId
       }],
       pendingArp
+    };
+  }
+  function buildResolveEvents(source, name, then = null, port = null) {
+    if (!source.config?.ipv4Address) return `${source.name}: eth0 has no IPv4 address.`;
+    if (!source.config?.macAddress) return `${source.name}: eth0 has no MAC address.`;
+    const dnsIp = source.config?.dnsServerIp;
+    if (!dnsIp || !isValidIpv4(dnsIp)) return `;; no nameserver configured (/etc/resolv.conf)`;
+    const srcIp = source.config.ipv4Address;
+    const srcMac = source.config.macAddress;
+    const firstHop = findFirstHop(source);
+    if (!firstHop) return `;; connection timed out; no servers could be reached (no link)`;
+    let nextHopIp = dnsIp;
+    if (!sameSubnet(srcIp, dnsIp, prefixOf(source.config))) {
+      if (!source.config?.gatewayIpv4Address) return `;; no route to nameserver ${dnsIp} (no default gateway)`;
+      const gwIp = source.config.gatewayIpv4Address;
+      if (!sameSubnet(gwIp, srcIp, prefixOf(source.config))) return `;; no route to nameserver ${dnsIp} (gateway not on source subnet)`;
+      nextHopIp = gwIp;
+    }
+    const pendingArp = {};
+    const arpEntry = (source.config.arpTable || []).find((e) => e.ipv4Address === nextHopIp);
+    let initialFrame;
+    if (arpEntry) {
+      initialFrame = createDnsQuery(srcMac, arpEntry.macAddress, srcIp, dnsIp, name);
+    } else {
+      initialFrame = createArpRequest(srcMac, srcIp, nextHopIp, null);
+      pendingArp[`${source.id}:${nextHopIp}`] = [createDnsQuery(srcMac, "00:00:00:00:00:00", srcIp, dnsIp, name)];
+    }
+    return {
+      events: [{
+        type: "frame_arrive",
+        frame: initialFrame,
+        deviceId: firstHop.peerId,
+        fromDeviceId: source.id,
+        linkId: firstHop.linkId
+      }],
+      pendingArp,
+      dns: { name, then, port }
     };
   }
   function buildDhcpEvents(source) {
@@ -3689,10 +3811,11 @@ Full legal text: https://creativecommons.org/publicdomain/zero/1.0/legalcode</pr
   function syncZoomLevel() {
     dom.zoomLevel.textContent = `${Math.round(state.scale * 100)}%`;
   }
+  var HOST_TYPES = /* @__PURE__ */ new Set(["computer", "server"]);
   function linkColorFor(from, to) {
     if (from.type === "router" && to.type === "router") return cssColor("--link-router");
     if (from.type === "switch" || to.type === "switch") {
-      if (from.type !== "computer" && to.type !== "computer") return cssColor("--link-switch");
+      if (!HOST_TYPES.has(from.type) && !HOST_TYPES.has(to.type)) return cssColor("--link-switch");
     }
     return cssColor("--link-host");
   }
@@ -3851,19 +3974,19 @@ Full legal text: https://creativecommons.org/publicdomain/zero/1.0/legalcode</pr
       ctx.fillText(label, device.x, labelY);
       labelY += 17;
     }
-    if (device.type === "computer" && state.options.showIpAddresses && device.config?.ipv4Address) {
+    if (HOST_TYPES.has(device.type) && state.options.showIpAddresses && device.config?.ipv4Address) {
       ctx.fillStyle = cssColor("--label-ip");
       ctx.font = FONT_SECONDARY;
       ctx.fillText(device.config.ipv4Address, device.x, labelY);
       labelY += 15;
     }
-    if (device.type === "computer" && state.options.showMacAddresses && device.config?.macAddress) {
+    if (HOST_TYPES.has(device.type) && state.options.showMacAddresses && device.config?.macAddress) {
       ctx.fillStyle = cssColor("--label-mac");
       ctx.font = FONT_SMALL;
       ctx.fillText(device.config.macAddress, device.x, labelY);
       labelY += 13;
     }
-    if (device.type === "computer" && state.options.showIpAddresses) {
+    if (HOST_TYPES.has(device.type) && state.options.showIpAddresses) {
       const vlan = getVlanForDevice(device.id);
       if (vlan > 1) {
         const color = vlanColor(vlan);
@@ -4215,18 +4338,23 @@ Full legal text: https://creativecommons.org/publicdomain/zero/1.0/legalcode</pr
     sim.pendingArp = { ...setup.pendingArp };
     sim.stepIndex = 0;
     sim.originDeviceId = originDeviceId;
-    sim.pingTargetIp = targetIp;
+    sim.pingTargetIp = setup.dns ? null : targetIp;
     sim.pingSuccess = false;
     sim.pingTtl = 64;
     sim.pingResponderIp = null;
     sim.pingTimeExceeded = false;
     sim.tcpSuccess = false;
     sim.tcpRefused = false;
-    sim.tcpTargetPort = targetPort;
+    sim.tcpTargetPort = setup.dns?.port ?? targetPort;
+    sim.dnsName = setup.dns?.name ?? null;
+    sim.dnsResolvedIp = null;
+    sim.resolveThen = setup.dns?.then ?? null;
+    sim.dhcpOfferTaken = false;
     sim.dhcpSuccess = false;
     sim.dhcpAssignedIp = null;
     sim.dhcpAssignedGateway = null;
-    const label = mode === "dhcp" ? "Requesting DHCP lease..." : mode === "tcp" ? `Opening TCP connection to ${targetIp}:${targetPort ?? "?"}...` : `Simulating ping to ${targetIp}...`;
+    const target = setup.dns ? setup.dns.name : targetIp;
+    const label = mode === "dhcp" ? "Requesting DHCP lease..." : mode === "tcp" ? `Opening TCP connection to ${target}:${sim.tcpTargetPort ?? "?"}...` : mode === "dns" ? `Resolving ${target}...` : `Simulating ping to ${target}...`;
     state.terminal.lines.push({ kind: "sim", text: label });
     syncTerminal();
     syncSimLog();
@@ -4282,14 +4410,18 @@ Full legal text: https://creativecommons.org/publicdomain/zero/1.0/legalcode</pr
     sim.pendingArp = { ...setup.pendingArp };
     sim.stepIndex = 0;
     sim.originDeviceId = originDeviceId;
-    sim.pingTargetIp = targetIp;
+    sim.pingTargetIp = setup.dns ? null : targetIp;
     sim.pingSuccess = false;
     sim.pingTtl = 64;
     sim.pingResponderIp = null;
     sim.pingTimeExceeded = false;
     sim.tcpSuccess = false;
     sim.tcpRefused = false;
-    sim.tcpTargetPort = targetPort;
+    sim.tcpTargetPort = setup.dns?.port ?? targetPort;
+    sim.dnsName = setup.dns?.name ?? null;
+    sim.dnsResolvedIp = null;
+    sim.resolveThen = setup.dns?.then ?? null;
+    sim.dhcpOfferTaken = false;
     sim.dhcpSuccess = false;
     sim.dhcpAssignedIp = null;
     sim.dhcpAssignedGateway = null;
@@ -4303,11 +4435,12 @@ Full legal text: https://creativecommons.org/publicdomain/zero/1.0/legalcode</pr
     }
     if (sim.status !== "done") finishSimulation();
     return {
-      success: mode === "dhcp" ? sim.dhcpSuccess : mode === "tcp" ? sim.tcpSuccess : sim.pingSuccess,
+      success: mode === "dhcp" ? sim.dhcpSuccess : mode === "tcp" ? sim.tcpSuccess : mode === "dns" ? sim.dnsResolvedIp != null : sim.pingSuccess,
       refused: sim.tcpRefused,
       ttl: sim.pingTtl,
       responderIp: sim.pingResponderIp,
       timeExceeded: sim.pingTimeExceeded,
+      resolvedIp: sim.dnsResolvedIp,
       assignedIp: sim.dhcpAssignedIp,
       assignedGateway: sim.dhcpAssignedGateway,
       log: sim.log,
@@ -4316,13 +4449,20 @@ Full legal text: https://creativecommons.org/publicdomain/zero/1.0/legalcode</pr
   }
   function runTraceroute(source, targetText, maxHops = 30) {
     const target = findPingTarget(targetText);
-    const targetIp = target ? target.config?.ipv4Address || targetText : isValidIpv4(targetText.trim()) ? targetText.trim() : targetText.trim();
-    const warm = buildPingEvents(source, targetText);
+    let targetIp = target ? target.config?.ipv4Address || targetText : targetText.trim();
+    if (!target && !isValidIpv4(targetIp)) {
+      const lookup = buildResolveEvents(source, targetIp, null, null);
+      if (typeof lookup === "string") return `traceroute: unknown host ${targetIp}`;
+      const res = runSimulationHeadless(lookup, source.id, targetIp, "dns");
+      if (!res.resolvedIp) return `traceroute: unknown host ${targetIp}`;
+      targetIp = res.resolvedIp;
+    }
+    const warm = buildPingEvents(source, targetIp);
     if (typeof warm !== "string") runSimulationHeadless(warm, source.id, targetIp, "ping");
     const hops = [];
     let reached = false;
     for (let ttl = 1; ttl <= maxHops; ttl++) {
-      const setup = buildPingEvents(source, targetText, { ttl });
+      const setup = buildPingEvents(source, targetIp, { ttl });
       if (typeof setup === "string") return setup;
       const res = runSimulationHeadless(setup, source.id, targetIp, "ping");
       if (res.success) {
@@ -4429,6 +4569,7 @@ Full legal text: https://creativecommons.org/publicdomain/zero/1.0/legalcode</pr
   }
   var PROCESSORS = {
     computer: processAtComputer,
+    server: processAtServer,
     switch: processAtSwitch,
     router: processAtRouter,
     firewall: processAtFirewall
@@ -4531,10 +4672,35 @@ Full legal text: https://creativecommons.org/publicdomain/zero/1.0/legalcode</pr
         } else if (tcp.flags === "ack") {
           logStep(device, "sim-tcp", `TCP ACK from ${ipv4.srcIp} \u2014 handshake complete`);
         }
+      } else if (ipv4.payload.type === "dns") {
+        const dns = ipv4.payload;
+        if (ipv4.dstIp !== config.ipv4Address) return outgoing;
+        if (dns.op === "response" && device.id === sim.originDeviceId && dns.name === sim.dnsName) {
+          if (dns.address) {
+            sim.dnsResolvedIp = dns.address;
+            logStep(device, "sim-dns", `DNS: ${dns.name} is ${dns.address}`);
+            if (sim.resolveThen && fromDeviceId) {
+              sim.pingTargetIp = dns.address;
+              const followOn = buildFollowOnFrames(device, config, dns.address, sim.resolveThen, sim.tcpTargetPort, frame.vlanTag);
+              if (typeof followOn === "string") {
+                logStep(device, "sim-drop", followOn);
+              } else {
+                for (const f of followOn) outgoing.push({ frame: f, toDeviceId: fromDeviceId });
+              }
+            }
+          } else {
+            logStep(device, "sim-drop", `DNS: ${dns.name} \u2014 NXDOMAIN (no such name)`);
+          }
+        }
       } else if (ipv4.payload.type === "dhcp") {
         const dhcp = ipv4.payload;
         if (dhcp.clientMac !== config.macAddress) return outgoing;
         if (dhcp.messageType === "offer") {
+          if (sim.dhcpOfferTaken) {
+            logStep(device, "sim-dhcp", `Ignoring competing DHCP Offer from ${dhcp.serverIp} (already requesting)`);
+            return outgoing;
+          }
+          sim.dhcpOfferTaken = true;
           logStep(device, "sim-dhcp", `Received DHCP Offer: ${dhcp.assignedIp} from ${dhcp.serverIp}`);
           const request = createDhcpRequest(config.macAddress, dhcp.assignedIp, dhcp.serverIp, dhcp.transactionId, frame.vlanTag);
           if (fromDeviceId) outgoing.push({ frame: request, toDeviceId: fromDeviceId });
@@ -4543,6 +4709,7 @@ Full legal text: https://creativecommons.org/publicdomain/zero/1.0/legalcode</pr
           config.ipv4Address = dhcp.assignedIp || "";
           if (dhcp.prefixLength != null) config.prefixLength = dhcp.prefixLength;
           config.gatewayIpv4Address = dhcp.gatewayIp || "";
+          if (dhcp.dnsServerIp) config.dnsServerIp = dhcp.dnsServerIp;
           if (dhcp.gatewayIp && frame.srcMac && frame.srcMac !== BROADCAST_MAC) {
             learnArp(config, dhcp.gatewayIp, frame.srcMac);
           }
@@ -4553,6 +4720,134 @@ Full legal text: https://creativecommons.org/publicdomain/zero/1.0/legalcode</pr
       }
     }
     return outgoing;
+  }
+  function buildFollowOnFrames(device, config, dstIp, then, port, vlanTag) {
+    const sim = state.simulation;
+    const srcIp = config.ipv4Address;
+    const srcMac = config.macAddress;
+    let nextHopIp = dstIp;
+    if (!sameSubnet(srcIp, dstIp, prefixOf(config))) {
+      if (!config.gatewayIpv4Address) return `Cannot reach ${dstIp} \u2014 no default gateway`;
+      nextHopIp = config.gatewayIpv4Address;
+    }
+    const srcPort = 3e4 + sim.stepIndex % 2e4;
+    const make = (dstMac) => then === "tcp" ? createTcpSegment(srcMac, dstMac, srcIp, dstIp, srcPort, port ?? 80, "syn", 64, vlanTag) : createIcmpEchoRequest(srcMac, dstMac, srcIp, dstIp, 64, vlanTag);
+    const arpEntry = (config.arpTable || []).find((e) => e.ipv4Address === nextHopIp);
+    if (arpEntry) return [make(arpEntry.macAddress)];
+    const pendingKey = `${device.id}:${nextHopIp}`;
+    if (!sim.pendingArp[pendingKey]) sim.pendingArp[pendingKey] = [];
+    sim.pendingArp[pendingKey].push(make("00:00:00:00:00:00"));
+    return [createArpRequest(srcMac, srcIp, nextHopIp, vlanTag)];
+  }
+  function processAtServer(device, frame, fromDeviceId) {
+    const config = device.config;
+    if (!device.poweredOff && config && frame.payload.type === "ipv4") {
+      const ipv4 = frame.payload;
+      const running = config.dnsmasqRunning !== false;
+      if (running && ipv4.dstIp === "255.255.255.255" && ipv4.payload.type === "dhcp" && config.dhcpRangeStart && config.dhcpRangeEnd && config.ipv4Address) {
+        return handleServerDhcp(device, fromDeviceId, ipv4.payload, frame);
+      }
+      if (ipv4.payload.type === "dns" && ipv4.payload.op === "query" && ipv4.dstIp === config.ipv4Address) {
+        if (!running) {
+          logStep(device, "sim-drop", `DNS query for ${ipv4.payload.name} \u2014 dnsmasq is not running`);
+          return [];
+        }
+        if (!hostHasReturnRoute(config, ipv4.srcIp)) {
+          logStep(device, "sim-drop", `Cannot answer ${ipv4.srcIp} \u2014 no route (no default gateway)`);
+          return [];
+        }
+        learnArp(config, ipv4.srcIp, frame.srcMac);
+        const dns = ipv4.payload;
+        const record = (config.dnsRecords || []).find((r) => r.name === dns.name.toLowerCase());
+        const address = record?.ip ?? null;
+        logStep(
+          device,
+          address ? "sim-dns" : "sim-drop",
+          address ? `DNS query: ${dns.name} \u2192 ${address}` : `DNS query: ${dns.name} \u2014 NXDOMAIN`
+        );
+        const reply = createDnsResponse(
+          config.macAddress || "",
+          frame.srcMac,
+          config.ipv4Address || "",
+          ipv4.srcIp,
+          dns.name,
+          address,
+          dns.id,
+          64,
+          frame.vlanTag
+        );
+        return fromDeviceId ? [{ frame: reply, toDeviceId: fromDeviceId }] : [];
+      }
+    }
+    return processAtComputer(device, frame, fromDeviceId);
+  }
+  function handleServerDhcp(device, fromDeviceId, dhcp, frame) {
+    const outgoing = [];
+    const config = device.config;
+    const serverIp = config.ipv4Address || "";
+    const routerIp = config.dhcpRouterIp || serverIp;
+    if (dhcp.messageType === "discover") {
+      const allocatedIp = allocateServerDhcpIp(device);
+      if (!allocatedIp) {
+        logStep(device, "sim-drop", `DHCP Discover from ${dhcp.clientMac}: no addresses available in dhcp-range`);
+        return outgoing;
+      }
+      logStep(device, "sim-dhcp", `DHCP Discover from ${dhcp.clientMac} \u2014 offering ${allocatedIp}`);
+      const offer = createDhcpOffer(
+        config.macAddress || "",
+        serverIp,
+        dhcp.clientMac,
+        allocatedIp,
+        dhcp.transactionId,
+        frame.vlanTag,
+        prefixOf(config),
+        routerIp,
+        serverIp
+      );
+      outgoing.push({ frame: offer, toDeviceId: fromDeviceId });
+    } else if (dhcp.messageType === "request") {
+      if (dhcp.serverIp && dhcp.serverIp !== serverIp) return outgoing;
+      const requestedIp = dhcp.requestedIp || "";
+      if (!Array.isArray(config.dhcpLeases)) config.dhcpLeases = [];
+      config.dhcpLeases = normaliseDhcpLeases(config.dhcpLeases);
+      const existingLease = config.dhcpLeases.find((l) => l.macAddress === dhcp.clientMac);
+      if (existingLease) existingLease.ipv4Address = requestedIp;
+      else config.dhcpLeases.push({ macAddress: dhcp.clientMac, ipv4Address: requestedIp });
+      learnArp(config, requestedIp, dhcp.clientMac);
+      logStep(device, "sim-dhcp", `DHCP Request from ${dhcp.clientMac} for ${requestedIp} \u2014 sending ACK`);
+      const ack = createDhcpAck(
+        config.macAddress || "",
+        serverIp,
+        dhcp.clientMac,
+        requestedIp,
+        dhcp.transactionId,
+        frame.vlanTag,
+        prefixOf(config),
+        routerIp,
+        serverIp
+      );
+      outgoing.push({ frame: ack, toDeviceId: fromDeviceId });
+    }
+    return outgoing;
+  }
+  function allocateServerDhcpIp(device) {
+    const config = device.config;
+    const start = ipv4ToInt(config.dhcpRangeStart);
+    const end = ipv4ToInt(config.dhcpRangeEnd);
+    if (end < start) return null;
+    const used = /* @__PURE__ */ new Set();
+    if (config.ipv4Address) used.add(config.ipv4Address);
+    for (const lease of normaliseDhcpLeases(config.dhcpLeases || [])) used.add(lease.ipv4Address);
+    for (const d of state.devices) {
+      if (d.hidden) continue;
+      const ip = d.config?.ipv4Address;
+      if (ip && isValidIpv4(ip)) used.add(ip);
+    }
+    for (let i = start; i <= end; i++) {
+      const candidate = intToIpv4(i);
+      if (!used.has(candidate)) return candidate;
+    }
+    return null;
   }
   function processAtSwitch(device, frame, fromDeviceId) {
     const outgoing = [];
@@ -4753,6 +5048,7 @@ Full legal text: https://creativecommons.org/publicdomain/zero/1.0/legalcode</pr
       );
       outgoing.push({ frame: offer, toDeviceId: fromDeviceId });
     } else if (dhcp.messageType === "request") {
+      if (dhcp.serverIp && dhcp.serverIp !== ingressIface.ipv4Address) return outgoing;
       const requestedIp = dhcp.requestedIp || "";
       if (!ingressIface.dhcpLeases) ingressIface.dhcpLeases = [];
       ingressIface.dhcpLeases = normaliseDhcpLeases(ingressIface.dhcpLeases);
@@ -4813,6 +5109,15 @@ Full legal text: https://creativecommons.org/publicdomain/zero/1.0/legalcode</pr
       }
       return { ...ipv4, srcIp: outsideIp, payload: { ...tcp, srcPort: entry.outsidePort } };
     }
+    if (ipv4.payload.type === "dns" && ipv4.payload.op === "query") {
+      const dns = ipv4.payload;
+      let entry = translations.find((t) => t.protocol === "udp" && t.insideIp === ipv4.srcIp && t.insidePort === dns.id && t.destIp === ipv4.dstIp);
+      if (!entry) {
+        entry = { protocol: "udp", insideIp: ipv4.srcIp, insidePort: dns.id, outsideIp, outsidePort: allocNatId(translations), destIp: ipv4.dstIp };
+        translations.push(entry);
+      }
+      return { ...ipv4, srcIp: outsideIp, payload: { ...dns, id: entry.outsidePort } };
+    }
     return null;
   }
   function natRestoreInbound(device, ipv4, ifaces) {
@@ -4828,6 +5133,11 @@ Full legal text: https://creativecommons.org/publicdomain/zero/1.0/legalcode</pr
       const tcp = ipv4.payload;
       const entry = translations.find((t) => t.protocol === "tcp" && t.outsidePort === tcp.dstPort && t.destIp === ipv4.srcIp);
       if (entry) return { ...ipv4, dstIp: entry.insideIp, payload: { ...tcp, dstPort: entry.insidePort } };
+    }
+    if (ipv4.payload.type === "dns" && ipv4.payload.op === "response") {
+      const dns = ipv4.payload;
+      const entry = translations.find((t) => t.protocol === "udp" && t.outsidePort === dns.id && t.destIp === ipv4.srcIp);
+      if (entry) return { ...ipv4, dstIp: entry.insideIp, payload: { ...dns, id: entry.insidePort } };
     }
     return null;
   }
@@ -5074,33 +5384,56 @@ Full legal text: https://creativecommons.org/publicdomain/zero/1.0/legalcode</pr
         if (!sim.headless) terminalLine("error", `DHCP: no response from server.
 APIPA: assigned link-local ${apipaIp}`);
       }
+    } else if (sim.mode === "dns") {
+      if (!sim.headless) {
+        const origin = getDevice(sim.originDeviceId);
+        const server = origin?.config?.dnsServerIp || "?";
+        if (sim.dnsResolvedIp) {
+          terminalLine("", `Server:		${server}
+Address:	${server}#53
+
+Name:	${sim.dnsName}
+Address: ${sim.dnsResolvedIp}`);
+        } else if (sim.log.some((e) => e.kind === "sim-drop" && e.action.includes("NXDOMAIN"))) {
+          terminalLine("error", `** server can't find ${sim.dnsName}: NXDOMAIN`);
+        } else {
+          terminalLine("error", `;; connection timed out; no servers could be reached`);
+        }
+      }
     } else if (sim.mode === "tcp") {
       if (!sim.headless) {
-        const targetIp = sim.pingTargetIp || "?";
+        const target = sim.pingTargetIp || sim.dnsName || "?";
         const port = sim.tcpTargetPort ?? "?";
-        if (sim.tcpSuccess) {
-          terminalLine("", `Connection to ${targetIp} ${port} port [tcp/*] succeeded!`);
+        if (sim.dnsName && !sim.dnsResolvedIp) {
+          terminalLine("error", `nc: getaddrinfo for host "${sim.dnsName}" port ${port}: Name or service not known`);
+        } else if (sim.tcpSuccess) {
+          terminalLine("", `Connection to ${target} ${port} port [tcp/*] succeeded!`);
         } else if (sim.tcpRefused) {
-          terminalLine("error", `nc: connect to ${targetIp} port ${port} (tcp) failed: Connection refused`);
+          terminalLine("error", `nc: connect to ${target} port ${port} (tcp) failed: Connection refused`);
         } else {
-          terminalLine("error", `nc: connect to ${targetIp} port ${port} (tcp) failed: Operation timed out`);
+          terminalLine("error", `nc: connect to ${target} port ${port} (tcp) failed: Operation timed out`);
         }
       }
     } else if (!sim.headless) {
-      const targetIp = sim.pingTargetIp || "?";
-      if (sim.pingSuccess) {
-        const ttl = sim.pingTtl;
-        const rtt = sim.stepIndex < 15 ? "1.0" : "2.0";
-        terminalLine("", `PING ${targetIp}
+      if (sim.dnsName && !sim.dnsResolvedIp) {
+        terminalLine("error", `ping: ${sim.dnsName}: Name or service not known`);
+      } else {
+        const targetIp = sim.pingTargetIp || "?";
+        const name = sim.dnsName ? `${sim.dnsName} (${targetIp})` : targetIp;
+        if (sim.pingSuccess) {
+          const ttl = sim.pingTtl;
+          const rtt = sim.stepIndex < 15 ? "1.0" : "2.0";
+          terminalLine("", `PING ${name}
 64 bytes from ${targetIp}: icmp_seq=1 ttl=${ttl} time=${rtt} ms
 
---- ${targetIp} ping statistics ---
+--- ${name} ping statistics ---
 1 packets transmitted, 1 received, 0% packet loss`);
-      } else {
-        terminalLine("", `PING ${targetIp}
+        } else {
+          terminalLine("", `PING ${name}
 
---- ${targetIp} ping statistics ---
+--- ${name} ping statistics ---
 1 packets transmitted, 0 received, 100% packet loss`);
+        }
       }
     }
     sim.status = "done";
@@ -5179,6 +5512,19 @@ APIPA: assigned link-local ${apipaIp}`);
     sync().render();
     return `Default gateway set to ${parsed.address}.`;
   }
+  function setHostDns(device, address) {
+    const parsed = parseIpv4Token(address);
+    if (!parsed) return `Invalid IPv4 address: ${address}`;
+    pushUndo();
+    ensureConfig(device);
+    device.config.dnsServerIp = parsed.address;
+    sync().syncPanel();
+    return `nameserver ${parsed.address} > /etc/resolv.conf`;
+  }
+  function showResolvConf(device) {
+    const ns = device.config?.dnsServerIp;
+    return ns ? `nameserver ${ns}` : "# /etc/resolv.conf is empty (no nameserver configured)";
+  }
   function runHostTerminalCommand(host, command) {
     const lower = command.toLowerCase();
     if (lower === "clear") {
@@ -5186,20 +5532,7 @@ APIPA: assigned link-local ${apipaIp}`);
       return;
     }
     if (lower === "help") {
-      terminalLine("muted", [
-        "Commands:",
-        "  ip addr show",
-        "  ip addr add <ipv4>/24 dev eth0",
-        "  ip addr flush dev eth0",
-        "  ip route show",
-        "  ip route add default via <ipv4> dev eth0",
-        "  arp -n",
-        "  ping <pc-name|ipv4>",
-        "  traceroute <pc-name|ipv4>",
-        "  nc -z <pc-name|ipv4> <port>   (TCP connection test)",
-        "  dhcp",
-        "  clear"
-      ].join("\n"));
+      terminalLine("muted", hostHelpLines().join("\n"));
       return;
     }
     if (lower === "ip" || lower === "ip addr" || lower === "ip address" || lower === "ip addr show" || lower === "ip address show" || lower === "ip addr show dev eth0" || lower === "ip address show dev eth0" || lower === "ip a") {
@@ -5212,6 +5545,27 @@ APIPA: assigned link-local ${apipaIp}`);
     }
     if (lower === "arp" || lower === "arp -a" || lower === "arp -n" || lower === "ip neigh" || lower === "ip neigh show" || lower === "ip neighbour" || lower === "ip neighbour show") {
       terminalLine("", showHostArp(host));
+      return;
+    }
+    if (lower === "cat /etc/resolv.conf") {
+      terminalLine("", showResolvConf(host));
+      return;
+    }
+    const nsSetMatch = command.match(/^echo\s+['"]?nameserver\s+(\S+?)['"]?\s*>{1,2}\s*\/etc\/resolv\.conf$/i) || command.match(/^set\s+nameserver\s+(\S+)$/i);
+    if (nsSetMatch) {
+      const result = setHostDns(host, nsSetMatch[1]);
+      terminalLine(result.startsWith("Invalid") ? "error" : "", result);
+      return;
+    }
+    const lookupMatch = command.match(/^(?:nslookup|host|dig)\s+(\S+)$/i);
+    if (lookupMatch) {
+      const result = buildResolveEvents(host, lookupMatch[1], null, null);
+      if (typeof result === "string") {
+        terminalLine("error", result);
+      } else {
+        startSimulation(result, host.id, lookupMatch[1], "dns");
+        dom.terminalInput.disabled = true;
+      }
       return;
     }
     const ipFlushMatch = command.match(/^ip\s+(?:addr|address)\s+flush\s+dev\s+eth0$/i);
@@ -5283,12 +5637,131 @@ APIPA: assigned link-local ${apipaIp}`);
     }
     terminalLine("error", `${command}: command not found`);
   }
+  function hostHelpLines() {
+    return [
+      "Commands:",
+      "  ip addr show",
+      "  ip addr add <ipv4>/24 dev eth0",
+      "  ip addr flush dev eth0",
+      "  ip route show",
+      "  ip route add default via <ipv4> dev eth0",
+      "  arp -n",
+      "  cat /etc/resolv.conf",
+      "  echo nameserver <ipv4> > /etc/resolv.conf",
+      "  ping <name|ipv4>",
+      "  traceroute <name|ipv4>",
+      "  nslookup <name>               (DNS lookup)",
+      "  nc -z <name|ipv4> <port>      (TCP connection test)",
+      "  dhcp",
+      "  clear"
+    ];
+  }
   function resolvePingTargetIp(targetText) {
     if (isValidIpv4(targetText)) return targetText;
     const target = state.devices.find(
-      (d) => d.type === "computer" && d.name.toLowerCase() === targetText.toLowerCase()
+      (d) => (d.type === "computer" || d.type === "server") && d.name.toLowerCase() === targetText.toLowerCase()
     );
     return target?.config?.ipv4Address || targetText;
+  }
+
+  // src/terminal/server.ts
+  function showDnsmasqConf(device) {
+    const config = device.config || {};
+    const lines = [
+      "# /etc/dnsmasq.conf \u2014 managed via `echo <line> >> /etc/dnsmasq.conf`",
+      "domain-needed",
+      "no-resolv"
+    ];
+    for (const r of config.dnsRecords || []) lines.push(`address=/${r.name}/${r.ip}`);
+    if (config.dhcpRangeStart && config.dhcpRangeEnd) {
+      lines.push(`dhcp-range=${config.dhcpRangeStart},${config.dhcpRangeEnd},12h`);
+    }
+    if (config.dhcpRouterIp) lines.push(`dhcp-option=option:router,${config.dhcpRouterIp}`);
+    return lines.join("\n");
+  }
+  function applyDnsmasqConfLine(device, line) {
+    const trimmed = line.trim();
+    const addressMatch = trimmed.match(/^address=\/([^/]+)\/(\S+)$/i);
+    if (addressMatch) {
+      const name = addressMatch[1].trim().toLowerCase();
+      const ip = addressMatch[2].trim();
+      if (!isValidIpv4(ip)) return `dnsmasq: bad address at line: ${trimmed}`;
+      pushUndo();
+      ensureConfig(device);
+      const records = normaliseDnsRecords(device.config.dnsRecords || []);
+      const existing = records.find((r) => r.name === name);
+      if (existing) existing.ip = ip;
+      else records.push({ name, ip });
+      device.config.dnsRecords = records;
+      sync().syncPanel();
+      return "";
+    }
+    const rangeMatch = trimmed.match(/^dhcp-range=(\S+?),(\S+?)(?:,\S+)?$/i);
+    if (rangeMatch) {
+      const start = rangeMatch[1].trim();
+      const end = rangeMatch[2].trim();
+      if (!isValidIpv4(start) || !isValidIpv4(end)) return `dnsmasq: bad dhcp-range at line: ${trimmed}`;
+      pushUndo();
+      ensureConfig(device);
+      device.config.dhcpRangeStart = start;
+      device.config.dhcpRangeEnd = end;
+      sync().syncPanel();
+      return "";
+    }
+    const routerMatch = trimmed.match(/^dhcp-option=option:router,(\S+)$/i);
+    if (routerMatch) {
+      const ip = routerMatch[1].trim();
+      if (!isValidIpv4(ip)) return `dnsmasq: bad dhcp-option at line: ${trimmed}`;
+      pushUndo();
+      ensureConfig(device);
+      device.config.dhcpRouterIp = ip;
+      sync().syncPanel();
+      return "";
+    }
+    return `dnsmasq: unsupported directive: ${trimmed} (use address=/name/ip, dhcp-range=start,end, dhcp-option=option:router,ip)`;
+  }
+  function runServerTerminalCommand(server, command) {
+    const lower = command.toLowerCase().trim();
+    if (lower === "help") {
+      terminalLine("muted", [
+        ...hostHelpLines(),
+        "dnsmasq (DNS + DHCP):",
+        "  cat /etc/dnsmasq.conf",
+        "  echo address=/<name>/<ipv4> >> /etc/dnsmasq.conf",
+        "  echo dhcp-range=<start>,<end> >> /etc/dnsmasq.conf",
+        "  echo dhcp-option=option:router,<ipv4> >> /etc/dnsmasq.conf",
+        "  systemctl start|stop|status dnsmasq"
+      ].join("\n"));
+      return;
+    }
+    if (lower === "cat /etc/dnsmasq.conf") {
+      terminalLine("", showDnsmasqConf(server));
+      return;
+    }
+    const appendMatch = command.match(/^echo\s+['"]?(.+?)['"]?\s*>>\s*\/etc\/dnsmasq\.conf$/i);
+    if (appendMatch) {
+      const result = applyDnsmasqConfLine(server, appendMatch[1]);
+      if (result) terminalLine("error", result);
+      return;
+    }
+    const systemctlMatch = command.match(/^(?:sudo\s+)?systemctl\s+(start|stop|restart|status)\s+dnsmasq$/i);
+    if (systemctlMatch) {
+      const action = systemctlMatch[1].toLowerCase();
+      ensureConfig(server);
+      if (action === "status") {
+        const running = server.config.dnsmasqRunning !== false;
+        terminalLine(running ? "" : "error", running ? `dnsmasq.service - dnsmasq - A lightweight DHCP and caching DNS server
+   Active: active (running)` : `dnsmasq.service - dnsmasq - A lightweight DHCP and caching DNS server
+   Active: inactive (dead)`);
+        return;
+      }
+      pushUndo();
+      server.config.dnsmasqRunning = action !== "stop";
+      sync().syncPanel();
+      terminalLine("", action === "stop" ? "Stopped dnsmasq." : action === "restart" ? "Restarted dnsmasq." : "Started dnsmasq.");
+      return;
+    }
+    runHostTerminalCommand(server, command);
   }
 
   // src/terminal/iptables.ts
@@ -6455,6 +6928,7 @@ APIPA: assigned link-local ${apipaIp}`);
   }
   function terminalPromptText(device) {
     if (device.type === "computer") return `${device.name}$`;
+    if (device.type === "server") return `root@${device.name}:~#`;
     if (device.type === "switch") return `${device.name}#`;
     if (device.type === "firewall") return `root@${device.name}#`;
     if (state.terminal.mode === "config") return `${device.name}(config)#`;
@@ -6465,6 +6939,7 @@ APIPA: assigned link-local ${apipaIp}`);
   }
   var CLI_DISPATCH = {
     computer: runHostTerminalCommand,
+    server: runServerTerminalCommand,
     router: runRouterTerminalCommand,
     switch: runSwitchTerminalCommand,
     firewall: runFirewallTerminalCommand
@@ -6491,7 +6966,7 @@ APIPA: assigned link-local ${apipaIp}`);
       state.terminal.mode = "exec";
       state.terminal.interfacePeerId = null;
       state.terminal.interfaceVlanTag = null;
-      state.terminal.lines = [{ kind: "error", text: "Select a PC, router, or managed switch to open its terminal." }];
+      state.terminal.lines = [{ kind: "error", text: "Select a PC, server, router, or managed switch to open its terminal." }];
     } else if (device.poweredOff) {
       state.terminal.open = true;
       state.terminal.deviceId = null;
@@ -6533,7 +7008,7 @@ APIPA: assigned link-local ${apipaIp}`);
       state.terminal.interfacePeerId = null;
       state.terminal.interfaceVlanTag = null;
       if (state.terminal.open) {
-        state.terminal.lines = [{ kind: "error", text: "Select a PC, router, or managed switch before opening the terminal." }];
+        state.terminal.lines = [{ kind: "error", text: "Select a PC, server, router, or managed switch before opening the terminal." }];
       }
     }
     const activeHost = getDevice(state.terminal.deviceId);
@@ -6706,6 +7181,121 @@ APIPA: assigned link-local ${apipaIp}`);
       return `<li><span class="fw-target fw-${escapeHtml(r.target)}">${escapeHtml(String(r.target).toUpperCase())}</span> ${escapeHtml(String(r.chain || "forward").toUpperCase())} ${match || "(any)"}</li>`;
     }).join("")}</ol>`;
   }
+  function renderDnsmasqSection(device) {
+    const config = device.config || {};
+    const records = normaliseDnsRecords(config.dnsRecords || []);
+    const leases = normaliseDhcpLeases(config.dhcpLeases || []);
+    return `
+    <div class="field">
+      <label for="dnsmasqRunning">dnsmasq service running</label>
+      <input id="dnsmasqRunning" type="checkbox" ${config.dnsmasqRunning !== false ? "checked" : ""}>
+    </div>
+    <div class="field">
+      <label>DNS records (address=/name/ip)</label>
+      ${records.length ? `
+      <table class="data-table">
+        <thead><tr><th>Name</th><th>IPv4</th><th></th></tr></thead>
+        <tbody>
+          ${records.map((r, i) => `
+            <tr>
+              <td>${escapeHtml(r.name)}</td>
+              <td>${escapeHtml(r.ip)}</td>
+              <td><button class="inline-button dns-record-remove" data-index="${i}" type="button" title="Remove record">&times;</button></td>
+            </tr>
+          `).join("")}
+        </tbody>
+      </table>` : `<p class="empty-state">No records \u2014 queries answer NXDOMAIN.</p>`}
+      <div class="input-with-button">
+        <input id="dnsRecordName" placeholder="web.corp" autocomplete="off">
+        <input id="dnsRecordIp" placeholder="192.168.1.80" autocomplete="off" inputmode="decimal">
+        <button class="inline-button" id="dnsRecordAdd" type="button" title="Add record">Add</button>
+      </div>
+    </div>
+    <div class="field">
+      <label for="dhcpRangeStart">DHCP range (empty = DHCP off)</label>
+      <div class="input-with-button">
+        <input id="dhcpRangeStart" value="${escapeHtml(config.dhcpRangeStart || "")}" placeholder="192.168.1.100" autocomplete="off" inputmode="decimal">
+        <input id="dhcpRangeEnd" value="${escapeHtml(config.dhcpRangeEnd || "")}" placeholder="192.168.1.200" autocomplete="off" inputmode="decimal">
+      </div>
+    </div>
+    <div class="field">
+      <label for="dhcpRouterIp">DHCP router option (default: this server)</label>
+      <input id="dhcpRouterIp" value="${escapeHtml(config.dhcpRouterIp || "")}" placeholder="192.168.1.1" autocomplete="off" inputmode="decimal">
+    </div>
+    ${leases.length ? `
+    <div class="field">
+      <label>DHCP leases</label>
+      <table class="data-table">
+        <thead><tr><th>MAC</th><th>IPv4</th></tr></thead>
+        <tbody>
+          ${leases.map((l) => `<tr><td>${escapeHtml(l.macAddress)}</td><td>${escapeHtml(l.ipv4Address)}</td></tr>`).join("")}
+        </tbody>
+      </table>
+    </div>` : ""}
+  `;
+  }
+  function bindDnsmasqControls(selected) {
+    const runningInput = document.getElementById("dnsmasqRunning");
+    if (runningInput) {
+      runningInput.addEventListener("change", (event) => {
+        pushUndo();
+        ensureConfig(selected);
+        selected.config.dnsmasqRunning = event.target.checked;
+        syncPanel();
+      });
+    }
+    const addButton = document.getElementById("dnsRecordAdd");
+    if (addButton) {
+      addButton.addEventListener("click", () => {
+        const nameInput = document.getElementById("dnsRecordName");
+        const ipInput = document.getElementById("dnsRecordIp");
+        const name = nameInput.value.trim().toLowerCase();
+        const ip = ipInput.value.trim();
+        if (!name || !isValidIpv4(ip)) {
+          ipInput.setCustomValidity("Enter a name and a valid IPv4 address.");
+          ipInput.reportValidity?.();
+          return;
+        }
+        pushUndo();
+        ensureConfig(selected);
+        const records = normaliseDnsRecords(selected.config.dnsRecords || []);
+        const existing = records.find((r) => r.name === name);
+        if (existing) existing.ip = ip;
+        else records.push({ name, ip });
+        selected.config.dnsRecords = records;
+        syncPanel();
+      });
+    }
+    document.querySelectorAll(".dns-record-remove").forEach((button) => {
+      button.addEventListener("click", (event) => {
+        const index = Number(event.currentTarget.dataset.index);
+        pushUndo();
+        ensureConfig(selected);
+        const records = normaliseDnsRecords(selected.config.dnsRecords || []);
+        records.splice(index, 1);
+        selected.config.dnsRecords = records;
+        syncPanel();
+      });
+    });
+    const bindIpField = (id, field) => {
+      const input = document.getElementById(id);
+      if (!input) return;
+      captureUndoOnFocus(input);
+      input.addEventListener("input", (event) => {
+        const value = event.target.value.trim();
+        if (!isValidIpv4(value) && value !== "") {
+          event.target.setCustomValidity("Enter a valid IPv4 address.");
+        } else {
+          event.target.setCustomValidity("");
+          ensureConfig(selected);
+          selected.config[field] = value;
+        }
+      });
+    };
+    bindIpField("dhcpRangeStart", "dhcpRangeStart");
+    bindIpField("dhcpRangeEnd", "dhcpRangeEnd");
+    bindIpField("dhcpRouterIp", "dhcpRouterIp");
+  }
   function renderArpTable(device) {
     const entries = Array.isArray(device.config?.arpTable) ? device.config.arpTable : [];
     return `
@@ -6864,6 +7454,10 @@ APIPA: assigned link-local ${apipaIp}`);
         if (inner.assignedIp) rows.push(["Assigned IP", inner.assignedIp]);
         if (inner.prefixLength != null) rows.push(["Prefix length", `/${inner.prefixLength}`]);
         if (inner.gatewayIp) rows.push(["Gateway", inner.gatewayIp]);
+        if (inner.dnsServerIp) rows.push(["DNS server", inner.dnsServerIp]);
+      } else if (inner.type === "dns") {
+        rows.push(["DNS", inner.op], ["Transaction id", String(inner.id)], ["Name", inner.name]);
+        if (inner.op === "response") rows.push(["Answer", inner.address || "NXDOMAIN"]);
       }
     }
     dom.detailsPanel.innerHTML = `
@@ -6911,7 +7505,8 @@ APIPA: assigned link-local ${apipaIp}`);
     } else {
       const neighbors = connectedIds(selected.id).map((id) => getDevice(id)).filter(isVisibleDevice);
       const selectedType = DEVICE_SPECS[selected.type]?.label ?? "Device";
-      const pcConfigFields = selected.type === "computer" ? `
+      const isHost = selected.type === "computer" || selected.type === "server";
+      const pcConfigFields = isHost ? `
       <div class="field">
         <label for="selectedIpv4">IPv4 address</label>
         <div class="input-with-button">
@@ -6927,12 +7522,20 @@ APIPA: assigned link-local ${apipaIp}`);
         </div>
       </div>
       <div class="field">
+        <label for="selectedDns">DNS nameserver</label>
+        <div class="input-with-button">
+          <input id="selectedDns" value="${escapeHtml(selected.config?.dnsServerIp || "")}" placeholder="192.168.1.53" autocomplete="off" inputmode="decimal">
+          <button class="inline-button" id="clearDns" type="button" title="Clear nameserver">&times;</button>
+        </div>
+      </div>
+      <div class="field">
         <label for="selectedMac">MAC address</label>
         <div class="input-with-button">
           <input id="selectedMac" value="${escapeHtml(selected.config?.macAddress || "")}" placeholder="02:00:00:00:00:01" autocomplete="off">
           <button class="inline-button" id="randomMac" type="button" title="Generate random MAC">Random</button>
         </div>
       </div>
+      ${selected.type === "server" ? renderDnsmasqSection(selected) : ""}
       <button class="wide-button danger" id="deleteSelected">
         <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M3 6h18"></path><path d="M8 6V4h8v2"></path><path d="M19 6l-1 14H6L5 6"></path></svg>
         Delete
@@ -7031,7 +7634,7 @@ APIPA: assigned link-local ${apipaIp}`);
         </button>
         <div style="height: 10px"></div>
       ` : ""}
-      ${selected.type === "computer" || selected.type === "router" || selected.type === "firewall" || selected.type === "switch" && selected.config?.managed ? `
+      ${isHost || selected.type === "router" || selected.type === "firewall" || selected.type === "switch" && selected.config?.managed ? `
         <button class="wide-button" id="openSelectedTerminal">
           <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 17l6 -6l-6 -6"></path><path d="M12 19h8"></path></svg>
           Terminal
@@ -7045,7 +7648,7 @@ APIPA: assigned link-local ${apipaIp}`);
         </button>
         <div style="height: 10px"></div>
       ` : ""}
-      ${selected.type !== "lan" && selected.type !== "computer" ? `
+      ${selected.type !== "lan" && !isHost ? `
         <button class="wide-button danger" id="deleteSelected">
           <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M3 6h18"></path><path d="M8 6V4h8v2"></path><path d="M19 6l-1 14H6L5 6"></path></svg>
           Delete
@@ -7149,6 +7752,31 @@ APIPA: assigned link-local ${apipaIp}`);
           sync().render();
         });
       }
+      const dnsInput = document.getElementById("selectedDns");
+      if (dnsInput) {
+        captureUndoOnFocus(dnsInput);
+        dnsInput.addEventListener("input", (event) => {
+          const value = event.target.value.trim();
+          if (!isValidIpv4(value) && value !== "") {
+            event.target.setCustomValidity("Enter a valid IPv4 address.");
+          } else {
+            event.target.setCustomValidity("");
+            ensureConfig(selected);
+            selected.config.dnsServerIp = value;
+          }
+        });
+      }
+      const clearDnsBtn = document.getElementById("clearDns");
+      if (clearDnsBtn && dnsInput) {
+        clearDnsBtn.addEventListener("click", () => {
+          pushUndo();
+          ensureConfig(selected);
+          selected.config.dnsServerIp = "";
+          dnsInput.value = "";
+          dnsInput.setCustomValidity("");
+        });
+      }
+      bindDnsmasqControls(selected);
       const managedInput = document.getElementById("selectedManaged");
       if (managedInput) {
         managedInput.addEventListener("change", (event) => {
@@ -7625,6 +8253,78 @@ APIPA: assigned link-local ${apipaIp}`);
       { kind: "ping", from: "PC-A", to: "PC-B", label: "Traffic through R1 still flows" }
     ]
   };
+  var dnsService = {
+    id: "dns-service",
+    name: "Name service (DNS)",
+    objective: "PC-A should reach the web server by NAME, not address. Point PC-A at the nameserver (`echo nameserver 192.168.1.53 > /etc/resolv.conf` in its terminal), then add an A-record on SRV-1 (`echo address=/web.corp/192.168.1.80 >> /etc/dnsmasq.conf`).",
+    topology: {
+      version: 1,
+      devices: [
+        { id: "v14-a", type: "computer", name: "PC-A", x: -440, y: 0, config: { ipv4Address: "192.168.1.10", gatewayIpv4Address: "", macAddress: "02:00:00:00:0E:0A", arpTable: [] } },
+        { id: "v14-sw", type: "switch", name: "SW-1", x: 0, y: 0, config: { managed: false, ethernetPorts: 8, macTable: [] } },
+        { id: "v14-srv", type: "server", name: "SRV-1", x: 320, y: -170, config: { ipv4Address: "192.168.1.53", gatewayIpv4Address: "", macAddress: "02:00:00:00:0E:35", arpTable: [], dnsmasqRunning: true, dnsRecords: [] } },
+        { id: "v14-web", type: "computer", name: "WEB-1", x: 320, y: 170, config: { ipv4Address: "192.168.1.80", gatewayIpv4Address: "", macAddress: "02:00:00:00:0E:50", arpTable: [], openPorts: [80] } }
+      ],
+      links: [
+        { from: "v14-a", to: "v14-sw" },
+        { from: "v14-srv", to: "v14-sw" },
+        { from: "v14-web", to: "v14-sw" }
+      ]
+    },
+    checks: [
+      { kind: "dns", from: "PC-A", name: "web.corp", ip: "192.168.1.80", label: "web.corp resolves to 192.168.1.80" },
+      { kind: "ping", from: "PC-A", to: "web.corp", label: "PC-A can ping web.corp by name" },
+      { kind: "tcp", from: "PC-A", to: "web.corp", port: 80, label: "The web port (80) answers by name" }
+    ]
+  };
+  var troubleshootDns = {
+    id: "troubleshoot-dns",
+    name: "Troubleshoot: name vs address",
+    objective: "The classic complaint: 192.168.1.80 pings fine but web.corp does not. PC-A's resolver is fine \u2014 inspect SRV-1's records (`cat /etc/dnsmasq.conf`) and fix the stale A-record (appending `address=/web.corp/<correct ip>` replaces it).",
+    topology: {
+      version: 1,
+      devices: [
+        { id: "v15-a", type: "computer", name: "PC-A", x: -440, y: 0, config: { ipv4Address: "192.168.1.10", gatewayIpv4Address: "", macAddress: "02:00:00:00:0F:0A", arpTable: [], dnsServerIp: "192.168.1.53" } },
+        { id: "v15-sw", type: "switch", name: "SW-1", x: 0, y: 0, config: { managed: false, ethernetPorts: 8, macTable: [] } },
+        { id: "v15-srv", type: "server", name: "SRV-1", x: 320, y: -170, config: { ipv4Address: "192.168.1.53", gatewayIpv4Address: "", macAddress: "02:00:00:00:0F:35", arpTable: [], dnsmasqRunning: true, dnsRecords: [{ name: "web.corp", ip: "192.168.1.99" }] } },
+        { id: "v15-web", type: "computer", name: "WEB-1", x: 320, y: 170, config: { ipv4Address: "192.168.1.80", gatewayIpv4Address: "", macAddress: "02:00:00:00:0F:50", arpTable: [], openPorts: [80] } }
+      ],
+      links: [
+        { from: "v15-a", to: "v15-sw" },
+        { from: "v15-srv", to: "v15-sw" },
+        { from: "v15-web", to: "v15-sw" }
+      ]
+    },
+    checks: [
+      { kind: "ping", from: "PC-A", to: "192.168.1.80", label: "The web server's address answers" },
+      { kind: "dns", from: "PC-A", name: "web.corp", ip: "192.168.1.80", label: "web.corp resolves to the web server" },
+      { kind: "ping", from: "PC-A", to: "web.corp", label: "web.corp answers pings" }
+    ]
+  };
+  var serverDhcp = {
+    id: "server-dhcp",
+    name: "DHCP from the server",
+    objective: "Bring PC-A up with zero manual configuration. Enable DHCP on SRV-1 (`echo dhcp-range=192.168.1.100,192.168.1.200 >> /etc/dnsmasq.conf`) \u2014 dnsmasq hands out address, mask, and nameserver in one exchange, after which PC-A must reach web.corp by name.",
+    topology: {
+      version: 1,
+      devices: [
+        { id: "v16-a", type: "computer", name: "PC-A", x: -440, y: 0, config: { ipv4Address: "", gatewayIpv4Address: "", macAddress: "02:00:00:00:10:0A", arpTable: [] } },
+        { id: "v16-sw", type: "switch", name: "SW-1", x: 0, y: 0, config: { managed: false, ethernetPorts: 8, macTable: [] } },
+        { id: "v16-srv", type: "server", name: "SRV-1", x: 320, y: -170, config: { ipv4Address: "192.168.1.53", gatewayIpv4Address: "", macAddress: "02:00:00:00:10:35", arpTable: [], dnsmasqRunning: true, dnsRecords: [{ name: "web.corp", ip: "192.168.1.80" }] } },
+        { id: "v16-web", type: "computer", name: "WEB-1", x: 320, y: 170, config: { ipv4Address: "192.168.1.80", gatewayIpv4Address: "", macAddress: "02:00:00:00:10:50", arpTable: [], openPorts: [80] } }
+      ],
+      links: [
+        { from: "v16-a", to: "v16-sw" },
+        { from: "v16-srv", to: "v16-sw" },
+        { from: "v16-web", to: "v16-sw" }
+      ]
+    },
+    checks: [
+      { kind: "dhcp", host: "PC-A", label: "PC-A obtains a DHCP lease" },
+      { kind: "dns", from: "PC-A", name: "web.corp", ip: "192.168.1.80", label: "PC-A's leased resolver answers for web.corp" },
+      { kind: "ping", from: "PC-A", to: "web.corp", label: "PC-A can ping web.corp by name" }
+    ]
+  };
   var CURRICULUM = [
     vlanSegmentation,
     routerOnAStick,
@@ -7637,7 +8337,10 @@ APIPA: assigned link-local ${apipaIp}`);
     troubleshootFirewall,
     troubleshootStaticRoute,
     natGateway,
-    hardenGateway
+    hardenGateway,
+    dnsService,
+    troubleshootDns,
+    serverDhcp
   ];
 
   // src/scenarios.ts
@@ -7733,6 +8436,15 @@ APIPA: assigned link-local ${apipaIp}`);
       const setup = buildConnectEvents(from, to, check.port);
       const success = typeof setup === "string" ? false : runSimulationHeadless(setup, from.id, to, "tcp", check.port).success;
       return check.kind === "tcp" ? success : !success;
+    }
+    if (check.kind === "dns") {
+      const from = resolve(check.from);
+      if (!from) return false;
+      const setup = buildResolveEvents(from, check.name, null, null);
+      if (typeof setup === "string") return false;
+      const r = runSimulationHeadless(setup, from.id, check.name, "dns");
+      if (!r.resolvedIp) return false;
+      return !check.ip || r.resolvedIp === check.ip;
     }
     if (check.kind === "dhcp") {
       const host = resolve(check.host);
@@ -8022,6 +8734,7 @@ APIPA: assigned link-local ${apipaIp}`);
     if (event.key === "Delete" || event.key === "Backspace") deleteSelection();
     if (event.key.toLowerCase() === "v") setTool("select");
     if (event.key.toLowerCase() === "c") setTool("computer");
+    if (event.key.toLowerCase() === "e") setTool("server");
     if (event.key.toLowerCase() === "s") setTool("switch");
     if (event.key.toLowerCase() === "r") setTool("router");
     if (event.key.toLowerCase() === "f") setTool("firewall");
@@ -8040,7 +8753,7 @@ APIPA: assigned link-local ${apipaIp}`);
       const pointer = pointerFromEvent(event);
       const world = screenToWorld(pointer);
       const device = findDeviceAt(world);
-      if (state.tool === "computer" || state.tool === "switch" || state.tool === "router" || state.tool === "firewall") {
+      if (state.tool === "computer" || state.tool === "server" || state.tool === "switch" || state.tool === "router" || state.tool === "firewall") {
         addDevice(state.tool, world.x, world.y);
         return;
       }
@@ -8222,7 +8935,7 @@ APIPA: assigned link-local ${apipaIp}`);
       "scenario-check": runActiveScenarioCheck,
       "scenario-dismiss": dismissScenario,
       "help-shortcuts": () => {
-        dom.hint.textContent = "Shortcuts: V select \xB7 C computer \xB7 S switch \xB7 R router \xB7 F firewall \xB7 L connect \xB7 W configure \xB7 Del delete \xB7 Esc cancel \xB7 Ctrl/Cmd+Z undo \xB7 scroll to zoom.";
+        dom.hint.textContent = "Shortcuts: V select \xB7 C computer \xB7 E server \xB7 S switch \xB7 R router \xB7 F firewall \xB7 L connect \xB7 W configure \xB7 Del delete \xB7 Esc cancel \xB7 Ctrl/Cmd+Z undo \xB7 scroll to zoom.";
       },
       "help-commands": () => {
         closeTerminal();
@@ -8310,12 +9023,16 @@ APIPA: assigned link-local ${apipaIp}`);
         ...poweredOff ? { poweredOff: true } : {},
         ...collapsedBy ? { collapsedBy } : {},
         ...type === "computer" ? {
+          config: hostConfigForPayload(config)
+        } : {},
+        ...type === "server" ? {
           config: {
-            ipv4Address: config?.ipv4Address || "",
-            ...config?.prefixLength != null ? { prefixLength: config.prefixLength } : {},
-            gatewayIpv4Address: config?.gatewayIpv4Address || "",
-            macAddress: config?.macAddress || "",
-            arpTable: normaliseArpTable(config?.arpTable || [])
+            ...hostConfigForPayload(config),
+            dnsmasqRunning: config?.dnsmasqRunning !== false,
+            dnsRecords: normaliseDnsRecords(config?.dnsRecords || []),
+            ...config?.dhcpRangeStart && config?.dhcpRangeEnd ? { dhcpRangeStart: config.dhcpRangeStart, dhcpRangeEnd: config.dhcpRangeEnd } : {},
+            ...config?.dhcpRouterIp ? { dhcpRouterIp: config.dhcpRouterIp } : {},
+            dhcpLeases: normaliseDhcpLeases(config?.dhcpLeases || [])
           }
         } : {},
         ...type === "switch" ? {
@@ -8368,6 +9085,17 @@ APIPA: assigned link-local ${apipaIp}`);
         ...collapsedBy ? { collapsedBy } : {},
         ...proxy ? { proxy: true } : {}
       }))
+    };
+  }
+  function hostConfigForPayload(config) {
+    return {
+      ipv4Address: config?.ipv4Address || "",
+      ...config?.prefixLength != null ? { prefixLength: config.prefixLength } : {},
+      gatewayIpv4Address: config?.gatewayIpv4Address || "",
+      macAddress: config?.macAddress || "",
+      arpTable: normaliseArpTable(config?.arpTable || []),
+      ...Array.isArray(config?.openPorts) ? { openPorts: config.openPorts } : {},
+      ...config?.dnsServerIp ? { dnsServerIp: config.dnsServerIp } : {}
     };
   }
   function routerInterfacesForPayload(device) {
@@ -8547,6 +9275,9 @@ APIPA: assigned link-local ${apipaIp}`);
   function cmdGateway(args) {
     return hostMutator(args, setHostGateway);
   }
+  function cmdNameserver(args) {
+    return hostMutator(args, setHostDns);
+  }
   function cmdMac(args) {
     const device = resolveDevice(args[0]);
     if (typeof device === "string") return err(device);
@@ -8694,7 +9425,21 @@ APIPA: assigned link-local ${apipaIp}`);
         output: [r.success ? `dhcp: assigned ${r.assignedIp} (gw ${r.assignedGateway})` : "dhcp: no response"]
       };
     }
-    return err(`run: expected "ping <src> <dst>", "connect <src> <dst> <port>", or "dhcp <host>".`);
+    if (mode === "resolve" || mode === "dns") {
+      const src = resolveDevice(args[1]);
+      if (typeof src === "string") return err(src);
+      const name = args[2];
+      if (!name) return err(`run resolve: expected "run resolve <src> <name>".`);
+      const setup = buildResolveEvents(src, name, null, null);
+      if (typeof setup === "string") return err(setup);
+      const r = runSimulationHeadless(setup, src.id, name, "dns");
+      return {
+        ok: r.success,
+        data: r,
+        output: [`resolve ${name}: ${r.resolvedIp || "no answer"} \u2014 ${r.steps} steps`]
+      };
+    }
+    return err(`run: expected "ping <src> <dst>", "connect <src> <dst> <port>", "resolve <src> <name>", or "dhcp <host>".`);
   }
   function cmdTraceroute(args) {
     const src = resolveDevice(args[0]);
@@ -8781,8 +9526,15 @@ APIPA: assigned link-local ${apipaIp}`);
     if (typeof device === "string") return err(device);
     const c = device.config || {};
     const lines = [`${device.name} (${device.type})`];
-    if (device.type === "computer") {
+    if (device.type === "computer" || device.type === "server") {
       lines.push(`  ip: ${c.ipv4Address || "(unset)"}`, `  gateway: ${c.gatewayIpv4Address || "(unset)"}`, `  mac: ${c.macAddress || "(unset)"}`);
+      if (c.dnsServerIp) lines.push(`  nameserver: ${c.dnsServerIp}`);
+      if (device.type === "server") {
+        lines.push(`  dnsmasq: ${c.dnsmasqRunning !== false ? "running" : "stopped"}`);
+        for (const r of c.dnsRecords || []) lines.push(`  dns: ${r.name} \u2192 ${r.ip}`);
+        if (c.dhcpRangeStart && c.dhcpRangeEnd) lines.push(`  dhcp-range: ${c.dhcpRangeStart} \u2013 ${c.dhcpRangeEnd}`);
+        if (c.dhcpRouterIp) lines.push(`  dhcp router option: ${c.dhcpRouterIp}`);
+      }
     } else if (device.type === "switch") {
       lines.push(`  managed: ${Boolean(c.managed)}`, `  ports: ${c.ethernetPorts ?? 8}`);
       if (c.managed && c.vlans?.length) lines.push(`  vlans: ${c.vlans.map((v) => v.id).join(", ")}`);
@@ -8888,6 +9640,7 @@ APIPA: assigned link-local ${apipaIp}`);
     expand: cmdExpand,
     ip: cmdIp,
     gateway: cmdGateway,
+    nameserver: cmdNameserver,
     mac: cmdMac,
     interface: cmdInterface,
     route: cmdRoute,
@@ -8924,7 +9677,7 @@ APIPA: assigned link-local ${apipaIp}`);
     help: cmdHelp
   };
   var HELP = {
-    add: "add <computer|switch|router|firewall> [name] [at <x> <y>]",
+    add: "add <computer|server|switch|router|firewall> [name] [at <x> <y>]",
     remove: "remove <device>",
     link: "link <a> <b> [portA portB]",
     unlink: "unlink <a> <b>",
@@ -8935,6 +9688,7 @@ APIPA: assigned link-local ${apipaIp}`);
     expand: "expand <lan>",
     ip: "ip <host> <addr/prefix>",
     gateway: "gateway <host> <ip>",
+    nameserver: "nameserver <host> <ip>",
     mac: "mac <host> <addr>",
     interface: "interface <router> <peer> ip <addr> [vlan <tag>]",
     route: "route <router> <net/prefix> <nextHop>",
@@ -8944,7 +9698,7 @@ APIPA: assigned link-local ${apipaIp}`);
     ping: "ping <src> <dst> (animated)",
     dhcp: "dhcp <host> (animated)",
     connect: "connect <src> <dst> <port> (animated TCP handshake)",
-    run: "run ping <src> <dst> | run connect <src> <dst> <port> | run dhcp <host> (headless, returns result)",
+    run: "run ping <src> <dst> | run connect <src> <dst> <port> | run resolve <src> <name> | run dhcp <host> (headless, returns result)",
     traceroute: "traceroute <src> <dst> (hop-by-hop via TTL)",
     play: "resume",
     pause: "pause",
@@ -8996,10 +9750,15 @@ APIPA: assigned link-local ${apipaIp}`);
     }
     for (const d of payload.devices) {
       const c = d.config || {};
-      if (d.type === "computer") {
+      if (d.type === "computer" || d.type === "server") {
         if (c.ipv4Address) lines.push(`ip ${d.name} ${c.ipv4Address}`);
         if (c.gatewayIpv4Address) lines.push(`gateway ${d.name} ${c.gatewayIpv4Address}`);
         if (c.macAddress) lines.push(`mac ${d.name} ${c.macAddress}`);
+        if (c.dnsServerIp) lines.push(`nameserver ${d.name} ${c.dnsServerIp}`);
+        for (const r of c.dnsRecords || []) lines.push(`cli ${d.name} echo address=/${r.name}/${r.ip} >> /etc/dnsmasq.conf`);
+        if (c.dhcpRangeStart && c.dhcpRangeEnd) lines.push(`cli ${d.name} echo dhcp-range=${c.dhcpRangeStart},${c.dhcpRangeEnd} >> /etc/dnsmasq.conf`);
+        if (c.dhcpRouterIp) lines.push(`cli ${d.name} echo dhcp-option=option:router,${c.dhcpRouterIp} >> /etc/dnsmasq.conf`);
+        if (d.type === "server" && c.dnsmasqRunning === false) lines.push(`cli ${d.name} systemctl stop dnsmasq`);
       } else if (d.type === "switch" && c.managed) {
         for (const v of c.vlans || []) if (v.id !== 1) lines.push(`vlan ${d.name} add ${v.id}`);
         for (const [port, mode] of Object.entries(c.portModes || {})) lines.push(`port ${d.name} ${port} mode ${mode}`);

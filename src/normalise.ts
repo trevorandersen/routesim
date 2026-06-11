@@ -1,6 +1,6 @@
 import type {
   PortMode, ArpEntry, DhcpLease, MacTableEntry, Vlan, RouterInterface,
-  RipConfig, StaticRoute, DeviceConfig, DeviceType, Device, Link, FirewallRule
+  RipConfig, StaticRoute, DeviceConfig, DeviceType, Device, Link, FirewallRule, DnsRecord
 } from "./types";
 import { normaliseMacAddress, isValidMac, isValidIpv4, clampPortCount, clampRouterPortCount, clampPrefixLength, normaliseVlanId } from "./utils";
 import { DEVICE_SPECS } from "./device-registry";
@@ -146,6 +146,46 @@ export function normaliseFirewallRules(raw: any): FirewallRule[] {
   }).filter(Boolean) as FirewallRule[];
 }
 
+// dnsmasq A-records (`address=/name/ip`): drop entries with no name or a bad IP.
+export function normaliseDnsRecords(raw: unknown): DnsRecord[] {
+  if (!Array.isArray(raw)) return [];
+  return raw.map((r: any) => ({
+    name: String(r?.name || "").trim().toLowerCase(),
+    ip: String(r?.ip || r?.address || "").trim(),
+  })).filter(r => r.name && isValidIpv4(r.ip));
+}
+
+// Shared host endpoint fields (computers and servers): IP/prefix/gateway/MAC,
+// ARP cache, the TCP listener list, and the resolver address.
+function normaliseHostFields(device: any): DeviceConfig {
+  const ipv4Address = String(device.config?.ipv4Address || device.ipv4Address || "").trim();
+  const gatewayIpv4Address = String(device.config?.gatewayIpv4Address || device.gatewayIpv4Address || device.gateway || "").trim();
+  const macAddress = normaliseMacAddress(device.config?.macAddress || device.macAddress || "");
+  const dnsServerIp = String(device.config?.dnsServerIp || "").trim();
+  const label = device.name || device.id || (device.type === "server" ? "Server" : "Computer");
+  if (ipv4Address && !isValidIpv4(ipv4Address)) {
+    throw new Error(`${label} has an invalid IPv4 address.`);
+  }
+  if (gatewayIpv4Address && !isValidIpv4(gatewayIpv4Address)) {
+    throw new Error(`${label} has an invalid default gateway.`);
+  }
+  if (macAddress && !isValidMac(macAddress)) {
+    throw new Error(`${label} has an invalid MAC address.`);
+  }
+  const openPorts = Array.isArray(device.config?.openPorts)
+    ? device.config.openPorts.map(Number).filter((p: number) => Number.isInteger(p) && p >= 1 && p <= 65535)
+    : null;
+  return {
+    ipv4Address,
+    ...(device.config?.prefixLength != null ? { prefixLength: clampPrefixLength(device.config.prefixLength) } : {}),
+    gatewayIpv4Address,
+    macAddress,
+    arpTable: normaliseArpTable(device.config?.arpTable || device.arpTable || []),
+    ...(openPorts ? { openPorts } : {}),
+    ...(isValidIpv4(dnsServerIp) ? { dnsServerIp } : {}),
+  };
+}
+
 export function normaliseDeviceConfig(device: any): DeviceConfig {
   if (device.type === "switch") {
     const ethernetPorts = clampPortCount(device.config?.ethernetPorts ?? device.ethernetPorts ?? 8);
@@ -210,26 +250,22 @@ export function normaliseDeviceConfig(device: any): DeviceConfig {
         : []
     };
   }
+  if (device.type === "server") {
+    const dhcpRangeStart = String(device.config?.dhcpRangeStart || "").trim();
+    const dhcpRangeEnd = String(device.config?.dhcpRangeEnd || "").trim();
+    const dhcpRouterIp = String(device.config?.dhcpRouterIp || "").trim();
+    const rangeValid = isValidIpv4(dhcpRangeStart) && isValidIpv4(dhcpRangeEnd);
+    return {
+      ...normaliseHostFields(device),
+      dnsmasqRunning: device.config?.dnsmasqRunning !== false,
+      dnsRecords: normaliseDnsRecords(device.config?.dnsRecords),
+      ...(rangeValid ? { dhcpRangeStart, dhcpRangeEnd } : {}),
+      ...(isValidIpv4(dhcpRouterIp) ? { dhcpRouterIp } : {}),
+      dhcpLeases: normaliseDhcpLeases(device.config?.dhcpLeases || []),
+    };
+  }
   if (device.type !== "computer") return {};
-  const ipv4Address = String(device.config?.ipv4Address || device.ipv4Address || "").trim();
-  const gatewayIpv4Address = String(device.config?.gatewayIpv4Address || device.gatewayIpv4Address || device.gateway || "").trim();
-  const macAddress = normaliseMacAddress(device.config?.macAddress || device.macAddress || "");
-  if (ipv4Address && !isValidIpv4(ipv4Address)) {
-    throw new Error(`${device.name || device.id || "Computer"} has an invalid IPv4 address.`);
-  }
-  if (gatewayIpv4Address && !isValidIpv4(gatewayIpv4Address)) {
-    throw new Error(`${device.name || device.id || "Computer"} has an invalid default gateway.`);
-  }
-  if (macAddress && !isValidMac(macAddress)) {
-    throw new Error(`${device.name || device.id || "Computer"} has an invalid MAC address.`);
-  }
-  return {
-    ipv4Address,
-    ...(device.config?.prefixLength != null ? { prefixLength: clampPrefixLength(device.config.prefixLength) } : {}),
-    gatewayIpv4Address,
-    macAddress,
-    arpTable: normaliseArpTable(device.config?.arpTable || device.arpTable || [])
-  };
+  return normaliseHostFields(device);
 }
 
 export function normaliseConfig(parsed: any): { devices: Device[]; links: Link[] } {
@@ -239,8 +275,8 @@ export function normaliseConfig(parsed: any): { devices: Device[]; links: Link[]
 
   const seenIds = new Set<string>();
   const devices = parsed.devices.map((device: any, index: number) => {
-    if (!device || !["computer", "switch", "router", "firewall", "lan"].includes(device.type)) {
-      throw new Error(`Device ${index + 1} needs type computer, switch, router, firewall, or lan.`);
+    if (!device || !["computer", "server", "switch", "router", "firewall", "lan"].includes(device.type)) {
+      throw new Error(`Device ${index + 1} needs type computer, server, switch, router, firewall, or lan.`);
     }
 
     const id = String(device.id || `device-${index + 1}`);

@@ -9,7 +9,7 @@ import { state, sync } from "./state";
 import { getDevice } from "./devices";
 import { applyConfig } from "./config";
 import { normaliseConfig, shiftToPositive } from "./normalise";
-import { buildPingEvents, buildDhcpEvents, buildConnectEvents } from "./simulation";
+import { buildPingEvents, buildDhcpEvents, buildConnectEvents, buildResolveEvents } from "./simulation";
 import { CURRICULUM } from "./scenario-library";
 import { runSimulationHeadless } from "./engine";
 
@@ -20,6 +20,7 @@ export type ScenarioCheck =
   | { kind: "ping-fail"; from: string; to: string; label: string }   // isolation: the ping must NOT succeed
   | { kind: "tcp"; from: string; to: string; port: number; label: string }
   | { kind: "tcp-fail"; from: string; to: string; port: number; label: string }
+  | { kind: "dns"; from: string; name: string; ip?: string; label: string }   // name resolves (optionally to a given address)
   | { kind: "dhcp"; host: string; label: string };
 
 export interface Scenario {
@@ -123,6 +124,15 @@ function evaluate(check: ScenarioCheck): boolean {
     const success = typeof setup === "string" ? false
       : runSimulationHeadless(setup, from.id, to, "tcp", check.port).success;
     return check.kind === "tcp" ? success : !success;
+  }
+  if (check.kind === "dns") {
+    const from = resolve(check.from);
+    if (!from) return false;
+    const setup = buildResolveEvents(from, check.name, null, null);
+    if (typeof setup === "string") return false;
+    const r = runSimulationHeadless(setup, from.id, check.name, "dns");
+    if (!r.resolvedIp) return false;
+    return !check.ip || r.resolvedIp === check.ip;
   }
   if (check.kind === "dhcp") {
     const host = resolve(check.host);

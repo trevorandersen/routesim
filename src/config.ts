@@ -3,7 +3,7 @@ import { dom } from "./dom";
 import { clampPortCount, clampRouterPortCount } from "./utils";
 import {
   normaliseArpTable, normaliseMacTable, normaliseVlans, normalisePortVlans,
-  normalisePortModes, normaliseTrunkAllowedVlans,
+  normalisePortModes, normaliseTrunkAllowedVlans, normaliseDnsRecords, normaliseDhcpLeases,
   normaliseRouterInterfaces, normaliseFirewallRules, normaliseConfig
 } from "./normalise";
 import { connectedIds, clearNetwork, nextDeviceNumber } from "./devices";
@@ -27,12 +27,17 @@ export function buildConfigPayload(): any {
       ...(poweredOff ? { poweredOff: true } : {}),
       ...(collapsedBy ? { collapsedBy } : {}),
       ...(type === "computer" ? {
+        config: hostConfigForPayload(config)
+      } : {}),
+      ...(type === "server" ? {
         config: {
-          ipv4Address: config?.ipv4Address || "",
-          ...(config?.prefixLength != null ? { prefixLength: config.prefixLength } : {}),
-          gatewayIpv4Address: config?.gatewayIpv4Address || "",
-          macAddress: config?.macAddress || "",
-          arpTable: normaliseArpTable(config?.arpTable || [])
+          ...hostConfigForPayload(config),
+          dnsmasqRunning: config?.dnsmasqRunning !== false,
+          dnsRecords: normaliseDnsRecords(config?.dnsRecords || []),
+          ...(config?.dhcpRangeStart && config?.dhcpRangeEnd
+            ? { dhcpRangeStart: config.dhcpRangeStart, dhcpRangeEnd: config.dhcpRangeEnd } : {}),
+          ...(config?.dhcpRouterIp ? { dhcpRouterIp: config.dhcpRouterIp } : {}),
+          dhcpLeases: normaliseDhcpLeases(config?.dhcpLeases || [])
         }
       } : {}),
       ...(type === "switch" ? {
@@ -85,6 +90,19 @@ export function buildConfigPayload(): any {
       ...(collapsedBy ? { collapsedBy } : {}),
       ...(proxy ? { proxy: true } : {})
     }))
+  };
+}
+
+// Shared host (computer/server) endpoint fields for the config payload.
+function hostConfigForPayload(config: any): any {
+  return {
+    ipv4Address: config?.ipv4Address || "",
+    ...(config?.prefixLength != null ? { prefixLength: config.prefixLength } : {}),
+    gatewayIpv4Address: config?.gatewayIpv4Address || "",
+    macAddress: config?.macAddress || "",
+    arpTable: normaliseArpTable(config?.arpTable || []),
+    ...(Array.isArray(config?.openPorts) ? { openPorts: config.openPorts } : {}),
+    ...(config?.dnsServerIp ? { dnsServerIp: config.dnsServerIp } : {})
   };
 }
 

@@ -10,8 +10,11 @@ committed scope — it's a menu for "what next".
 > (iptables, live `-p tcp --dport` rules), the L4 TCP layer (`nc`/`connect`
 > three-way handshake), the FRR/SONiC-faithful CLIs, the device registry +
 > terminal/engine split, and the curriculum — now **11 scenarios** with tested
-> reference solutions — plus redo and the click-a-packet frame inspector
-> (click a transit dot to pause and read every frame field).
+> reference solutions (now **13** with the NAT and gateway-hardening
+> scenarios) — plus redo, the click-a-packet frame inspector, **NAT/PAT on
+> routers** (`ip nat inside/outside`, translation table, un-PAT return path),
+> and **router netfilter chains** (iptables INPUT/FORWARD via a shared engine;
+> the transparent firewall device stays FORWARD-only).
 
 ## Next up (ranked)
 
@@ -22,27 +25,13 @@ public, **GitHub Pages** can serve `rs-web.html` directly (it's tailor-made for
 it). An hour of work that converts everything above into something learners can
 open from a URL. Effort: low.
 
-### 2. NAT / PAT on routers
-Unblocked by the L4 layer — port translation is meaningless without ports, and
-we now have ports. The biggest remaining teaching concept (every home network
-does it) and the realistic "edge of the internet" story. Shape: `ip nat
-inside/outside` on router interfaces (FRR-adjacent syntax), a translation table
-you can `show`, a scenario ("give the private LAN internet access through one
-public IP"). Composes with the firewall work. Effort: moderate–high.
-
-### 3. Routers as routing firewalls
-Designed during the firewall work: a firewall-enabled mode on routers (exactly
-like switches' managed/unmanaged toggle), reusing the existing iptables rule
-engine on the INPUT/FORWARD path — perimeter filtering rather than only inline
-bumps. Mostly wiring. Effort: moderate.
-
-### 4. DNS
+### 2. DNS
 Small now that L4 exists: a DNS-server role (name → IP records on a host or
 router), UDP/53 query–response frames, and `ping web.corp` resolving before it
 ARPs. High realism-per-line-of-code, plus a classic troubleshooting scenario
 ("the IP pings but the name doesn't"). Effort: low–moderate.
 
-### 5. STP / L2 loop handling
+### 3. STP / L2 loop handling
 The last real correctness gap: a switching loop is only saved by the engine's
 step-cap — broadcast storms aren't modelled and spanning tree doesn't exist.
 Add Spanning Tree (block redundant links, elect a root) or at least loop

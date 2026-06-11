@@ -119,7 +119,7 @@ fixed enums may be interpolated raw.
 | `simulation.ts` | `buildPingEvents()` — validates a ping command and returns initial `SimEvent[]` + `pendingArp` map for deferred ICMPs. Does **not** pre-compute reachability: a destination IP with no device still emits a real ARP (to the target on-subnet, or the gateway off-subnet) and the simulation/router decides the outcome. Also has `l2Reachable`. |
 | `frame.ts` | Factory functions: `createArpRequest`, `createArpReply`, `createIcmpEchoRequest`, `createIcmpEchoReply`. Also `frameLabel()` and `frameColor()` for rendering. |
 | `canvas.ts` | All drawing: grid, links, devices (icon rendering via SVG path data on canvas), frame transit dots with glow/labels, zoom/pan math. |
-| `terminal/` | Per-device CLI, one file per NOS (`core` dispatch/UI + `host`/`router`/`switch`/`firewall`), public API re-exported via `terminal/index.ts`. Each modelled on a real open-source NOS. Computers: Linux-ish (`ping`, `traceroute`, `nc -z <host> <port>`, `ip addr`, `arp -n`, …). Routers: **FRRouting** (vtysh) — `configure terminal`, `interface`, `router rip`, `show ip route`, `do <show>`, with prefix abbreviation (`sh ip ro`) and context-sensitive `?`. Managed switches: **SONiC** — flat `config vlan add/del`, `config vlan member add [-t] <vid> <port>`, `show vlan brief`/`mac`/`interfaces status`. Firewalls: **iptables** — `iptables -A FORWARD … -j DROP`, `-L`/`-P`/`-F`. Command history (up/down arrow). |
+| `terminal/` | Per-device CLI, one file per NOS (`core` dispatch/UI + `host`/`router`/`switch`/`firewall`), public API re-exported via `terminal/index.ts`. Each modelled on a real open-source NOS. Computers: Linux-ish (`ping`, `traceroute`, `nc -z <host> <port>`, `ip addr`, `arp -n`, …). Routers: **FRRouting** (vtysh) — `configure terminal`, `interface`, `router rip`, `show ip route`, `do <show>`, with prefix abbreviation (`sh ip ro`) and context-sensitive `?` — plus `ip nat inside|outside`, `show ip nat translations`, and netfilter `iptables` (INPUT/FORWARD). Managed switches: **SONiC** — flat `config vlan add/del`, `config vlan member add [-t] <vid> <port>`, `show vlan brief`/`mac`/`interfaces status`. Firewalls: **iptables** — `iptables -A FORWARD … -j DROP`, `-L`/`-P`/`-F`. Command history (up/down arrow). |
 | `inspector.ts` | Right panel. Device selection shows config fields; link selection shows frame history (color-coded ARP/ICMP entries with step numbers). |
 | `devices.ts` | CRUD, hit testing (`findDeviceAt`, `findLinkAt`), port/interface enumeration, LAN collapse/expand (groups devices into a single node). |
 | `normalise.ts` | Defensive normalisation for all config shapes. `normaliseRouterInterfaces` auto-generates deterministic MACs (`02:RR:00:00:II:01`). |
@@ -146,6 +146,10 @@ Each hop is an animated dot on the canvas (amber = ARP, blue = ICMP request, gre
 ### TCP connect (L4)
 
 `nc -z <host> <port>` (PC terminal) / `connect <src> <dst> <port>` (console) run a real **three-way handshake**: `buildConnectEvents` sends a SYN (ARP-ing the next hop first if needed), the destination answers SYN-ACK if listening (`config.openPorts` undefined = listen on all ports; a list = only those, others RST), and the origin completes with ACK (`sim.tcpSuccess`). RST → "connection refused"; silence → timeout. This is what makes firewall `-p tcp --dport` rules and future NAT/DNS meaningful.
+
+### NAT / PAT
+
+Routers do Cisco-style source NAT with overload: mark interfaces `ip nat inside` / `ip nat outside` (interface mode) and every inside→outside flow is translated onto the outside interface address (`natTranslateOutbound`), recorded in `config.natTranslations`, and restored on the return path (`natRestoreInbound`, checked before the router's self-IP handling). TCP flows map by allocated source port, ICMP echo by sequence-as-flow-id. `show ip nat translations` / `clear ip nat translation *`. Routers also carry netfilter INPUT/FORWARD chains (`iptables …` in the router terminal, shared engine in `terminal/iptables.ts`) — INPUT guards the router itself, FORWARD filters routed traffic; the transparent firewall device stays FORWARD-only. See docs/src/nat.md.
 
 ### Traceroute / TTL
 
@@ -232,4 +236,4 @@ Every link records frames that traverse it (`link.frameHistory[]`). Click a link
 - **Benchmark hot paths.** Add a `bench:` case in `tests/bench.test.ts` (with a p99 budget via `tests/bench-harness.ts`) for any new performance-sensitive code, and keep existing benchmarks within budget. Favour allocation-free, tight implementations on the simulation critical path.
 - CSS variables for theming (dark/light). All colours are CSS custom properties.
 - Terminal uses monospace font, dark background regardless of theme.
-- Sim log line classes: `sim-arp` (amber), `sim-icmp` (green), `sim-learn` (grey), `sim-forward` (blue), `sim-drop` (red), `sim-tcp` (orange).
+- Sim log line classes: `sim-arp` (amber), `sim-icmp` (green), `sim-learn` (grey), `sim-forward` (blue), `sim-drop` (red), `sim-tcp` (orange), `sim-nat` (teal).

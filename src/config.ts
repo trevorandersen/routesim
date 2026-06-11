@@ -56,6 +56,9 @@ export function buildConfigPayload(): any {
           interfaces: routerInterfacesForPayload({ id, config }),
           ...(config?.staticRoutes?.length ? { staticRoutes: config.staticRoutes } : {}),
           ...(config?.rip?.enabled ? { rip: config.rip } : {}),
+          ...(config?.rules?.length ? { rules: normaliseFirewallRules(config.rules) } : {}),
+          ...(config?.policy && Object.keys(config.policy).length ? { policy: config.policy } : {}),
+          ...(config?.natTranslations?.length ? { natTranslations: config.natTranslations } : {}),
         }
       } : {}),
       ...(type === "firewall" ? {

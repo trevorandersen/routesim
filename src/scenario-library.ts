@@ -13,6 +13,8 @@
  *   9. troubleshoot-vlan     find the misassigned switch port
  *  10. troubleshoot-firewall fix a rule that blocks the wrong port
  *  11. troubleshoot-static-route fix a typo'd next-hop
+ *  12. nat-gateway          PAT a private LAN onto one public address
+ *  13. harden-gateway       protect the router itself with the INPUT chain
  *
  * Data only — evaluation lives in scenarios.ts. Type-only import: no cycle.
  */
@@ -315,6 +317,56 @@ const troubleshootStaticRoute: Scenario = {
   ],
 };
 
+const natGateway: Scenario = {
+  id: "nat-gateway",
+  name: "NAT gateway",
+  objective: "The ISP server (203.0.113.10) has no route back to your private LAN, so nothing gets a reply. Configure PAT on R1 (`ip nat inside` on the LAN interface, `ip nat outside` on the ISP interface) so PC-A reaches the server through R1's public address.",
+  topology: {
+    version: 1,
+    devices: [
+      { id: "v12-a", type: "computer", name: "PC-A", x: -440, y: 0, config: { ipv4Address: "192.168.1.10", gatewayIpv4Address: "192.168.1.1", macAddress: "02:00:00:00:0C:0A", arpTable: [] } },
+      { id: "v12-r1", type: "router", name: "R1", x: -50, y: 0, config: { ethernetPorts: 2, serialPorts: 0, interfaces: [
+        { peerId: "v12-a", type: "ethernet", ipv4Address: "192.168.1.1" },
+        { peerId: "v12-srv", type: "ethernet", ipv4Address: "203.0.113.2" },
+      ] } },
+      { id: "v12-srv", type: "computer", name: "ISP-SRV", x: 360, y: 0, config: { ipv4Address: "203.0.113.10", gatewayIpv4Address: "", macAddress: "02:00:00:00:0C:1F", arpTable: [], openPorts: [80] } },
+    ],
+    links: [
+      { from: "v12-a", to: "v12-r1" },
+      { from: "v12-r1", to: "v12-srv" },
+    ],
+  },
+  checks: [
+    { kind: "ping", from: "PC-A", to: "ISP-SRV", label: "PC-A can ping the ISP server" },
+    { kind: "tcp", from: "PC-A", to: "ISP-SRV", port: 80, label: "PC-A can reach the web server (80)" },
+  ],
+};
+
+const hardenGateway: Scenario = {
+  id: "harden-gateway",
+  name: "Harden the gateway",
+  objective: "Security policy: the gateway router itself must not answer pings from the LAN, but traffic THROUGH it must keep flowing. Use the router's INPUT chain (iptables) — not FORWARD — to drop ICMP addressed to R1.",
+  topology: {
+    version: 1,
+    devices: [
+      { id: "v13-a", type: "computer", name: "PC-A", x: -440, y: 0, config: { ipv4Address: "192.168.1.10", gatewayIpv4Address: "192.168.1.1", macAddress: "02:00:00:00:0D:0A", arpTable: [] } },
+      { id: "v13-r1", type: "router", name: "R1", x: -50, y: 0, config: { ethernetPorts: 2, serialPorts: 0, interfaces: [
+        { peerId: "v13-a", type: "ethernet", ipv4Address: "192.168.1.1" },
+        { peerId: "v13-b", type: "ethernet", ipv4Address: "192.168.2.1" },
+      ] } },
+      { id: "v13-b", type: "computer", name: "PC-B", x: 360, y: 0, config: { ipv4Address: "192.168.2.10", gatewayIpv4Address: "192.168.2.1", macAddress: "02:00:00:00:0D:0B", arpTable: [] } },
+    ],
+    links: [
+      { from: "v13-a", to: "v13-r1" },
+      { from: "v13-r1", to: "v13-b" },
+    ],
+  },
+  checks: [
+    { kind: "ping-fail", from: "PC-A", to: "192.168.1.1", label: "R1 itself no longer answers pings" },
+    { kind: "ping", from: "PC-A", to: "PC-B", label: "Traffic through R1 still flows" },
+  ],
+};
+
 export const CURRICULUM: Scenario[] = [
   vlanSegmentation,
   routerOnAStick,
@@ -326,4 +378,6 @@ export const CURRICULUM: Scenario[] = [
   troubleshootVlan,
   troubleshootFirewall,
   troubleshootStaticRoute,
+  natGateway,
+  hardenGateway,
 ];

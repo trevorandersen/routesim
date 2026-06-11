@@ -69,6 +69,7 @@ export interface RouterInterface {
   arpTable: ArpEntry[];
   dhcpLeases: DhcpLease[];
   vlanTag: number | null;
+  natRole?: "inside" | "outside";  // Cisco-style `ip nat inside|outside` mark
 }
 
 export interface RouteEntry {
@@ -122,12 +123,27 @@ export interface SwitchConfig {
   trunkNativeVlans?: Record<string, number>;
 }
 
+// One PAT (overload) translation: an inside flow mapped onto the router's
+// outside interface address. `insidePort`/`outsidePort` hold the TCP source
+// port, or the ICMP sequence used as the flow identifier.
+export interface NatEntry {
+  protocol: "icmp" | "tcp";
+  insideIp: string;
+  insidePort: number;
+  outsideIp: string;
+  outsidePort: number;
+  destIp: string;
+}
+
 export interface RouterConfig {
   ethernetPorts: number;
   serialPorts: number;
   interfaces: RouterInterface[];
   staticRoutes?: StaticRoute[];
   rip?: RipConfig;
+  natTranslations?: NatEntry[];   // live PAT table (interfaces carry natRole marks)
+  rules?: FirewallRule[];         // netfilter INPUT/FORWARD rules (always available)
+  policy?: Record<string, "accept" | "drop">;
 }
 
 export interface LanConfig {

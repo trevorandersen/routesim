@@ -1,8 +1,8 @@
-import type { EthernetFrame, ArpPayload, Ipv4Payload, DhcpPayload, TcpPayload, SimEvent, SimLogEntry, ActiveTransit, FrameHistoryEntry, RouteEntry, Device, DeviceType, FirewallRule, FirewallTarget } from "./types";
+import type { EthernetFrame, ArpPayload, Ipv4Payload, DhcpPayload, TcpPayload, NatEntry, SimEvent, SimLogEntry, ActiveTransit, FrameHistoryEntry, RouteEntry, Device, DeviceType, FirewallRule, FirewallTarget } from "./types";
 import { state, pushUndo, sync } from "./state";
 import { dom } from "./dom";
 import { getDevice, linkedPortsFor, routerInterfacesWithNames } from "./devices";
-import { normalisePortVlans, normalisePortModes, normaliseTrunkAllowedVlans, normaliseArpTable, normaliseMacTable, normaliseDhcpLeases, normaliseStaticRoutes } from "./normalise";
+import { normalisePortVlans, normalisePortModes, normaliseTrunkAllowedVlans, normaliseArpTable, normaliseMacTable, normaliseDhcpLeases, normaliseStaticRoutes, ensureConfig } from "./normalise";
 import { sameSubnet, prefixOf, isValidIpv4, escapeHtml, ipv4ToInt, normaliseMacAddress } from "./utils";
 import { createArpRequest, createArpReply, createIcmpEchoRequest, createIcmpEchoReply, createIcmpTimeExceeded, createDhcpOffer, createDhcpRequest, createDhcpAck, createTcpSegment, BROADCAST_MAC, frameLabel } from "./frame";
 import { terminalLine, syncTerminal } from "./terminal";
@@ -386,6 +386,12 @@ export function processAtComputer(device: Device, frame: EthernetFrame, fromDevi
       // here (e.g. flooded unknown unicast) must not be answered for someone else.
       if (ipv4.dstIp !== config.ipv4Address) return outgoing;
       if (ipv4.payload.icmpType === 8) {
+        // A reply to a cross-subnet source needs a route back (the default
+        // gateway) — without one, a real host cannot answer at all.
+        if (!hostHasReturnRoute(config, ipv4.srcIp)) {
+          logStep(device, "sim-drop", `Cannot reply to ${ipv4.srcIp} — no route (no default gateway)`);
+          return outgoing;
+        }
         // ICMP Echo Request — send reply
         logStep(device, "sim-icmp", `Received ICMP Echo Request from ${ipv4.srcIp} — sending Reply`);
         const reply = createIcmpEchoReply(
@@ -415,6 +421,10 @@ export function processAtComputer(device: Device, frame: EthernetFrame, fromDevi
       const tcp = ipv4.payload as TcpPayload;
       if (ipv4.dstIp !== config.ipv4Address) return outgoing; // not for us
       if (tcp.flags === "syn") {
+        if (!hostHasReturnRoute(config, ipv4.srcIp)) {
+          logStep(device, "sim-drop", `Cannot answer ${ipv4.srcIp} — no route (no default gateway)`);
+          return outgoing;
+        }
         // Listener model: no openPorts list = accept on any port; otherwise RST.
         const listening = !Array.isArray(config.openPorts) || config.openPorts.includes(tcp.dstPort);
         learnArp(config, ipv4.srcIp, frame.srcMac);
@@ -746,13 +756,99 @@ function handleRouterDhcp(device: Device, ingressIface: any, fromDeviceId: strin
   return outgoing;
 }
 
+// A host can answer a source only if it is on the local subnet or a default
+// gateway provides the route back.
+function hostHasReturnRoute(config: any, srcIp: string): boolean {
+  if (!config?.ipv4Address) return false;
+  if (sameSubnet(config.ipv4Address, srcIp, prefixOf(config))) return true;
+  return Boolean(config.gatewayIpv4Address);
+}
+
+// ─── NAT / PAT (overload on the outside interface address) ───────────────────
+
+function natTable(device: Device): NatEntry[] {
+  ensureConfig(device);
+  if (!Array.isArray(device.config.natTranslations)) device.config.natTranslations = [];
+  return device.config.natTranslations;
+}
+
+// Allocate a free PAT identifier (TCP source port / ICMP flow id).
+function allocNatId(translations: NatEntry[]): number {
+  let p = 20000 + translations.length;
+  while (translations.some(t => t.outsidePort === p)) p++;
+  return p;
+}
+
+// Source-translate an inside→outside flow onto the egress interface address.
+// Returns the rewritten payload, or null when the packet isn't translatable
+// (only ICMP echo requests and TCP segments carry a flow identifier we model).
+function natTranslateOutbound(device: Device, ipv4: Ipv4Payload, egressIface: any): Ipv4Payload | null {
+  const translations = natTable(device);
+  const outsideIp = egressIface.ipv4Address;
+  if (ipv4.payload.type === "icmp" && ipv4.payload.icmpType === 8) {
+    const icmp = ipv4.payload;
+    let entry = translations.find(t => t.protocol === "icmp" && t.insideIp === ipv4.srcIp && t.insidePort === icmp.sequence && t.destIp === ipv4.dstIp);
+    if (!entry) {
+      entry = { protocol: "icmp", insideIp: ipv4.srcIp, insidePort: icmp.sequence, outsideIp, outsidePort: allocNatId(translations), destIp: ipv4.dstIp };
+      translations.push(entry);
+    }
+    return { ...ipv4, srcIp: outsideIp, payload: { ...icmp, sequence: entry.outsidePort } };
+  }
+  if (ipv4.payload.type === "tcp") {
+    const tcp = ipv4.payload;
+    let entry = translations.find(t => t.protocol === "tcp" && t.insideIp === ipv4.srcIp && t.insidePort === tcp.srcPort && t.destIp === ipv4.dstIp);
+    if (!entry) {
+      entry = { protocol: "tcp", insideIp: ipv4.srcIp, insidePort: tcp.srcPort, outsideIp, outsidePort: allocNatId(translations), destIp: ipv4.dstIp };
+      translations.push(entry);
+    }
+    return { ...ipv4, srcIp: outsideIp, payload: { ...tcp, srcPort: entry.outsidePort } };
+  }
+  return null;
+}
+
+// Restore the inside endpoint for return traffic addressed to an outside
+// interface IP. Returns null when no translation matches (the packet is then
+// genuinely for the router itself — INPUT chain + self handling apply).
+function natRestoreInbound(device: Device, ipv4: Ipv4Payload, ifaces: any[]): Ipv4Payload | null {
+  const outsideIface = ifaces.find((i: any) => i.natRole === "outside" && i.ipv4Address === ipv4.dstIp);
+  if (!outsideIface) return null;
+  const translations: NatEntry[] = device.config?.natTranslations || [];
+  if (ipv4.payload.type === "icmp" && ipv4.payload.icmpType === 0) {
+    const icmp = ipv4.payload;
+    const entry = translations.find(t => t.protocol === "icmp" && t.outsidePort === icmp.sequence && t.destIp === ipv4.srcIp);
+    if (entry) return { ...ipv4, dstIp: entry.insideIp, payload: { ...icmp, sequence: entry.insidePort } };
+  }
+  if (ipv4.payload.type === "tcp") {
+    const tcp = ipv4.payload;
+    const entry = translations.find(t => t.protocol === "tcp" && t.outsidePort === tcp.dstPort && t.destIp === ipv4.srcIp);
+    if (entry) return { ...ipv4, dstIp: entry.insideIp, payload: { ...tcp, dstPort: entry.insidePort } };
+  }
+  return null;
+}
+
 function routeIpv4Frame(device: Device, frame: EthernetFrame, ifaces: any[], ingressIface: any, fromDeviceId: string, ipv4: Ipv4Payload): OutgoingFrame[] {
   const sim = state.simulation;
   const outgoing: OutgoingFrame[] = [];
 
+  // NAT return path: traffic addressed to an outside interface IP may belong
+  // to a translated flow — restore the inside endpoint and route it onward.
+  const restored = natRestoreInbound(device, ipv4, ifaces);
+  if (restored) {
+    logStep(device, "sim-nat", `NAT ${ipv4.dstIp} → ${restored.dstIp} (un-PAT return flow)`);
+    ipv4 = restored;
+    frame = { ...frame, payload: restored };
+  }
+
   // Check if it's for the router itself (e.g., ping the router's interface IP)
   const selfIface = ifaces.find((iface: any) => iface.ipv4Address === ipv4.dstIp);
   if (selfIface) {
+    // Router-destined traffic traverses the INPUT chain (netfilter is always
+    // present on a router; an empty ruleset accepts).
+    const inputVerdict = evaluateFirewall(device, ipv4, "input");
+    if (inputVerdict !== "accept") {
+      logStep(device, "sim-drop", `Firewall ${inputVerdict.toUpperCase()} ${frameLabel(frame)} ${ipv4.srcIp}→${ipv4.dstIp} (INPUT)`);
+      return outgoing;
+    }
     if (ipv4.payload.type === "icmp" && ipv4.payload.icmpType === 8) {
       logStep(device, "sim-icmp", `Received ICMP Echo Request for self (${ipv4.dstIp}) — sending Reply`);
       const reply = createIcmpEchoReply(
@@ -793,6 +889,24 @@ function routeIpv4Frame(device: Device, frame: EthernetFrame, ifaces: any[], ing
   }
   const { egressIface, nextHopIp } = routeResult;
 
+  // FORWARD chain (post-routing-decision, like netfilter).
+  const forwardVerdict = evaluateFirewall(device, ipv4, "forward");
+  if (forwardVerdict !== "accept") {
+    logStep(device, "sim-drop", `Firewall ${forwardVerdict.toUpperCase()} ${frameLabel(frame)} ${ipv4.srcIp}→${ipv4.dstIp} (FORWARD)`);
+    return outgoing;
+  }
+
+  // NAT (PAT overload): inside→outside flows are source-translated onto the
+  // egress interface address before leaving.
+  if (ingressIface.natRole === "inside" && egressIface.natRole === "outside" && egressIface.ipv4Address) {
+    const translated = natTranslateOutbound(device, ipv4, egressIface);
+    if (translated) {
+      logStep(device, "sim-nat", `NAT ${ipv4.srcIp} → ${translated.srcIp} (PAT via ${ifaceName(egressIface)})`);
+      ipv4 = translated;
+      frame = { ...frame, payload: translated };
+    }
+  }
+
   // ARP lookup on egress interface — resolve next-hop IP (may differ from dstIp for static/RIP routes)
   const egressVlanTag = egressIface.vlanTag ?? null;
   const arpEntry = (egressIface.arpTable || []).find((e: any) => e.ipv4Address === nextHopIp);
@@ -810,7 +924,7 @@ function routeIpv4Frame(device: Device, frame: EthernetFrame, ifaces: any[], ing
     logStep(device, "sim-forward", `Route ${ipv4.srcIp}→${ipv4.dstIp} via ${ifaceName(egressIface)}${viaStr} (TTL ${ipv4.ttl}→${ipv4.ttl - 1})`);
     outgoing.push({ frame: rewrittenFrame, toDeviceId: egressIface.peerId });
   } else {
-    // Need ARP for next-hop — buffer the frame and send ARP request
+    // Need ARP for next-hop — buffer the (already-translated) frame and ARP
     const pendingKey = `${device.id}:${nextHopIp}`;
     if (!sim.pendingArp[pendingKey]) sim.pendingArp[pendingKey] = [];
     sim.pendingArp[pendingKey].push({ ...frame, id: frame.id + "-buffered" });

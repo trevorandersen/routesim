@@ -4,3 +4,4 @@ export * from "./host";
 export * from "./router";
 export * from "./switch";
 export * from "./firewall";
+export * from "./iptables";

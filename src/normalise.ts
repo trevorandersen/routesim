@@ -83,6 +83,7 @@ export function normaliseRouterInterfaces(entries: unknown, routerId?: string): 
     name: String(entry.name || "").trim(),
     ipv4Address: String(entry.ipv4Address || entry.ip || "").trim(),
     ...(entry.prefixLength != null ? { prefixLength: clampPrefixLength(entry.prefixLength) } : {}),
+    ...(entry.natRole === "inside" || entry.natRole === "outside" ? { natRole: entry.natRole } : {}),
     macAddress: entry.macAddress || generateRouterIfaceMac(routerId || "", index),
     arpTable: normaliseArpTable(entry.arpTable || []),
     dhcpLeases: normaliseDhcpLeases(entry.dhcpLeases || []),
@@ -171,12 +172,22 @@ export function normaliseDeviceConfig(device: any): DeviceConfig {
       throw new Error(`${device.name || device.id || "Router"} has an invalid interface IPv4 address.`);
     }
     const ripConfig = normaliseRipConfig(device.config?.rip);
+    const rules = normaliseFirewallRules(device.config?.rules || []);
+    const rawPolicy = device.config?.policy || {};
+    const policy: Record<string, "accept" | "drop"> = {};
+    for (const chain of ["input", "forward"]) {
+      if (rawPolicy[chain] === "drop") policy[chain] = "drop";
+    }
     return {
       ethernetPorts,
       serialPorts,
       interfaces,
       staticRoutes: normaliseStaticRoutes(device.config?.staticRoutes || []),
-      ...(ripConfig.enabled ? { rip: ripConfig } : {})
+      ...(ripConfig.enabled ? { rip: ripConfig } : {}),
+      ...(rules.length ? { rules } : {}),
+      ...(Object.keys(policy).length ? { policy } : {}),
+      ...(Array.isArray(device.config?.natTranslations) && device.config.natTranslations.length
+        ? { natTranslations: device.config.natTranslations } : {})
     };
   }
   if (device.type === "firewall") {

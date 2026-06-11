@@ -47,9 +47,23 @@ Scriptable via the console: `cli <fw> iptables -A FORWARD -p icmp -j DROP`.
 Matching covers **src/dst IP (CIDR), protocol (`icmp`/`tcp`/`udp`/`all`), ICMP
 type, and TCP destination port** (`-p tcp --dport 80` — exercised by the
 `nc`/`connect` TCP traffic generator). REJECT behaves like DROP for now (no
-ICMP-unreachable reply). See `ROADMAP.md` for stateful filtering and the
-plan to let **routers** be configured as routing firewalls (reusing this rule
-engine on the INPUT/FORWARD path, like switches' managed mode).
+ICMP-unreachable reply; see `ROADMAP.md` for stateful filtering).
+
+## Routers are firewalls too
+
+netfilter is always present on a router (a Linux box routing packets), so the
+**router terminal accepts the same `iptables` commands** (privileged mode) on
+two chains, via the shared engine in `src/terminal/iptables.ts`:
+
+- **INPUT** — traffic addressed to the router itself, evaluated before the
+  self-IP handling (e.g. drop pings *to* the gateway while still routing).
+- **FORWARD** — routed traffic, evaluated after the routing decision (like
+  netfilter), before NAT translation.
+
+An empty ruleset with ACCEPT policies is a pass-through — no enable toggle
+needed (this deliberately differs from the switches' managed/unmanaged split:
+unmanaged switches are a distinct device class; un-firewalled Linux routers
+are not). The transparent firewall device remains FORWARD-only.
 
 ## How it fits
 

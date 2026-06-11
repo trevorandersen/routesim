@@ -407,6 +407,32 @@ describe("bench: routing", () => {
     expect(results[results.length - 1].passed).toBe(true);
   });
 
+  it("processAtRouter — NAT translate (PAT)", () => {
+    const topo = routerWithRoutes(5, 10);
+    state.devices = topo.devices as any;
+    state.links = topo.links as any;
+    state.simulation = {
+      status: "running", mode: "ping", events: [], log: [], transits: [],
+      pendingArp: {}, speed: 1000, autoPlay: false, stepIndex: 0,
+    } as any;
+    const router = state.devices.find(d => d.id === "rtr-0")!;
+    const ifaces = router.config.interfaces;
+    ifaces[0].arpTable = [{ ipv4Address: "192.168.1.2", macAddress: "02:aa:bb:cc:dd:ee" }];
+    // Mark NAT roles so the forward path translates every frame.
+    ifaces.forEach((i: any, idx: number) => { i.natRole = idx === 0 ? "outside" : "inside"; });
+    const ingress = ifaces.find((i: any) => i.natRole === "inside")!;
+    const frame = createIcmpEchoRequest(
+      "02:00:02:00:0a:01", routerMac(0, 1),
+      "10.9.9.10", "192.168.1.2", 64
+    );
+    results.push(bench("processAtRouter — NAT translate", () => {
+      state.simulation.log.length = 0;
+      router.config.natTranslations = []; // fresh table each run
+      processAtRouter(router, frame, ingress.peerId);
+    }, { budget: 100 }));
+    expect(results[results.length - 1].passed).toBe(true);
+  });
+
   it("prints results", () => {
     if (results.length) printResults(results);
   });

@@ -71,3 +71,5 @@ The curriculum is a progression from L2 basics to routing, services, security, a
 | `troubleshoot-vlan` | Troubleshoot: wrong VLAN | A re-cabled PC landed on the wrong access VLAN — find the misassigned port. |
 | `troubleshoot-firewall` | Troubleshoot: overzealous firewall | The change blocked SSH (22) instead of Telnet (23) — inspect and fix the rules. |
 | `troubleshoot-static-route` | Troubleshoot: bad static route | A typo'd next-hop broke inter-office routing — read `show ip route` and repair it. |
+| `nat-gateway` | NAT gateway | The ISP server has no route back to the LAN — configure PAT (`ip nat inside/outside`) so the private network reaches it. |
+| `harden-gateway` | Harden the gateway | Drop pings to the router itself with the INPUT chain while traffic through it keeps flowing — INPUT vs FORWARD. |

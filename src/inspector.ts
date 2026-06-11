@@ -138,8 +138,8 @@ export function renderRouterInterfaces(device: any): string {
 }
 
 export function renderFirewallRules(device: any): string {
-  const rules = (device.config?.rules || []).filter((r: any) => (r.chain || "forward") === "forward");
-  if (!rules.length) return `<p class="empty-state">No rules — the FORWARD policy applies to all traffic.</p>`;
+  const rules = (device.config?.rules || []);
+  if (!rules.length) return `<p class="empty-state">No rules — the default policy applies to all traffic.</p>`;
   return `<ol class="fw-rule-list">${rules.map((r: any) => {
     const match = [
       r.protocol ? `-p ${escapeHtml(r.protocol)}` : "",
@@ -148,7 +148,7 @@ export function renderFirewallRules(device: any): string {
       r.icmpType ? `--icmp-type ${escapeHtml(r.icmpType)}` : "",
       r.dport ? `--dport ${escapeHtml(String(r.dport))}` : "",
     ].filter(Boolean).join(" ");
-    return `<li><span class="fw-target fw-${escapeHtml(r.target)}">${escapeHtml(String(r.target).toUpperCase())}</span> ${match || "(any)"}</li>`;
+    return `<li><span class="fw-target fw-${escapeHtml(r.target)}">${escapeHtml(String(r.target).toUpperCase())}</span> ${escapeHtml(String(r.chain || "forward").toUpperCase())} ${match || "(any)"}</li>`;
   }).join("")}</ol>`;
 }
 
@@ -433,6 +433,16 @@ export function syncPanel(): void {
         ${renderRouterInterfaces(selected)}
         </div>
       </div>
+      ${(selected.config?.rules?.length) ? `
+      <div class="field">
+        <label>Firewall rules (edit via iptables in the terminal)</label>
+        ${renderFirewallRules(selected)}
+      </div>` : ""}
+      ${(selected.config?.natTranslations?.length) ? `
+      <div class="field">
+        <label>NAT translations</label>
+        <p class="empty-state">${selected.config.natTranslations.length} active flow(s) — see <code>show ip nat translations</code>.</p>
+      </div>` : ""}
     ` : "";
     const firewallConfigFields = selected.type === "firewall" ? `
       <div class="field">

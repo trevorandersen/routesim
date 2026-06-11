@@ -10,6 +10,7 @@ import { normaliseArpTable, normaliseDhcpLeases, normaliseStaticRoutes, normalis
 import { routerInterfacesWithNames, routerInterfaceFor, routerInterfaceByName } from "../devices";
 import { buildRoutingTable, runRipConvergence } from "../engine";
 import { terminalLine, closeTerminal } from "./core";
+import { runIptablesCommand } from "./iptables";
 
 export function showRouterInterfaceBrief(router: Device): string {
   const interfaces = routerInterfacesWithNames(router);
@@ -124,6 +125,7 @@ export function showRouterRunningConfig(router: Device): string {
       const lines = [`interface ${iface.name}`];
       if (iface.config.vlanTag != null) lines.push(` encapsulation dot1q ${iface.config.vlanTag}`);
       lines.push(iface.config.ipv4Address ? ` ip address ${iface.config.ipv4Address}/${prefixOf(iface.config)}` : " no ip address");
+      if (iface.config.natRole) lines.push(` ip nat ${iface.config.natRole}`);
       lines.push(" exit", "!");
       return lines;
     }),
@@ -184,6 +186,13 @@ const ROUTER_COMMANDS: RouterCmdSpec[] = [
   { tokens: ["interface"], args: true, modes: ["config"] },
   { tokens: ["ip", "address"], args: true, modes: ["interface"] },
   { tokens: ["no", "ip", "address"], modes: ["interface"] },
+  { tokens: ["ip", "nat", "inside"], modes: ["interface"] },
+  { tokens: ["ip", "nat", "outside"], modes: ["interface"] },
+  { tokens: ["no", "ip", "nat", "inside"], modes: ["interface"] },
+  { tokens: ["no", "ip", "nat", "outside"], modes: ["interface"] },
+  { tokens: ["show", "ip", "nat", "translations"], modes: ALL_ROUTER_MODES },
+  { tokens: ["clear", "ip", "nat", "translation"], args: true, modes: ["privileged", "config"] },
+  { tokens: ["iptables"], args: true, modes: ["privileged", "config"] },
   { tokens: ["encapsulation", "dot1q"], args: true, modes: ["interface"] },
   { tokens: ["no", "encapsulation", "dot1q"], modes: ["interface"] },
   { tokens: ["ip", "route"], args: true, modes: ["config"] },
@@ -224,6 +233,15 @@ function expandRouterCommand(command: string, mode: RouterMode): string | null {
     if (any.length !== 1) return null; // unknown or cross-mode ambiguity → pass through
     matches = any;
   }
+  if (matches.length > 1) {
+    // Prefer the candidates whose keywords match the typed tokens exactly —
+    // "ip route" must beat "iptables" for the input "ip route ..." even though
+    // "ip" is also a prefix of "iptables".
+    const exactness = (spec: RouterCmdSpec) =>
+      spec.tokens.filter((t, i) => tokens[i] && t === tokens[i].toLowerCase()).length;
+    const best = Math.max(...matches.map(exactness));
+    matches = matches.filter(m => exactness(m) === best);
+  }
   if (matches.length > 1) return "";
   const spec = matches[0];
   return [...spec.tokens, ...tokens.slice(spec.tokens.length)].join(" ");
@@ -239,6 +257,46 @@ function routerHelp(mode: RouterMode, typed: string): string {
   );
   if (!entries.length) return "% No matching commands.";
   return entries.map(c => c.tokens.join(" ") + (c.args ? " <...>" : "")).join("\n");
+}
+
+// Cisco-style `show ip nat translations`.
+export function showRouterNatTranslations(router: Device): string {
+  const translations = router.config?.natTranslations || [];
+  const marks = routerInterfacesWithNames(router)
+    .filter((i: any) => i.config?.natRole)
+    .map((i: any) => `${i.name}: ${i.config.natRole}`);
+  const header = marks.length ? [`NAT interfaces — ${marks.join(", ")}`, ""] : [];
+  if (!translations.length) return [...header, "Pro  Inside global        Inside local         Outside"].join("\n") + "\n(no translations)";
+  return [
+    ...header,
+    "Pro  Inside global        Inside local         Outside",
+    ...translations.map(t => {
+      const ig = t.protocol === "tcp" ? `${t.outsideIp}:${t.outsidePort}` : `${t.outsideIp} (id ${t.outsidePort})`;
+      const il = t.protocol === "tcp" ? `${t.insideIp}:${t.insidePort}` : `${t.insideIp} (id ${t.insidePort})`;
+      return `${t.protocol.padEnd(5)}${ig.padEnd(26)}${il.padEnd(26)}${t.destIp}`;
+    })
+  ].join("\n");
+}
+
+// Marks the selected interface `ip nat inside|outside` (or clears the mark).
+function routerNatCommand(router: Device, lower: string): boolean {
+  const natMatch = lower.match(/^(no\s+)?ip\s+nat\s+(inside|outside)$/);
+  if (!natMatch) return false;
+  if (state.terminal.mode !== "interface" || !state.terminal.interfacePeerId) {
+    terminalLine("error", "% Interface mode required.");
+    return true;
+  }
+  pushUndo();
+  const iface = routerInterfaceFor(router, state.terminal.interfacePeerId, state.terminal.interfaceVlanTag);
+  if (natMatch[1]) {
+    delete iface.natRole;
+    terminalLine("", `Cleared NAT role on the interface.`);
+  } else {
+    iface.natRole = natMatch[2] as "inside" | "outside";
+    terminalLine("", `Interface marked ip nat ${natMatch[2]}.`);
+  }
+  sync().syncPanel();
+  return true;
 }
 
 export function runRouterTerminalCommand(router: Device, rawCommand: string): void {
@@ -270,6 +328,16 @@ export function runRouterTerminalCommand(router: Device, rawCommand: string): vo
     }
     return;
   }
+  // netfilter lives in the router's shell: INPUT + FORWARD chains.
+  if (command.trim().toLowerCase().startsWith("iptables")) {
+    if (mode === "exec") {
+      terminalLine("error", "% Privileged mode required. Enter enable first.");
+      return;
+    }
+    runIptablesCommand(router, command, ["input", "forward"]);
+    return;
+  }
+  if (routerNatCommand(router, lower)) return;
   if (routerSessionCommand(lower)) return;
   if (routerShowCommand(router, lower)) return;
   if (routerInterfaceCommand(router, command, lower)) return;
@@ -355,6 +423,17 @@ function routerShowCommand(router: Device, lower: string): boolean {
   }
   if (lower === "show ip rip") {
     terminalLine("", showRouterRipRoutes(router));
+    return true;
+  }
+  if (lower === "show ip nat translations") {
+    terminalLine("", showRouterNatTranslations(router));
+    return true;
+  }
+  if (lower === "clear ip nat translation *" || lower === "clear ip nat translation") {
+    pushUndo();
+    if (router.config) router.config.natTranslations = [];
+    sync().syncPanel();
+    terminalLine("", "Cleared all NAT translations.");
     return true;
   }
   if (lower === "show running-config" || lower === "show run") {

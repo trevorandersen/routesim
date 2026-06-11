@@ -1223,6 +1223,7 @@
     .terminal-line.sim-drop  { color: #f87171; }
     .terminal-line.sim-dhcp  { color: #a78bfa; }
     .terminal-line.sim-tcp   { color: #fb923c; }
+    .terminal-line.sim-nat   { color: #2dd4bf; }
 
     /* ─── Simulation log panel ────────────────────────────── */
 
@@ -1291,6 +1292,7 @@
     .sim-log-line.sim-learn   { color: #94a3b8; }
     .sim-log-line.sim-forward { color: #7dd3fc; }
     .sim-log-line.sim-tcp     { color: #fb923c; }
+    .sim-log-line.sim-nat     { color: #2dd4bf; }
     .sim-log-line.sim-drop    { color: #f87171; }
     .sim-log-line.sim-dhcp    { color: #a78bfa; }
 

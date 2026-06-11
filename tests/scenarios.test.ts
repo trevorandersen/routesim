@@ -142,6 +142,19 @@ const SOLUTIONS: Record<string, string> = {
     cli R1 no ip route 192.168.2.0/24
     cli R1 ip route 192.168.2.0/24 10.0.0.2
   `,
+  "nat-gateway": `
+    cli R1 enable
+    cli R1 configure terminal
+    cli R1 interface Ethernet1
+    cli R1 ip nat inside
+    cli R1 exit
+    cli R1 interface Ethernet2
+    cli R1 ip nat outside
+  `,
+  "harden-gateway": `
+    cli R1 enable
+    cli R1 iptables -A INPUT -p icmp -j DROP
+  `,
 };
 
 describe("scenarios — every curriculum entry is solvable", () => {

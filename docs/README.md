@@ -31,7 +31,8 @@ It is a single-page app with **no framework and no runtime dependencies** — it
 | `src/engine.ts` | [engine.md](src/engine.md) | The simulation engine: per-device frame processing, headless runs, traceroute |
 | `src/routing.ts` | [engine.md](src/engine.md) | Routing table, longest-match lookup, RIP convergence |
 | `src/device-registry.ts` | [architecture.md](architecture.md) | Per-type device spec: label, name prefix, size, palette, icon, defaults |
-| (firewall) | [firewall.md](src/firewall.md) | The transparent inline firewall device (iptables CLI + packet filtering) |
+| (firewall) | [firewall.md](src/firewall.md) | The transparent inline firewall device + router INPUT/FORWARD chains |
+| (NAT) | [nat.md](src/nat.md) | Source NAT / PAT on routers: interface marks, translation table, return-path restore |
 | `src/commands.ts` | [scripting.md](scripting.md) | The text-command engine (parser, verb registry, topology export) |
 | `src/console.ts` | [scripting.md](scripting.md) | The command console panel UI |
 | `src/scenarios.ts` | [scenarios.md](scenarios.md) | Scenario data model, registry, and goal checking |

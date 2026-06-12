@@ -13,11 +13,9 @@
 <body class="inspector-closed dock-closed">
   <header class="ribbon" id="ribbon">
     <div class="ribbon-tabs">
-      <button class="ribbon-tab active" data-tab="file" type="button">File</button>
-      <button class="ribbon-tab" data-tab="edit" type="button">Edit</button>
+      <button class="ribbon-tab active" data-tab="main" type="button">Main</button>
+      <button class="ribbon-tab" data-tab="file" type="button">File</button>
       <button class="ribbon-tab" data-tab="view" type="button">View</button>
-      <button class="ribbon-tab" data-tab="simulate" type="button">Simulate</button>
-      <button class="ribbon-tab" data-tab="scenarios" type="button">Scenarios</button>
       <button class="ribbon-tab" data-tab="help" type="button">Help</button>
       <span class="ribbon-status">
         <span class="mode-label" id="modeLabel">Select and move devices</span>
@@ -26,10 +24,7 @@
     </div>
     <div class="ribbon-body">
 
-      <div class="ribbon-panel active" data-tab="file">
-        <div class="ribbon-group"><div class="ribbon-items">
-          <button class="ribbon-btn" data-action="new" type="button"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M14 3v4a1 1 0 0 0 1 1h4"></path><path d="M17 21H7a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h7l5 5v11a2 2 0 0 1-2 2z"></path></svg><span>New</span></button>
-        </div><span class="ribbon-label">New</span></div>
+      <div class="ribbon-panel" data-tab="file">
         <div class="ribbon-group"><div class="ribbon-items">
           <select class="ribbon-select" id="topologySelect" aria-label="Load a built-in topology">
             <option value="">Load topology…</option>
@@ -38,6 +33,11 @@
             <option value="router-mesh">5-Router Mesh</option>
           </select>
         </div><span class="ribbon-label">Topologies</span></div>
+        <div class="ribbon-group"><div class="ribbon-items">
+          <select class="ribbon-select" id="scenarioSelect" aria-label="Load a scenario">
+            <option value="">Load scenario…</option>
+          </select>
+        </div><span class="ribbon-label">Scenarios</span></div>
         <div class="ribbon-group"><div class="ribbon-items">
           <button class="ribbon-btn" data-action="import-config" type="button"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 3v12"></path><path d="M7 10l5 5 5-5"></path><path d="M5 21h14"></path></svg><span>Config</span></button>
           <button class="ribbon-btn" data-action="import-scenario" type="button"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 3v12"></path><path d="M7 10l5 5 5-5"></path><path d="M5 21h14"></path></svg><span>Scenario</span></button>
@@ -52,7 +52,7 @@
         </div><span class="ribbon-label">Export</span></div>
       </div>
 
-      <div class="ribbon-panel" data-tab="edit">
+      <div class="ribbon-panel active" data-tab="main">
         <div class="ribbon-group"><div class="ribbon-items">
           <button class="ribbon-btn tool-button active" data-tool="select" type="button"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 4l7 16l2 -7l7 -2z"></path></svg><span>Select</span></button>
           <button class="ribbon-btn tool-button" data-tool="computer" type="button"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M3 5a1 1 0 0 1 1 -1h16a1 1 0 0 1 1 1v10a1 1 0 0 1 -1 1h-16a1 1 0 0 1 -1 -1v-10"></path><path d="M7 20h10"></path><path d="M9 16v4"></path><path d="M15 16v4"></path></svg><span>Computer</span></button>
@@ -67,7 +67,16 @@
           <button class="ribbon-btn" id="undoButton" data-action="undo" type="button" disabled><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M9 14l-4 -4l4 -4"></path><path d="M5 10h11a4 4 0 1 1 0 8h-1"></path></svg><span>Undo</span></button>
           <button class="ribbon-btn" id="redoButton" data-action="redo" type="button" disabled><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M15 14l4 -4l-4 -4"></path><path d="M19 10h-11a4 4 0 1 0 0 8h1"></path></svg><span>Redo</span></button>
           <button class="ribbon-btn danger" data-action="delete" type="button"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M3 6h18"></path><path d="M8 6V4h8v2"></path><path d="M19 6l-1 14H6L5 6"></path></svg><span>Delete</span></button>
+          <button class="ribbon-btn danger" data-action="clear" type="button"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M19 20h-10.5l-4.21 -4.3a1 1 0 0 1 0 -1.41l10 -10a1 1 0 0 1 1.41 0l5 5a1 1 0 0 1 0 1.41l-9.2 9.3"></path><path d="M18 13.3l-6.3 -6.3"></path></svg><span>Clear</span></button>
         </div><span class="ribbon-label">Edit</span></div>
+        <div class="ribbon-group"><div class="ribbon-items">
+          <button class="ribbon-btn" id="simPlayPause" type="button">▶ Play</button>
+          <button class="ribbon-btn" id="simStep" type="button">⏭ Step</button>
+          <button class="ribbon-btn" id="simStop" type="button">⏹ Stop</button>
+        </div><span class="ribbon-label">Run</span></div>
+        <div class="ribbon-group"><div class="ribbon-items">
+          <label class="ribbon-speed"><span>ms / hop</span><input id="simSpeed" type="range" min="200" max="3000" value="1000"></label>
+        </div><span class="ribbon-label">Speed</span></div>
       </div>
 
       <div class="ribbon-panel" data-tab="view">
@@ -90,25 +99,6 @@
         <div class="ribbon-group"><div class="ribbon-items">
           <button class="ribbon-btn" data-action="fit" type="button"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M10 10m-7 0a7 7 0 1 0 14 0a7 7 0 1 0 -14 0"></path><path d="M21 21l-6 -6"></path><path d="M10 7v6"></path><path d="M7 10h6"></path></svg><span>Fit</span></button>
         </div><span class="ribbon-label">Canvas</span></div>
-      </div>
-
-      <div class="ribbon-panel" data-tab="simulate">
-        <div class="ribbon-group"><div class="ribbon-items">
-          <button class="ribbon-btn" id="simPlayPause" type="button">▶ Play</button>
-          <button class="ribbon-btn" id="simStep" type="button">⏭ Step</button>
-          <button class="ribbon-btn" id="simStop" type="button">⏹ Stop</button>
-        </div><span class="ribbon-label">Run</span></div>
-        <div class="ribbon-group"><div class="ribbon-items">
-          <label class="ribbon-speed"><span>ms / hop</span><input id="simSpeed" type="range" min="200" max="3000" value="1000"></label>
-        </div><span class="ribbon-label">Speed</span></div>
-      </div>
-
-      <div class="ribbon-panel" data-tab="scenarios">
-        <div class="ribbon-group"><div class="ribbon-items" id="ribbonScenarioList"></div><span class="ribbon-label">Load</span></div>
-        <div class="ribbon-group"><div class="ribbon-items">
-          <button class="ribbon-btn" data-action="scenario-check" type="button"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M5 12l5 5l9 -9"></path></svg><span>Check goal</span></button>
-          <button class="ribbon-btn" data-action="scenario-dismiss" type="button"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M18 6 6 18"></path><path d="m6 6 12 12"></path></svg><span>Dismiss</span></button>
-        </div><span class="ribbon-label">Goal</span></div>
       </div>
 
       <div class="ribbon-panel" data-tab="help">

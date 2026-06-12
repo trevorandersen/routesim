@@ -88,8 +88,9 @@ The JSON import path already exists.
 
 ### UI polish (from the 2026-06 UI review)
 - **Floating sim transport** — a small play/pause/step/stop pill over the
-  canvas while a simulation is active, so pausing doesn't require switching
-  to the Simulate ribbon tab.
+  canvas while a simulation is active. The transport now lives on the Main
+  tab beside the tools, which softens this; the pill would still help when
+  the ribbon sits on another tab.
 - **Scenario banner: collapse, don't dismiss** — shrink to a progress pill
   ("Name service (DNS) — 1/3 ✓"); the ✕ currently abandons the scenario.
 - **Terminal QoL** — `Ctrl+C` cancels a running simulation from the terminal;

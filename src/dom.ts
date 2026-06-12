@@ -40,7 +40,7 @@ export const dom = {
   scenarioCheckButton: document.getElementById("scenarioCheckButton")!,
   scenarioCloseButton: document.getElementById("scenarioCloseButton")!,
   themeButtons: Array.from(document.querySelectorAll<HTMLElement>("[data-theme-id]")),
-  ribbonScenarioList: document.getElementById("ribbonScenarioList")!,
+  scenarioSelect: document.getElementById("scenarioSelect") as HTMLSelectElement,
   topologySelect: document.getElementById("topologySelect") as HTMLSelectElement,
   coordReadout: document.getElementById("coordReadout")!,
   simPlayPause: document.getElementById("simPlayPause")!,

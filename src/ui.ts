@@ -13,7 +13,7 @@ import { loadScenario } from "./scenarios";
 import { runActiveScenarioCheck, dismissScenario } from "./scenario-ui";
 import { loadTopology } from "./config";
 import { pauseSimulation, resumeSimulation, stepOnce, stopSimulation, syncSimLog } from "./engine";
-import { setupRibbon, renderScenarioButtons } from "./ribbon";
+import { setupRibbon, renderScenarioOptions } from "./ribbon";
 import * as io from "./io";
 
 export function setTool(tool: string): void {
@@ -344,13 +344,13 @@ export function setupUI(): void {
   // Most ribbon buttons are wired by data attribute (delegated so dynamically
   // rendered buttons — scenarios — work without re-binding).
   const ribbonActions: Record<string, () => void> = {
-    "new": clearNetwork,
+    "clear": clearNetwork,
     "undo": undo,
     "redo": redo,
     "delete": deleteSelection,
     "import-config": () => { void io.importConfig(); },
     "export-config": io.exportConfig,
-    "import-scenario": () => { void io.importScenario().then(renderScenarioButtons); },
+    "import-scenario": () => { void io.importScenario().then(renderScenarioOptions); },
     "export-scenario": io.exportScenarios,
     "import-script": () => { void io.importScript(); },
     "export-script": io.exportScript,
@@ -361,16 +361,13 @@ export function setupUI(): void {
     "panel-console": () => openConsole(),
     "panel-simlog": () => toggleDockTab("simlog"),
     "fit": fitNetwork,
-    "scenario-check": runActiveScenarioCheck,
-    "scenario-dismiss": dismissScenario,
     "help-shortcuts": () => { dom.hint.textContent = "Shortcuts: V select · C computer · E server · S switch · R router · F firewall · L connect · W configure · Del delete · Esc cancel · Ctrl/Cmd+Z undo · scroll to zoom."; },
     "help-commands": () => openConsole(),
     "help-about": openAbout,
   };
   document.addEventListener("click", (event) => {
-    const el = (event.target as HTMLElement)?.closest?.("[data-action],[data-scenario],[data-theme-id]") as HTMLElement | null;
+    const el = (event.target as HTMLElement)?.closest?.("[data-action],[data-theme-id]") as HTMLElement | null;
     if (!el) return;
-    if (el.dataset.scenario) { loadScenario(el.dataset.scenario); return; }
     if (el.dataset.themeId) { setTheme(el.dataset.themeId); return; }
     if (el.dataset.action) ribbonActions[el.dataset.action]?.();
   });
@@ -380,6 +377,13 @@ export function setupUI(): void {
     const name = dom.topologySelect.value;
     if (name) loadTopology(name);
     dom.topologySelect.value = ""; // reset to the placeholder
+  });
+
+  // Scenarios dropdown (File tab).
+  dom.scenarioSelect.addEventListener("change", () => {
+    const id = dom.scenarioSelect.value;
+    if (id) loadScenario(id);
+    dom.scenarioSelect.value = ""; // reset to the placeholder
   });
 
   // Scenario goal banner.

@@ -1,6 +1,6 @@
 /**
- * Ribbon tab switching + dynamic scenario buttons. Per-button click wiring lives
- * in ui.ts (setupUI) via data-action / data-tool / data-topology / data-scenario.
+ * Ribbon tab switching + the scenario chooser options. Per-button click wiring
+ * lives in ui.ts (setupUI) via data-action / data-tool / data-theme-id.
  */
 import { dom } from "./dom";
 import { escapeHtml } from "./utils";
@@ -12,17 +12,14 @@ export function setupRibbon(): void {
   const activate = (tab: string) => {
     tabs.forEach(t => t.classList.toggle("active", t.dataset.tab === tab));
     panels.forEach(p => p.classList.toggle("active", p.dataset.tab === tab));
-    if (tab === "scenarios") renderScenarioButtons();
   };
   tabs.forEach(t => t.addEventListener("click", () => activate(t.dataset.tab!)));
-  renderScenarioButtons();
+  renderScenarioOptions();
 }
 
-// Rebuilds the Scenarios-tab load buttons from the (possibly imported) registry.
-export function renderScenarioButtons(): void {
-  dom.ribbonScenarioList.innerHTML = SCENARIOS.map(s =>
-    `<button class="ribbon-btn" data-scenario="${escapeHtml(s.id)}" type="button">` +
-    `<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 4v16"></path><path d="M4 5h13l-2 3l2 3H4"></path></svg>` +
-    `<span>${escapeHtml(s.name)}</span></button>`
+// Rebuilds the File-tab scenario chooser from the (possibly imported) registry.
+export function renderScenarioOptions(): void {
+  dom.scenarioSelect.innerHTML = `<option value="">Load scenario…</option>` + SCENARIOS.map(s =>
+    `<option value="${escapeHtml(s.id)}">${escapeHtml(s.name)}</option>`
   ).join("");
 }

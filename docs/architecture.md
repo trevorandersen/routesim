@@ -8,7 +8,7 @@ RouteSim is a single-page canvas application. All state lives in one `AppState` 
 app.ts (entry)
   ├── state.ts       ← AppState, undo system, callback registry, built-in topologies
   ├── dom.ts         ← getElementById refs (evaluated at load time)
-  ├── ribbon.ts      ← tabbed ribbon (File/Edit/View/Simulate/Scenarios/Help)
+  ├── ribbon.ts      ← tabbed ribbon (Main/File/View/Help) + scenario chooser
   ├── io.ts          ← JSON import/export (config/scenario/script/log)
   ├── ui.ts          ← event listeners, tool switching, keyboard, theme
   ├── canvas.ts      ← render loop, pan/zoom, device/link/transit drawing

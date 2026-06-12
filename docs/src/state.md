@@ -5,10 +5,14 @@ The heart of the app. Holds the single mutable `state` object, the cross-module 
 ## Key exports
 
 ### The state singleton
-- **`state: AppState`** — one mutable object holding everything: `devices`, `links`, `configStore`, selection (`selectedId`, `selectedLinkId`, `configuringId`), the active `tool`, view transform (`pan`, `scale`), interaction state (`drag`, `panDrag`, `pointer`, `inspectorResize`, `portSelection`), display `options`, `theme`, the `undoStack`, and the `simulation` + `terminal` sub-states.
+- **`state: AppState`** — one mutable object holding everything: `devices`, `links`, `configStore`, selection (`selectedId`, `selectedLinkId`, `configuringId`), the active `tool`, view transform (`pan`, `scale`), interaction state (`drag`, `panDrag`, `pointer`, `inspectorResize`, `portSelection`), display `options`, `theme`, the `undoStack`, the `simulation` sub-state, and the dock/terminal model — `terminalSessions` (one `TerminalSession` per open device CLI, in tab order), `terminal` (the active session pointer all CLI handlers write to), `dock` (`open`/`activeTab`/`height`/`logView`), and `console`.
+
+### Terminal sessions
+- **`freshTerminalSession(deviceId)`** — a blank session (empty scrollback/history, exec mode).
+- **`dropTerminalSessions(deviceIds | null)`** — drop the sessions for deleted devices (or all of them on a topology load), repairing the active pointer and closing the dock when the terminal tab empties.
 
 ### Callback registry
-- **`registerCallbacks(cb)` / `sync()`** — the bridge that lets any module call `sync().render()`, `sync().syncPanel()`, `sync().syncTerminal()`, `sync().resizeCanvas()` without importing `canvas.ts`/`inspector.ts`/`terminal.ts`. Wired in `app.ts`; no-op'd in tests. See [architecture.md](../architecture.md).
+- **`registerCallbacks(cb)` / `sync()`** — the bridge that lets any module call `sync().render()`, `sync().syncPanel()`, `sync().syncTerminal()`, `sync().resizeCanvas()` without importing `canvas.ts`/`inspector.ts`/`terminal/`. Wired in `app.ts`; no-op'd in tests. See [architecture.md](../architecture.md).
 
 ### Undo system
 - **`networkSnapshot()`** — deep-copies only the persistent network (`devices`, `links`), stripping transient data like per-link frame history, so snapshots stay small.

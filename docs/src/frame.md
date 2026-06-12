@@ -8,10 +8,13 @@ Builds the `EthernetFrame` objects that flow through the simulation, plus helper
 - **Factories** — each returns a fully-formed `EthernetFrame` with the right `etherType`, MACs, IPv4 envelope (where applicable), and a unique frame id:
   - `createArpRequest`, `createArpReply`
   - `createIcmpEchoRequest`, `createIcmpEchoReply`, `createIcmpTimeExceeded` (type 11 — sent by a router on TTL 0; the signal traceroute discovers each hop from)
-  - `createDhcpDiscover`, `createDhcpOffer`, `createDhcpRequest`, `createDhcpAck`
+  - `createDhcpDiscover`, `createDhcpOffer`, `createDhcpRequest`, `createDhcpAck` (Offer/Ack also carry the prefix length, gateway — defaulting to the server itself, as dnsmasq does — and optional nameserver, option 6)
+  - `createTcpSegment` (SYN/SYN-ACK/ACK/RST — the L4 handshake)
+  - `createDnsQuery`, `createDnsResponse` (UDP/53; `address: null` = NXDOMAIN; a module counter issues transaction ids)
   - All accept an optional `vlanTag` for 802.1Q tagging.
 - **`frameLabel(frame)`** — a short human label (e.g. `"ARP Req"`, `"ICMP Echo"`, `"ICMP TTL Exceeded"`, `"DHCP Offer"`) shown on transit dots and in link history.
-- **`frameColor(frame)`** — the colour for the frame type (amber ARP, blue ICMP request, green ICMP reply, red ICMP Time-Exceeded, violet DHCP).
+- **`frameColor(frame)`** — the colour for the frame type (amber ARP, blue ICMP request, green ICMP reply, violet DHCP, orange TCP, cyan DNS; red for ICMP Time-Exceeded, TCP RST, and NXDOMAIN).
+- **`packetColumns(frame)`** — the Wireshark-style packet-list mapping: `{ src, dst, protocol, info, tone }` with conventional Info strings (`"Who has X? Tell Y"`, `"Standard query 0xNNNN A name"`, `"30000 → 80 [SYN]"`, `"Echo (ping) request … ttl=…"`). `tone` drives the row colour classes (`.pkt-*`); error frames read `bad`.
 
 ## How it fits
 

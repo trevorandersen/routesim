@@ -13,7 +13,7 @@ There is no dedicated `firewall.ts`; the device is spread across the standard
   `evaluateFirewall` (first-match-wins over the chain's rules, else the chain
   policy), and `firewallRuleMatches` (the per-rule predicate). Logged as
   `Firewall ACCEPT/DROP …` in the sim log.
-- **CLI** — `terminal.ts`: `runFirewallTerminalCommand` parses an iptables
+- **CLI** — `terminal/firewall.ts`: `runFirewallTerminalCommand` parses an iptables
   subset; `showFirewallRules` renders `iptables -L`.
 
 ## Data model (`types.ts`)

@@ -37,11 +37,13 @@ The app reads `document.getElementById` at module load (`dom.ts`) and draws to a
 
 - `getComputedStyle().getPropertyValue()` returns `""`, so `cssColor` resolves to empty strings — colour output isn't meaningfully testable.
 - `dom.ctx` is `null`; `canvas.render()` early-returns on a null context, so calling `setTool` (which renders) is safe in tests.
-- `requestAnimationFrame(cb)` calls `cb(0)` **synchronously**. This means **`startSimulation` must not be invoked in unit tests** — its rAF animation loop would recurse infinitely. Test the engine by calling `processAtComputer`/`processAtSwitch`/`processAtRouter` directly, and test terminal `ping`/`dhcp` via their validation-error paths.
+- `requestAnimationFrame(cb)` calls `cb(0)` **synchronously**, so **`startSimulation` must not run against the stub as-is** — its rAF animation loop would recurse. Two sanctioned patterns:
+  - **Default:** test the engine by calling `processAtComputer`/`processAtSwitch`/`processAtRouter` directly, or via `runSimulationHeadless`/`runTraceroute`; test terminal `ping`/`dhcp` via their validation-error paths.
+  - **Animated behaviour** (the packet capture, dock auto-open): replace rAF with a no-op (`(globalThis as any).requestAnimationFrame = () => 0` in `beforeEach`, restored in `afterEach`) and pump the loop manually — `startSimulation(...)` then `while (state.simulation.status !== "done") stepOnce()`. See `tests/capture.test.ts`.
 
 ### `resetState()` and `registerNoopCallbacks()`
 
-Call `registerNoopCallbacks()` once in a top-level `beforeAll` (so `sync().render()` etc. are no-ops), and `resetState()` in `beforeEach` for isolation. `resetState` clears devices/links/selection/undo and resets `state.simulation` and `state.terminal` to baselines.
+Call `registerNoopCallbacks()` once in a top-level `beforeAll` (so `sync().render()` etc. are no-ops), and `resetState()` in `beforeEach` for isolation. `resetState` clears devices/links/selection/undo and resets the `simulation`, terminal session/dock, and `console` sub-states to baselines. Tests that register **device** callbacks for real (e.g. `linkUp`/`openTerminal` in `firstboot.test.ts`/`dock.test.ts`) must clear them in `afterAll` — bun shares module state across test files.
 
 ## Testing style
 
@@ -77,6 +79,14 @@ describe("setSwitchPortVlan", () => {
 |-----------|--------|
 | `tests/engine.test.ts` | `processAtComputer/Switch/Router`, routing, sub-interfaces, traceroute, headless runs |
 | `tests/firewall.test.ts` | Firewall rule matching/evaluation, the iptables CLI, filtering in the sim |
+| `tests/nat.test.ts` | NAT/PAT: translation table, return-path restore, router netfilter INPUT/FORWARD chains |
+| `tests/tcp.test.ts` | The TCP three-way handshake, the `openPorts` listener model, RST refusal, port filtering |
+| `tests/dns.test.ts` | DNS + the server device: A-records, resolv/dnsmasq conf handling, resolve-then-act flows, server DHCP |
+| `tests/prefix.test.ts` | Real subnet prefixes: longest-prefix behaviour and the display/export surfaces |
+| `tests/capture.test.ts` | The packet list: `packetColumns` mapping + per-wire capture recording (cap, headless preservation) |
+| `tests/dock.test.ts` | The bottom dock: terminal sessions/tabs, console `cli` session sharing, configure-opens-terminal |
+| `tests/links.test.ts` | Link naming (derived default + override), link deletion, the single-NIC host guard |
+| `tests/firstboot.test.ts` | First-boot autoconf: DHCP on link-up/power-on with APIPA fallback |
 | `tests/terminal.test.ts` | Terminal display + mutator helpers (host/router/switch, VLAN, trunk) |
 | `tests/terminal-commands.test.ts` | The command **dispatchers**, router mode machine, abbreviation + `?` |
 | `tests/commands.test.ts` | The console command engine (verbs, headless runs, script round-trip) |

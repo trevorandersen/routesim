@@ -15,7 +15,7 @@ Small, dependency-free utility functions used everywhere. All are pure except th
 - **`ipv4ToInt`, `intToIpv4`** — IPv4 ↔ integer conversion, the basis of the subnet maths below.
 
 ### HTML
-- **`escapeHtml`** — escapes a value for safe insertion into `innerHTML`. Used throughout `inspector.ts`/`terminal.ts` to neutralise device/interface/VLAN names.
+- **`escapeHtml`** — escapes a value for safe insertion into `innerHTML`. Used throughout `inspector.ts`/`terminal/` to neutralise device/interface/VLAN names.
 
 ### CSS colours (with cache)
 - **`cssColor(name)`** — resolves a CSS custom property (e.g. `--pc-fill`) to its value.

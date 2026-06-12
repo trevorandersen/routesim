@@ -31,20 +31,20 @@ app.ts (entry)
 Many modules need to trigger work in others — e.g. `engine.ts` mutates state then needs the canvas to redraw; `devices.ts` changes selection then needs the inspector to refresh. Wiring these as direct imports would create cycles (e.g. `canvas → devices → canvas`). Two registration bridges avoid that:
 
 - **`registerCallbacks()`** in `state.ts` — exposes `render`, `syncPanel`, `syncTerminal`, `resizeCanvas` through `sync()`. Any module calls `sync().render()` without importing `canvas.ts`.
-- **`registerDeviceCallbacks()`** in `devices.ts` — exposes `setTool` and `setNetworkPanel` so `devices.ts` can drive UI changes without importing `ui.ts`.
+- **`registerDeviceCallbacks()`** in `devices.ts` — exposes `setTool`, `setNetworkPanel`, `linkUp` (a new cable boots an unconfigured host — first-boot DHCP/APIPA in `engine.ts`), and `openTerminal` (configuring a CLI device auto-opens its terminal) so `devices.ts` can drive UI/engine work without importing `ui.ts`/`engine.ts`/`terminal/`.
 
 Both are wired once in `app.ts` at startup. Tests register no-op versions via `registerNoopCallbacks()` (see [testing.md](testing.md)).
 
 ## State model
 
-`state` (`state.ts`) is a single mutable object holding both **persistent** data (`devices`, `links`, `configStore`) and **transient** UI/sim data (`selectedId`, `tool`, `drag`, `pan`, `scale`, `simulation`, `terminal`). The undo system snapshots only the persistent network (`networkSnapshot()` strips transient fields like link frame history). Editing fields capture an undo point on focus (`captureUndoOnFocus`).
+`state` (`state.ts`) is a single mutable object holding both **persistent** data (`devices`, `links`, `configStore`) and **transient** UI/sim data (`selectedId`, `tool`, `drag`, `pan`, `scale`, `simulation`, the terminal sessions — `terminalSessions`/`terminal` — and `dock`). The undo system snapshots only the persistent network (`networkSnapshot()` strips transient fields like link frame history). Editing fields capture an undo point on focus (`captureUndoOnFocus`).
 
 ## Simulation model (two phases)
 
 A ping/DHCP run is driven by `engine.ts`:
 
 1. **Process phase** — `buildPingEvents()`/`buildDhcpEvents()` (`simulation.ts`) validate the request and produce an initial queue of `SimEvent`s plus a `pendingArp` map for deferred ICMPs. The engine dequeues each event, runs the per-device handler (`processAtComputer` / `processAtSwitch` / `processAtRouter`), and collects the outgoing frames.
-2. **Animate phase** — a `requestAnimationFrame` loop interpolates "transit dots" along links (amber = ARP, blue = ICMP request, green = ICMP reply, violet = DHCP). When a dot arrives, the frame is delivered and re-enters the process phase at the next hop.
+2. **Animate phase** — a `requestAnimationFrame` loop interpolates "transit dots" along links (amber = ARP, blue = ICMP request, green = ICMP reply, violet = DHCP, orange = TCP, cyan = DNS, red = errors). When a dot arrives, the frame is delivered (and recorded in the packet capture) and re-enters the process phase at the next hop.
 
 Routers run `runRipConvergence()` before a simulation starts so RIP-learned routes exist. Forwarding uses a merged routing table (`buildRoutingTable`) combining connected, static, and RIP routes.
 

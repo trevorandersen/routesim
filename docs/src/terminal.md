@@ -31,6 +31,7 @@ They return a result string (the message shown in the terminal); callers detect 
 The bottom **dock** (`core.ts`) hosts three pane kinds behind one tab strip: the per-device terminal sessions (one tab each, closable), the command console, and the sim log (with a live entry-count badge). It is drag-resizable via its top edge (`startDockResize` → `--terminal-height`).
 
 - **`openTerminalFor(device)`** — find-or-create the device's session (`ensureSession`, greeting on creation), make it active, open the dock on the terminal pane. Open failures (powered off, unmanaged switch) show a detached placeholder instead of creating a session.
+- **`canOpenTerminal(device)`** — the gate: has a CLI (`hasTerminal`), powered on, and not an unmanaged switch. `configureDevice` consults it via the `openTerminal` device callback, so double-clicking a CLI device opens its terminal.
 - **`closeSession(deviceId)`** — close one tab; the active pointer falls back to a neighbour, and closing the last tab closes the dock. A router's exec-level `exit` calls this (logout).
 - **`openDock(tab)` / `closeDock()` / `toggleDockTab(tab)` / `setDockTab(tab)`** — dock state; `syncDock()` rebuilds the tab strip and pane visibility.
 - **`syncTerminal()`** — render the active session into the terminal pane (a session whose device vanished is closed automatically).

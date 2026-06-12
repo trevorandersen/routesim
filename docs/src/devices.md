@@ -6,8 +6,10 @@ Owns the device and link collections: creating, deleting, hit-testing, looking u
 
 ### CRUD
 - **`addDevice(type, x, y, name?)`** — creates a device with a default config (`defaultDeviceConfig`) and auto-generated name (`PC-1`, `SW-1`, `RTR-1`), selects it, returns it.
-- **`addLink(fromId, toId, fromPort?, toPort?)`** — connects two devices, optionally on specific ports.
-- **`deleteSelection()` / `clearNetwork()`** — remove the selected device (and its links) / wipe the topology.
+- **`addLink(fromId, toId, fromPort?, toPort?)`** — connects two devices, optionally on specific ports. Hosts (computer/server) model a **single NIC** and refuse a second cable (the `hostNicTaken` guard; the hint bar explains). Loaded topologies are unaffected — `normalise`/`applyConfig` build links directly. A new cable fires the **`linkUp`** callback so an unconfigured host can boot (DHCP → APIPA — see [engine.md](engine.md)).
+- **`deleteLink(linkId)`** — remove a single link (undoable; clears the link selection). Backs the inspector's **Delete link** button.
+- **`deleteSelection()` / `clearNetwork()`** — remove the selected device (and its links) or the selected link / wipe the topology.
+- **`linkName(link)`** — a link's display name: the user-given `link.name` if set, else the derived endpoint combo (`"PC1 ↔ SW"`), which follows device renames. Used by the packet list's Link column, `list links`, and the link inspector.
 
 ### Hit testing
 - **`findDeviceAt(point)` / `findLinkAt(point)`** — translate a canvas coordinate to the device/link under it (used by `ui.ts` pointer handling).
@@ -29,8 +31,8 @@ Owns the device and link collections: creating, deleting, hit-testing, looking u
 
 ### Port-selection modal & callback bridge
 - **`openPortSelectionModal`, `syncPortSelectionModal`, `confirmPortSelection`, `cancelPortSelection`** — when connecting to a multi-port device, prompt for the specific port (computers auto-select).
-- **`registerDeviceCallbacks({ setTool, setNetworkPanel })`** — lets `devices.ts` trigger UI changes (e.g. switch to select tool after creating a device) without importing `ui.ts`. Wired in `app.ts`.
-- **`configureDevice(device)`** — selects a device and switches to the configure tool.
+- **`registerDeviceCallbacks({ setTool, setNetworkPanel, linkUp, openTerminal })`** — lets `devices.ts` trigger UI/engine work without importing `ui.ts`/`engine.ts`/`terminal/`: `setTool`/`setNetworkPanel` (UI changes after CRUD), `linkUp` (first-boot autoconf when a cable comes up), `openTerminal` (open a device's CLI). Wired in `app.ts`; tests register the pieces they need.
+- **`configureDevice(device)`** — selects a device, switches to the configure tool, and fires `openTerminal` — which `app.ts` gates on `canOpenTerminal` (see [terminal.md](terminal.md)), so configuring a CLI device auto-opens its terminal while unmanaged switches/LANs just show their config.
 
 ## How it fits
 

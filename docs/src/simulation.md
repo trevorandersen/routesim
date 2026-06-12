@@ -16,7 +16,7 @@ Turns a user request (`ping <target>` or `dhcp`) into the initial queue of simul
 
 ## How it fits
 
-`terminal.ts` calls `buildPingEvents`/`buildDhcpEvents` when a user types `ping`/`dhcp`, then hands the result to `engine.startSimulation`. The engine consumes the `events` queue and `pendingArp` map; `l2Reachable`/`getVlanForDevice` are reused both here (validation) and by the engine (forwarding decisions).
+`terminal/` calls `buildPingEvents`/`buildDhcpEvents` when a user types `ping`/`dhcp`, then hands the result to `engine.startSimulation`. The engine consumes the `events` queue and `pendingArp` map; `l2Reachable`/`getVlanForDevice` are reused both here (validation) and by the engine (forwarding decisions).
 
 ## Notes
 

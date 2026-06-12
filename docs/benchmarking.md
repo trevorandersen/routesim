@@ -33,7 +33,10 @@ Budgets are calibrated for a ~2 GHz CPU with headroom, so they pass on modest ha
 | `bench: connectedIds` | Neighbour lookup via the link index |
 | `bench: l2Reachable` | VLAN-aware BFS reachability (runs on every ping/DHCP validation) |
 | `bench: processAtSwitch` | Unmanaged flood, managed 802.1Q flood, known unicast |
-| `bench: routing` | `buildRoutingTable` and `processAtRouter` (connected/static) |
+| `bench: firewall` | `evaluateFirewall` worst case — a full 50-rule scan with no match |
+| `bench: dns` | `processAtServer` answering a DNS query against 50 A-records |
+| `bench: packetColumns` | The packet-list column mapping (runs per visible row on every sim-log sync) |
+| `bench: routing` | `buildRoutingTable` and `processAtRouter` (connected/static/NAT translate) |
 | `bench: RIP convergence` | `runRipConvergence` at 5/10/15 routers |
 
 ## Adding a benchmark

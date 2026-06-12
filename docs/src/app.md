@@ -5,8 +5,8 @@ The bundle's entry point (esbuild bundles `app.ts` and everything it transitivel
 ## What it does
 
 1. **Wires the callback bridges** so modules can call each other without circular imports:
-   - `registerCallbacks({ render, syncPanel, syncTerminal, resizeCanvas })` (from `state.ts`).
-   - `registerDeviceCallbacks({ setTool, setNetworkPanel })` (from `devices.ts`).
+   - `registerCallbacks({ render, syncPanel, syncTerminal, resizeCanvas, syncScenarioPanel, syncCoordReadout })` (from `state.ts`).
+   - `registerDeviceCallbacks({ setTool, setNetworkPanel, linkUp, openTerminal })` (from `devices.ts`) — `linkUp` is `engine.autoBootLinkedHosts` (a new cable boots an unconfigured host, DHCP → APIPA), and `openTerminal` opens a device's CLI when `canOpenTerminal` allows (so configuring a CLI device auto-opens its terminal).
 2. **`setupUI()`** (`ui.ts`) — attaches all DOM event listeners.
 3. **`initialiseApp()`** — sizes the canvas, sets the inspector width, centres the pan, applies the default Warm Light theme (switch to Dark or Blueprint in the View tab), syncs the panels, then `loadDefaultConfig()` to load the built-in Basic Network. Finishes with `syncPanel()` + `render()`. No network request.
 

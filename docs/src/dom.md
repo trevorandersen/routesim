@@ -8,7 +8,7 @@ A thin module that resolves and caches every `getElementById` reference the app 
 
 ## How it fits
 
-Centralising element lookups keeps the rest of the codebase free of `document.getElementById` calls and gives a single typed surface for the DOM. UI modules (`ui.ts`, `canvas.ts`, `inspector.ts`, `terminal.ts`) read and write through `dom`.
+Centralising element lookups keeps the rest of the codebase free of `document.getElementById` calls and gives a single typed surface for the DOM. UI modules (`ui.ts`, `canvas.ts`, `inspector.ts`, `terminal/`) read and write through `dom`.
 
 ## Notes
 

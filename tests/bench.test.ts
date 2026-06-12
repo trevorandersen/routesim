@@ -12,7 +12,7 @@ import { state } from "../src/state";
 import { getDevice, linkedPortsFor, connectedIds } from "../src/devices";
 import { l2Reachable } from "../src/simulation";
 import { processAtSwitch, processAtRouter, processAtServer, buildRoutingTable, runRipConvergence, evaluateFirewall } from "../src/engine";
-import { createArpRequest, createArpReply, createIcmpEchoRequest, BROADCAST_MAC } from "../src/frame";
+import { createArpRequest, createArpReply, createIcmpEchoRequest, createIcmpEchoReply, createTcpSegment, createDnsResponse, createDhcpDiscover, packetColumns, BROADCAST_MAC } from "../src/frame";
 import { registerNoopCallbacks, resetState } from "./helpers";
 import { bench, printResults, type BenchResult } from "./bench-harness";
 import {
@@ -322,6 +322,34 @@ describe("bench: dns", () => {
     results.push(bench("processAtServer — DNS, 50 records", () => {
       processAtServer(srv, query, "pc");
     }, { budget: 100 }));
+    expect(results[results.length - 1].passed).toBe(true);
+  });
+
+  it("prints results", () => {
+    if (results.length) printResults(results);
+  });
+});
+
+// ── 3d. Packet-list column mapping ───────────────────────────────────────────
+
+describe("bench: packetColumns", () => {
+  const results: BenchResult[] = [];
+
+  it("packetColumns — mixed frame kinds", () => {
+    // One of each protocol family; the packet list calls this per visible row
+    // (up to 1000) on every sim-log sync during an animated run.
+    const frames = [
+      createArpRequest("02:00:01:00:0A:01", "192.168.1.10", "192.168.1.20"),
+      createIcmpEchoRequest("02:00:01:00:0A:01", "02:00:01:00:0B:01", "192.168.1.10", "192.168.1.20", 64),
+      createIcmpEchoReply("02:00:01:00:0B:01", "02:00:01:00:0A:01", "192.168.1.20", "192.168.1.10", 64),
+      createTcpSegment("02:00:01:00:0A:01", "02:00:01:00:0B:01", "192.168.1.10", "192.168.1.20", 30000, 80, "syn"),
+      createDnsResponse("02:00:01:00:0B:01", "02:00:01:00:0A:01", "192.168.1.53", "192.168.1.10", "web.corp", "192.168.1.80", 7),
+      createDhcpDiscover("02:00:01:00:0A:01", "bench-1"),
+    ];
+    let i = 0;
+    results.push(bench("packetColumns — mixed kinds", () => {
+      packetColumns(frames[i++ % 6]);
+    }, { budget: 5 }));
     expect(results[results.length - 1].passed).toBe(true);
   });
 

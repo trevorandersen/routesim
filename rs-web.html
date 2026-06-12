@@ -4,6 +4,8 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>RouteSim</title>
+  <!-- Embedded favicon (no request): the router icon on a rounded tile, router palette. -->
+  <link rel="icon" type="image/svg+xml" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24'%3E%3Crect x='0.75' y='0.75' width='22.5' height='22.5' rx='5.5' fill='%23fffaf1' stroke='%239a5b13' stroke-width='1.5'/%3E%3Cg fill='none' stroke='%2373420c' stroke-width='1.6' stroke-linecap='round' stroke-linejoin='round' transform='translate(12 12) scale(0.72) translate(-12 -12)'%3E%3Cpath d='M12 12m-9 0a9 9 0 1 0 18 0a9 9 0 1 0 -18 0'/%3E%3Cpath d='M6 12h5'/%3E%3Cpath d='M8 10l3 2l-3 2'/%3E%3Cpath d='M18 12h-5'/%3E%3Cpath d='M16 10l-3 2l3 2'/%3E%3Cpath d='M12 10v-5'/%3E%3Cpath d='M10 7l2 -2l2 2'/%3E%3Cpath d='M12 14v5'/%3E%3Cpath d='M10 17l2 2l2 -2'/%3E%3C/g%3E%3C/svg%3E">
   <style>
     :root {
       color-scheme: dark;
@@ -379,8 +381,9 @@
     }
     .coord-readout:empty { display: none; }
 
-    .terminal-panel,
-    .console-panel {
+    /* ─── Bottom dock: terminal sessions, console, sim log ── */
+
+    .dock {
       position: fixed;
       left: 0;
       right: 0;
@@ -388,43 +391,172 @@
       z-index: 8;
       height: min(var(--terminal-height), calc(100vh - 80px));
       display: grid;
-      grid-template-rows: 42px minmax(0, 1fr) 44px;
+      grid-template-rows: 38px minmax(0, 1fr);
       border-top: 1px solid var(--line);
       background: #0a0f14;
       box-shadow: 0 -18px 36px rgba(0, 0, 0, 0.28);
     }
 
-    body:not(.inspector-closed) .terminal-panel,
-    body:not(.inspector-closed) .console-panel {
+    body:not(.inspector-closed) .dock {
       right: var(--inspector-width);
     }
 
-    body.terminal-closed .terminal-panel {
+    body.dock-closed .dock {
       display: none;
     }
 
-    body.console-closed .console-panel {
-      display: none;
+    .dock-resize {
+      position: absolute;
+      top: -4px;
+      left: 0;
+      right: 0;
+      height: 8px;
+      padding: 0;
+      border: 0;
+      background: transparent;
+      cursor: ns-resize;
+      z-index: 9;
     }
 
-    .terminal-titlebar {
+    .dock-resize:hover,
+    body.resizing-dock .dock-resize {
+      background: color-mix(in srgb, var(--accent) 35%, transparent);
+    }
+
+    body.resizing-dock {
+      cursor: ns-resize;
+      user-select: none;
+    }
+
+    .dock-tabbar {
       display: flex;
-      align-items: center;
+      align-items: stretch;
       justify-content: space-between;
-      gap: 12px;
-      padding: 0 12px 0 16px;
-      color: var(--text);
+      gap: 8px;
+      padding: 0 8px 0 10px;
       background: var(--panel);
       border-bottom: 1px solid var(--line);
-      font-size: 13px;
-      font-weight: 800;
     }
 
-    .terminal-titlebar span {
+    .dock-tabbar .panel-toggle {
+      align-self: center;
+    }
+
+    .dock-tabs {
+      display: flex;
+      align-items: stretch;
+      gap: 2px;
       min-width: 0;
-      overflow: hidden;
-      text-overflow: ellipsis;
+      overflow-x: auto;
+      scrollbar-width: thin;
+    }
+
+    .dock-tab {
+      appearance: none;
+      display: flex;
+      align-items: center;
+      gap: 7px;
+      padding: 0 12px;
+      border: 0;
+      border-bottom: 2px solid transparent;
+      background: transparent;
+      color: var(--muted);
+      font-size: 12px;
+      font-weight: 700;
       white-space: nowrap;
+      cursor: pointer;
+    }
+
+    .dock-tab:hover {
+      color: var(--text);
+    }
+
+    .dock-tab.active {
+      color: var(--accent);
+      border-bottom-color: var(--accent);
+    }
+
+    .dock-tab-close {
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      width: 16px;
+      height: 16px;
+      border-radius: 4px;
+      font-size: 13px;
+      line-height: 1;
+      color: var(--muted);
+    }
+
+    .dock-tab-close:hover {
+      color: var(--danger);
+      background: color-mix(in srgb, var(--danger) 16%, transparent);
+    }
+
+    .dock-badge {
+      min-width: 16px;
+      padding: 1px 5px;
+      border-radius: 999px;
+      background: var(--accent-soft);
+      color: var(--accent);
+      font-size: 10px;
+      font-weight: 800;
+      text-align: center;
+    }
+
+    .dock-badge:empty {
+      display: none;
+    }
+
+    .dock-body {
+      display: grid;
+      min-height: 0;
+    }
+
+    .dock-pane {
+      display: none;
+      grid-area: 1 / 1;
+      min-height: 0;
+      grid-template-rows: minmax(0, 1fr) 44px;
+    }
+
+    .dock-pane.active {
+      display: grid;
+    }
+
+    .dock-pane-log {
+      grid-template-rows: 32px minmax(0, 1fr);
+    }
+
+    .simlog-toolbar {
+      display: flex;
+      align-items: center;
+      gap: 4px;
+      padding: 0 10px;
+      background: #0d141b;
+      border-bottom: 1px solid rgba(214, 224, 235, 0.12);
+    }
+
+    .simlog-view {
+      appearance: none;
+      padding: 3px 10px;
+      border: 1px solid transparent;
+      border-radius: 6px;
+      background: transparent;
+      color: #95a4b3;
+      font-size: 11px;
+      font-weight: 700;
+      cursor: pointer;
+    }
+
+    .simlog-view:hover {
+      color: #d6e3ef;
+    }
+
+    .simlog-view.active {
+      color: #e6edf3;
+      background: rgba(214, 224, 235, 0.10);
+      border-color: rgba(214, 224, 235, 0.18);
     }
 
     .terminal-output {
@@ -647,6 +779,17 @@
       font-size: 12px;
       color: var(--muted);
       font-weight: 700;
+    }
+
+    /* Derived read-only detail under a field (e.g. the subnet for an IP/prefix). */
+    .field-note {
+      margin: 0;
+      font-size: 11px;
+      color: var(--muted);
+    }
+
+    .field-note:empty {
+      display: none;
     }
 
     .field input {
@@ -1096,8 +1239,8 @@
         display: none;
       }
 
-      .terminal-panel,
-      body:not(.inspector-closed) .terminal-panel {
+      .dock,
+      body:not(.inspector-closed) .dock {
         right: 0;
       }
     }
@@ -1111,7 +1254,7 @@
         width: min(var(--inspector-width), 100vw);
       }
 
-      .terminal-panel {
+      .dock {
         left: 0;
       }
 
@@ -1245,58 +1388,12 @@
     .terminal-line.sim-nat   { color: #2dd4bf; }
     .terminal-line.sim-dns   { color: #22d3ee; }
 
-    /* ─── Simulation log panel ────────────────────────────── */
-
-    .sim-log-panel {
-      display: none;
-      position: fixed;
-      top: 56px;
-      right: 0;
-      z-index: 9;
-      width: 380px;
-      max-height: calc(100vh - 120px);
-      flex-direction: column;
-      border: 1px solid var(--line);
-      border-radius: 10px 0 0 10px;
-      background: #0a0f14;
-      box-shadow: var(--shadow);
-      overflow: hidden;
-    }
-
-    .sim-log-panel.active {
-      display: flex;
-    }
-
-    body:not(.inspector-closed) .sim-log-panel {
-      right: var(--inspector-width);
-    }
-
-    .sim-log-titlebar {
-      display: flex;
-      align-items: center;
-      justify-content: space-between;
-      gap: 12px;
-      padding: 0 10px 0 14px;
-      min-height: 36px;
-      color: var(--text);
-      background: var(--panel);
-      border-bottom: 1px solid var(--line);
-      font-size: 12px;
-      font-weight: 800;
-    }
-
-    .sim-log-titlebar span {
-      min-width: 0;
-      overflow: hidden;
-      text-overflow: ellipsis;
-      white-space: nowrap;
-    }
+    /* ─── Simulation log (a dock pane) ────────────────────── */
 
     .sim-log-output {
-      min-height: 60px;
-      max-height: 400px;
+      min-height: 0;
       overflow: auto;
-      padding: 10px 14px;
+      padding: 10px 16px;
       color: #d6e3ef;
       font: 11px/1.5 ui-monospace, SFMono-Regular, Menlo, Consolas, "Liberation Mono", monospace;
     }
@@ -1317,11 +1414,71 @@
     .sim-log-line.sim-drop    { color: #f87171; }
     .sim-log-line.sim-dhcp    { color: #a78bfa; }
 
-    @media (max-width: 820px) {
-      .sim-log-panel {
-        width: min(340px, calc(100vw - 80px));
-      }
+    /* ─── Packet list (Wireshark-style) ───────────────────── */
+
+    .pkt-table {
+      width: 100%;
+      border-collapse: collapse;
+      font: 11px/1.5 ui-monospace, SFMono-Regular, Menlo, Consolas, "Liberation Mono", monospace;
+      color: #d6e3ef;
     }
+
+    .pkt-table th {
+      position: sticky;
+      top: -10px;             /* cancels the pane padding so the header pins */
+      z-index: 1;
+      padding: 4px 10px 4px 0;
+      background: #0d141b;
+      color: #95a4b3;
+      font-size: 10px;
+      font-weight: 800;
+      text-align: left;
+      text-transform: uppercase;
+      letter-spacing: 0.04em;
+      border-bottom: 1px solid rgba(214, 224, 235, 0.18);
+      white-space: nowrap;
+    }
+
+    .pkt-row td {
+      padding: 1px 10px 1px 0;
+      white-space: nowrap;
+      cursor: pointer;
+    }
+
+    .pkt-row td.pkt-info {
+      white-space: normal;
+      word-break: break-word;
+      min-width: 220px;
+    }
+
+    .pkt-num {
+      color: #95a4b3;
+      text-align: right;
+    }
+
+    .pkt-link {
+      color: #95a4b3;
+    }
+
+    .pkt-row:hover td {
+      background: rgba(214, 224, 235, 0.07);
+    }
+
+    .pkt-row.selected td {
+      background: rgba(20, 116, 111, 0.35);
+      box-shadow: inset 0 1px rgba(125, 211, 252, 0.35), inset 0 -1px rgba(125, 211, 252, 0.35);
+    }
+
+    /* Row tones follow the app's protocol colours (text on dark). */
+    .pkt-arp        td { color: #fbbf24; }
+    .pkt-icmp       td { color: #7dd3fc; }
+    .pkt-icmp-reply td { color: #34d399; }
+    .pkt-tcp        td { color: #fb923c; }
+    .pkt-dns        td { color: #22d3ee; }
+    .pkt-dhcp       td { color: #a78bfa; }
+    .pkt-bad        td { color: #f87171; }
+    .pkt-row td.pkt-num,
+    .pkt-row td.pkt-link { color: #95a4b3; }
 
     /* ─── Link frame history ──────────────────────────────── */
 
@@ -1538,7 +1695,7 @@
 
   </style>
 </head>
-<body class="inspector-closed terminal-closed console-closed">
+<body class="inspector-closed dock-closed">
   <header class="ribbon" id="ribbon">
     <div class="ribbon-tabs">
       <button class="ribbon-tab active" data-tab="file" type="button">File</button>
@@ -1672,42 +1829,37 @@
     </section>
   </main>
 
-  <section class="sim-log-panel" id="simLogPanel" aria-label="Simulation log">
-    <div class="sim-log-titlebar">
-      <span id="simLogTitle">Simulation Log</span>
-      <button class="panel-toggle" id="simLogCloseButton" type="button" title="Close log" aria-label="Close simulation log">
+  <section class="dock" id="dock" aria-label="Terminals, console, and simulation log">
+    <button class="dock-resize" id="dockResizeHandle" type="button" title="Resize panel" aria-label="Resize bottom panel"></button>
+    <div class="dock-tabbar">
+      <div class="dock-tabs" id="dockTabs"></div>
+      <button class="panel-toggle" id="dockClose" type="button" title="Close panel" aria-label="Close bottom panel">
         <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M18 6 6 18"></path><path d="m6 6 12 12"></path></svg>
       </button>
     </div>
-    <div class="sim-log-output" id="simLogOutput" aria-live="polite"></div>
-  </section>
-
-  <section class="terminal-panel" id="terminalPanel" aria-label="Device terminal">
-    <div class="terminal-titlebar">
-      <span id="terminalTitle">PC terminal</span>
-      <button class="panel-toggle" id="terminalCloseButton" type="button" title="Close terminal" aria-label="Close terminal">
-        <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M18 6 6 18"></path><path d="m6 6 12 12"></path></svg>
-      </button>
+    <div class="dock-body">
+      <div class="dock-pane" id="terminalPane" aria-label="Device terminal">
+        <div class="terminal-output" id="terminalOutput" aria-live="polite"></div>
+        <form class="terminal-input-row" id="terminalForm" autocomplete="off">
+          <span id="terminalPrompt">pc$</span>
+          <input id="terminalInput" spellcheck="false" placeholder="help">
+        </form>
+      </div>
+      <div class="dock-pane" id="consolePane" aria-label="Command console">
+        <div class="terminal-output" id="consoleOutput" aria-live="polite"></div>
+        <form class="terminal-input-row" id="consoleForm" autocomplete="off">
+          <span id="consolePrompt">routesim&gt;</span>
+          <input id="consoleInput" spellcheck="false" placeholder="help">
+        </form>
+      </div>
+      <div class="dock-pane dock-pane-log" id="simLogPane" aria-label="Simulation log">
+        <div class="simlog-toolbar">
+          <button class="simlog-view active" data-logview="packets" type="button">Packets</button>
+          <button class="simlog-view" data-logview="events" type="button">Events</button>
+        </div>
+        <div class="sim-log-output" id="simLogOutput" aria-live="polite"></div>
+      </div>
     </div>
-    <div class="terminal-output" id="terminalOutput" aria-live="polite"></div>
-    <form class="terminal-input-row" id="terminalForm" autocomplete="off">
-      <span id="terminalPrompt">pc$</span>
-      <input id="terminalInput" spellcheck="false" placeholder="help">
-    </form>
-  </section>
-
-  <section class="console-panel" id="consolePanel" aria-label="Command console">
-    <div class="terminal-titlebar">
-      <span>Command console</span>
-      <button class="panel-toggle" id="consoleCloseButton" type="button" title="Close console" aria-label="Close console">
-        <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M18 6 6 18"></path><path d="m6 6 12 12"></path></svg>
-      </button>
-    </div>
-    <div class="terminal-output" id="consoleOutput" aria-live="polite"></div>
-    <form class="terminal-input-row" id="consoleForm" autocomplete="off">
-      <span id="consolePrompt">routesim&gt;</span>
-      <input id="consoleInput" spellcheck="false" placeholder="help">
-    </form>
   </section>
 
   <aside class="inspector" id="networkInspector" aria-label="Inspector">
@@ -2265,6 +2417,7 @@ Full legal text: https://creativecommons.org/publicdomain/zero/1.0/legalcode</pr
         id: crypto.randomUUID ? crypto.randomUUID() : `${Date.now()}-${Math.random()}`,
         from,
         to,
+        ...link.name ? { name: String(link.name).trim() } : {},
         ...link.fromPort != null ? { fromPort: Number(link.fromPort) } : {},
         ...link.toPort != null ? { toPort: Number(link.toPort) } : {},
         hidden: Boolean(link.hidden),
@@ -2332,7 +2485,6 @@ Full legal text: https://creativecommons.org/publicdomain/zero/1.0/legalcode</pr
     inspectorWidth: 320,
     inspectorResize: null,
     terminal: {
-      open: false,
       deviceId: null,
       mode: "exec",
       interfacePeerId: null,
@@ -2341,8 +2493,14 @@ Full legal text: https://creativecommons.org/publicdomain/zero/1.0/legalcode</pr
       history: [],
       historyIndex: -1
     },
-    console: {
+    terminalSessions: [],
+    dock: {
       open: false,
+      activeTab: "terminal",
+      height: 280,
+      logView: "packets"
+    },
+    console: {
       lines: [],
       history: [],
       historyIndex: -1
@@ -2366,6 +2524,7 @@ Full legal text: https://creativecommons.org/publicdomain/zero/1.0/legalcode</pr
       mode: "ping",
       events: [],
       log: [],
+      capture: [],
       transits: [],
       pendingArp: {},
       speed: 1e3,
@@ -2391,6 +2550,27 @@ Full legal text: https://creativecommons.org/publicdomain/zero/1.0/legalcode</pr
     },
     portSelection: null
   };
+  function freshTerminalSession(deviceId = null) {
+    return {
+      deviceId,
+      mode: "exec",
+      interfacePeerId: null,
+      interfaceVlanTag: null,
+      lines: [],
+      history: [],
+      historyIndex: -1
+    };
+  }
+  function dropTerminalSessions(deviceIds = null) {
+    const doomed = deviceIds === null ? new Set(state.terminalSessions.map((s) => s.deviceId)) : new Set(deviceIds);
+    state.terminalSessions = state.terminalSessions.filter((s) => !doomed.has(s.deviceId));
+    if (doomed.has(state.terminal.deviceId)) {
+      state.terminal = state.terminalSessions[state.terminalSessions.length - 1] ?? freshTerminalSession();
+      if (state.terminalSessions.length === 0 && state.dock.activeTab === "terminal") {
+        state.dock.open = false;
+      }
+    }
+  }
   var toolCopy = {
     select: ["Select and move devices", "Drag devices to arrange the network."],
     computer: ["Add computer", "Click the canvas to place a computer."],
@@ -2708,12 +2888,15 @@ Full legal text: https://creativecommons.org/publicdomain/zero/1.0/legalcode</pr
       state.simulation.status = "idle";
       state.simulation.events = [];
       state.simulation.log = [];
+      state.simulation.capture = [];
       state.simulation.transits = [];
       state.simulation.pendingArp = {};
       const termInput = document.getElementById("terminalInput");
       if (termInput) termInput.disabled = false;
-      const logPanel = document.getElementById("simLogPanel");
-      if (logPanel) logPanel.classList.remove("active");
+      const logOutput = document.getElementById("simLogOutput");
+      if (logOutput) logOutput.innerHTML = "";
+      const badge = document.getElementById("simLogBadge");
+      if (badge) badge.textContent = "";
     }
     const snapshot = state.undoStack.pop();
     if (!snapshot) return;
@@ -2765,16 +2948,18 @@ Full legal text: https://creativecommons.org/publicdomain/zero/1.0/legalcode</pr
     zoomLevel: document.getElementById("zoomLevel"),
     undoButton: document.getElementById("undoButton"),
     terminalOpenButton: document.getElementById("terminalOpenButton"),
-    terminalCloseButton: document.getElementById("terminalCloseButton"),
-    terminalPanel: document.getElementById("terminalPanel"),
-    terminalTitle: document.getElementById("terminalTitle"),
+    dock: document.getElementById("dock"),
+    dockTabs: document.getElementById("dockTabs"),
+    dockClose: document.getElementById("dockClose"),
+    dockResizeHandle: document.getElementById("dockResizeHandle"),
+    terminalPane: document.getElementById("terminalPane"),
+    consolePane: document.getElementById("consolePane"),
+    simLogPane: document.getElementById("simLogPane"),
     terminalOutput: document.getElementById("terminalOutput"),
     terminalForm: document.getElementById("terminalForm"),
     terminalPrompt: document.getElementById("terminalPrompt"),
     terminalInput: document.getElementById("terminalInput"),
     consoleButton: document.getElementById("consoleButton"),
-    consoleCloseButton: document.getElementById("consoleCloseButton"),
-    consolePanel: document.getElementById("consolePanel"),
     consoleOutput: document.getElementById("consoleOutput"),
     consoleForm: document.getElementById("consoleForm"),
     consoleInput: document.getElementById("consoleInput"),
@@ -2793,10 +2978,7 @@ Full legal text: https://creativecommons.org/publicdomain/zero/1.0/legalcode</pr
     simStep: document.getElementById("simStep"),
     simStop: document.getElementById("simStop"),
     simSpeed: document.getElementById("simSpeed"),
-    simLogPanel: document.getElementById("simLogPanel"),
     simLogOutput: document.getElementById("simLogOutput"),
-    simLogTitle: document.getElementById("simLogTitle"),
-    simLogCloseButton: document.getElementById("simLogCloseButton"),
     portSelectionOverlay: document.getElementById("portSelectionOverlay"),
     portSelectionBody: document.getElementById("portSelectionBody"),
     portSelectionConfirm: document.getElementById("portSelectionConfirm"),
@@ -2843,6 +3025,7 @@ Full legal text: https://creativecommons.org/publicdomain/zero/1.0/legalcode</pr
         fromPort: resolvedFromPort,
         toPort: resolvedToPort
       });
+      if (_linkUp) _linkUp(fromId, toId);
     }
     state.linkStartId = null;
     sync().syncPanel();
@@ -2875,14 +3058,7 @@ Full legal text: https://creativecommons.org/publicdomain/zero/1.0/legalcode</pr
     state.selectedId = null;
     state.configuringId = null;
     state.linkStartId = null;
-    if (state.terminal.deviceId === id) {
-      state.terminal.open = false;
-      state.terminal.deviceId = null;
-      state.terminal.mode = "exec";
-      state.terminal.interfacePeerId = null;
-      state.terminal.interfaceVlanTag = null;
-      state.terminal.lines = [];
-    }
+    if (id) dropTerminalSessions([id]);
     sync().syncPanel();
     sync().syncTerminal();
     sync().render();
@@ -2895,11 +3071,7 @@ Full legal text: https://creativecommons.org/publicdomain/zero/1.0/legalcode</pr
     state.configuringId = null;
     state.linkStartId = null;
     state.panDrag = null;
-    state.terminal.open = false;
-    state.terminal.deviceId = null;
-    state.terminal.mode = "exec";
-    state.terminal.interfacePeerId = null;
-    state.terminal.lines = [];
+    dropTerminalSessions();
     state.nameCounters = freshNameCounters();
     sync().syncPanel();
     sync().syncTerminal();
@@ -2975,6 +3147,10 @@ Full legal text: https://creativecommons.org/publicdomain/zero/1.0/legalcode</pr
   }
   function getDevice(id) {
     return id == null ? void 0 : deviceIndex().get(id);
+  }
+  function linkName(link) {
+    if (link.name) return link.name;
+    return `${getDevice(link.from)?.name ?? link.from} \u2194 ${getDevice(link.to)?.name ?? link.to}`;
   }
   function isVisibleDevice(device) {
     return !!device && !device.hidden;
@@ -3382,9 +3558,11 @@ Full legal text: https://creativecommons.org/publicdomain/zero/1.0/legalcode</pr
   }
   var _setTool = null;
   var _setNetworkPanel = null;
+  var _linkUp = null;
   function registerDeviceCallbacks(cbs) {
     _setTool = cbs.setTool;
     _setNetworkPanel = cbs.setNetworkPanel;
+    _linkUp = cbs.linkUp ?? null;
   }
   function configureDevice(device) {
     if (!device) return;
@@ -3506,6 +3684,35 @@ Full legal text: https://creativecommons.org/publicdomain/zero/1.0/legalcode</pr
     const dhcp = { type: "dhcp", messageType: "ack", transactionId, clientMac, assignedIp, prefixLength, gatewayIp, serverIp, ...dnsServerIp ? { dnsServerIp } : {} };
     const ipv4 = { type: "ipv4", srcIp: serverIp, dstIp: "255.255.255.255", ttl: 64, protocol: 17, payload: dhcp };
     return { id: nextFrameId(), srcMac: serverMac, dstMac: BROADCAST_MAC, etherType: 2048, vlanTag, payload: ipv4 };
+  }
+  function packetColumns(frame) {
+    if (frame.payload.type === "arp") {
+      const arp = frame.payload;
+      return arp.operation === "request" ? { src: frame.srcMac, dst: "Broadcast", protocol: "ARP", info: `Who has ${arp.targetIp}? Tell ${arp.senderIp}`, tone: "arp" } : { src: frame.srcMac, dst: frame.dstMac, protocol: "ARP", info: `${arp.senderIp} is at ${arp.senderMac}`, tone: "arp" };
+    }
+    const ipv4 = frame.payload;
+    const src = ipv4.srcIp;
+    const dst = ipv4.dstIp;
+    const p = ipv4.payload;
+    if (p.type === "icmp") {
+      if (p.icmpType === 8) return { src, dst, protocol: "ICMP", info: `Echo (ping) request  seq=${p.sequence}, ttl=${ipv4.ttl}`, tone: "icmp" };
+      if (p.icmpType === 0) return { src, dst, protocol: "ICMP", info: `Echo (ping) reply  seq=${p.sequence}, ttl=${ipv4.ttl}`, tone: "icmp-reply" };
+      return { src, dst, protocol: "ICMP", info: "Time-to-live exceeded (Time to live exceeded in transit)", tone: "bad" };
+    }
+    if (p.type === "tcp") {
+      const flags = { "syn": "[SYN]", "syn-ack": "[SYN, ACK]", "ack": "[ACK]", "rst": "[RST]" };
+      return { src, dst, protocol: "TCP", info: `${p.srcPort} \u2192 ${p.dstPort} ${flags[p.flags] || ""} Len=0`, tone: p.flags === "rst" ? "bad" : "tcp" };
+    }
+    if (p.type === "dns") {
+      const id = `0x${p.id.toString(16).padStart(4, "0")}`;
+      if (p.op === "query") return { src, dst, protocol: "DNS", info: `Standard query ${id} A ${p.name}`, tone: "dns" };
+      return p.address ? { src, dst, protocol: "DNS", info: `Standard query response ${id} A ${p.name} A ${p.address}`, tone: "dns" } : { src, dst, protocol: "DNS", info: `Standard query response ${id} No such name A ${p.name}`, tone: "bad" };
+    }
+    if (p.type === "dhcp") {
+      const names = { discover: "DHCP Discover", offer: "DHCP Offer", request: "DHCP Request", ack: "DHCP ACK" };
+      return { src, dst, protocol: "DHCP", info: `${names[p.messageType] || "DHCP"} - Transaction ID ${p.transactionId.slice(-8)}`, tone: "dhcp" };
+    }
+    return { src, dst, protocol: "IPv4", info: "", tone: "" };
   }
   function frameLabel(frame) {
     let label;
@@ -3977,7 +4184,7 @@ Full legal text: https://creativecommons.org/publicdomain/zero/1.0/legalcode</pr
     if (HOST_TYPES.has(device.type) && state.options.showIpAddresses && device.config?.ipv4Address) {
       ctx.fillStyle = cssColor("--label-ip");
       ctx.font = FONT_SECONDARY;
-      ctx.fillText(device.config.ipv4Address, device.x, labelY);
+      ctx.fillText(`${device.config.ipv4Address}/${prefixOf(device.config)}`, device.x, labelY);
       labelY += 15;
     }
     if (HOST_TYPES.has(device.type) && state.options.showMacAddresses && device.config?.macAddress) {
@@ -4023,7 +4230,7 @@ Full legal text: https://creativecommons.org/publicdomain/zero/1.0/legalcode</pr
         if (state.options.showIpAddresses && iface.config.ipv4Address) {
           ctx.fillStyle = cssColor("--label-ip");
           ctx.font = FONT_SECONDARY;
-          ctx.fillText(`${iface.name}: ${iface.config.ipv4Address}`, device.x, labelY);
+          ctx.fillText(`${iface.name}: ${iface.config.ipv4Address}/${prefixOf(iface.config)}`, device.x, labelY);
           labelY += 15;
         }
         if (state.options.showMacAddresses && iface.config.macAddress) {
@@ -4334,6 +4541,7 @@ Full legal text: https://creativecommons.org/publicdomain/zero/1.0/legalcode</pr
     sim.headless = false;
     sim.events = setup.events;
     sim.log = [];
+    sim.capture = [];
     sim.transits = [];
     sim.pendingArp = { ...setup.pendingArp };
     sim.stepIndex = 0;
@@ -4356,6 +4564,7 @@ Full legal text: https://creativecommons.org/publicdomain/zero/1.0/legalcode</pr
     const target = setup.dns ? setup.dns.name : targetIp;
     const label = mode === "dhcp" ? "Requesting DHCP lease..." : mode === "tcp" ? `Opening TCP connection to ${target}:${sim.tcpTargetPort ?? "?"}...` : mode === "dns" ? `Resolving ${target}...` : `Simulating ping to ${target}...`;
     state.terminal.lines.push({ kind: "sim", text: label });
+    if (!state.dock.open) openDock("simlog");
     syncTerminal();
     syncSimLog();
     startAnimationLoop();
@@ -4367,6 +4576,7 @@ Full legal text: https://creativecommons.org/publicdomain/zero/1.0/legalcode</pr
     sim.status = "idle";
     sim.events = [];
     sim.log = [];
+    sim.capture = [];
     sim.transits = [];
     sim.pendingArp = {};
     stopAnimationLoop();
@@ -4447,6 +4657,22 @@ Full legal text: https://creativecommons.org/publicdomain/zero/1.0/legalcode</pr
       steps: sim.stepIndex
     };
   }
+  function autoBootLinkedHosts(aId, bId) {
+    bootHostAutoconf(getDevice(aId));
+    bootHostAutoconf(getDevice(bId));
+  }
+  function bootHostAutoconf(device) {
+    const sim = state.simulation;
+    if (sim.status === "running" || sim.status === "paused") return;
+    if (!device || device.type !== "computer" && device.type !== "server") return;
+    if (device.poweredOff || device.config?.ipv4Address) return;
+    const setup = buildDhcpEvents(device);
+    if (typeof setup === "string") return;
+    const result = runSimulationHeadless(setup, device.id, "", "dhcp");
+    dom.hint.textContent = result.success ? `${device.name} booted: obtained ${result.assignedIp} via DHCP.` : `${device.name} booted: self-assigned ${device.config?.ipv4Address}/16 (APIPA \u2014 no DHCP server answered).`;
+    sync().syncPanel();
+    sync().render();
+  }
   function runTraceroute(source, targetText, maxHops = 30) {
     const target = findPingTarget(targetText);
     let targetIp = target ? target.config?.ipv4Address || targetText : targetText.trim();
@@ -4510,6 +4736,17 @@ Full legal text: https://creativecommons.org/publicdomain/zero/1.0/legalcode</pr
     const completed = sim.transits.filter((t) => t.progress >= 1);
     sim.transits = sim.transits.filter((t) => t.progress < 1);
     for (const t of completed) {
+      if (!sim.headless) {
+        sim.capture.push({
+          no: sim.capture.length + 1,
+          step: sim.stepIndex,
+          frame: t.frame,
+          fromDeviceId: t.fromDeviceId,
+          toDeviceId: t.toDeviceId,
+          linkId: t.linkId
+        });
+        if (sim.capture.length > 1e3) sim.capture.shift();
+      }
       const link = state.links.find((l) => l.id === t.linkId);
       if (link) {
         if (!link.frameHistory) link.frameHistory = [];
@@ -5353,13 +5590,47 @@ Full legal text: https://creativecommons.org/publicdomain/zero/1.0/legalcode</pr
   }
   function syncSimLog() {
     const sim = state.simulation;
-    const active = sim.status !== "idle" && sim.log.length > 0;
-    dom.simLogPanel.classList.toggle("active", active);
-    if (!active) return;
-    dom.simLogOutput.innerHTML = sim.log.map(
+    syncSimLogBadge();
+    for (const btn of document.querySelectorAll("[data-logview]")) {
+      btn.classList.toggle("active", btn.dataset.logview === state.dock.logView);
+    }
+    dom.simLogOutput.innerHTML = state.dock.logView === "packets" ? renderPacketList() : renderEventLog();
+    dom.simLogOutput.scrollTop = dom.simLogOutput.scrollHeight;
+  }
+  function renderEventLog() {
+    const sim = state.simulation;
+    if (sim.log.length === 0) {
+      return `<p class="sim-log-line sim-learn">No simulation running \u2014 start a ping, connect, or DHCP run to capture frames.</p>`;
+    }
+    return sim.log.map(
       (entry) => `<p class="sim-log-line ${escapeHtml(entry.kind || "")}">${escapeHtml(entry.summary)}</p>`
     ).join("");
-    dom.simLogOutput.scrollTop = dom.simLogOutput.scrollHeight;
+  }
+  function renderPacketList() {
+    const sim = state.simulation;
+    if (sim.capture.length === 0) {
+      return `<p class="sim-log-line sim-learn">No packets captured \u2014 run a simulation (headless checks don't capture). The Events view holds imported logs.</p>`;
+    }
+    const linkById = new Map(state.links.map((l) => [l.id, l]));
+    const rows = sim.capture.map((entry) => {
+      const cols = packetColumns(entry.frame);
+      const link = linkById.get(entry.linkId);
+      const wire = link ? linkName(link) : `${getDevice(entry.fromDeviceId)?.name ?? "?"} \u2194 ${getDevice(entry.toDeviceId)?.name ?? "?"}`;
+      const selected = state.inspectedFrame === entry.frame ? " selected" : "";
+      return `<tr class="pkt-row pkt-${escapeHtml(cols.tone)}${selected}" data-no="${entry.no}">
+      <td class="pkt-num">${entry.no}</td>
+      <td class="pkt-num">${entry.step}</td>
+      <td>${escapeHtml(cols.src)}</td>
+      <td>${escapeHtml(cols.dst)}</td>
+      <td>${escapeHtml(cols.protocol)}</td>
+      <td class="pkt-info">${escapeHtml(cols.info)}</td>
+      <td class="pkt-link">${escapeHtml(wire)}</td>
+    </tr>`;
+    }).join("");
+    return `<table class="pkt-table">
+    <thead><tr><th>No.</th><th>Step</th><th>Source</th><th>Destination</th><th>Protocol</th><th>Info</th><th>Link</th></tr></thead>
+    <tbody>${rows}</tbody>
+  </table>`;
   }
   function findLinkBetween(a, b) {
     return state.links.find(
@@ -5368,9 +5639,11 @@ Full legal text: https://creativecommons.org/publicdomain/zero/1.0/legalcode</pr
   }
   function finishSimulation() {
     const sim = state.simulation;
+    const originSession = sessionFor(sim.originDeviceId);
+    const out = (kind, text) => originSession ? terminalLineFor(originSession, kind, text) : terminalLine(kind, text);
     if (sim.mode === "dhcp") {
       if (sim.dhcpSuccess) {
-        if (!sim.headless) terminalLine("", `DHCP configured:
+        if (!sim.headless) out("", `DHCP configured:
   IP address: ${sim.dhcpAssignedIp}
   Default gateway: ${sim.dhcpAssignedGateway}`);
       } else {
@@ -5378,10 +5651,11 @@ Full legal text: https://creativecommons.org/publicdomain/zero/1.0/legalcode</pr
         const origin = getDevice(sim.originDeviceId);
         if (origin?.config) {
           origin.config.ipv4Address = apipaIp;
+          origin.config.prefixLength = 16;
           origin.config.gatewayIpv4Address = "";
         }
         sim.dhcpAssignedIp = apipaIp;
-        if (!sim.headless) terminalLine("error", `DHCP: no response from server.
+        if (!sim.headless) out("error", `DHCP: no response from server.
 APIPA: assigned link-local ${apipaIp}`);
       }
     } else if (sim.mode === "dns") {
@@ -5389,15 +5663,15 @@ APIPA: assigned link-local ${apipaIp}`);
         const origin = getDevice(sim.originDeviceId);
         const server = origin?.config?.dnsServerIp || "?";
         if (sim.dnsResolvedIp) {
-          terminalLine("", `Server:		${server}
+          out("", `Server:		${server}
 Address:	${server}#53
 
 Name:	${sim.dnsName}
 Address: ${sim.dnsResolvedIp}`);
         } else if (sim.log.some((e) => e.kind === "sim-drop" && e.action.includes("NXDOMAIN"))) {
-          terminalLine("error", `** server can't find ${sim.dnsName}: NXDOMAIN`);
+          out("error", `** server can't find ${sim.dnsName}: NXDOMAIN`);
         } else {
-          terminalLine("error", `;; connection timed out; no servers could be reached`);
+          out("error", `;; connection timed out; no servers could be reached`);
         }
       }
     } else if (sim.mode === "tcp") {
@@ -5405,31 +5679,31 @@ Address: ${sim.dnsResolvedIp}`);
         const target = sim.pingTargetIp || sim.dnsName || "?";
         const port = sim.tcpTargetPort ?? "?";
         if (sim.dnsName && !sim.dnsResolvedIp) {
-          terminalLine("error", `nc: getaddrinfo for host "${sim.dnsName}" port ${port}: Name or service not known`);
+          out("error", `nc: getaddrinfo for host "${sim.dnsName}" port ${port}: Name or service not known`);
         } else if (sim.tcpSuccess) {
-          terminalLine("", `Connection to ${target} ${port} port [tcp/*] succeeded!`);
+          out("", `Connection to ${target} ${port} port [tcp/*] succeeded!`);
         } else if (sim.tcpRefused) {
-          terminalLine("error", `nc: connect to ${target} port ${port} (tcp) failed: Connection refused`);
+          out("error", `nc: connect to ${target} port ${port} (tcp) failed: Connection refused`);
         } else {
-          terminalLine("error", `nc: connect to ${target} port ${port} (tcp) failed: Operation timed out`);
+          out("error", `nc: connect to ${target} port ${port} (tcp) failed: Operation timed out`);
         }
       }
     } else if (!sim.headless) {
       if (sim.dnsName && !sim.dnsResolvedIp) {
-        terminalLine("error", `ping: ${sim.dnsName}: Name or service not known`);
+        out("error", `ping: ${sim.dnsName}: Name or service not known`);
       } else {
         const targetIp = sim.pingTargetIp || "?";
         const name = sim.dnsName ? `${sim.dnsName} (${targetIp})` : targetIp;
         if (sim.pingSuccess) {
           const ttl = sim.pingTtl;
           const rtt = sim.stepIndex < 15 ? "1.0" : "2.0";
-          terminalLine("", `PING ${name}
+          out("", `PING ${name}
 64 bytes from ${targetIp}: icmp_seq=1 ttl=${ttl} time=${rtt} ms
 
 --- ${name} ping statistics ---
 1 packets transmitted, 1 received, 0% packet loss`);
         } else {
-          terminalLine("", `PING ${name}
+          out("", `PING ${name}
 
 --- ${name} ping statistics ---
 1 packets transmitted, 0 received, 100% packet loss`);
@@ -5957,12 +6231,12 @@ Address: ${sim.dnsResolvedIp}`);
     const interfaces = routerInterfacesWithNames(router);
     if (!interfaces.length) return "No interfaces configured.";
     return [
-      "Interface     IP-Address      Status  Protocol  VLAN  Connected to",
+      "Interface     IP-Address         Status  Protocol  VLAN  Connected to",
       ...interfaces.map((iface) => {
         const vlanDisplay = iface.config.vlanTag != null ? String(iface.config.vlanTag) : "-";
         return [
           iface.name.padEnd(14),
-          (iface.config.ipv4Address || "unassigned").padEnd(16),
+          (iface.config.ipv4Address ? `${iface.config.ipv4Address}/${prefixOf(iface.config)}` : "unassigned").padEnd(19),
           (iface.peer ? "up" : "down").padEnd(8),
           (iface.peer ? "up" : "down").padEnd(10),
           vlanDisplay.padEnd(6),
@@ -6259,7 +6533,7 @@ Address: ${sim.dnsResolvedIp}`);
       } else if (state.terminal.mode === "privileged") {
         state.terminal.mode = "exec";
       } else {
-        closeTerminal();
+        closeSession(state.terminal.deviceId);
       }
       return true;
     }
@@ -6922,9 +7196,133 @@ Address: ${sim.dnsResolvedIp}`);
   }
 
   // src/terminal/core.ts
+  function terminalLineFor(session, kind, text) {
+    session.lines.push({ kind, text });
+    if (session.lines.length > 120) session.lines.splice(0, session.lines.length - 120);
+  }
   function terminalLine(kind, text) {
-    state.terminal.lines.push({ kind, text });
-    if (state.terminal.lines.length > 120) state.terminal.lines.splice(0, state.terminal.lines.length - 120);
+    terminalLineFor(state.terminal, kind, text);
+  }
+  function sessionFor(deviceId) {
+    if (!deviceId) return void 0;
+    return state.terminalSessions.find((s) => s.deviceId === deviceId);
+  }
+  function ensureSession(device, greet = false) {
+    let session = sessionFor(device.id);
+    if (!session) {
+      session = freshTerminalSession(device.id);
+      if (greet) {
+        session.lines.push({
+          kind: "muted",
+          text: `Connected to ${device.name}. Type "${device.type === "switch" || device.type === "router" ? "?" : "help"}" for commands.`
+        });
+      }
+      state.terminalSessions.push(session);
+    }
+    return session;
+  }
+  function closeSession(deviceId) {
+    const idx = state.terminalSessions.findIndex((s) => s.deviceId === deviceId);
+    if (idx >= 0) state.terminalSessions.splice(idx, 1);
+    if (state.terminal.deviceId === deviceId) {
+      state.terminal = state.terminalSessions[Math.min(idx, state.terminalSessions.length - 1)] ?? freshTerminalSession();
+    }
+    if (state.terminalSessions.length === 0 && state.dock.activeTab === "terminal") {
+      state.dock.open = false;
+    }
+    syncTerminal();
+  }
+  function openDock(tab) {
+    state.dock.open = true;
+    state.dock.activeTab = tab;
+    syncDock();
+  }
+  function closeDock() {
+    state.dock.open = false;
+    syncDock();
+  }
+  function toggleDockTab(tab) {
+    if (state.dock.open && state.dock.activeTab === tab) closeDock();
+    else openDock(tab);
+  }
+  function setDockTab(tab) {
+    state.dock.activeTab = tab;
+    syncDock();
+    if (tab === "terminal" && !dom.terminalInput.disabled) dom.terminalInput.focus();
+    if (tab === "console" && !dom.consoleInput.disabled) dom.consoleInput.focus();
+  }
+  function syncDock() {
+    const dock = state.dock;
+    document.body.classList.toggle("dock-closed", !dock.open);
+    document.documentElement.style.setProperty("--terminal-height", `${dock.height}px`);
+    dom.terminalOpenButton.setAttribute("aria-expanded", String(dock.open && dock.activeTab === "terminal"));
+    dom.consoleButton.setAttribute("aria-expanded", String(dock.open && dock.activeTab === "console"));
+    const sessionTabs = state.terminalSessions.map((s) => {
+      const device = getDevice(s.deviceId);
+      const name = device ? device.name : "(removed)";
+      const active = dock.activeTab === "terminal" && s === state.terminal;
+      return `<button class="dock-tab ${active ? "active" : ""}" data-session="${escapeHtml(s.deviceId || "")}" type="button">
+      <span class="dock-tab-label">${escapeHtml(name)}</span><span class="dock-tab-close" data-close="${escapeHtml(s.deviceId || "")}" title="Close session">&times;</span>
+    </button>`;
+    });
+    if (state.terminalSessions.length === 0 && dock.activeTab === "terminal") {
+      sessionTabs.push(`<button class="dock-tab active" data-pane="terminal" type="button"><span class="dock-tab-label">Terminal</span></button>`);
+    }
+    dom.dockTabs.innerHTML = [
+      ...sessionTabs,
+      `<button class="dock-tab ${dock.activeTab === "console" ? "active" : ""}" data-pane="console" type="button"><span class="dock-tab-label">Console</span></button>`,
+      `<button class="dock-tab ${dock.activeTab === "simlog" ? "active" : ""}" data-pane="simlog" type="button"><span class="dock-tab-label">Sim Log</span><span class="dock-badge" id="simLogBadge"></span></button>`
+    ].join("");
+    dom.terminalPane.classList.toggle("active", dock.activeTab === "terminal");
+    dom.consolePane.classList.toggle("active", dock.activeTab === "console");
+    dom.simLogPane.classList.toggle("active", dock.activeTab === "simlog");
+    syncSimLogBadge();
+    requestAnimationFrame(() => sync().resizeCanvas());
+  }
+  function handleDockTabClick(event) {
+    const target = event.target;
+    const close = target.closest("[data-close]");
+    if (close) {
+      closeSession(close.dataset.close || null);
+      return;
+    }
+    const tab = target.closest("[data-session],[data-pane]");
+    if (!tab) return;
+    if (tab.dataset.session) {
+      const session = sessionFor(tab.dataset.session);
+      if (session) state.terminal = session;
+      setDockTab("terminal");
+      syncTerminal();
+      return;
+    }
+    setDockTab(tab.dataset.pane);
+  }
+  function syncSimLogBadge() {
+    const badge = document.getElementById("simLogBadge");
+    if (!badge) return;
+    const sim = state.simulation;
+    const count = sim.capture.length || sim.log.length;
+    badge.textContent = sim.status !== "idle" && count ? String(count) : "";
+  }
+  var dockResize = null;
+  function startDockResize(event) {
+    event.preventDefault();
+    dockResize = { startY: event.clientY, startHeight: state.dock.height };
+    document.body.classList.add("resizing-dock");
+  }
+  function moveDockResize(event) {
+    if (!dockResize) return;
+    state.dock.height = Math.min(
+      Math.round(window.innerHeight * 0.8),
+      Math.max(140, dockResize.startHeight + dockResize.startY - event.clientY)
+    );
+    document.documentElement.style.setProperty("--terminal-height", `${state.dock.height}px`);
+  }
+  function stopDockResize() {
+    if (!dockResize) return;
+    dockResize = null;
+    document.body.classList.remove("resizing-dock");
+    requestAnimationFrame(() => sync().resizeCanvas());
   }
   function terminalPromptText(device) {
     if (device.type === "computer") return `${device.name}$`;
@@ -6961,66 +7359,37 @@ Address: ${sim.dnsResolvedIp}`);
   }
   function openTerminalFor(device) {
     if (!device || !hasTerminal(device)) {
-      state.terminal.open = true;
-      state.terminal.deviceId = null;
-      state.terminal.mode = "exec";
-      state.terminal.interfacePeerId = null;
-      state.terminal.interfaceVlanTag = null;
-      state.terminal.lines = [{ kind: "error", text: "Select a PC, server, router, or managed switch to open its terminal." }];
+      state.terminal = withErrorLine("Select a PC, server, router, or managed switch to open its terminal.");
     } else if (device.poweredOff) {
-      state.terminal.open = true;
-      state.terminal.deviceId = null;
-      state.terminal.mode = "exec";
-      state.terminal.interfacePeerId = null;
-      state.terminal.interfaceVlanTag = null;
-      state.terminal.lines = [{ kind: "error", text: `${device.name} is powered off.` }];
+      state.terminal = withErrorLine(`${device.name} is powered off.`);
     } else if (device.type === "switch" && !device.config?.managed) {
-      state.terminal.open = true;
-      state.terminal.deviceId = null;
-      state.terminal.mode = "exec";
-      state.terminal.interfacePeerId = null;
-      state.terminal.interfaceVlanTag = null;
-      state.terminal.lines = [{ kind: "error", text: "This switch is unmanaged. Enable managed mode to use a switch terminal." }];
+      state.terminal = withErrorLine("This switch is unmanaged. Enable managed mode to use a switch terminal.");
     } else {
       state.selectedId = device.id;
-      state.terminal.open = true;
-      state.terminal.deviceId = device.id;
-      state.terminal.mode = "exec";
-      state.terminal.interfacePeerId = null;
-      state.terminal.interfaceVlanTag = null;
-      state.terminal.lines = [
-        { kind: "muted", text: `Connected to ${device.name}. Type "${device.type === "switch" || device.type === "router" ? "?" : "help"}" for commands.` }
-      ];
+      state.terminal = ensureSession(device, true);
     }
+    openDock("terminal");
     sync().syncPanel();
     syncTerminal();
     if (!dom.terminalInput.disabled) dom.terminalInput.focus();
   }
-  function closeTerminal() {
-    state.terminal.open = false;
-    syncTerminal();
+  function withErrorLine(text) {
+    const session = freshTerminalSession();
+    session.lines.push({ kind: "error", text });
+    return session;
   }
   function syncTerminal() {
-    const host = getDevice(state.terminal.deviceId);
-    if (!hasTerminal(host)) {
-      state.terminal.deviceId = null;
-      state.terminal.mode = "exec";
-      state.terminal.interfacePeerId = null;
-      state.terminal.interfaceVlanTag = null;
-      if (state.terminal.open) {
-        state.terminal.lines = [{ kind: "error", text: "Select a PC, server, router, or managed switch before opening the terminal." }];
-      }
+    if (state.terminal.deviceId && !hasTerminal(getDevice(state.terminal.deviceId))) {
+      closeSession(state.terminal.deviceId);
+      return;
     }
     const activeHost = getDevice(state.terminal.deviceId);
-    document.body.classList.toggle("terminal-closed", !state.terminal.open);
-    dom.terminalOpenButton.setAttribute("aria-expanded", String(state.terminal.open));
-    dom.terminalTitle.textContent = activeHost ? `${activeHost.name} terminal` : "Device terminal";
     dom.terminalPrompt.textContent = activeHost ? terminalPromptText(activeHost) : "device$";
     dom.terminalInput.disabled = !activeHost;
     dom.terminalInput.placeholder = activeHost ? activeHost.type === "router" ? "?" : "help" : "Select a device";
-    dom.terminalOutput.innerHTML = state.terminal.lines.map((line) => `<p class="terminal-line ${escapeHtml(line.kind || "")}">${escapeHtml(line.text)}</p>`).join("");
+    dom.terminalOutput.innerHTML = state.terminal.lines.length ? state.terminal.lines.map((line) => `<p class="terminal-line ${escapeHtml(line.kind || "")}">${escapeHtml(line.text)}</p>`).join("") : `<p class="terminal-line muted">No device terminal attached \u2014 select a device and open its terminal, or use the device list.</p>`;
     dom.terminalOutput.scrollTop = dom.terminalOutput.scrollHeight;
-    requestAnimationFrame(() => sync().resizeCanvas());
+    syncDock();
   }
   function submitTerminalCommand(event) {
     event.preventDefault();
@@ -7160,7 +7529,7 @@ Address: ${sim.dnsResolvedIp}`);
           <div class="interface-row">
             <span class="interface-name">${escapeHtml(iface.name)}</span>
             <span class="interface-peer ${iface.peer ? "" : "empty"}" title="${escapeHtml(iface.peer?.name || "Empty")}">${escapeHtml(iface.peer?.name || "Empty")}</span>
-            <input class="router-interface-ip" data-peer-id="${escapeHtml(iface.peerId)}"${vlanAttr} ${iface.peer ? "" : "disabled"} value="${escapeHtml(iface.config.ipv4Address || "")}" placeholder="192.168.1.1" autocomplete="off" inputmode="decimal">
+            <input class="router-interface-ip" data-peer-id="${escapeHtml(iface.peerId)}"${vlanAttr} ${iface.peer ? "" : "disabled"} value="${escapeHtml(iface.config.ipv4Address ? `${iface.config.ipv4Address}/${prefixOf(iface.config)}` : "")}" placeholder="192.168.1.1/24" title="${escapeHtml(iface.config.ipv4Address ? `Subnet: ${networkOf(iface.config.ipv4Address, prefixOf(iface.config))}` : "")}" autocomplete="off" inputmode="decimal">
           </div>
         `;
     }).join("")}
@@ -7387,8 +7756,16 @@ Address: ${sim.dnsResolvedIp}`);
     const fromDev = getDevice(link.from);
     const toDev = getDevice(link.to);
     const history = link.frameHistory || [];
+    const defaultName = `${fromDev?.name ?? link.from} \u2194 ${toDev?.name ?? link.to}`;
     dom.detailsPanel.innerHTML = `
     <h2>Link</h2>
+    <div class="field">
+      <label for="selectedLinkName">Name</label>
+      <div class="input-with-button">
+        <input id="selectedLinkName" value="${escapeHtml(link.name || "")}" placeholder="${escapeHtml(defaultName)}" autocomplete="off">
+        <button class="inline-button" id="clearLinkName" type="button" title="Revert to the default name">&times;</button>
+      </div>
+    </div>
     <div class="pill-row">
       <span class="pill">${escapeHtml(fromDev?.name || link.from)}</span>
       <span class="pill">${escapeHtml(toDev?.name || link.to)}</span>
@@ -7418,6 +7795,25 @@ Address: ${sim.dnsResolvedIp}`);
       link.frameHistory = [];
       syncPanel();
     });
+    const nameInput = document.getElementById("selectedLinkName");
+    if (nameInput) {
+      captureUndoOnFocus(nameInput);
+      nameInput.addEventListener("input", (event) => {
+        const value = event.target.value.trim();
+        if (value) link.name = value;
+        else delete link.name;
+        syncSimLog();
+      });
+    }
+    const clearNameBtn = document.getElementById("clearLinkName");
+    if (clearNameBtn && nameInput) {
+      clearNameBtn.addEventListener("click", () => {
+        pushUndo();
+        delete link.name;
+        nameInput.value = "";
+        syncSimLog();
+      });
+    }
   }
   function renderFramePanel(frame) {
     const rows = [
@@ -7462,7 +7858,7 @@ Address: ${sim.dnsResolvedIp}`);
     }
     dom.detailsPanel.innerHTML = `
     <h2>Frame</h2>
-    <p class="empty-state">Captured in flight \u2014 the simulation is paused. Click elsewhere or press Resume to continue.</p>
+    <p class="empty-state">Captured frame \u2014 a running simulation pauses while you inspect. Click elsewhere or press Close to dismiss.</p>
     <table class="data-table frame-detail">
       <tbody>
         ${rows.map(([k, v]) => `<tr><th>${escapeHtml(k)}</th><td>${escapeHtml(v)}</td></tr>`).join("")}
@@ -7475,6 +7871,7 @@ Address: ${sim.dnsResolvedIp}`);
       state.inspectedFrame = null;
       syncPanel();
       sync().render();
+      syncSimLog();
     });
   }
   function syncPanel() {
@@ -7508,11 +7905,12 @@ Address: ${sim.dnsResolvedIp}`);
       const isHost = selected.type === "computer" || selected.type === "server";
       const pcConfigFields = isHost ? `
       <div class="field">
-        <label for="selectedIpv4">IPv4 address</label>
+        <label for="selectedIpv4">IPv4 address / prefix</label>
         <div class="input-with-button">
-          <input id="selectedIpv4" value="${escapeHtml(selected.config?.ipv4Address || "")}" placeholder="192.168.1.10" autocomplete="off" inputmode="decimal">
+          <input id="selectedIpv4" value="${escapeHtml(selected.config?.ipv4Address ? `${selected.config.ipv4Address}/${prefixOf(selected.config)}` : "")}" placeholder="192.168.1.10/24" autocomplete="off" inputmode="decimal">
           <button class="inline-button" id="clearIpv4" type="button" title="Clear IPv4 address">&times;</button>
         </div>
+        <p class="field-note" id="hostSubnet">${selected.config?.ipv4Address ? `Subnet: ${escapeHtml(networkOf(selected.config.ipv4Address, prefixOf(selected.config)))}` : ""}</p>
       </div>
       <div class="field">
         <label for="selectedGateway">Default gateway</label>
@@ -7673,6 +8071,12 @@ Address: ${sim.dnsResolvedIp}`);
         sync().render();
       });
       const ipv4Input = document.getElementById("selectedIpv4");
+      const subnetNote = document.getElementById("hostSubnet");
+      const refreshSubnetNote = () => {
+        if (!subnetNote) return;
+        const c = selected.config || {};
+        subnetNote.textContent = c.ipv4Address ? `Subnet: ${networkOf(c.ipv4Address, prefixOf(c))}` : "";
+      };
       if (ipv4Input) {
         captureUndoOnFocus(ipv4Input);
         ipv4Input.addEventListener("input", (event) => {
@@ -7685,6 +8089,7 @@ Address: ${sim.dnsResolvedIp}`);
             selected.config = selected.config || {};
             selected.config.ipv4Address = parsed ? parsed.address : "";
             if (parsed?.prefixLength != null) selected.config.prefixLength = parsed.prefixLength;
+            refreshSubnetNote();
             sync().render();
           }
         });
@@ -7711,6 +8116,7 @@ Address: ${sim.dnsResolvedIp}`);
           selected.config.ipv4Address = "";
           ipv4Input.value = "";
           ipv4Input.setCustomValidity("");
+          refreshSubnetNote();
           sync().render();
         });
       }
@@ -7824,14 +8230,17 @@ Address: ${sim.dnsResolvedIp}`);
         input.addEventListener("input", (event) => {
           if (!event.target.dataset.peerId) return;
           const value = event.target.value.trim();
-          if (!isValidIpv4(value) && value !== "") {
-            event.target.setCustomValidity("Enter a valid IPv4 address.");
+          const parsed = value === "" ? null : parseIpv4Token(value);
+          if (value !== "" && !parsed) {
+            event.target.setCustomValidity("Enter a valid IPv4 address (optionally with /prefix).");
             return;
           }
           event.target.setCustomValidity("");
           const vlanTag = event.target.dataset.vlanTag != null ? Number(event.target.dataset.vlanTag) : void 0;
           const iface = routerInterfaceFor(selected, event.target.dataset.peerId, vlanTag);
-          iface.ipv4Address = value;
+          iface.ipv4Address = parsed ? parsed.address : "";
+          if (parsed?.prefixLength != null) iface.prefixLength = parsed.prefixLength;
+          event.target.title = iface.ipv4Address ? `Subnet: ${networkOf(iface.ipv4Address, prefixOf(iface))}` : "";
         });
       });
       const routerEthernetPorts = document.getElementById("selectedRouterEthernetPorts");
@@ -7862,6 +8271,7 @@ Address: ${sim.dnsResolvedIp}`);
       if (powerButton) powerButton.addEventListener("click", () => {
         pushUndo();
         selected.poweredOff = !selected.poweredOff;
+        if (!selected.poweredOff) bootHostAutoconf(selected);
         syncPanel();
         sync().render();
       });
@@ -7873,7 +8283,7 @@ Address: ${sim.dnsResolvedIp}`);
       if (deleteButton) deleteButton.addEventListener("click", deleteSelection);
     }
     syncDeviceList();
-    if (state.terminal.open) syncTerminal();
+    if (state.dock.open) syncTerminal();
   }
   function syncDeviceList() {
     if (!state.devices.length) {
@@ -8609,7 +9019,8 @@ Address: ${sim.dnsResolvedIp}`);
         return;
       }
       state.simulation.log = log;
-      dom.simLogPanel.classList.add("active");
+      state.dock.logView = "events";
+      openDock("simlog");
       syncSimLog();
       dom.hint.textContent = "Imported simulation log.";
     } catch {
@@ -8796,11 +9207,13 @@ Address: ${sim.dnsResolvedIp}`);
           if (!state.options.networkPanelOpen) setNetworkPanel(true);
           syncPanel();
           render();
+          syncSimLog();
           return;
         }
       }
       if (state.inspectedFrame) {
         state.inspectedFrame = null;
+        syncSimLog();
       }
       if (device) {
         state.selectedId = device.id;
@@ -8922,25 +9335,16 @@ Address: ${sim.dnsResolvedIp}`);
       },
       "export-log": exportLog,
       "panel-network": () => setNetworkPanel(!state.options.networkPanelOpen),
-      "panel-terminal": () => {
-        closeConsole();
-        openTerminalFor(getDevice(state.selectedId));
-      },
-      "panel-console": () => {
-        closeTerminal();
-        openConsole();
-      },
-      "panel-simlog": () => dom.simLogPanel.classList.toggle("active"),
+      "panel-terminal": () => openTerminalFor(getDevice(state.selectedId)),
+      "panel-console": () => openConsole(),
+      "panel-simlog": () => toggleDockTab("simlog"),
       "fit": fitNetwork,
       "scenario-check": runActiveScenarioCheck,
       "scenario-dismiss": dismissScenario,
       "help-shortcuts": () => {
         dom.hint.textContent = "Shortcuts: V select \xB7 C computer \xB7 E server \xB7 S switch \xB7 R router \xB7 F firewall \xB7 L connect \xB7 W configure \xB7 Del delete \xB7 Esc cancel \xB7 Ctrl/Cmd+Z undo \xB7 scroll to zoom.";
       },
-      "help-commands": () => {
-        closeTerminal();
-        openConsole();
-      },
+      "help-commands": () => openConsole(),
       "help-about": openAbout
     };
     document.addEventListener("click", (event) => {
@@ -8963,12 +9367,34 @@ Address: ${sim.dnsResolvedIp}`);
     });
     dom.scenarioCheckButton.addEventListener("click", runActiveScenarioCheck);
     dom.scenarioCloseButton.addEventListener("click", dismissScenario);
-    dom.terminalCloseButton.addEventListener("click", closeTerminal);
+    dom.dockTabs.addEventListener("click", handleDockTabClick);
+    dom.dockClose.addEventListener("click", closeDock);
+    dom.dockResizeHandle.addEventListener("pointerdown", startDockResize);
+    window.addEventListener("pointermove", moveDockResize);
+    window.addEventListener("pointerup", stopDockResize);
+    window.addEventListener("pointercancel", stopDockResize);
     dom.terminalForm.addEventListener("submit", submitTerminalCommand);
     dom.terminalInput.addEventListener("keydown", handleTerminalKeydown);
-    dom.consoleCloseButton.addEventListener("click", closeConsole);
     dom.consoleForm.addEventListener("submit", submitConsoleCommand);
     dom.consoleInput.addEventListener("keydown", handleConsoleKeydown);
+    document.querySelectorAll("[data-logview]").forEach((btn) => {
+      btn.addEventListener("click", () => {
+        state.dock.logView = btn.dataset.logview;
+        syncSimLog();
+      });
+    });
+    dom.simLogOutput.addEventListener("click", (event) => {
+      const row = event.target.closest("tr[data-no]");
+      if (!row) return;
+      const entry = state.simulation.capture.find((c) => c.no === Number(row.dataset.no));
+      if (!entry) return;
+      state.inspectedFrame = entry.frame;
+      pauseSimulation();
+      if (!state.options.networkPanelOpen) setNetworkPanel(true);
+      syncPanel();
+      render();
+      syncSimLog();
+    });
     dom.inspectorCloseButton.addEventListener("click", () => setNetworkPanel(false));
     dom.inspectorResizeHandle.addEventListener("pointerdown", startInspectorResize);
     window.addEventListener("pointermove", moveInspectorResize);
@@ -8990,9 +9416,6 @@ Address: ${sim.dnsResolvedIp}`);
     });
     dom.simSpeed.addEventListener("input", () => {
       state.simulation.speed = Number(dom.simSpeed.value) || 1e3;
-    });
-    dom.simLogCloseButton.addEventListener("click", () => {
-      dom.simLogPanel.classList.remove("active");
     });
     dom.portSelectionConfirm.addEventListener("click", confirmPortSelection);
     dom.portSelectionCancel.addEventListener("click", cancelPortSelection);
@@ -9076,9 +9499,10 @@ Address: ${sim.dnsResolvedIp}`);
           }
         } : {}
       })),
-      links: state.links.map(({ from, to, fromPort, toPort, hidden, collapsedBy, proxy }) => ({
+      links: state.links.map(({ from, to, name, fromPort, toPort, hidden, collapsedBy, proxy }) => ({
         from,
         to,
+        ...name ? { name } : {},
         ...fromPort != null ? { fromPort } : {},
         ...toPort != null ? { toPort } : {},
         ...hidden ? { hidden: true } : {},
@@ -9120,12 +9544,7 @@ Address: ${sim.dnsResolvedIp}`);
     state.links = config.links;
     state.selectedId = config.devices[0]?.id || null;
     state.configuringId = null;
-    state.terminal.open = false;
-    state.terminal.deviceId = null;
-    state.terminal.mode = "exec";
-    state.terminal.interfacePeerId = null;
-    state.terminal.interfaceVlanTag = null;
-    state.terminal.lines = [];
+    dropTerminalSessions();
     state.linkStartId = null;
     state.drag = null;
     state.panDrag = null;
@@ -9344,14 +9763,13 @@ Address: ${sim.dnsResolvedIp}`);
     const line = rest.slice(args[0].length).trim();
     if (!line) return err(`cli: missing command.`);
     if (state.terminal.deviceId !== device.id) {
-      state.terminal.deviceId = device.id;
-      state.terminal.mode = "exec";
-      state.terminal.interfacePeerId = null;
-      state.terminal.interfaceVlanTag = null;
+      state.terminal = ensureSession(device);
     }
-    const before = state.terminal.lines.length;
+    const session = state.terminal;
+    const before = session.lines.length;
     runTerminalCommand(line);
-    return ok(...state.terminal.lines.slice(before).map((l) => l.text));
+    sync().syncTerminal();
+    return ok(...session.lines.slice(before).map((l) => l.text));
   }
   function cmdPing(args) {
     const src = resolveDevice(args[0]);
@@ -9511,11 +9929,7 @@ Address: ${sim.dnsResolvedIp}`);
   function cmdList(args) {
     if ((args[0] || "").toLowerCase() === "links") {
       if (!state.links.length) return ok("(no links)");
-      return ok(...state.links.map((l) => {
-        const f = getDevice(l.from)?.name || l.from;
-        const t = getDevice(l.to)?.name || l.to;
-        return `${f} \u2194 ${t}`;
-      }));
+      return ok(...state.links.map((l) => linkName(l)));
     }
     const devices = state.devices.filter((d) => d.type !== "lan" || true);
     if (!devices.length) return ok("(no devices)");
@@ -9527,7 +9941,11 @@ Address: ${sim.dnsResolvedIp}`);
     const c = device.config || {};
     const lines = [`${device.name} (${device.type})`];
     if (device.type === "computer" || device.type === "server") {
-      lines.push(`  ip: ${c.ipv4Address || "(unset)"}`, `  gateway: ${c.gatewayIpv4Address || "(unset)"}`, `  mac: ${c.macAddress || "(unset)"}`);
+      lines.push(
+        `  ip: ${c.ipv4Address ? `${c.ipv4Address}/${prefixOf(c)} (subnet ${networkOf(c.ipv4Address, prefixOf(c))})` : "(unset)"}`,
+        `  gateway: ${c.gatewayIpv4Address || "(unset)"}`,
+        `  mac: ${c.macAddress || "(unset)"}`
+      );
       if (c.dnsServerIp) lines.push(`  nameserver: ${c.dnsServerIp}`);
       if (device.type === "server") {
         lines.push(`  dnsmasq: ${c.dnsmasqRunning !== false ? "running" : "stopped"}`);
@@ -9539,7 +9957,7 @@ Address: ${sim.dnsResolvedIp}`);
       lines.push(`  managed: ${Boolean(c.managed)}`, `  ports: ${c.ethernetPorts ?? 8}`);
       if (c.managed && c.vlans?.length) lines.push(`  vlans: ${c.vlans.map((v) => v.id).join(", ")}`);
     } else if (device.type === "router") {
-      for (const i of c.interfaces || []) lines.push(`  iface \u2192 ${getDevice(i.peerId)?.name || i.peerId}: ${i.ipv4Address || "(unset)"}`);
+      for (const i of c.interfaces || []) lines.push(`  iface \u2192 ${getDevice(i.peerId)?.name || i.peerId}: ${i.ipv4Address ? `${i.ipv4Address}/${prefixOf(i)}` : "(unset)"}`);
       if (c.staticRoutes?.length) lines.push(`  routes: ${c.staticRoutes.map((r) => `${r.network}\u2192${r.nextHop}`).join(", ")}`);
       if (c.rip?.enabled) lines.push(`  rip: enabled`);
     }
@@ -9751,7 +10169,7 @@ Address: ${sim.dnsResolvedIp}`);
     for (const d of payload.devices) {
       const c = d.config || {};
       if (d.type === "computer" || d.type === "server") {
-        if (c.ipv4Address) lines.push(`ip ${d.name} ${c.ipv4Address}`);
+        if (c.ipv4Address) lines.push(`ip ${d.name} ${c.ipv4Address}/${prefixOf(c)}`);
         if (c.gatewayIpv4Address) lines.push(`gateway ${d.name} ${c.gatewayIpv4Address}`);
         if (c.macAddress) lines.push(`mac ${d.name} ${c.macAddress}`);
         if (c.dnsServerIp) lines.push(`nameserver ${d.name} ${c.dnsServerIp}`);
@@ -9771,7 +10189,7 @@ Address: ${sim.dnsResolvedIp}`);
         for (const i of c.interfaces || []) {
           const peer = idToName.get(i.peerId);
           if (peer && i.ipv4Address) {
-            lines.push(`interface ${d.name} ${peer} ip ${i.ipv4Address}${i.vlanTag != null ? ` vlan ${i.vlanTag}` : ""}`);
+            lines.push(`interface ${d.name} ${peer} ip ${i.ipv4Address}/${prefixOf(i)}${i.vlanTag != null ? ` vlan ${i.vlanTag}` : ""}`);
           }
         }
         for (const r of c.staticRoutes || []) lines.push(`route ${d.name} ${r.network} ${r.nextHop}`);
@@ -9789,23 +10207,17 @@ Address: ${sim.dnsResolvedIp}`);
 
   // src/console.ts
   function openConsole() {
-    state.console.open = true;
     if (state.console.lines.length === 0) {
       state.console.lines.push({
         kind: "muted",
         text: 'RouteSim console \u2014 type "help" for commands, "export" to dump the topology.'
       });
     }
+    openDock("console");
     syncConsole();
     if (!dom.consoleInput.disabled) dom.consoleInput.focus();
   }
-  function closeConsole() {
-    state.console.open = false;
-    syncConsole();
-  }
   function syncConsole() {
-    document.body.classList.toggle("console-closed", !state.console.open);
-    dom.consoleButton.setAttribute("aria-expanded", String(state.console.open));
     dom.consoleOutput.innerHTML = state.console.lines.map(
       (line) => `<p class="terminal-line ${escapeHtml(line.kind || "")}">${escapeHtml(line.text)}</p>`
     ).join("");
@@ -9870,7 +10282,8 @@ Address: ${sim.dnsResolvedIp}`);
   });
   registerDeviceCallbacks({
     setTool,
-    setNetworkPanel
+    setNetworkPanel,
+    linkUp: autoBootLinkedHosts
   });
   setupUI();
   window.routesim = {

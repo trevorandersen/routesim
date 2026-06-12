@@ -2,7 +2,7 @@ import type { Link, DeviceType } from "./types";
 import { state, sync, pushUndo, captureUndoOnFocus } from "./state";
 import { DEVICE_SPECS } from "./device-registry";
 import { dom } from "./dom";
-import { escapeHtml, isValidIpv4, isValidMac, normaliseMacAddress, randomMac, parseIpv4Token } from "./utils";
+import { escapeHtml, isValidIpv4, isValidMac, normaliseMacAddress, randomMac, parseIpv4Token, prefixOf, networkOf } from "./utils";
 import { ensureConfig, normaliseVlans, normaliseDnsRecords, normaliseDhcpLeases } from "./normalise";
 import {
   getDevice, isVisibleDevice, connectedIds, linkedPortsFor,
@@ -15,6 +15,7 @@ import {
 } from "./terminal";
 import { resizeCanvas } from "./canvas";
 import { frameLabel } from "./frame";
+import { syncSimLog, bootHostAutoconf } from "./engine";
 
 export function syncOptionControls(): void {
   dom.showDeviceNames.checked = state.options.showDeviceNames;
@@ -129,7 +130,7 @@ export function renderRouterInterfaces(device: any): string {
           <div class="interface-row">
             <span class="interface-name">${escapeHtml(iface.name)}</span>
             <span class="interface-peer ${iface.peer ? "" : "empty"}" title="${escapeHtml(iface.peer?.name || "Empty")}">${escapeHtml(iface.peer?.name || "Empty")}</span>
-            <input class="router-interface-ip" data-peer-id="${escapeHtml(iface.peerId)}"${vlanAttr} ${iface.peer ? "" : "disabled"} value="${escapeHtml(iface.config.ipv4Address || "")}" placeholder="192.168.1.1" autocomplete="off" inputmode="decimal">
+            <input class="router-interface-ip" data-peer-id="${escapeHtml(iface.peerId)}"${vlanAttr} ${iface.peer ? "" : "disabled"} value="${escapeHtml(iface.config.ipv4Address ? `${iface.config.ipv4Address}/${prefixOf(iface.config)}` : "")}" placeholder="192.168.1.1/24" title="${escapeHtml(iface.config.ipv4Address ? `Subnet: ${networkOf(iface.config.ipv4Address, prefixOf(iface.config))}` : "")}" autocomplete="off" inputmode="decimal">
           </div>
         `;
       }).join("")}
@@ -369,8 +370,16 @@ function renderLinkPanel(link: Link): void {
   const fromDev = getDevice(link.from);
   const toDev = getDevice(link.to);
   const history = link.frameHistory || [];
+  const defaultName = `${fromDev?.name ?? link.from} ↔ ${toDev?.name ?? link.to}`;
   dom.detailsPanel.innerHTML = `
     <h2>Link</h2>
+    <div class="field">
+      <label for="selectedLinkName">Name</label>
+      <div class="input-with-button">
+        <input id="selectedLinkName" value="${escapeHtml(link.name || "")}" placeholder="${escapeHtml(defaultName)}" autocomplete="off">
+        <button class="inline-button" id="clearLinkName" type="button" title="Revert to the default name">&times;</button>
+      </div>
+    </div>
     <div class="pill-row">
       <span class="pill">${escapeHtml(fromDev?.name || link.from)}</span>
       <span class="pill">${escapeHtml(toDev?.name || link.to)}</span>
@@ -401,6 +410,25 @@ function renderLinkPanel(link: Link): void {
     link.frameHistory = [];
     syncPanel();
   });
+  const nameInput = document.getElementById("selectedLinkName") as HTMLInputElement | null;
+  if (nameInput) {
+    captureUndoOnFocus(nameInput);
+    nameInput.addEventListener("input", (event: any) => {
+      const value = event.target.value.trim();
+      if (value) link.name = value;
+      else delete link.name; // empty reverts to the derived default
+      syncSimLog(); // the packet list's Link column shows this name
+    });
+  }
+  const clearNameBtn = document.getElementById("clearLinkName");
+  if (clearNameBtn && nameInput) {
+    clearNameBtn.addEventListener("click", () => {
+      pushUndo();
+      delete link.name;
+      nameInput.value = "";
+      syncSimLog();
+    });
+  }
 }
 
 // Click-a-packet inspector: a full field breakdown of one captured frame.
@@ -438,7 +466,7 @@ export function renderFramePanel(frame: any): void {
   }
   dom.detailsPanel.innerHTML = `
     <h2>Frame</h2>
-    <p class="empty-state">Captured in flight — the simulation is paused. Click elsewhere or press Resume to continue.</p>
+    <p class="empty-state">Captured frame — a running simulation pauses while you inspect. Click elsewhere or press Close to dismiss.</p>
     <table class="data-table frame-detail">
       <tbody>
         ${rows.map(([k, v]) => `<tr><th>${escapeHtml(k)}</th><td>${escapeHtml(v)}</td></tr>`).join("")}
@@ -451,6 +479,7 @@ export function renderFramePanel(frame: any): void {
     state.inspectedFrame = null;
     syncPanel();
     sync().render();
+    syncSimLog(); // clear the packet-list row highlight
   });
 }
 
@@ -486,11 +515,12 @@ export function syncPanel(): void {
     const isHost = selected.type === "computer" || selected.type === "server";
     const pcConfigFields = isHost ? `
       <div class="field">
-        <label for="selectedIpv4">IPv4 address</label>
+        <label for="selectedIpv4">IPv4 address / prefix</label>
         <div class="input-with-button">
-          <input id="selectedIpv4" value="${escapeHtml(selected.config?.ipv4Address || "")}" placeholder="192.168.1.10" autocomplete="off" inputmode="decimal">
+          <input id="selectedIpv4" value="${escapeHtml(selected.config?.ipv4Address ? `${selected.config.ipv4Address}/${prefixOf(selected.config)}` : "")}" placeholder="192.168.1.10/24" autocomplete="off" inputmode="decimal">
           <button class="inline-button" id="clearIpv4" type="button" title="Clear IPv4 address">&times;</button>
         </div>
+        <p class="field-note" id="hostSubnet">${selected.config?.ipv4Address ? `Subnet: ${escapeHtml(networkOf(selected.config.ipv4Address, prefixOf(selected.config)))}` : ""}</p>
       </div>
       <div class="field">
         <label for="selectedGateway">Default gateway</label>
@@ -652,6 +682,12 @@ export function syncPanel(): void {
       sync().render();
     });
     const ipv4Input = document.getElementById("selectedIpv4") as HTMLInputElement;
+    const subnetNote = document.getElementById("hostSubnet");
+    const refreshSubnetNote = () => {
+      if (!subnetNote) return;
+      const c = selected.config || {};
+      subnetNote.textContent = c.ipv4Address ? `Subnet: ${networkOf(c.ipv4Address, prefixOf(c))}` : "";
+    };
     if (ipv4Input) {
       captureUndoOnFocus(ipv4Input);
       ipv4Input.addEventListener("input", (event: any) => {
@@ -664,6 +700,7 @@ export function syncPanel(): void {
           selected.config = selected.config || {};
           selected.config.ipv4Address = parsed ? parsed.address : "";
           if (parsed?.prefixLength != null) selected.config.prefixLength = parsed.prefixLength;
+          refreshSubnetNote();
           sync().render();
         }
       });
@@ -690,6 +727,7 @@ export function syncPanel(): void {
         selected.config.ipv4Address = "";
         ipv4Input.value = "";
         ipv4Input.setCustomValidity("");
+        refreshSubnetNote();
         sync().render();
       });
     }
@@ -803,14 +841,17 @@ export function syncPanel(): void {
       input.addEventListener("input", (event: any) => {
         if (!event.target.dataset.peerId) return;
         const value = event.target.value.trim();
-        if (!isValidIpv4(value) && value !== "") {
-          event.target.setCustomValidity("Enter a valid IPv4 address.");
+        const parsed = value === "" ? null : parseIpv4Token(value);
+        if (value !== "" && !parsed) {
+          event.target.setCustomValidity("Enter a valid IPv4 address (optionally with /prefix).");
           return;
         }
         event.target.setCustomValidity("");
         const vlanTag = event.target.dataset.vlanTag != null ? Number(event.target.dataset.vlanTag) : undefined;
         const iface = routerInterfaceFor(selected, event.target.dataset.peerId, vlanTag);
-        iface.ipv4Address = value;
+        iface.ipv4Address = parsed ? parsed.address : "";
+        if (parsed?.prefixLength != null) iface.prefixLength = parsed.prefixLength;
+        event.target.title = iface.ipv4Address ? `Subnet: ${networkOf(iface.ipv4Address, prefixOf(iface))}` : "";
       });
     });
     const routerEthernetPorts = document.getElementById("selectedRouterEthernetPorts") as HTMLInputElement;
@@ -841,6 +882,8 @@ export function syncPanel(): void {
     if (powerButton) powerButton.addEventListener("click", () => {
       pushUndo();
       selected.poweredOff = !selected.poweredOff;
+      // Powering on an unconfigured, cabled host is a first boot: DHCP → APIPA.
+      if (!selected.poweredOff) bootHostAutoconf(selected);
       syncPanel();
       sync().render();
     });
@@ -853,7 +896,7 @@ export function syncPanel(): void {
   }
 
   syncDeviceList();
-  if (state.terminal.open) syncTerminal();
+  if (state.dock.open) syncTerminal();
 }
 
 export function syncDeviceList(): void {

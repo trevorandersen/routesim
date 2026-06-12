@@ -372,8 +372,9 @@
     }
     .coord-readout:empty { display: none; }
 
-    .terminal-panel,
-    .console-panel {
+    /* ─── Bottom dock: terminal sessions, console, sim log ── */
+
+    .dock {
       position: fixed;
       left: 0;
       right: 0;
@@ -381,43 +382,172 @@
       z-index: 8;
       height: min(var(--terminal-height), calc(100vh - 80px));
       display: grid;
-      grid-template-rows: 42px minmax(0, 1fr) 44px;
+      grid-template-rows: 38px minmax(0, 1fr);
       border-top: 1px solid var(--line);
       background: #0a0f14;
       box-shadow: 0 -18px 36px rgba(0, 0, 0, 0.28);
     }
 
-    body:not(.inspector-closed) .terminal-panel,
-    body:not(.inspector-closed) .console-panel {
+    body:not(.inspector-closed) .dock {
       right: var(--inspector-width);
     }
 
-    body.terminal-closed .terminal-panel {
+    body.dock-closed .dock {
       display: none;
     }
 
-    body.console-closed .console-panel {
-      display: none;
+    .dock-resize {
+      position: absolute;
+      top: -4px;
+      left: 0;
+      right: 0;
+      height: 8px;
+      padding: 0;
+      border: 0;
+      background: transparent;
+      cursor: ns-resize;
+      z-index: 9;
     }
 
-    .terminal-titlebar {
+    .dock-resize:hover,
+    body.resizing-dock .dock-resize {
+      background: color-mix(in srgb, var(--accent) 35%, transparent);
+    }
+
+    body.resizing-dock {
+      cursor: ns-resize;
+      user-select: none;
+    }
+
+    .dock-tabbar {
       display: flex;
-      align-items: center;
+      align-items: stretch;
       justify-content: space-between;
-      gap: 12px;
-      padding: 0 12px 0 16px;
-      color: var(--text);
+      gap: 8px;
+      padding: 0 8px 0 10px;
       background: var(--panel);
       border-bottom: 1px solid var(--line);
-      font-size: 13px;
-      font-weight: 800;
     }
 
-    .terminal-titlebar span {
+    .dock-tabbar .panel-toggle {
+      align-self: center;
+    }
+
+    .dock-tabs {
+      display: flex;
+      align-items: stretch;
+      gap: 2px;
       min-width: 0;
-      overflow: hidden;
-      text-overflow: ellipsis;
+      overflow-x: auto;
+      scrollbar-width: thin;
+    }
+
+    .dock-tab {
+      appearance: none;
+      display: flex;
+      align-items: center;
+      gap: 7px;
+      padding: 0 12px;
+      border: 0;
+      border-bottom: 2px solid transparent;
+      background: transparent;
+      color: var(--muted);
+      font-size: 12px;
+      font-weight: 700;
       white-space: nowrap;
+      cursor: pointer;
+    }
+
+    .dock-tab:hover {
+      color: var(--text);
+    }
+
+    .dock-tab.active {
+      color: var(--accent);
+      border-bottom-color: var(--accent);
+    }
+
+    .dock-tab-close {
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      width: 16px;
+      height: 16px;
+      border-radius: 4px;
+      font-size: 13px;
+      line-height: 1;
+      color: var(--muted);
+    }
+
+    .dock-tab-close:hover {
+      color: var(--danger);
+      background: color-mix(in srgb, var(--danger) 16%, transparent);
+    }
+
+    .dock-badge {
+      min-width: 16px;
+      padding: 1px 5px;
+      border-radius: 999px;
+      background: var(--accent-soft);
+      color: var(--accent);
+      font-size: 10px;
+      font-weight: 800;
+      text-align: center;
+    }
+
+    .dock-badge:empty {
+      display: none;
+    }
+
+    .dock-body {
+      display: grid;
+      min-height: 0;
+    }
+
+    .dock-pane {
+      display: none;
+      grid-area: 1 / 1;
+      min-height: 0;
+      grid-template-rows: minmax(0, 1fr) 44px;
+    }
+
+    .dock-pane.active {
+      display: grid;
+    }
+
+    .dock-pane-log {
+      grid-template-rows: 32px minmax(0, 1fr);
+    }
+
+    .simlog-toolbar {
+      display: flex;
+      align-items: center;
+      gap: 4px;
+      padding: 0 10px;
+      background: #0d141b;
+      border-bottom: 1px solid rgba(214, 224, 235, 0.12);
+    }
+
+    .simlog-view {
+      appearance: none;
+      padding: 3px 10px;
+      border: 1px solid transparent;
+      border-radius: 6px;
+      background: transparent;
+      color: #95a4b3;
+      font-size: 11px;
+      font-weight: 700;
+      cursor: pointer;
+    }
+
+    .simlog-view:hover {
+      color: #d6e3ef;
+    }
+
+    .simlog-view.active {
+      color: #e6edf3;
+      background: rgba(214, 224, 235, 0.10);
+      border-color: rgba(214, 224, 235, 0.18);
     }
 
     .terminal-output {
@@ -640,6 +770,17 @@
       font-size: 12px;
       color: var(--muted);
       font-weight: 700;
+    }
+
+    /* Derived read-only detail under a field (e.g. the subnet for an IP/prefix). */
+    .field-note {
+      margin: 0;
+      font-size: 11px;
+      color: var(--muted);
+    }
+
+    .field-note:empty {
+      display: none;
     }
 
     .field input {
@@ -1089,8 +1230,8 @@
         display: none;
       }
 
-      .terminal-panel,
-      body:not(.inspector-closed) .terminal-panel {
+      .dock,
+      body:not(.inspector-closed) .dock {
         right: 0;
       }
     }
@@ -1104,7 +1245,7 @@
         width: min(var(--inspector-width), 100vw);
       }
 
-      .terminal-panel {
+      .dock {
         left: 0;
       }
 
@@ -1238,58 +1379,12 @@
     .terminal-line.sim-nat   { color: #2dd4bf; }
     .terminal-line.sim-dns   { color: #22d3ee; }
 
-    /* ─── Simulation log panel ────────────────────────────── */
-
-    .sim-log-panel {
-      display: none;
-      position: fixed;
-      top: 56px;
-      right: 0;
-      z-index: 9;
-      width: 380px;
-      max-height: calc(100vh - 120px);
-      flex-direction: column;
-      border: 1px solid var(--line);
-      border-radius: 10px 0 0 10px;
-      background: #0a0f14;
-      box-shadow: var(--shadow);
-      overflow: hidden;
-    }
-
-    .sim-log-panel.active {
-      display: flex;
-    }
-
-    body:not(.inspector-closed) .sim-log-panel {
-      right: var(--inspector-width);
-    }
-
-    .sim-log-titlebar {
-      display: flex;
-      align-items: center;
-      justify-content: space-between;
-      gap: 12px;
-      padding: 0 10px 0 14px;
-      min-height: 36px;
-      color: var(--text);
-      background: var(--panel);
-      border-bottom: 1px solid var(--line);
-      font-size: 12px;
-      font-weight: 800;
-    }
-
-    .sim-log-titlebar span {
-      min-width: 0;
-      overflow: hidden;
-      text-overflow: ellipsis;
-      white-space: nowrap;
-    }
+    /* ─── Simulation log (a dock pane) ────────────────────── */
 
     .sim-log-output {
-      min-height: 60px;
-      max-height: 400px;
+      min-height: 0;
       overflow: auto;
-      padding: 10px 14px;
+      padding: 10px 16px;
       color: #d6e3ef;
       font: 11px/1.5 ui-monospace, SFMono-Regular, Menlo, Consolas, "Liberation Mono", monospace;
     }
@@ -1310,11 +1405,71 @@
     .sim-log-line.sim-drop    { color: #f87171; }
     .sim-log-line.sim-dhcp    { color: #a78bfa; }
 
-    @media (max-width: 820px) {
-      .sim-log-panel {
-        width: min(340px, calc(100vw - 80px));
-      }
+    /* ─── Packet list (Wireshark-style) ───────────────────── */
+
+    .pkt-table {
+      width: 100%;
+      border-collapse: collapse;
+      font: 11px/1.5 ui-monospace, SFMono-Regular, Menlo, Consolas, "Liberation Mono", monospace;
+      color: #d6e3ef;
     }
+
+    .pkt-table th {
+      position: sticky;
+      top: -10px;             /* cancels the pane padding so the header pins */
+      z-index: 1;
+      padding: 4px 10px 4px 0;
+      background: #0d141b;
+      color: #95a4b3;
+      font-size: 10px;
+      font-weight: 800;
+      text-align: left;
+      text-transform: uppercase;
+      letter-spacing: 0.04em;
+      border-bottom: 1px solid rgba(214, 224, 235, 0.18);
+      white-space: nowrap;
+    }
+
+    .pkt-row td {
+      padding: 1px 10px 1px 0;
+      white-space: nowrap;
+      cursor: pointer;
+    }
+
+    .pkt-row td.pkt-info {
+      white-space: normal;
+      word-break: break-word;
+      min-width: 220px;
+    }
+
+    .pkt-num {
+      color: #95a4b3;
+      text-align: right;
+    }
+
+    .pkt-link {
+      color: #95a4b3;
+    }
+
+    .pkt-row:hover td {
+      background: rgba(214, 224, 235, 0.07);
+    }
+
+    .pkt-row.selected td {
+      background: rgba(20, 116, 111, 0.35);
+      box-shadow: inset 0 1px rgba(125, 211, 252, 0.35), inset 0 -1px rgba(125, 211, 252, 0.35);
+    }
+
+    /* Row tones follow the app's protocol colours (text on dark). */
+    .pkt-arp        td { color: #fbbf24; }
+    .pkt-icmp       td { color: #7dd3fc; }
+    .pkt-icmp-reply td { color: #34d399; }
+    .pkt-tcp        td { color: #fb923c; }
+    .pkt-dns        td { color: #22d3ee; }
+    .pkt-dhcp       td { color: #a78bfa; }
+    .pkt-bad        td { color: #f87171; }
+    .pkt-row td.pkt-num,
+    .pkt-row td.pkt-link { color: #95a4b3; }
 
     /* ─── Link frame history ──────────────────────────────── */
 

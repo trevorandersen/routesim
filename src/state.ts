@@ -1,4 +1,4 @@
-import type { AppState } from "./types";
+import type { AppState, TerminalSession } from "./types";
 import { shiftToPositive } from "./normalise";
 import { freshNameCounters } from "./device-registry";
 
@@ -48,7 +48,6 @@ export const state: AppState = {
   inspectorWidth: 320,
   inspectorResize: null,
   terminal: {
-    open: false,
     deviceId: null,
     mode: "exec",
     interfacePeerId: null,
@@ -57,8 +56,14 @@ export const state: AppState = {
     history: [],
     historyIndex: -1
   },
-  console: {
+  terminalSessions: [],
+  dock: {
     open: false,
+    activeTab: "terminal",
+    height: 280,
+    logView: "packets"
+  },
+  console: {
     lines: [],
     history: [],
     historyIndex: -1
@@ -82,6 +87,7 @@ export const state: AppState = {
     mode: "ping",
     events: [],
     log: [],
+    capture: [],
     transits: [],
     pendingArp: {},
     speed: 1000,
@@ -107,6 +113,36 @@ export const state: AppState = {
   },
   portSelection: null
 };
+
+// A blank terminal session. `deviceId: null` is the detached placeholder shown
+// when no device terminal is attached (or an open attempt failed).
+export function freshTerminalSession(deviceId: string | null = null): TerminalSession {
+  return {
+    deviceId,
+    mode: "exec",
+    interfacePeerId: null,
+    interfaceVlanTag: null,
+    lines: [],
+    history: [],
+    historyIndex: -1,
+  };
+}
+
+// Drop terminal sessions (all of them, or those for the given device ids) and
+// repair the active pointer/dock. Lives here so devices.ts and config.ts can
+// clean up without importing the terminal layer.
+export function dropTerminalSessions(deviceIds: string[] | null = null): void {
+  const doomed = deviceIds === null
+    ? new Set(state.terminalSessions.map(s => s.deviceId))
+    : new Set(deviceIds);
+  state.terminalSessions = state.terminalSessions.filter(s => !doomed.has(s.deviceId));
+  if (doomed.has(state.terminal.deviceId)) {
+    state.terminal = state.terminalSessions[state.terminalSessions.length - 1] ?? freshTerminalSession();
+    if (state.terminalSessions.length === 0 && state.dock.activeTab === "terminal") {
+      state.dock.open = false;
+    }
+  }
+}
 
 export const toolCopy: Record<string, [string, string]> = {
   select: ["Select and move devices", "Drag devices to arrange the network."],
@@ -429,12 +465,15 @@ export function undo(): void {
     state.simulation.status = "idle";
     state.simulation.events = [];
     state.simulation.log = [];
+    state.simulation.capture = [];
     state.simulation.transits = [];
     state.simulation.pendingArp = {};
     const termInput = document.getElementById("terminalInput") as HTMLInputElement | null;
     if (termInput) termInput.disabled = false;
-    const logPanel = document.getElementById("simLogPanel");
-    if (logPanel) logPanel.classList.remove("active");
+    const logOutput = document.getElementById("simLogOutput");
+    if (logOutput) logOutput.innerHTML = "";
+    const badge = document.getElementById("simLogBadge");
+    if (badge) badge.textContent = "";
   }
   const snapshot = state.undoStack.pop();
   if (!snapshot) return;

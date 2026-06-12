@@ -13,7 +13,7 @@ The bottom-panel terminal: a per-device command-line that emulates a Linux host 
 - **`runFirewallTerminalCommand(device, command)`** — the **iptables**-style firewall CLI (FORWARD chain): `iptables -L/-A/-I/-D/-P/-F`, matches `-s`/`-d`/`-p`/`--icmp-type`, targets `ACCEPT`/`DROP`/`REJECT`. Parses into `FirewallRule`s; `showFirewallRules` renders `-L`. See [firewall.md](firewall.md).
 - **`runSwitchTerminalCommand(device, command)`** — the **SONiC**-style managed-switch CLI (flat, no modes): `show vlan brief`, `show mac`, `show interfaces status`, `show runningconfiguration all`, `config vlan add/del <vid>`, `config vlan member add [-t] <vid> <port>` (untagged/tagged), `config vlan member del <vid> <port>`. Rejects unmanaged switches. VLAN membership maps onto the internal access/trunk model: an untagged member is the port's access/native VLAN; a tagged member makes the port a trunk carrying that VLAN. The `sonicVlanMemberAdd`/`Del` helpers apply this in a single undo snapshot. The switch CLI is **exact** (no prefix abbreviation or `?` completion) — SONiC's `config`/`show` CLI is click-based and exact, so matching it keeps fidelity; abbreviation lives only on the FRR router side.
 
-The current mode and interface selection live on `state.terminal` (`mode`, `interfacePeerId`, `interfaceVlanTag`).
+The current mode and interface selection live on the **session** (`state.terminal` — the active `TerminalSession`): `mode`, `interfacePeerId`, `interfaceVlanTag`. Every open device terminal is a session in `state.terminalSessions` with its own scrollback, history, and mode, so the router's config mode survives switching tabs; the console's `cli` command attaches to the same sessions (silently creating one when needed), which is why multi-line vtysh scripts work.
 
 ## State mutators
 Pure-ish functions that change device config, `pushUndo`, and re-sync — shared across the terminal, the inspector GUI, and the console scripting engine (`commands.ts`):
@@ -27,11 +27,15 @@ They return a result string (the message shown in the terminal); callers detect 
 ## Display helpers
 `show*` functions that format read-only output: `showHostIp`/`Route`/`Arp`, `showRouterInterfaceBrief`/`Route`/`RouteRip`/`Arp`/`DhcpBindings`/`Rip`(status)/`RipRoutes`/`RunningConfig`, `showSwitchInterfaces`/`Vlans`/`MacTable`/`RunningConfig` (the switch running-config is emitted as replayable SONiC `config …` commands).
 
-## Terminal UI
-- **`openTerminalFor(device)` / `closeTerminal()`** — open/close the panel for a device.
-- **`syncTerminal()`** — rebuild the terminal HTML (history + prompt).
-- **`submitTerminalCommand()` / `handleTerminalKeydown()`** — handle Enter and up/down history navigation.
-- **`terminalLine(kind, text)`** — push a line (used by every command); **`terminalPromptText(device)`** — the prompt string.
+## Dock & terminal UI
+The bottom **dock** (`core.ts`) hosts three pane kinds behind one tab strip: the per-device terminal sessions (one tab each, closable), the command console, and the sim log (with a live entry-count badge). It is drag-resizable via its top edge (`startDockResize` → `--terminal-height`).
+
+- **`openTerminalFor(device)`** — find-or-create the device's session (`ensureSession`, greeting on creation), make it active, open the dock on the terminal pane. Open failures (powered off, unmanaged switch) show a detached placeholder instead of creating a session.
+- **`closeSession(deviceId)`** — close one tab; the active pointer falls back to a neighbour, and closing the last tab closes the dock. A router's exec-level `exit` calls this (logout).
+- **`openDock(tab)` / `closeDock()` / `toggleDockTab(tab)` / `setDockTab(tab)`** — dock state; `syncDock()` rebuilds the tab strip and pane visibility.
+- **`syncTerminal()`** — render the active session into the terminal pane (a session whose device vanished is closed automatically).
+- **`submitTerminalCommand()` / `handleTerminalKeydown()`** — handle Enter and up/down history navigation (per-session history).
+- **`terminalLine(kind, text)`** — push a line to the active session; **`terminalLineFor(session, …)`** targets a specific one (simulation results go to the *origin device's* session even if another tab is active when the run finishes); **`terminalPromptText(device)`** — the prompt string.
 
 ## How it fits
 

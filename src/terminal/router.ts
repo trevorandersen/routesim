@@ -9,19 +9,19 @@ import { isValidIpv4, parseIpv4Token, normaliseVlanId, prefixOf, clampPrefixLeng
 import { normaliseArpTable, normaliseDhcpLeases, normaliseStaticRoutes, normaliseRipConfig } from "../normalise";
 import { routerInterfacesWithNames, routerInterfaceFor, routerInterfaceByName } from "../devices";
 import { buildRoutingTable, runRipConvergence } from "../engine";
-import { terminalLine, closeTerminal } from "./core";
+import { terminalLine, closeSession } from "./core";
 import { runIptablesCommand } from "./iptables";
 
 export function showRouterInterfaceBrief(router: Device): string {
   const interfaces = routerInterfacesWithNames(router);
   if (!interfaces.length) return "No interfaces configured.";
   return [
-    "Interface     IP-Address      Status  Protocol  VLAN  Connected to",
+    "Interface     IP-Address         Status  Protocol  VLAN  Connected to",
     ...interfaces.map((iface: any) => {
       const vlanDisplay = iface.config.vlanTag != null ? String(iface.config.vlanTag) : "-";
       return [
         iface.name.padEnd(14),
-        (iface.config.ipv4Address || "unassigned").padEnd(16),
+        (iface.config.ipv4Address ? `${iface.config.ipv4Address}/${prefixOf(iface.config)}` : "unassigned").padEnd(19),
         (iface.peer ? "up" : "down").padEnd(8),
         (iface.peer ? "up" : "down").padEnd(10),
         vlanDisplay.padEnd(6),
@@ -365,7 +365,8 @@ function routerSessionCommand(lower: string): boolean {
     } else if (state.terminal.mode === "privileged") {
       state.terminal.mode = "exec";
     } else {
-      closeTerminal();
+      // `exit` at exec level logs out: close this session's tab.
+      closeSession(state.terminal.deviceId);
     }
     return true;
   }

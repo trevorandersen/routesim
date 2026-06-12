@@ -179,6 +179,53 @@ export function createDhcpAck(serverMac: string, serverIp: string, clientMac: st
   return { id: nextFrameId(), srcMac: serverMac, dstMac: BROADCAST_MAC, etherType: 0x0800, vlanTag, payload: ipv4 };
 }
 
+// ── Packet-list columns (the Wireshark-style sim log) ────────────────────────
+
+export interface PacketColumns {
+  src: string;
+  dst: string;
+  protocol: string;
+  info: string;
+  tone: string;   // row colour class suffix: arp/icmp/icmp-reply/tcp/dns/dhcp/bad
+}
+
+// Wireshark-conventional Source/Destination/Protocol/Info for one frame.
+// ARP rows show L2 addresses (as Wireshark does); IPv4 rows show addresses
+// from the IP header. "bad" tones (RST, NXDOMAIN, TTL exceeded) colour red.
+export function packetColumns(frame: EthernetFrame): PacketColumns {
+  if (frame.payload.type === "arp") {
+    const arp = frame.payload;
+    return arp.operation === "request"
+      ? { src: frame.srcMac, dst: "Broadcast", protocol: "ARP", info: `Who has ${arp.targetIp}? Tell ${arp.senderIp}`, tone: "arp" }
+      : { src: frame.srcMac, dst: frame.dstMac, protocol: "ARP", info: `${arp.senderIp} is at ${arp.senderMac}`, tone: "arp" };
+  }
+  const ipv4 = frame.payload as Ipv4Payload;
+  const src = ipv4.srcIp;
+  const dst = ipv4.dstIp;
+  const p = ipv4.payload;
+  if (p.type === "icmp") {
+    if (p.icmpType === 8) return { src, dst, protocol: "ICMP", info: `Echo (ping) request  seq=${p.sequence}, ttl=${ipv4.ttl}`, tone: "icmp" };
+    if (p.icmpType === 0) return { src, dst, protocol: "ICMP", info: `Echo (ping) reply  seq=${p.sequence}, ttl=${ipv4.ttl}`, tone: "icmp-reply" };
+    return { src, dst, protocol: "ICMP", info: "Time-to-live exceeded (Time to live exceeded in transit)", tone: "bad" };
+  }
+  if (p.type === "tcp") {
+    const flags: Record<string, string> = { "syn": "[SYN]", "syn-ack": "[SYN, ACK]", "ack": "[ACK]", "rst": "[RST]" };
+    return { src, dst, protocol: "TCP", info: `${p.srcPort} → ${p.dstPort} ${flags[p.flags] || ""} Len=0`, tone: p.flags === "rst" ? "bad" : "tcp" };
+  }
+  if (p.type === "dns") {
+    const id = `0x${p.id.toString(16).padStart(4, "0")}`;
+    if (p.op === "query") return { src, dst, protocol: "DNS", info: `Standard query ${id} A ${p.name}`, tone: "dns" };
+    return p.address
+      ? { src, dst, protocol: "DNS", info: `Standard query response ${id} A ${p.name} A ${p.address}`, tone: "dns" }
+      : { src, dst, protocol: "DNS", info: `Standard query response ${id} No such name A ${p.name}`, tone: "bad" };
+  }
+  if (p.type === "dhcp") {
+    const names: Record<string, string> = { discover: "DHCP Discover", offer: "DHCP Offer", request: "DHCP Request", ack: "DHCP ACK" };
+    return { src, dst, protocol: "DHCP", info: `${names[p.messageType] || "DHCP"} - Transaction ID ${p.transactionId.slice(-8)}`, tone: "dhcp" };
+  }
+  return { src, dst, protocol: "IPv4", info: "", tone: "" };
+}
+
 export function frameLabel(frame: EthernetFrame): string {
   let label: string;
   if (frame.payload.type === "arp") {

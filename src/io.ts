@@ -9,6 +9,7 @@ import { buildConfigPayload, parseConfig, applyConfig } from "./config";
 import { exportTopologyScript, runConsoleScript } from "./commands";
 import { SCENARIOS, registerScenario, loadScenario } from "./scenarios";
 import { syncSimLog } from "./engine";
+import { openDock } from "./terminal";
 
 // ── Generic helpers ──────────────────────────────────────────────────────────
 
@@ -120,7 +121,8 @@ export async function importLog(): Promise<void> {
     const log = JSON.parse(text);
     if (!Array.isArray(log)) { dom.hint.textContent = "Invalid log JSON."; return; }
     state.simulation.log = log;
-    dom.simLogPanel.classList.add("active");
+    state.dock.logView = "events"; // imported logs are event entries, not captures
+    openDock("simlog");
     syncSimLog();
     dom.hint.textContent = "Imported simulation log.";
   } catch {

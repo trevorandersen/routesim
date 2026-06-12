@@ -4,12 +4,15 @@ import { addDevice, addLink, deleteSelection, clearNetwork, findDeviceAt, findLi
 import { render, resizeCanvas, screenToWorld, setZoom, syncZoomLevel, fitNetwork, findTransitAt } from "./canvas";
 import { clearCssColorCache } from "./utils";
 import { syncPanel, syncOptionControls, syncNetworkPanel, setNetworkPanel, setInspectorWidth, startInspectorResize, moveInspectorResize, stopInspectorResize } from "./inspector";
-import { openTerminalFor, closeTerminal, syncTerminal, submitTerminalCommand, handleTerminalKeydown } from "./terminal";
-import { openConsole, closeConsole, submitConsoleCommand, handleConsoleKeydown } from "./console";
+import {
+  openTerminalFor, syncTerminal, submitTerminalCommand, handleTerminalKeydown,
+  toggleDockTab, closeDock, handleDockTabClick, startDockResize, moveDockResize, stopDockResize,
+} from "./terminal";
+import { openConsole, submitConsoleCommand, handleConsoleKeydown } from "./console";
 import { loadScenario } from "./scenarios";
 import { runActiveScenarioCheck, dismissScenario } from "./scenario-ui";
 import { loadTopology } from "./config";
-import { pauseSimulation, resumeSimulation, stepOnce, stopSimulation } from "./engine";
+import { pauseSimulation, resumeSimulation, stepOnce, stopSimulation, syncSimLog } from "./engine";
 import { setupRibbon, renderScenarioButtons } from "./ribbon";
 import * as io from "./io";
 
@@ -219,11 +222,13 @@ export function setupUI(): void {
         if (!state.options.networkPanelOpen) setNetworkPanel(true);
         syncPanel();
         render();
+        syncSimLog(); // highlight the frame's packet-list row
         return;
       }
     }
     if (state.inspectedFrame) {
       state.inspectedFrame = null; // clicking elsewhere dismisses the frame panel
+      syncSimLog();
     }
 
     if (device) {
@@ -352,14 +357,14 @@ export function setupUI(): void {
     "import-log": () => { void io.importLog(); },
     "export-log": io.exportLog,
     "panel-network": () => setNetworkPanel(!state.options.networkPanelOpen),
-    "panel-terminal": () => { closeConsole(); openTerminalFor(getDevice(state.selectedId)); },
-    "panel-console": () => { closeTerminal(); openConsole(); },
-    "panel-simlog": () => dom.simLogPanel.classList.toggle("active"),
+    "panel-terminal": () => openTerminalFor(getDevice(state.selectedId)),
+    "panel-console": () => openConsole(),
+    "panel-simlog": () => toggleDockTab("simlog"),
     "fit": fitNetwork,
     "scenario-check": runActiveScenarioCheck,
     "scenario-dismiss": dismissScenario,
     "help-shortcuts": () => { dom.hint.textContent = "Shortcuts: V select · C computer · E server · S switch · R router · F firewall · L connect · W configure · Del delete · Esc cancel · Ctrl/Cmd+Z undo · scroll to zoom."; },
-    "help-commands": () => { closeTerminal(); openConsole(); },
+    "help-commands": () => openConsole(),
     "help-about": openAbout,
   };
   document.addEventListener("click", (event) => {
@@ -381,13 +386,38 @@ export function setupUI(): void {
   dom.scenarioCheckButton.addEventListener("click", runActiveScenarioCheck);
   dom.scenarioCloseButton.addEventListener("click", dismissScenario);
 
-  // Bottom panels: terminal & console share the bottom slot.
-  dom.terminalCloseButton.addEventListener("click", closeTerminal);
+  // The bottom dock: terminal sessions, console, and sim log share one panel.
+  dom.dockTabs.addEventListener("click", handleDockTabClick);
+  dom.dockClose.addEventListener("click", closeDock);
+  dom.dockResizeHandle.addEventListener("pointerdown", startDockResize as any);
+  window.addEventListener("pointermove", moveDockResize as any);
+  window.addEventListener("pointerup", stopDockResize);
+  window.addEventListener("pointercancel", stopDockResize);
   dom.terminalForm.addEventListener("submit", submitTerminalCommand);
   dom.terminalInput.addEventListener("keydown", handleTerminalKeydown);
-  dom.consoleCloseButton.addEventListener("click", closeConsole);
   dom.consoleForm.addEventListener("submit", submitConsoleCommand);
   dom.consoleInput.addEventListener("keydown", handleConsoleKeydown);
+
+  // Sim log: Packets/Events view toggle + click-a-row → frame breakdown
+  // (same behaviour as clicking the transit dot on the canvas).
+  document.querySelectorAll<HTMLElement>("[data-logview]").forEach(btn => {
+    btn.addEventListener("click", () => {
+      state.dock.logView = btn.dataset.logview as "packets" | "events";
+      syncSimLog();
+    });
+  });
+  dom.simLogOutput.addEventListener("click", (event) => {
+    const row = (event.target as HTMLElement).closest("tr[data-no]") as HTMLElement | null;
+    if (!row) return;
+    const entry = state.simulation.capture.find(c => c.no === Number(row.dataset.no));
+    if (!entry) return;
+    state.inspectedFrame = entry.frame;
+    pauseSimulation();
+    if (!state.options.networkPanelOpen) setNetworkPanel(true);
+    syncPanel();
+    render();
+    syncSimLog();
+  });
 
   // Inspector (network) panel.
   dom.inspectorCloseButton.addEventListener("click", () => setNetworkPanel(false));
@@ -413,11 +443,6 @@ export function setupUI(): void {
   });
   dom.simSpeed.addEventListener("input", () => {
     state.simulation.speed = Number(dom.simSpeed.value) || 1000;
-  });
-
-  // Simulation log panel
-  dom.simLogCloseButton.addEventListener("click", () => {
-    dom.simLogPanel.classList.remove("active");
   });
 
   // Port selection modal

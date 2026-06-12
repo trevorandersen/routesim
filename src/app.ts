@@ -9,6 +9,7 @@ import { syncScenarioPanel } from "./scenario-ui";
 import { setupUI, setTool, setTheme, syncCoordReadout } from "./ui";
 import { loadDefaultConfig } from "./config";
 import { runConsoleCommand, runConsoleScript, exportTopologyScript } from "./commands";
+import { autoBootLinkedHosts } from "./engine";
 import * as io from "./io";
 
 // Register the callback bridge so any module can trigger render/syncPanel/etc.
@@ -21,10 +22,12 @@ registerCallbacks({
   syncCoordReadout
 });
 
-// Register UI callbacks that devices.ts needs without circular imports
+// Register UI callbacks that devices.ts needs without circular imports.
+// linkUp: a new cable boots any unconfigured host on either end (DHCP → APIPA).
 registerDeviceCallbacks({
   setTool,
-  setNetworkPanel
+  setNetworkPanel,
+  linkUp: autoBootLinkedHosts
 });
 
 // Wire all UI event listeners (ribbon, canvas, panels)

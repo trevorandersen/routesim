@@ -7,27 +7,25 @@ import { state } from "./state";
 import { dom } from "./dom";
 import { escapeHtml } from "./utils";
 import { runConsoleCommand } from "./commands";
+import { openDock, closeDock } from "./terminal";
 
 export function openConsole(): void {
-  state.console.open = true;
   if (state.console.lines.length === 0) {
     state.console.lines.push({
       kind: "muted",
       text: 'RouteSim console — type "help" for commands, "export" to dump the topology.',
     });
   }
+  openDock("console");
   syncConsole();
   if (!dom.consoleInput.disabled) dom.consoleInput.focus();
 }
 
 export function closeConsole(): void {
-  state.console.open = false;
-  syncConsole();
+  if (state.dock.open && state.dock.activeTab === "console") closeDock();
 }
 
 export function syncConsole(): void {
-  document.body.classList.toggle("console-closed", !state.console.open);
-  dom.consoleButton.setAttribute("aria-expanded", String(state.console.open));
   dom.consoleOutput.innerHTML = state.console.lines.map(line =>
     `<p class="terminal-line ${escapeHtml(line.kind || "")}">${escapeHtml(line.text)}</p>`
   ).join("");

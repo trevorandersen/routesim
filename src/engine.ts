@@ -1,12 +1,12 @@
 import type { EthernetFrame, ArpPayload, Ipv4Payload, DhcpPayload, TcpPayload, DnsPayload, NatEntry, SimEvent, SimLogEntry, ActiveTransit, FrameHistoryEntry, RouteEntry, Device, DeviceType, FirewallRule, FirewallTarget } from "./types";
 import { state, pushUndo, sync } from "./state";
 import { dom } from "./dom";
-import { getDevice, linkedPortsFor, routerInterfacesWithNames } from "./devices";
+import { getDevice, linkedPortsFor, routerInterfacesWithNames, linkName } from "./devices";
 import { normalisePortVlans, normalisePortModes, normaliseTrunkAllowedVlans, normaliseArpTable, normaliseMacTable, normaliseDhcpLeases, normaliseStaticRoutes, ensureConfig } from "./normalise";
 import { sameSubnet, prefixOf, isValidIpv4, escapeHtml, ipv4ToInt, intToIpv4, normaliseMacAddress } from "./utils";
-import { createArpRequest, createArpReply, createIcmpEchoRequest, createIcmpEchoReply, createIcmpTimeExceeded, createDhcpOffer, createDhcpRequest, createDhcpAck, createTcpSegment, createDnsResponse, BROADCAST_MAC, frameLabel } from "./frame";
-import { terminalLine, syncTerminal } from "./terminal";
-import { buildPingEvents, buildResolveEvents, findPingTarget } from "./simulation";
+import { createArpRequest, createArpReply, createIcmpEchoRequest, createIcmpEchoReply, createIcmpTimeExceeded, createDhcpOffer, createDhcpRequest, createDhcpAck, createTcpSegment, createDnsResponse, BROADCAST_MAC, frameLabel, packetColumns } from "./frame";
+import { terminalLine, terminalLineFor, sessionFor, syncTerminal, openDock, syncSimLogBadge } from "./terminal";
+import { buildPingEvents, buildResolveEvents, buildDhcpEvents, findPingTarget } from "./simulation";
 import type { PingSetup } from "./simulation";
 import { routingLookup, runRipConvergence } from "./routing";
 
@@ -26,6 +26,7 @@ export function startSimulation(setup: PingSetup, originDeviceId: string, target
   sim.headless = false;
   sim.events = setup.events;
   sim.log = [];
+  sim.capture = [];
   sim.transits = [];
   sim.pendingArp = { ...setup.pendingArp };
   sim.stepIndex = 0;
@@ -51,6 +52,10 @@ export function startSimulation(setup: PingSetup, originDeviceId: string, target
     : mode === "dns" ? `Resolving ${target}...`
     : `Simulating ping to ${target}...`;
   state.terminal.lines.push({ kind: "sim", text: label });
+  // Surface the hop-by-hop log: open the dock on the Sim Log pane if nothing
+  // is showing; if the dock is already open, leave the user's tab alone (the
+  // Sim Log tab badge counts entries as they arrive).
+  if (!state.dock.open) openDock("simlog");
   syncTerminal();
   syncSimLog();
   startAnimationLoop();
@@ -63,6 +68,7 @@ export function stopSimulation(): void {
   sim.status = "idle";
   sim.events = [];
   sim.log = [];
+  sim.capture = [];
   sim.transits = [];
   sim.pendingArp = {};
   stopAnimationLoop();
@@ -125,6 +131,8 @@ export function runSimulationHeadless(
   sim.headless = true;
   sim.events = setup.events;
   sim.log = [];
+  // sim.capture is deliberately left alone: headless runs don't capture, and
+  // a scenario check (or first-boot chatter) must not wipe the packet list.
   sim.transits = [];
   sim.pendingArp = { ...setup.pendingArp };
   sim.stepIndex = 0;
@@ -175,6 +183,36 @@ export function runSimulationHeadless(
     log: sim.log,
     steps: sim.stepIndex,
   };
+}
+
+// ─── First boot (link-up / power-on autoconf) ────────────────────────────────
+
+// A new cable came up: any unconfigured host on either end boots its network
+// config, as a real machine does on carrier detect. Wired to addLink via the
+// device-callback registry (app.ts).
+export function autoBootLinkedHosts(aId: string, bId: string): void {
+  bootHostAutoconf(getDevice(aId));
+  bootHostAutoconf(getDevice(bId));
+}
+
+// First boot of an unconfigured host: a real DHCP exchange (Discover → Offer →
+// Request → ACK), run headlessly — it's background boot chatter, not a lesson
+// the user asked to watch. No answer self-assigns APIPA 169.254.x.y/16,
+// exactly like a real machine with link but no DHCP server. No-op for
+// configured/powered-off/unlinked devices, and never clobbers an active run.
+export function bootHostAutoconf(device: Device | undefined): void {
+  const sim = state.simulation;
+  if (sim.status === "running" || sim.status === "paused") return;
+  if (!device || (device.type !== "computer" && device.type !== "server")) return;
+  if (device.poweredOff || device.config?.ipv4Address) return;
+  const setup = buildDhcpEvents(device);
+  if (typeof setup === "string") return; // no MAC / no link — nothing a real NIC could do either
+  const result = runSimulationHeadless(setup, device.id, "", "dhcp");
+  dom.hint.textContent = result.success
+    ? `${device.name} booted: obtained ${result.assignedIp} via DHCP.`
+    : `${device.name} booted: self-assigned ${device.config?.ipv4Address}/16 (APIPA — no DHCP server answered).`;
+  sync().syncPanel();
+  sync().render();
 }
 
 export interface TracerouteHop { ttl: number; ip: string | null; reached: boolean }
@@ -272,6 +310,19 @@ function deliverCompletedTransits(): void {
   const completed = sim.transits.filter(t => t.progress >= 1);
   sim.transits = sim.transits.filter(t => t.progress < 1);
   for (const t of completed) {
+    // Packet list: one capture entry per wire traversal (animated runs only —
+    // headless probes like traceroute/scenario checks stay invisible).
+    if (!sim.headless) {
+      sim.capture.push({
+        no: sim.capture.length + 1,
+        step: sim.stepIndex,
+        frame: t.frame,
+        fromDeviceId: t.fromDeviceId,
+        toDeviceId: t.toDeviceId,
+        linkId: t.linkId,
+      });
+      if (sim.capture.length > 1000) sim.capture.shift();
+    }
     // Record frame on link
     const link = state.links.find(l => l.id === t.linkId);
     if (link) {
@@ -1291,15 +1342,61 @@ function logStep(device: Device, kind: string, summary: string): void {
   sim.log.push(entry);
 }
 
+// The sim-log pane: a Wireshark-style packet list (default) or the narrative
+// event log, switched by the Packets/Events toggle (state.dock.logView).
 export function syncSimLog(): void {
   const sim = state.simulation;
-  const active = sim.status !== "idle" && sim.log.length > 0;
-  dom.simLogPanel.classList.toggle("active", active);
-  if (!active) return;
-  dom.simLogOutput.innerHTML = sim.log.map(entry =>
+  syncSimLogBadge();
+  for (const btn of document.querySelectorAll<HTMLElement>("[data-logview]")) {
+    btn.classList.toggle("active", btn.dataset.logview === state.dock.logView);
+  }
+  dom.simLogOutput.innerHTML = state.dock.logView === "packets" ? renderPacketList() : renderEventLog();
+  dom.simLogOutput.scrollTop = dom.simLogOutput.scrollHeight;
+}
+
+function renderEventLog(): string {
+  const sim = state.simulation;
+  // Imported logs render too (status idle but entries present).
+  if (sim.log.length === 0) {
+    return `<p class="sim-log-line sim-learn">No simulation running — start a ping, connect, or DHCP run to capture frames.</p>`;
+  }
+  return sim.log.map(entry =>
     `<p class="sim-log-line ${escapeHtml(entry.kind || "")}">${escapeHtml(entry.summary)}</p>`
   ).join("");
-  dom.simLogOutput.scrollTop = dom.simLogOutput.scrollHeight;
+}
+
+// One row per captured frame; clicking a row opens the frame breakdown (wired
+// in ui.ts by data-no). The selected frame's row is highlighted — reference
+// equality works because capture entries hold the same frame objects the
+// transits (and click-a-packet) use.
+function renderPacketList(): string {
+  const sim = state.simulation;
+  if (sim.capture.length === 0) {
+    return `<p class="sim-log-line sim-learn">No packets captured — run a simulation (headless checks don't capture). The Events view holds imported logs.</p>`;
+  }
+  const linkById = new Map(state.links.map(l => [l.id, l]));
+  const rows = sim.capture.map(entry => {
+    const cols = packetColumns(entry.frame);
+    // The wire it was captured on: the link's name (user-given, or the
+    // endpoint combo). Falls back to the traversal endpoints if the link is gone.
+    const link = linkById.get(entry.linkId);
+    const wire = link ? linkName(link)
+      : `${getDevice(entry.fromDeviceId)?.name ?? "?"} ↔ ${getDevice(entry.toDeviceId)?.name ?? "?"}`;
+    const selected = state.inspectedFrame === entry.frame ? " selected" : "";
+    return `<tr class="pkt-row pkt-${escapeHtml(cols.tone)}${selected}" data-no="${entry.no}">
+      <td class="pkt-num">${entry.no}</td>
+      <td class="pkt-num">${entry.step}</td>
+      <td>${escapeHtml(cols.src)}</td>
+      <td>${escapeHtml(cols.dst)}</td>
+      <td>${escapeHtml(cols.protocol)}</td>
+      <td class="pkt-info">${escapeHtml(cols.info)}</td>
+      <td class="pkt-link">${escapeHtml(wire)}</td>
+    </tr>`;
+  }).join("");
+  return `<table class="pkt-table">
+    <thead><tr><th>No.</th><th>Step</th><th>Source</th><th>Destination</th><th>Protocol</th><th>Info</th><th>Link</th></tr></thead>
+    <tbody>${rows}</tbody>
+  </table>`;
 }
 
 function findLinkBetween(a: string, b: string): any | null {
@@ -1311,30 +1408,37 @@ function findLinkBetween(a: string, b: string): any | null {
 function finishSimulation(): void {
   const sim = state.simulation;
 
+  // Results land in the session of the device that started the run — the
+  // user may have switched tabs while the simulation animated.
+  const originSession = sessionFor(sim.originDeviceId);
+  const out = (kind: string, text: string) =>
+    originSession ? terminalLineFor(originSession, kind, text) : terminalLine(kind, text);
+
   if (sim.mode === "dhcp") {
     if (sim.dhcpSuccess) {
-      if (!sim.headless) terminalLine("", `DHCP configured:\n  IP address: ${sim.dhcpAssignedIp}\n  Default gateway: ${sim.dhcpAssignedGateway}`);
+      if (!sim.headless) out("", `DHCP configured:\n  IP address: ${sim.dhcpAssignedIp}\n  Default gateway: ${sim.dhcpAssignedGateway}`);
     } else {
-      // APIPA fallback
+      // APIPA fallback — link-local 169.254.0.0/16
       const apipaIp = generateApipaAddress();
       const origin = getDevice(sim.originDeviceId);
       if (origin?.config) {
         origin.config.ipv4Address = apipaIp;
+        origin.config.prefixLength = 16;
         origin.config.gatewayIpv4Address = "";
       }
       sim.dhcpAssignedIp = apipaIp;
-      if (!sim.headless) terminalLine("error", `DHCP: no response from server.\nAPIPA: assigned link-local ${apipaIp}`);
+      if (!sim.headless) out("error", `DHCP: no response from server.\nAPIPA: assigned link-local ${apipaIp}`);
     }
   } else if (sim.mode === "dns") {
     if (!sim.headless) {
       const origin = getDevice(sim.originDeviceId);
       const server = origin?.config?.dnsServerIp || "?";
       if (sim.dnsResolvedIp) {
-        terminalLine("", `Server:\t\t${server}\nAddress:\t${server}#53\n\nName:\t${sim.dnsName}\nAddress: ${sim.dnsResolvedIp}`);
+        out("", `Server:\t\t${server}\nAddress:\t${server}#53\n\nName:\t${sim.dnsName}\nAddress: ${sim.dnsResolvedIp}`);
       } else if (sim.log.some(e => e.kind === "sim-drop" && e.action.includes("NXDOMAIN"))) {
-        terminalLine("error", `** server can't find ${sim.dnsName}: NXDOMAIN`);
+        out("error", `** server can't find ${sim.dnsName}: NXDOMAIN`);
       } else {
-        terminalLine("error", `;; connection timed out; no servers could be reached`);
+        out("error", `;; connection timed out; no servers could be reached`);
       }
     }
   } else if (sim.mode === "tcp") {
@@ -1342,27 +1446,27 @@ function finishSimulation(): void {
       const target = sim.pingTargetIp || sim.dnsName || "?";
       const port = sim.tcpTargetPort ?? "?";
       if (sim.dnsName && !sim.dnsResolvedIp) {
-        terminalLine("error", `nc: getaddrinfo for host "${sim.dnsName}" port ${port}: Name or service not known`);
+        out("error", `nc: getaddrinfo for host "${sim.dnsName}" port ${port}: Name or service not known`);
       } else if (sim.tcpSuccess) {
-        terminalLine("", `Connection to ${target} ${port} port [tcp/*] succeeded!`);
+        out("", `Connection to ${target} ${port} port [tcp/*] succeeded!`);
       } else if (sim.tcpRefused) {
-        terminalLine("error", `nc: connect to ${target} port ${port} (tcp) failed: Connection refused`);
+        out("error", `nc: connect to ${target} port ${port} (tcp) failed: Connection refused`);
       } else {
-        terminalLine("error", `nc: connect to ${target} port ${port} (tcp) failed: Operation timed out`);
+        out("error", `nc: connect to ${target} port ${port} (tcp) failed: Operation timed out`);
       }
     }
   } else if (!sim.headless) {
     if (sim.dnsName && !sim.dnsResolvedIp) {
-      terminalLine("error", `ping: ${sim.dnsName}: Name or service not known`);
+      out("error", `ping: ${sim.dnsName}: Name or service not known`);
     } else {
       const targetIp = sim.pingTargetIp || "?";
       const name = sim.dnsName ? `${sim.dnsName} (${targetIp})` : targetIp;
       if (sim.pingSuccess) {
         const ttl = sim.pingTtl;
         const rtt = sim.stepIndex < 15 ? "1.0" : "2.0";
-        terminalLine("", `PING ${name}\n64 bytes from ${targetIp}: icmp_seq=1 ttl=${ttl} time=${rtt} ms\n\n--- ${name} ping statistics ---\n1 packets transmitted, 1 received, 0% packet loss`);
+        out("", `PING ${name}\n64 bytes from ${targetIp}: icmp_seq=1 ttl=${ttl} time=${rtt} ms\n\n--- ${name} ping statistics ---\n1 packets transmitted, 1 received, 0% packet loss`);
       } else {
-        terminalLine("", `PING ${name}\n\n--- ${name} ping statistics ---\n1 packets transmitted, 0 received, 100% packet loss`);
+        out("", `PING ${name}\n\n--- ${name} ping statistics ---\n1 packets transmitted, 0 received, 100% packet loss`);
       }
     }
   }

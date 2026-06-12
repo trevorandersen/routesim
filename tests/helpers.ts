@@ -41,6 +41,7 @@ export function resetState(): void {
     mode: "ping",
     events: [],
     log: [],
+    capture: [],
     transits: [],
     pendingArp: {},
     speed: 1000,
@@ -49,7 +50,6 @@ export function resetState(): void {
     animFrame: null,
   } as any;
   state.terminal = {
-    open: false,
     deviceId: null,
     mode: "exec",
     interfacePeerId: null,
@@ -57,7 +57,9 @@ export function resetState(): void {
     lines: [],
     history: [],
     historyIndex: -1,
-  } as any;
-  state.console = { open: false, lines: [], history: [], historyIndex: -1 } as any;
+  };
+  state.terminalSessions = [];
+  state.dock = { open: false, activeTab: "terminal", height: 280, logView: "packets" };
+  state.console = { lines: [], history: [], historyIndex: -1 };
   state.activeScenarioId = null;
 }

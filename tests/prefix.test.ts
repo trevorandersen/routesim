@@ -112,3 +112,44 @@ describe("prefixes — config round-trip", () => {
     expect(r1.config.interfaces[0].prefixLength).toBe(16);
   });
 });
+
+describe("prefixes — subnet identification on display surfaces", () => {
+  beforeEach(() => resetState());
+
+  function mixedTopology() {
+    runConsoleScript(`
+      add computer PC1 at 0 0
+      add router R1 at 100 0
+      link PC1 R1
+      ip PC1 10.1.2.3/16
+    `);
+    exec("interface R1 PC1 ip 10.1.0.1/16");
+  }
+
+  it("`show` reports address/prefix and the derived subnet", () => {
+    mixedTopology();
+    const pc = exec("show PC1").output.join("\n");
+    expect(pc).toContain("ip: 10.1.2.3/16 (subnet 10.1.0.0/16)");
+    const rtr = exec("show R1").output.join("\n");
+    expect(rtr).toContain("10.1.0.1/16");
+  });
+
+  it("`show ip interface brief` includes the prefix", () => {
+    mixedTopology();
+    const out = exec("cli R1 show ip interface brief").output.join("\n");
+    expect(out).toContain("10.1.0.1/16");
+  });
+
+  it("script export round-trips non-/24 prefixes (was silently dropped)", () => {
+    mixedTopology();
+    const script = (exec("export").data as string) ?? "";
+    expect(script).toContain("ip PC1 10.1.2.3/16");
+    expect(script).toContain("ip 10.1.0.1/16");
+    const results = runConsoleScript(script);
+    expect(results.filter(r => !r.ok)).toEqual([]);
+    const pc1 = state.devices.find(d => d.name === "PC1")!;
+    const r1 = state.devices.find(d => d.name === "R1")!;
+    expect(pc1.config.prefixLength).toBe(16);
+    expect(r1.config.interfaces![0].prefixLength).toBe(16);
+  });
+});

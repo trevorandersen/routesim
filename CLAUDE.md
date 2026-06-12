@@ -72,7 +72,7 @@ app.ts (entry)
   ├── ui.ts          ← event listeners, tool switching, keyboard shortcuts
   ├── canvas.ts      ← render loop, pan/zoom, device/link/transit drawing
   ├── inspector.ts   ← right panel: device details, link frame history
-  ├── terminal/      ← bottom panel CLI: core (dispatch/UI) + host, server (dnsmasq), router (FRR), switch (SONiC), firewall (iptables)
+  ├── terminal/      ← bottom dock (sessions/tabs/panes) + CLIs: core (dispatch/dock UI) + host, server (dnsmasq), router (FRR), switch (SONiC), firewall (iptables)
   ├── devices.ts     ← device/link CRUD, hit testing, LAN collapse/expand
   ├── device-registry.ts ← per-type spec: label, name prefix, size, palette, icon, default config
   ├── config.ts      ← topology serialise/apply + in-code default topologies
@@ -169,6 +169,8 @@ Routers forward IPv4 frames using a merged routing table built by `buildRoutingT
 
 ### DHCP
 
+**First boot**: an unconfigured host (computer/server, no IPv4) boots its network config when its first cable comes up (`addLink` → `linkUp` device callback → `autoBootLinkedHosts`) or when it is powered on while cabled (inspector power button → `bootHostAutoconf`) — a real DHCP exchange run **headlessly** (background boot chatter, never clobbers an active run or the packet capture), falling back to **APIPA** (`169.254.x.y/16`, no gateway) when no server answers, exactly like a real machine. The outcome lands in the hint bar. Devices with a configured address, powered-off devices, and uncabled boots are untouched; topology/scenario loads don't trigger it (they set links directly).
+
 `buildDhcpEvents(source)` in `simulation.ts` creates the initial DHCP Discover frame. The four-message exchange (Discover → Offer → Request → ACK) is handled by `processAtComputer`, `processAtRouter`, and `processAtServer` in `engine.ts`. Frame factories in `frame.ts`: `createDhcpDiscover`, `createDhcpOffer`, `createDhcpRequest`, `createDhcpAck`. The router allocates IPs from the .100–.254 range of the interface subnet; a server allocates from its configured `dhcp-range` and additionally hands out the router option (`option:router`, defaulting to the server itself, as dnsmasq does) and itself as nameserver (option 6). On ACK, the client assigns IP/prefix/gateway (+ nameserver if offered) and learns the server's MAC. Multi-server segments behave correctly: the client takes the **first Offer** (`sim.dhcpOfferTaken`), and a server/router only ACKs Requests whose `serverIp` names it.
 
 ### Frame history
@@ -181,17 +183,18 @@ Every link records frames that traverse it (`link.frameHistory[]`). Click a link
 - `state.selectedLinkId` — currently selected link (null if none). Mutually exclusive with selectedId.
 - `state.configuringId` — device whose config fields are shown (requires double-click or configure tool).
 - `state.simulation.status` — `"idle"` | `"running"` | `"paused"` | `"done"`.
-- `state.terminal.history` / `historyIndex` — command history for up/down arrow.
+- `state.terminal` — the **active terminal session** (a member of `state.terminalSessions`, or a detached placeholder with `deviceId: null`). Per-session: `mode`, `lines`, `history`/`historyIndex`.
+- `state.dock` — `{ open, activeTab: "terminal"|"console"|"simlog", height }`.
 
 ## UI panels
 
 - **Ribbon** — the top toolbar: tabs **File / Edit / View / Simulate / Scenarios / Help**, each swapping a strip of grouped buttons (`ribbon.ts` + `template.html`). The drawing tools live in Edit. Buttons are wired by data attribute in `ui.ts` (`data-tool`/`data-scenario`/`data-theme-id`/`data-action`); built-in topologies load from a `<select>` (`#topologySelect`). No brand text, no left tool rail.
-- **Frame inspector** — in select mode, clicking a transit dot pauses the simulation and shows the frame's full field breakdown in the inspector (`findTransitAt` in `canvas.ts`, `renderFramePanel` in `inspector.ts`, `state.inspectedFrame`). Cleared by clicking elsewhere, Close, or starting a new run.
+- **Frame inspector** — clicking a transit dot in select mode (or a packet-list row in the sim log) pauses the simulation and shows the frame's full field breakdown in the inspector (`findTransitAt` in `canvas.ts`, `renderFramePanel` in `inspector.ts`, `state.inspectedFrame`). Cleared by clicking elsewhere, Close, or starting a new run.
 - **Coordinate readout** — `#coordReadout`, bottom-right of the canvas: cursor world coords (on move) + the selected device's coords. Updated from the pointermove handler and the `syncCoordReadout` callback (refreshes on selection).
 - **Sim controls** — play/pause/step/stop/speed live in the Simulate ribbon tab.
-- **Sim log panel** — floats top-right during simulation. Color-coded frame processing log.
-- **Terminal** — bottom panel. Per-device CLI with command history. **Command console** — bottom panel, app-level commands (`commands.ts`). They share the bottom slot.
-- **Inspector** — right panel. Device config or link frame history; display options (names/IPs/MACs) live in the View ribbon tab.
+- **Bottom dock** — one resizable panel (`#dock`, drag its top edge) hosting three pane kinds behind a tab strip: **per-device terminal sessions** (one tab per open device CLI — each session keeps its own scrollback, history, and CLI mode, so router config mode survives switching; close a tab to end the session, an exec-level `exit` does the same), the **command console**, and the **sim log**. Starting an animated simulation opens the dock on the Sim Log pane if it's closed, and never steals the active tab if it's open (the tab carries a live count badge). Session state: `state.terminalSessions` (tab order) + `state.terminal` (the active session pointer all CLI handlers write to) + `state.dock` (`open`/`activeTab`/`height`/`logView`). Sim results land in the *origin device's* session even if another tab is active when the run finishes. Sessions are dropped when their device is deleted or a topology loads (`dropTerminalSessions` in state.ts).
+- **Sim log = packet list** — the Sim Log pane defaults to a **Wireshark-style packet list**: one row per frame per wire traversal (`sim.capture`, filled in `deliverCompletedTransits`, animated runs only, capped at 1000), columns No./Step/Source/Destination/Protocol/Info/Link with Wireshark-conventional Info strings (`packetColumns` in frame.ts) and protocol-coloured rows (`.pkt-*` classes; RST/NXDOMAIN/TTL-exceeded read red). The Link column shows the wire's name — links are nameable in the link inspector, defaulting to the endpoint combo (`linkName` in devices.ts), and the name round-trips with config JSON. **Clicking a row opens the frame breakdown** in the inspector (same path as click-a-packet; the selected row highlights by frame reference). A **Packets/Events toggle** (`state.dock.logView`) switches to the narrative event log (`sim.log` — MAC learns, routing decisions, verdicts); imported logs open in Events. Filtering/multi-run captures are roadmap items.
+- **Inspector** — right panel. Device config, or link name + frame history (links rename here; empty input reverts to the derived default); display options (names/IPs/MACs) live in the View ribbon tab. IPv4 fields (host and router interface) display and accept **`address/prefix`** — a bare address keeps the existing prefix — with the derived subnet shown beneath the host field (and as the interface input's tooltip). Canvas IP labels, `show`, `show ip interface brief`, and the script export all carry the `/prefix` too.
 - **Scenario goal banner** — floats top-left when a scenario is active (`scenario-ui.ts`).
 - **Port selection modal** — `openPortSelectionModal()` (`devices.ts`) for choosing ports when connecting switches/routers.
 - **About modal** — Help → About (`openAbout`/`closeAbout` in `ui.ts`): project blurb + CC0 dedication. Draggable by its header; dismiss via close button, backdrop click, or Escape.

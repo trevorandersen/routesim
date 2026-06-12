@@ -1,4 +1,4 @@
-import { state, pushUndo, sync } from "./state";
+import { state, pushUndo, sync, dropTerminalSessions } from "./state";
 import { dom } from "./dom";
 import { clampPortCount, clampRouterPortCount } from "./utils";
 import {
@@ -81,9 +81,10 @@ export function buildConfigPayload(): any {
         }
       } : {})
     })),
-    links: state.links.map(({ from, to, fromPort, toPort, hidden, collapsedBy, proxy }: any) => ({
+    links: state.links.map(({ from, to, name, fromPort, toPort, hidden, collapsedBy, proxy }: any) => ({
       from,
       to,
+      ...(name ? { name } : {}),
       ...(fromPort != null ? { fromPort } : {}),
       ...(toPort != null ? { toPort } : {}),
       ...(hidden ? { hidden: true } : {}),
@@ -133,12 +134,9 @@ export function applyConfigWithoutUndo(config: any): void {
   state.links = config.links;
   state.selectedId = config.devices[0]?.id || null;
   state.configuringId = null;
-  state.terminal.open = false;
-  state.terminal.deviceId = null;
-  state.terminal.mode = "exec";
-  state.terminal.interfacePeerId = null;
-  state.terminal.interfaceVlanTag = null;
-  state.terminal.lines = [];
+  // The old network's terminal sessions reference devices that no longer
+  // exist — drop them all (closes the dock if it was showing a terminal).
+  dropTerminalSessions();
   state.linkStartId = null;
   state.drag = null;
   state.panDrag = null;

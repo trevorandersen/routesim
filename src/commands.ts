@@ -12,7 +12,7 @@ import { USER_ADDABLE_TYPES } from "./device-registry";
 import { dom } from "./dom";
 import {
   addDevice, addLink, deleteSelection, clearNetwork, collapseLan, expandLan,
-  getDevice, moveDevice,
+  getDevice, moveDevice, linkName,
 } from "./devices";
 import {
   startSimulation, stopSimulation, pauseSimulation, resumeSimulation, stepOnce,
@@ -22,13 +22,13 @@ import { buildPingEvents, buildDhcpEvents, buildConnectEvents, buildResolveEvent
 import {
   setHostIp, setHostGateway, setHostDns, setRouterInterfaceIp, addSwitchVlan, removeSwitchVlan,
   setSwitchPortVlan, setSwitchPortMode, setSwitchTrunkNative, modifySwitchTrunkAllowed,
-  runTerminalCommand,
+  runTerminalCommand, ensureSession,
 } from "./terminal";
 import { buildConfigPayload, applyConfig, loadTopology } from "./config";
 import { normaliseConfig, normaliseStaticRoutes, ensureConfig } from "./normalise";
 import { setTool, setTheme } from "./ui";
 import { setZoom, fitNetwork } from "./canvas";
-import { isValidMac, normaliseMacAddress } from "./utils";
+import { isValidMac, normaliseMacAddress, prefixOf, networkOf } from "./utils";
 import { SCENARIOS, getScenario, loadScenario, checkScenario } from "./scenarios";
 
 export interface CommandResult {
@@ -234,15 +234,18 @@ function cmdCli(args: string[], rest: string): CommandResult {
   if (typeof device === "string") return err(device);
   const line = rest.slice(args[0].length).trim();
   if (!line) return err(`cli: missing command.`);
+  // Attach to (or silently create) the device's terminal session — its CLI
+  // mode persists across cli calls, so multi-line vtysh scripts work.
   if (state.terminal.deviceId !== device.id) {
-    state.terminal.deviceId = device.id;
-    state.terminal.mode = "exec";
-    state.terminal.interfacePeerId = null;
-    state.terminal.interfaceVlanTag = null;
+    state.terminal = ensureSession(device);
   }
-  const before = state.terminal.lines.length;
+  // Hold the session: an exec-level `exit` may close it mid-command, and the
+  // output still lives on the closed session's buffer.
+  const session = state.terminal;
+  const before = session.lines.length;
   runTerminalCommand(line);
-  return ok(...state.terminal.lines.slice(before).map(l => l.text));
+  sync().syncTerminal(); // keep the dock's terminal pane/prompt in step
+  return ok(...session.lines.slice(before).map(l => l.text));
 }
 
 // ── Simulation ───────────────────────────────────────────────────────────────
@@ -390,11 +393,7 @@ function cmdExport(): CommandResult {
 function cmdList(args: string[]): CommandResult {
   if ((args[0] || "").toLowerCase() === "links") {
     if (!state.links.length) return ok("(no links)");
-    return ok(...state.links.map(l => {
-      const f = getDevice(l.from)?.name || l.from;
-      const t = getDevice(l.to)?.name || l.to;
-      return `${f} ↔ ${t}`;
-    }));
+    return ok(...state.links.map(l => linkName(l)));
   }
   const devices = state.devices.filter(d => d.type !== "lan" || true);
   if (!devices.length) return ok("(no devices)");
@@ -407,7 +406,11 @@ function cmdShow(args: string[]): CommandResult {
   const c: any = device.config || {};
   const lines = [`${device.name} (${device.type})`];
   if (device.type === "computer" || device.type === "server") {
-    lines.push(`  ip: ${c.ipv4Address || "(unset)"}`, `  gateway: ${c.gatewayIpv4Address || "(unset)"}`, `  mac: ${c.macAddress || "(unset)"}`);
+    lines.push(
+      `  ip: ${c.ipv4Address ? `${c.ipv4Address}/${prefixOf(c)} (subnet ${networkOf(c.ipv4Address, prefixOf(c))})` : "(unset)"}`,
+      `  gateway: ${c.gatewayIpv4Address || "(unset)"}`,
+      `  mac: ${c.macAddress || "(unset)"}`
+    );
     if (c.dnsServerIp) lines.push(`  nameserver: ${c.dnsServerIp}`);
     if (device.type === "server") {
       lines.push(`  dnsmasq: ${c.dnsmasqRunning !== false ? "running" : "stopped"}`);
@@ -419,7 +422,7 @@ function cmdShow(args: string[]): CommandResult {
     lines.push(`  managed: ${Boolean(c.managed)}`, `  ports: ${c.ethernetPorts ?? 8}`);
     if (c.managed && c.vlans?.length) lines.push(`  vlans: ${c.vlans.map((v: any) => v.id).join(", ")}`);
   } else if (device.type === "router") {
-    for (const i of (c.interfaces || [])) lines.push(`  iface → ${getDevice(i.peerId)?.name || i.peerId}: ${i.ipv4Address || "(unset)"}`);
+    for (const i of (c.interfaces || [])) lines.push(`  iface → ${getDevice(i.peerId)?.name || i.peerId}: ${i.ipv4Address ? `${i.ipv4Address}/${prefixOf(i)}` : "(unset)"}`);
     if (c.staticRoutes?.length) lines.push(`  routes: ${c.staticRoutes.map((r: any) => `${r.network}→${r.nextHop}`).join(", ")}`);
     if (c.rip?.enabled) lines.push(`  rip: enabled`);
   }
@@ -599,7 +602,7 @@ export function exportTopologyScript(): string {
   for (const d of payload.devices) {
     const c = d.config || {};
     if (d.type === "computer" || d.type === "server") {
-      if (c.ipv4Address) lines.push(`ip ${d.name} ${c.ipv4Address}`);
+      if (c.ipv4Address) lines.push(`ip ${d.name} ${c.ipv4Address}/${prefixOf(c)}`);
       if (c.gatewayIpv4Address) lines.push(`gateway ${d.name} ${c.gatewayIpv4Address}`);
       if (c.macAddress) lines.push(`mac ${d.name} ${c.macAddress}`);
       if (c.dnsServerIp) lines.push(`nameserver ${d.name} ${c.dnsServerIp}`);
@@ -620,7 +623,7 @@ export function exportTopologyScript(): string {
       for (const i of (c.interfaces || [])) {
         const peer = idToName.get(i.peerId);
         if (peer && i.ipv4Address) {
-          lines.push(`interface ${d.name} ${peer} ip ${i.ipv4Address}${i.vlanTag != null ? ` vlan ${i.vlanTag}` : ""}`);
+          lines.push(`interface ${d.name} ${peer} ip ${i.ipv4Address}/${prefixOf(i)}${i.vlanTag != null ? ` vlan ${i.vlanTag}` : ""}`);
         }
       }
       for (const r of (c.staticRoutes || [])) lines.push(`route ${d.name} ${r.network} ${r.nextHop}`);

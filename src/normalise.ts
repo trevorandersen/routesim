@@ -320,6 +320,7 @@ export function normaliseConfig(parsed: any): { devices: Device[]; links: Link[]
       id: crypto.randomUUID ? crypto.randomUUID() : `${Date.now()}-${Math.random()}`,
       from,
       to,
+      ...(link.name ? { name: String(link.name).trim() } : {}),
       ...(link.fromPort != null ? { fromPort: Number(link.fromPort) } : {}),
       ...(link.toPort != null ? { toPort: Number(link.toPort) } : {}),
       hidden: Boolean(link.hidden),

@@ -1,7 +1,7 @@
 import type { DeviceType, ActiveTransit } from "./types";
 import { state, colors } from "./state";
 import { dom } from "./dom";
-import { cssColor } from "./utils";
+import { cssColor, prefixOf } from "./utils";
 import { DEVICE_SPECS } from "./device-registry";
 import { getDevice, isVisibleDevice, routerInterfacesWithNames, linkedPortsFor } from "./devices";
 import { normalisePortModes } from "./normalise";
@@ -255,7 +255,7 @@ export function drawDevice(device: any): void {
   if (HOST_TYPES.has(device.type) && state.options.showIpAddresses && device.config?.ipv4Address) {
     ctx.fillStyle = cssColor("--label-ip");
     ctx.font = FONT_SECONDARY;
-    ctx.fillText(device.config.ipv4Address, device.x, labelY);
+    ctx.fillText(`${device.config.ipv4Address}/${prefixOf(device.config)}`, device.x, labelY);
     labelY += 15;
   }
   if (HOST_TYPES.has(device.type) && state.options.showMacAddresses && device.config?.macAddress) {
@@ -303,7 +303,7 @@ export function drawDevice(device: any): void {
       if (state.options.showIpAddresses && iface.config.ipv4Address) {
         ctx.fillStyle = cssColor("--label-ip");
         ctx.font = FONT_SECONDARY;
-        ctx.fillText(`${iface.name}: ${iface.config.ipv4Address}`, device.x, labelY);
+        ctx.fillText(`${iface.name}: ${iface.config.ipv4Address}/${prefixOf(iface.config)}`, device.x, labelY);
         labelY += 15;
       }
       if (state.options.showMacAddresses && iface.config.macAddress) {

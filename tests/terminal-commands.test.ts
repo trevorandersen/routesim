@@ -23,7 +23,7 @@ function loadRouter() {
   state.devices = topo.devices as any;
   state.links = topo.links as any;
   const rtr = state.devices.find(d => d.id === "rtr")!;
-  state.terminal.open = true;
+  state.dock.open = true;
   state.terminal.deviceId = "rtr";
   state.terminal.mode = "exec";
   return rtr;

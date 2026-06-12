@@ -1,5 +1,5 @@
 import type { PortOption, Device, Link, DeviceType } from "./types";
-import { state, sync, pushUndo, networkSnapshot } from "./state";
+import { state, sync, pushUndo, networkSnapshot, dropTerminalSessions } from "./state";
 import { dom } from "./dom";
 import { deviceSize, defaultDeviceConfig, ensureConfig, normaliseRouterInterfaces, normalisePortVlans, normalisePortModes } from "./normalise";
 import { clampPortCount, clampRouterPortCount, escapeHtml, randomMac } from "./utils";
@@ -42,6 +42,9 @@ export function addLink(fromId: string, toId: string, fromPort?: number, toPort?
       fromPort: resolvedFromPort,
       toPort: resolvedToPort
     } as any);
+    // The cable just came up: unconfigured hosts on either end boot their
+    // network config (DHCP, then APIPA) — wired to the engine in app.ts.
+    if (_linkUp) _linkUp(fromId, toId);
   }
   state.linkStartId = null;
   sync().syncPanel();
@@ -76,14 +79,7 @@ export function deleteSelection(): void {
   state.selectedId = null;
   state.configuringId = null;
   state.linkStartId = null;
-  if (state.terminal.deviceId === id) {
-    state.terminal.open = false;
-    state.terminal.deviceId = null;
-    state.terminal.mode = "exec";
-    state.terminal.interfacePeerId = null;
-    state.terminal.interfaceVlanTag = null;
-    state.terminal.lines = [];
-  }
+  if (id) dropTerminalSessions([id]); // a deleted device's session tab goes with it
   sync().syncPanel();
   sync().syncTerminal();
   sync().render();
@@ -97,11 +93,7 @@ export function clearNetwork(): void {
   state.configuringId = null;
   state.linkStartId = null;
   state.panDrag = null;
-  state.terminal.open = false;
-  state.terminal.deviceId = null;
-  state.terminal.mode = "exec";
-  state.terminal.interfacePeerId = null;
-  state.terminal.lines = [];
+  dropTerminalSessions();
   state.nameCounters = freshNameCounters();
   sync().syncPanel();
   sync().syncTerminal();
@@ -200,6 +192,14 @@ export function linksFor(id: string): Link[] {
 
 export function getDevice(id: string | null): Device | undefined {
   return id == null ? undefined : deviceIndex().get(id);
+}
+
+// A link's display name: the user-given name, or the endpoint combo (which
+// follows device renames automatically). Used by the link inspector and the
+// packet list's Link column.
+export function linkName(link: Link): string {
+  if (link.name) return link.name;
+  return `${getDevice(link.from)?.name ?? link.from} ↔ ${getDevice(link.to)?.name ?? link.to}`;
 }
 
 export function isVisibleDevice(device: Device | undefined | null): device is Device {
@@ -683,10 +683,16 @@ export function cancelPortSelection(): void {
 
 let _setTool: ((tool: string) => void) | null = null;
 let _setNetworkPanel: ((open: boolean) => void) | null = null;
+let _linkUp: ((aId: string, bId: string) => void) | null = null;
 
-export function registerDeviceCallbacks(cbs: { setTool: (tool: string) => void; setNetworkPanel: (open: boolean) => void }) {
+export function registerDeviceCallbacks(cbs: {
+  setTool: (tool: string) => void;
+  setNetworkPanel: (open: boolean) => void;
+  linkUp?: (aId: string, bId: string) => void;   // fires when a new cable comes up (first-boot autoconf)
+}) {
   _setTool = cbs.setTool;
   _setNetworkPanel = cbs.setNetworkPanel;
+  _linkUp = cbs.linkUp ?? null;
 }
 
 export function configureDevice(device: Device): void {

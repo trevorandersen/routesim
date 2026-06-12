@@ -4,11 +4,13 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>RouteSim</title>
+  <!-- Embedded favicon (no request): the router icon on a rounded tile, router palette. -->
+  <link rel="icon" type="image/svg+xml" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24'%3E%3Crect x='0.75' y='0.75' width='22.5' height='22.5' rx='5.5' fill='%23fffaf1' stroke='%239a5b13' stroke-width='1.5'/%3E%3Cg fill='none' stroke='%2373420c' stroke-width='1.6' stroke-linecap='round' stroke-linejoin='round' transform='translate(12 12) scale(0.72) translate(-12 -12)'%3E%3Cpath d='M12 12m-9 0a9 9 0 1 0 18 0a9 9 0 1 0 -18 0'/%3E%3Cpath d='M6 12h5'/%3E%3Cpath d='M8 10l3 2l-3 2'/%3E%3Cpath d='M18 12h-5'/%3E%3Cpath d='M16 10l-3 2l3 2'/%3E%3Cpath d='M12 10v-5'/%3E%3Cpath d='M10 7l2 -2l2 2'/%3E%3Cpath d='M12 14v5'/%3E%3Cpath d='M10 17l2 2l2 -2'/%3E%3C/g%3E%3C/svg%3E">
   <style>
 {{STYLES}}
   </style>
 </head>
-<body class="inspector-closed terminal-closed console-closed">
+<body class="inspector-closed dock-closed">
   <header class="ribbon" id="ribbon">
     <div class="ribbon-tabs">
       <button class="ribbon-tab active" data-tab="file" type="button">File</button>
@@ -142,42 +144,37 @@
     </section>
   </main>
 
-  <section class="sim-log-panel" id="simLogPanel" aria-label="Simulation log">
-    <div class="sim-log-titlebar">
-      <span id="simLogTitle">Simulation Log</span>
-      <button class="panel-toggle" id="simLogCloseButton" type="button" title="Close log" aria-label="Close simulation log">
+  <section class="dock" id="dock" aria-label="Terminals, console, and simulation log">
+    <button class="dock-resize" id="dockResizeHandle" type="button" title="Resize panel" aria-label="Resize bottom panel"></button>
+    <div class="dock-tabbar">
+      <div class="dock-tabs" id="dockTabs"></div>
+      <button class="panel-toggle" id="dockClose" type="button" title="Close panel" aria-label="Close bottom panel">
         <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M18 6 6 18"></path><path d="m6 6 12 12"></path></svg>
       </button>
     </div>
-    <div class="sim-log-output" id="simLogOutput" aria-live="polite"></div>
-  </section>
-
-  <section class="terminal-panel" id="terminalPanel" aria-label="Device terminal">
-    <div class="terminal-titlebar">
-      <span id="terminalTitle">PC terminal</span>
-      <button class="panel-toggle" id="terminalCloseButton" type="button" title="Close terminal" aria-label="Close terminal">
-        <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M18 6 6 18"></path><path d="m6 6 12 12"></path></svg>
-      </button>
+    <div class="dock-body">
+      <div class="dock-pane" id="terminalPane" aria-label="Device terminal">
+        <div class="terminal-output" id="terminalOutput" aria-live="polite"></div>
+        <form class="terminal-input-row" id="terminalForm" autocomplete="off">
+          <span id="terminalPrompt">pc$</span>
+          <input id="terminalInput" spellcheck="false" placeholder="help">
+        </form>
+      </div>
+      <div class="dock-pane" id="consolePane" aria-label="Command console">
+        <div class="terminal-output" id="consoleOutput" aria-live="polite"></div>
+        <form class="terminal-input-row" id="consoleForm" autocomplete="off">
+          <span id="consolePrompt">routesim&gt;</span>
+          <input id="consoleInput" spellcheck="false" placeholder="help">
+        </form>
+      </div>
+      <div class="dock-pane dock-pane-log" id="simLogPane" aria-label="Simulation log">
+        <div class="simlog-toolbar">
+          <button class="simlog-view active" data-logview="packets" type="button">Packets</button>
+          <button class="simlog-view" data-logview="events" type="button">Events</button>
+        </div>
+        <div class="sim-log-output" id="simLogOutput" aria-live="polite"></div>
+      </div>
     </div>
-    <div class="terminal-output" id="terminalOutput" aria-live="polite"></div>
-    <form class="terminal-input-row" id="terminalForm" autocomplete="off">
-      <span id="terminalPrompt">pc$</span>
-      <input id="terminalInput" spellcheck="false" placeholder="help">
-    </form>
-  </section>
-
-  <section class="console-panel" id="consolePanel" aria-label="Command console">
-    <div class="terminal-titlebar">
-      <span>Command console</span>
-      <button class="panel-toggle" id="consoleCloseButton" type="button" title="Close console" aria-label="Close console">
-        <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M18 6 6 18"></path><path d="m6 6 12 12"></path></svg>
-      </button>
-    </div>
-    <div class="terminal-output" id="consoleOutput" aria-live="polite"></div>
-    <form class="terminal-input-row" id="consoleForm" autocomplete="off">
-      <span id="consolePrompt">routesim&gt;</span>
-      <input id="consoleInput" spellcheck="false" placeholder="help">
-    </form>
   </section>
 
   <aside class="inspector" id="networkInspector" aria-label="Inspector">

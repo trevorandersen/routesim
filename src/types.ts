@@ -11,9 +11,12 @@ export interface TerminalLine {
   text: string;
 }
 
-export interface TerminalState {
-  open: boolean;
-  deviceId: string | null;
+// One terminal session per device: its own scrollback, command history, and
+// CLI mode (the router mode machine lives here, so config mode survives
+// switching tabs). `state.terminal` points at the active session; all open
+// sessions live in `state.terminalSessions` (the dock's tab order).
+export interface TerminalSession {
+  deviceId: string | null;   // null = detached placeholder (open-failure messages)
   mode: string;
   interfacePeerId: string | null;
   interfaceVlanTag: number | null;
@@ -23,10 +26,21 @@ export interface TerminalState {
 }
 
 export interface ConsoleState {
-  open: boolean;
   lines: TerminalLine[];
   history: string[];
   historyIndex: number;
+}
+
+// The bottom dock: one resizable panel hosting the per-device terminal
+// sessions (as tabs), the command console, and the sim log.
+export type DockTab = "terminal" | "console" | "simlog";
+export interface DockState {
+  open: boolean;
+  activeTab: DockTab;
+  height: number;   // px, drag-resizable (drives --terminal-height)
+  // Sim-log pane view: the Wireshark-style packet list, or the narrative
+  // event log (MAC learns, routing decisions, verdicts).
+  logView: "packets" | "events";
 }
 
 export interface DisplayOptions {
@@ -244,6 +258,7 @@ export interface Link {
   id: string;
   from: string;
   to: string;
+  name?: string;       // user-given name; unnamed links derive "A ↔ B" (linkName in devices.ts)
   fromPort?: number;   // 1-based port number on the "from" device
   toPort?: number;     // 1-based port number on the "to" device
   hidden?: boolean;
@@ -352,11 +367,23 @@ export interface SimLogEntry {
   summary: string;
 }
 
+// One row of the Wireshark-style packet list: a frame captured as it crossed
+// a wire (one entry per link traversal, like a capture point on every cable).
+export interface CaptureEntry {
+  no: number;        // 1-based capture number (Wireshark's "No.")
+  step: number;      // simulation step it was delivered on
+  frame: EthernetFrame;
+  fromDeviceId: string;
+  toDeviceId: string;
+  linkId: string;
+}
+
 export interface SimulationState {
   status: "idle" | "running" | "paused" | "done";
   mode: "ping" | "dhcp" | "tcp" | "dns";
   events: SimEvent[];
   log: SimLogEntry[];
+  capture: CaptureEntry[];   // packet list (animated runs only; capped)
   transits: ActiveTransit[];
   pendingArp: Record<string, EthernetFrame[]>;
   speed: number;
@@ -415,7 +442,9 @@ export interface AppState {
   theme: string;
   inspectorWidth: number;
   inspectorResize: InspectorResizeState | null;
-  terminal: TerminalState;
+  terminal: TerminalSession;            // the active session (see TerminalSession)
+  terminalSessions: TerminalSession[];  // open sessions, in tab order
+  dock: DockState;
   console: ConsoleState;
   activeScenarioId: string | null;
   options: DisplayOptions;

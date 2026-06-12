@@ -7,18 +7,25 @@
  * sessions. Dock chrome (tabs/panes) is DOM-rendered and exercised in the
  * preview; these tests cover the state model.
  */
-import { describe, it, expect, beforeAll, beforeEach } from "bun:test";
+import { describe, it, expect, beforeAll, afterAll, beforeEach } from "bun:test";
 import { state } from "../src/state";
 import {
-  openTerminalFor, closeSession, ensureSession, sessionFor,
+  openTerminalFor, canOpenTerminal, closeSession, ensureSession, sessionFor,
   openDock, closeDock, toggleDockTab, runTerminalCommand,
 } from "../src/terminal";
-import { deleteSelection } from "../src/devices";
+import { deleteSelection, configureDevice, registerDeviceCallbacks } from "../src/devices";
 import { loadDefaultConfig } from "../src/config";
 import { runConsoleScript, runConsoleCommand as exec } from "../src/commands";
 import { registerNoopCallbacks, resetState } from "./helpers";
 
-beforeAll(() => registerNoopCallbacks());
+beforeAll(() => {
+  registerNoopCallbacks();
+  registerDeviceCallbacks({
+    setTool: () => {}, setNetworkPanel: () => {},
+    openTerminal: (d) => { if (canOpenTerminal(d)) openTerminalFor(d); },
+  });
+});
+afterAll(() => registerDeviceCallbacks({ setTool: () => {}, setNetworkPanel: () => {} }));
 
 function lanTopology() {
   runConsoleScript(`
@@ -186,5 +193,41 @@ describe("dock — tabs and panes", () => {
     exec("ping PC1 192.168.1.1");
     expect(state.dock.activeTab).toBe("terminal");
     exec("stop");
+  });
+});
+
+describe("dock — configuring a device opens its terminal", () => {
+  beforeEach(() => resetState());
+
+  it("a CLI device (PC) opens a terminal session on configure", () => {
+    const { pc1 } = lanTopology();
+    configureDevice(pc1);
+    expect(state.dock.open).toBe(true);
+    expect(state.dock.activeTab).toBe("terminal");
+    expect(state.terminal.deviceId).toBe(pc1.id);
+  });
+
+  it("an unmanaged switch does not (canOpenTerminal is false)", () => {
+    const { sw } = lanTopology();
+    expect(canOpenTerminal(sw)).toBe(false);
+    configureDevice(sw);
+    expect(state.terminalSessions).toHaveLength(0);
+    expect(state.dock.open).toBe(false);
+  });
+
+  it("a managed switch does", () => {
+    const { sw } = lanTopology();
+    sw.config.managed = true;
+    configureDevice(sw);
+    expect(state.terminal.deviceId).toBe(sw.id);
+    expect(state.dock.activeTab).toBe("terminal");
+  });
+
+  it("a powered-off CLI device does not open a session", () => {
+    const { pc1 } = lanTopology();
+    pc1.poweredOff = true;
+    expect(canOpenTerminal(pc1)).toBe(false);
+    configureDevice(pc1);
+    expect(state.terminalSessions).toHaveLength(0);
   });
 });

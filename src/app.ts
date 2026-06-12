@@ -3,7 +3,7 @@ import { registerDeviceCallbacks } from "./devices";
 import { dom } from "./dom";
 import { render, resizeCanvas, syncZoomLevel } from "./canvas";
 import { syncPanel, syncOptionControls, syncNetworkPanel, setNetworkPanel, setInspectorWidth } from "./inspector";
-import { syncTerminal } from "./terminal";
+import { syncTerminal, openTerminalFor, canOpenTerminal } from "./terminal";
 import { syncConsole } from "./console";
 import { syncScenarioPanel } from "./scenario-ui";
 import { setupUI, setTool, setTheme, syncCoordReadout } from "./ui";
@@ -27,7 +27,8 @@ registerCallbacks({
 registerDeviceCallbacks({
   setTool,
   setNetworkPanel,
-  linkUp: autoBootLinkedHosts
+  linkUp: autoBootLinkedHosts,
+  openTerminal: (device) => { if (canOpenTerminal(device)) openTerminalFor(device); }
 });
 
 // Wire all UI event listeners (ribbon, canvas, panels)

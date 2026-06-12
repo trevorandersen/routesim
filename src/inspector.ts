@@ -7,7 +7,7 @@ import { ensureConfig, normaliseVlans, normaliseDnsRecords, normaliseDhcpLeases 
 import {
   getDevice, isVisibleDevice, connectedIds, linkedPortsFor,
   routerInterfacesWithNames, routerInterfaceFor, switchInterfacesWithNames,
-  deleteSelection, collapseLan, expandLan, configureDevice
+  deleteSelection, deleteLink, collapseLan, expandLan, configureDevice
 } from "./devices";
 import {
   openTerminalFor, syncTerminal,
@@ -403,8 +403,15 @@ function renderLinkPanel(link: Link): void {
         </div>
       ` : `<p class="empty-state">No frames recorded.</p>`}
     </div>
-    <button class="wide-button danger" id="clearLinkHistory">Clear history</button>
+    <button class="wide-button danger" id="deleteLink">
+      <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M3 6h18"></path><path d="M8 6V4h8v2"></path><path d="M19 6l-1 14H6L5 6"></path></svg>
+      Delete link
+    </button>
+    <div style="height: 8px"></div>
+    <button class="wide-button" id="clearLinkHistory">Clear history</button>
   `;
+  const deleteLinkBtn = document.getElementById("deleteLink");
+  if (deleteLinkBtn) deleteLinkBtn.addEventListener("click", () => deleteLink(link.id));
   const clearBtn = document.getElementById("clearLinkHistory");
   if (clearBtn) clearBtn.addEventListener("click", () => {
     link.frameHistory = [];

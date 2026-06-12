@@ -50,9 +50,17 @@ GET riding the existing TCP handshake), DNAT/port-forwarding on NAT routers so
 inbound connections can reach an inside server, upstream DNS forwarding.
 Effort: low–moderate each.
 
+### Multi-NIC hosts
+Hosts currently model a single NIC (eth0) and so take one cable. Allow
+multiple interfaces on a computer/server (eth0/eth1/…, each with its own
+address and the port-selection modal already used by switches/routers) for
+multi-homed hosts and dual-NIC servers. Effort: moderate (host config grows an
+interfaces array; the engine's per-host handlers pick the ingress NIC).
+
 ### Configurable links
 Links are now nameable (inspector; the default name is the endpoint combo and
-the packet list's Link column shows it). Make them properly configurable:
+the packet list's Link column shows it) and deletable. Make them properly
+configurable:
 **bandwidth/latency/loss** (per-hop transit time and drop probability would
 make speed and reliability teachable), **admin status** (shut a link without
 deleting it — instant troubleshooting scenarios), canvas labels for named

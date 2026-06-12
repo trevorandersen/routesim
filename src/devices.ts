@@ -26,12 +26,30 @@ export function addDevice(type: DeviceType, x: number, y: number, name?: string)
   return device;
 }
 
+// Hosts (computer/server) model a single NIC (eth0), so they take at most one
+// cable. Returns the offending device's name when fully cabled, else null.
+// (Multi-NIC hosts are a future option — see ROADMAP.)
+function hostNicTaken(deviceId: string): string | null {
+  const device = getDevice(deviceId);
+  if (!device || (device.type !== "computer" && device.type !== "server")) return null;
+  const cabled = state.links.some(l => !l.hidden && (l.from === deviceId || l.to === deviceId));
+  return cabled ? device.name : null;
+}
+
 export function addLink(fromId: string, toId: string, fromPort?: number, toPort?: number): void {
   if (fromId === toId) return;
   const exists = state.links.some(link =>
     (link.from === fromId && link.to === toId) || (link.from === toId && link.to === fromId)
   );
   if (!exists) {
+    // Single-NIC guard: a host already holding a cable can't take another.
+    const taken = hostNicTaken(fromId) || hostNicTaken(toId);
+    if (taken) {
+      state.linkStartId = null;
+      dom.hint.textContent = `${taken} has a single NIC (eth0) and is already connected.`;
+      sync().render();
+      return;
+    }
     pushUndo();
     const resolvedFromPort = fromPort ?? nextAvailablePort(fromId);
     const resolvedToPort = toPort ?? nextAvailablePort(toId);
@@ -65,7 +83,23 @@ export function nextAvailablePort(deviceId: string): number {
   return port;
 }
 
+// Remove a link by id. Returns true if one was removed.
+export function deleteLink(linkId: string): boolean {
+  if (!state.links.some(l => l.id === linkId)) return false;
+  pushUndo();
+  state.links = state.links.filter(l => l.id !== linkId);
+  if (state.selectedLinkId === linkId) state.selectedLinkId = null;
+  sync().syncPanel();
+  sync().render();
+  return true;
+}
+
 export function deleteSelection(): void {
+  // A selected link deletes first (devices and links are mutually exclusive).
+  if (!state.selectedId && state.selectedLinkId) {
+    deleteLink(state.selectedLinkId);
+    return;
+  }
   if (!state.selectedId) return;
   const selected = getDevice(state.selectedId);
   if (selected?.type === "lan") {
@@ -684,15 +718,18 @@ export function cancelPortSelection(): void {
 let _setTool: ((tool: string) => void) | null = null;
 let _setNetworkPanel: ((open: boolean) => void) | null = null;
 let _linkUp: ((aId: string, bId: string) => void) | null = null;
+let _openTerminal: ((device: Device) => void) | null = null;
 
 export function registerDeviceCallbacks(cbs: {
   setTool: (tool: string) => void;
   setNetworkPanel: (open: boolean) => void;
   linkUp?: (aId: string, bId: string) => void;   // fires when a new cable comes up (first-boot autoconf)
+  openTerminal?: (device: Device) => void;        // configuring a CLI device opens its terminal
 }) {
   _setTool = cbs.setTool;
   _setNetworkPanel = cbs.setNetworkPanel;
   _linkUp = cbs.linkUp ?? null;
+  _openTerminal = cbs.openTerminal ?? null;
 }
 
 export function configureDevice(device: Device): void {
@@ -704,6 +741,9 @@ export function configureDevice(device: Device): void {
   state.linkStartId = null;
   if (_setTool) _setTool("configure");
   if (_setNetworkPanel) _setNetworkPanel(true);
+  // Configuring a CLI device also brings up its terminal (no-op for devices
+  // without a usable one — unmanaged switches, powered-off, LANs).
+  if (_openTerminal) _openTerminal(device);
   dom.hint.textContent = `Configuring ${device.name}.`;
   sync().syncPanel();
   sync().render();

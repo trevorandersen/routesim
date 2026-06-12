@@ -209,6 +209,14 @@ export function hasTerminal(device: Device | undefined): boolean {
   return !!device && device.type in CLI_DISPATCH;
 }
 
+// Whether openTerminalFor would actually attach a working session (vs show an
+// error placeholder): a CLI device that is powered on and, for switches,
+// managed. Used to auto-open a terminal when configuring.
+export function canOpenTerminal(device: Device | undefined): boolean {
+  return hasTerminal(device) && !device!.poweredOff
+    && !(device!.type === "switch" && !device!.config?.managed);
+}
+
 export function runTerminalCommand(rawCommand: string): void {
   const host = getDevice(state.terminal.deviceId);
   const command = rawCommand.trim();

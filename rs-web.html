@@ -3009,12 +3009,25 @@ Full legal text: https://creativecommons.org/publicdomain/zero/1.0/legalcode</pr
     sync().render();
     return device;
   }
+  function hostNicTaken(deviceId) {
+    const device = getDevice(deviceId);
+    if (!device || device.type !== "computer" && device.type !== "server") return null;
+    const cabled = state.links.some((l) => !l.hidden && (l.from === deviceId || l.to === deviceId));
+    return cabled ? device.name : null;
+  }
   function addLink(fromId, toId, fromPort, toPort) {
     if (fromId === toId) return;
     const exists = state.links.some(
       (link) => link.from === fromId && link.to === toId || link.from === toId && link.to === fromId
     );
     if (!exists) {
+      const taken = hostNicTaken(fromId) || hostNicTaken(toId);
+      if (taken) {
+        state.linkStartId = null;
+        dom.hint.textContent = `${taken} has a single NIC (eth0) and is already connected.`;
+        sync().render();
+        return;
+      }
       pushUndo();
       const resolvedFromPort = fromPort ?? nextAvailablePort(fromId);
       const resolvedToPort = toPort ?? nextAvailablePort(toId);
@@ -3044,7 +3057,20 @@ Full legal text: https://creativecommons.org/publicdomain/zero/1.0/legalcode</pr
     while (occupied.has(port)) port++;
     return port;
   }
+  function deleteLink(linkId) {
+    if (!state.links.some((l) => l.id === linkId)) return false;
+    pushUndo();
+    state.links = state.links.filter((l) => l.id !== linkId);
+    if (state.selectedLinkId === linkId) state.selectedLinkId = null;
+    sync().syncPanel();
+    sync().render();
+    return true;
+  }
   function deleteSelection() {
+    if (!state.selectedId && state.selectedLinkId) {
+      deleteLink(state.selectedLinkId);
+      return;
+    }
     if (!state.selectedId) return;
     const selected = getDevice(state.selectedId);
     if (selected?.type === "lan") {
@@ -3559,10 +3585,12 @@ Full legal text: https://creativecommons.org/publicdomain/zero/1.0/legalcode</pr
   var _setTool = null;
   var _setNetworkPanel = null;
   var _linkUp = null;
+  var _openTerminal = null;
   function registerDeviceCallbacks(cbs) {
     _setTool = cbs.setTool;
     _setNetworkPanel = cbs.setNetworkPanel;
     _linkUp = cbs.linkUp ?? null;
+    _openTerminal = cbs.openTerminal ?? null;
   }
   function configureDevice(device) {
     if (!device) return;
@@ -3573,6 +3601,7 @@ Full legal text: https://creativecommons.org/publicdomain/zero/1.0/legalcode</pr
     state.linkStartId = null;
     if (_setTool) _setTool("configure");
     if (_setNetworkPanel) _setNetworkPanel(true);
+    if (_openTerminal) _openTerminal(device);
     dom.hint.textContent = `Configuring ${device.name}.`;
     sync().syncPanel();
     sync().render();
@@ -7345,6 +7374,9 @@ Address: ${sim.dnsResolvedIp}`);
   function hasTerminal(device) {
     return !!device && device.type in CLI_DISPATCH;
   }
+  function canOpenTerminal(device) {
+    return hasTerminal(device) && !device.poweredOff && !(device.type === "switch" && !device.config?.managed);
+  }
   function runTerminalCommand(rawCommand) {
     const host = getDevice(state.terminal.deviceId);
     const command = rawCommand.trim();
@@ -7788,8 +7820,15 @@ Address: ${sim.dnsResolvedIp}`);
         </div>
       ` : `<p class="empty-state">No frames recorded.</p>`}
     </div>
-    <button class="wide-button danger" id="clearLinkHistory">Clear history</button>
+    <button class="wide-button danger" id="deleteLink">
+      <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M3 6h18"></path><path d="M8 6V4h8v2"></path><path d="M19 6l-1 14H6L5 6"></path></svg>
+      Delete link
+    </button>
+    <div style="height: 8px"></div>
+    <button class="wide-button" id="clearLinkHistory">Clear history</button>
   `;
+    const deleteLinkBtn = document.getElementById("deleteLink");
+    if (deleteLinkBtn) deleteLinkBtn.addEventListener("click", () => deleteLink(link.id));
     const clearBtn = document.getElementById("clearLinkHistory");
     if (clearBtn) clearBtn.addEventListener("click", () => {
       link.frameHistory = [];
@@ -10283,7 +10322,10 @@ Address: ${sim.dnsResolvedIp}`);
   registerDeviceCallbacks({
     setTool,
     setNetworkPanel,
-    linkUp: autoBootLinkedHosts
+    linkUp: autoBootLinkedHosts,
+    openTerminal: (device) => {
+      if (canOpenTerminal(device)) openTerminalFor(device);
+    }
   });
   setupUI();
   window.routesim = {

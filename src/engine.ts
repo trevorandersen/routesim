@@ -208,7 +208,7 @@ export function bootHostAutoconf(device: Device | undefined): void {
   const setup = buildDhcpEvents(device);
   if (typeof setup === "string") return; // no MAC / no link — nothing a real NIC could do either
   const result = runSimulationHeadless(setup, device.id, "", "dhcp");
-  dom.hint.textContent = result.success
+  dom.modeLabel.textContent = result.success
     ? `${device.name} booted: obtained ${result.assignedIp} via DHCP.`
     : `${device.name} booted: self-assigned ${device.config?.ipv4Address}/16 (APIPA — no DHCP server answered).`;
   sync().syncPanel();

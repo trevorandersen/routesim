@@ -1,11 +1,31 @@
 import { describe, it, expect, beforeAll, beforeEach } from "bun:test";
 import { state } from "../src/state";
-import { addDevice, addLink, deleteSelection, clearNetwork, findDeviceAt, getDevice, connectedIds, linkedPortsFor } from "../src/devices";
+import { addDevice, addLink, deleteSelection, clearNetwork, findDeviceAt, getDevice, connectedIds, linkedPortsFor, routerInterfaceForName, routerInterfacesWithNames } from "../src/devices";
 import { freshNameCounters } from "../src/device-registry";
 import { registerNoopCallbacks, resetState } from "./helpers";
 
 beforeAll(() => {
   registerNoopCallbacks();
+});
+
+describe("routerInterfaceForName — IP on an unconnected port", () => {
+  beforeEach(() => { resetState(); state.nameCounters = freshNameCounters(); });
+
+  it("persists an address assigned to an empty port across re-enumeration", () => {
+    const rtr = addDevice("router", 0, 0);
+    // No cable on Ethernet3 — assign an address by name.
+    const iface = routerInterfaceForName(rtr, "Ethernet3");
+    iface.ipv4Address = "10.0.0.1";
+    iface.prefixLength = 30;
+    // Re-enumerating must surface that saved address on the same empty port.
+    const rows = routerInterfacesWithNames(rtr);
+    const eth3 = rows.find((r: any) => r.name === "Ethernet3");
+    expect(eth3.peer).toBeNull();
+    expect(eth3.config.ipv4Address).toBe("10.0.0.1");
+    // A second call returns the same stored entry, not a duplicate.
+    expect(routerInterfaceForName(rtr, "Ethernet3").ipv4Address).toBe("10.0.0.1");
+    expect(rtr.config.interfaces.filter((i: any) => i.name === "Ethernet3")).toHaveLength(1);
+  });
 });
 
 describe("addDevice", () => {

@@ -46,7 +46,7 @@ export function addLink(fromId: string, toId: string, fromPort?: number, toPort?
     const taken = hostNicTaken(fromId) || hostNicTaken(toId);
     if (taken) {
       state.linkStartId = null;
-      dom.hint.textContent = `${taken} has a single NIC (eth0) and is already connected.`;
+      dom.modeLabel.textContent = `${taken} has a single NIC (eth0) and is already connected.`;
       sync().render();
       return;
     }
@@ -346,7 +346,7 @@ export function collapseLan(anchor: any): void {
   if (!anchor || anchor.type !== "switch") return;
   const { members, absorbedLans } = collectLanMembers(anchor.id);
   if (members.length < 2) {
-    dom.hint.textContent = "Collapse LAN needs a switch with at least one attached LAN device.";
+    dom.modeLabel.textContent = "Collapse LAN needs a switch with at least one attached LAN device.";
     return;
   }
   pushUndo();
@@ -412,7 +412,7 @@ export function collapseLan(anchor: any): void {
   state.linkStartId = null;
   sync().syncPanel();
   sync().render();
-  dom.hint.textContent = `Collapsed ${members.length} devices into ${lan.name}.`;
+  dom.modeLabel.textContent = `Collapsed ${members.length} devices into ${lan.name}.`;
 }
 
 export function expandLan(lan: any): void {
@@ -445,7 +445,7 @@ export function expandLan(lan: any): void {
   state.linkStartId = null;
   sync().syncPanel();
   sync().render();
-  dom.hint.textContent = `Expanded ${lan.name}.`;
+  dom.modeLabel.textContent = `Expanded ${lan.name}.`;
 }
 
 export function routerInterfaceFor(router: any, peerId: string, vlanTag?: number | null): any {
@@ -464,6 +464,21 @@ export function routerInterfaceFor(router: any, peerId: string, vlanTag?: number
     const peer = getDevice(peerId);
     const type = peer?.type === "router" ? "serial" : "ethernet";
     iface = { peerId, type, ipv4Address: "", vlanTag: vlanTag ?? null };
+    router.config.interfaces.push(iface);
+  }
+  return iface;
+}
+
+// Find or create a config entry for an *unconnected* port, keyed by its
+// interface name (Ethernet3, Serial2). Lets a user pre-assign an IP before a
+// cable exists; normaliseRouterInterfaces keeps the entry alive because it has
+// a name. If a cable later occupies that port, the by-peer entry takes over.
+export function routerInterfaceForName(router: any, name: string): any {
+  ensureConfig(router);
+  router.config.interfaces = normaliseRouterInterfaces(router.config.interfaces || []);
+  let iface = router.config.interfaces.find((entry: any) => entry.peerId === "" && entry.name === name);
+  if (!iface) {
+    iface = { peerId: "", name, type: /^serial/i.test(name) ? "serial" : "ethernet", ipv4Address: "", vlanTag: null };
     router.config.interfaces.push(iface);
   }
   return iface;
@@ -515,20 +530,19 @@ export function routerInterfacesWithNames(router: any): any[] {
       });
     }
   }
-  const emptyEthernet = Array.from({ length: Math.max(0, ethernetPorts - ethernetIndex) }, (_, index) => ({
-    name: `Ethernet${ethernetIndex + index + 1}`,
-    type: "ethernet",
-    peer: null,
-    peerId: "",
-    config: { peerId: "", type: "ethernet", ipv4Address: "", vlanTag: null }
-  }));
-  const emptySerial = Array.from({ length: Math.max(0, serialPorts - serialIndex) }, (_, index) => ({
-    name: `Serial${serialIndex + index + 1}`,
-    type: "serial",
-    peer: null,
-    peerId: "",
-    config: { peerId: "", type: "serial", ipv4Address: "", vlanTag: null }
-  }));
+  // Unconnected ports reuse any saved by-name config (so a pre-assigned IP
+  // persists across renders), else a fresh placeholder.
+  const emptyConfigFor = (name: string, type: string) =>
+    configured.find((c: any) => c.peerId === "" && c.name === name)
+      || { peerId: "", name, type, ipv4Address: "", vlanTag: null };
+  const emptyEthernet = Array.from({ length: Math.max(0, ethernetPorts - ethernetIndex) }, (_, index) => {
+    const name = `Ethernet${ethernetIndex + index + 1}`;
+    return { name, type: "ethernet", peer: null, peerId: "", config: emptyConfigFor(name, "ethernet") };
+  });
+  const emptySerial = Array.from({ length: Math.max(0, serialPorts - serialIndex) }, (_, index) => {
+    const name = `Serial${serialIndex + index + 1}`;
+    return { name, type: "serial", peer: null, peerId: "", config: emptyConfigFor(name, "serial") };
+  });
   return [...occupied, ...emptyEthernet, ...emptySerial];
 }
 
@@ -744,7 +758,7 @@ export function configureDevice(device: Device): void {
   // Configuring a CLI device also brings up its terminal (no-op for devices
   // without a usable one — unmanaged switches, powered-off, LANs).
   if (_openTerminal) _openTerminal(device);
-  dom.hint.textContent = `Configuring ${device.name}.`;
+  dom.modeLabel.textContent = `Configuring ${device.name}.`;
   sync().syncPanel();
   sync().render();
 }

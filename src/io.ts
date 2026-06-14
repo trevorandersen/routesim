@@ -52,7 +52,7 @@ export function pickFile(accept = "application/json,.json,.txt"): Promise<string
 
 export function exportConfig(): void {
   downloadJson(buildConfigPayload(), "topology.json");
-  dom.hint.textContent = "Exported topology.json.";
+  dom.modeLabel.textContent = "Exported topology.json.";
 }
 
 export async function importConfig(): Promise<void> {
@@ -60,9 +60,9 @@ export async function importConfig(): Promise<void> {
   if (text == null) return;
   try {
     applyConfig(parseConfig(text));
-    dom.hint.textContent = "Imported topology.";
+    dom.modeLabel.textContent = "Imported topology.";
   } catch (error: any) {
-    dom.hint.textContent = error.message || "Import failed.";
+    dom.modeLabel.textContent = error.message || "Import failed.";
   }
 }
 
@@ -70,7 +70,7 @@ export async function importConfig(): Promise<void> {
 
 export function exportScenarios(): void {
   downloadJson(SCENARIOS, "scenarios.json");
-  dom.hint.textContent = "Exported scenarios.json.";
+  dom.modeLabel.textContent = "Exported scenarios.json.";
 }
 
 export async function importScenario(): Promise<void> {
@@ -86,10 +86,10 @@ export async function importScenario(): Promise<void> {
         lastId = s.id;
       }
     }
-    if (lastId) { loadScenario(lastId); dom.hint.textContent = `Imported scenario "${lastId}".`; }
-    else dom.hint.textContent = "No valid scenarios in file.";
+    if (lastId) { loadScenario(lastId); dom.modeLabel.textContent = `Imported scenario "${lastId}".`; }
+    else dom.modeLabel.textContent = "No valid scenarios in file.";
   } catch {
-    dom.hint.textContent = "Invalid scenario JSON.";
+    dom.modeLabel.textContent = "Invalid scenario JSON.";
   }
 }
 
@@ -97,21 +97,21 @@ export async function importScenario(): Promise<void> {
 
 export function exportScript(): void {
   downloadText(exportTopologyScript(), "topology.routesim.txt");
-  dom.hint.textContent = "Exported topology script.";
+  dom.modeLabel.textContent = "Exported topology script.";
 }
 
 export async function importScript(): Promise<void> {
   const text = await pickFile("text/plain,.txt,.routesim,.json");
   if (text == null) return;
   runConsoleScript(text);
-  dom.hint.textContent = "Ran imported script.";
+  dom.modeLabel.textContent = "Ran imported script.";
 }
 
 // ── Logs ─────────────────────────────────────────────────────────────────────
 
 export function exportLog(): void {
   downloadJson(state.simulation.log, "simlog.json");
-  dom.hint.textContent = "Exported simlog.json.";
+  dom.modeLabel.textContent = "Exported simlog.json.";
 }
 
 export async function importLog(): Promise<void> {
@@ -119,13 +119,13 @@ export async function importLog(): Promise<void> {
   if (text == null) return;
   try {
     const log = JSON.parse(text);
-    if (!Array.isArray(log)) { dom.hint.textContent = "Invalid log JSON."; return; }
+    if (!Array.isArray(log)) { dom.modeLabel.textContent = "Invalid log JSON."; return; }
     state.simulation.log = log;
     state.dock.logView = "events"; // imported logs are event entries, not captures
     openDock("simlog");
     syncSimLog();
-    dom.hint.textContent = "Imported simulation log.";
+    dom.modeLabel.textContent = "Imported simulation log.";
   } catch {
-    dom.hint.textContent = "Invalid log JSON.";
+    dom.modeLabel.textContent = "Invalid log JSON.";
   }
 }

@@ -8,7 +8,7 @@ import {
   openTerminalFor, syncTerminal, submitTerminalCommand, handleTerminalKeydown,
   toggleDockTab, closeDock, handleDockTabClick, startDockResize, moveDockResize, stopDockResize,
 } from "./terminal";
-import { openConsole, submitConsoleCommand, handleConsoleKeydown } from "./console";
+import { openConsole, consoleLine, submitConsoleCommand, handleConsoleKeydown } from "./console";
 import { loadScenario } from "./scenarios";
 import { runActiveScenarioCheck, dismissScenario } from "./scenario-ui";
 import { loadTopology } from "./config";
@@ -21,7 +21,6 @@ export function setTool(tool: string): void {
   state.linkStartId = null;
   dom.toolButtons.forEach(button => button.classList.toggle("active", (button as HTMLElement).dataset.tool === tool));
   dom.modeLabel.textContent = toolCopy[tool][0];
-  dom.hint.textContent = toolCopy[tool][1];
   dom.canvas.style.cursor = tool === "select" ? "default" : tool === "configure" ? "pointer" : "crosshair";
   render();
 }
@@ -189,10 +188,10 @@ export function setupUI(): void {
       if (!state.linkStartId) {
         state.linkStartId = device.id;
         state.selectedId = device.id;
-        dom.hint.textContent = `Connect ${device.name} to another device.`;
+        dom.modeLabel.textContent = `Connect ${device.name} to another device.`;
       } else {
         openPortSelectionModal(state.linkStartId, device.id);
-        dom.hint.textContent = toolCopy.connect[1];
+        dom.modeLabel.textContent = toolCopy.connect[1];
       }
       syncPanel();
       render();
@@ -361,7 +360,7 @@ export function setupUI(): void {
     "panel-console": () => openConsole(),
     "panel-simlog": () => toggleDockTab("simlog"),
     "fit": fitNetwork,
-    "help-shortcuts": () => { dom.hint.textContent = "Shortcuts: V select · C computer · E server · S switch · R router · F firewall · L connect · W configure · Del delete · Esc cancel · Ctrl/Cmd+Z undo · scroll to zoom."; },
+    "help-shortcuts": () => { openConsole(); consoleLine("output", "Shortcuts: V select · C computer · E server · S switch · R router · F firewall · L connect · W configure · Del delete · Esc cancel · Ctrl/Cmd+Z undo · scroll to zoom."); },
     "help-commands": () => openConsole(),
     "help-about": openAbout,
   };
@@ -423,8 +422,11 @@ export function setupUI(): void {
     syncSimLog();
   });
 
-  // Inspector (network) panel.
-  dom.inspectorCloseButton.addEventListener("click", () => setNetworkPanel(false));
+  // Inspector (network) panel. The close button lives in the panel heading,
+  // which is rebuilt each sync, so it's wired by delegation.
+  dom.detailsPanel.addEventListener("click", (event) => {
+    if ((event.target as HTMLElement)?.closest?.("#inspectorCloseButton")) setNetworkPanel(false);
+  });
   dom.inspectorResizeHandle.addEventListener("pointerdown", startInspectorResize as any);
   window.addEventListener("pointermove", moveInspectorResize as any);
   window.addEventListener("pointerup", stopInspectorResize);

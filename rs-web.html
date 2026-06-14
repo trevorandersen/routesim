@@ -348,24 +348,6 @@
       cursor: crosshair;
     }
 
-    .hint {
-      position: absolute;
-      left: 16px;
-      bottom: 16px;
-      max-width: min(560px, calc(100% - 220px));
-      padding: 9px 12px;
-      border: 1px solid rgba(139, 152, 165, 0.32);
-      border-radius: 8px;
-      color: var(--hint-text);
-      background: var(--hint-bg);
-      box-shadow: 0 6px 18px rgba(19, 33, 46, 0.08);
-      font-size: 13px;
-      pointer-events: none;
-      white-space: nowrap;
-      overflow: hidden;
-      text-overflow: ellipsis;
-    }
-
     .coord-readout {
       position: absolute;
       right: 16px;
@@ -675,12 +657,20 @@
       text-transform: uppercase;
     }
 
+    /* The heading is sticky and full-bleed so the close button stays in line
+       with the title (Configure/Selection) even as the panel scrolls. */
     .panel-heading {
+      position: sticky;
+      top: 0;
+      z-index: 2;
       display: flex;
       align-items: center;
       justify-content: space-between;
       gap: 12px;
-      margin-bottom: 14px;
+      margin: -18px -18px 14px;
+      padding: 12px 16px;
+      background: var(--panel);
+      border-bottom: 1px solid var(--line);
     }
 
     .panel-heading h2 {
@@ -715,33 +705,6 @@
       fill: none;
     }
 
-    .metric-grid {
-      display: grid;
-      grid-template-columns: repeat(2, minmax(0, 1fr));
-      gap: 10px;
-    }
-
-    .metric {
-      min-width: 0;
-      padding: 12px;
-      border: 1px solid var(--line);
-      border-radius: 8px;
-      background: var(--panel-soft);
-    }
-
-    .metric strong {
-      display: block;
-      font-size: 24px;
-      line-height: 1;
-      margin-bottom: 6px;
-    }
-
-    .metric span {
-      display: block;
-      color: var(--muted);
-      font-size: 12px;
-    }
-
     .option-list {
       display: grid;
       gap: 10px;
@@ -773,6 +736,17 @@
       display: grid;
       gap: 7px;
       margin-bottom: 13px;
+    }
+
+    /* Two fields side by side (e.g. router Ethernet + Serial port counts). */
+    .field-row {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 10px;
+    }
+
+    .field-row .field {
+      min-width: 0;
     }
 
     .field label {
@@ -884,9 +858,7 @@
     .interface-row {
       min-width: 0;
       display: grid;
-      grid-template-columns: 46px minmax(70px, 0.8fr) minmax(0, 1fr);
-      align-items: center;
-      gap: 8px;
+      gap: 6px;
       padding: 8px;
       border: 1px solid var(--line);
       border-radius: 8px;
@@ -894,18 +866,42 @@
       font-size: 12px;
     }
 
+    .interface-head {
+      min-width: 0;
+      display: flex;
+      align-items: baseline;
+      gap: 8px;
+    }
+
     .interface-name {
+      flex: none;
       color: var(--muted);
       font-weight: 800;
     }
 
     .interface-peer {
+      flex: 1;
       min-width: 0;
       overflow: hidden;
       text-overflow: ellipsis;
       white-space: nowrap;
+      text-align: right;
       color: var(--text);
       font-weight: 700;
+    }
+
+    .interface-peer.empty {
+      color: var(--muted);
+      font-weight: 600;
+    }
+
+    .iface-unlink {
+      flex: none;
+      height: 22px;
+      width: 22px;
+      padding: 0;
+      font-size: 15px;
+      line-height: 1;
     }
 
     .interface-row input {
@@ -1176,6 +1172,48 @@
       fill: none;
     }
 
+    /* Compact paired buttons (Power Off + Delete) sharing one line. */
+    .button-row {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 8px;
+    }
+
+    .row-button {
+      min-width: 0;
+      height: 34px;
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      gap: 6px;
+      border-radius: 8px;
+      border: 1px solid var(--line);
+      color: var(--text);
+      background: var(--panel-soft);
+      font-size: 12px;
+      cursor: pointer;
+    }
+
+    .row-button:hover {
+      border-color: var(--line-strong);
+      background: var(--panel);
+    }
+
+    .row-button.danger {
+      color: var(--danger);
+    }
+
+    .row-button svg {
+      width: 15px;
+      height: 15px;
+      flex: none;
+      stroke: currentColor;
+      stroke-width: 2;
+      stroke-linecap: round;
+      stroke-linejoin: round;
+      fill: none;
+    }
+
     .device-list {
       padding: 10px;
     }
@@ -1260,14 +1298,6 @@
 
       body:not(.inspector-closed) .inspector {
         display: flex;
-      }
-
-      .interface-row {
-        grid-template-columns: 42px minmax(0, 1fr);
-      }
-
-      .interface-row input {
-        grid-column: 1 / -1;
       }
     }
 
@@ -1814,7 +1844,6 @@
           <span class="scenario-status" id="scenarioStatus"></span>
         </div>
       </div>
-      <div class="hint" id="hint">Click a tool, then click the canvas. Drag devices in select mode.</div>
       <div class="coord-readout" id="coordReadout" aria-live="off"></div>
     </section>
   </main>
@@ -1854,18 +1883,6 @@
 
   <aside class="inspector" id="networkInspector" aria-label="Inspector">
     <button class="inspector-resize" id="inspectorResizeHandle" type="button" title="Resize panel" aria-label="Resize network panel"></button>
-    <section class="panel-section">
-      <div class="panel-heading">
-        <h2>Network</h2>
-        <button class="panel-toggle" id="inspectorCloseButton" type="button" title="Close network panel" aria-label="Close network panel">
-          <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M18 6 6 18"></path><path d="m6 6 12 12"></path></svg>
-        </button>
-      </div>
-      <div class="metric-grid">
-        <div class="metric"><strong id="deviceCount">0</strong><span>Devices</span></div>
-        <div class="metric"><strong id="linkCount">0</strong><span>Links</span></div>
-      </div>
-    </section>
     <section class="panel-section" id="detailsPanel">
       <h2>Selection</h2>
       <p class="empty-state">No device selected.</p>
@@ -2924,11 +2941,7 @@ Full legal text: https://creativecommons.org/publicdomain/zero/1.0/legalcode</pr
     ctx: document.getElementById("networkCanvas").getContext("2d"),
     toolButtons: [...document.querySelectorAll(".tool-button[data-tool]")],
     modeLabel: document.getElementById("modeLabel"),
-    hint: document.getElementById("hint"),
-    deviceCount: document.getElementById("deviceCount"),
-    linkCount: document.getElementById("linkCount"),
     inspectorOpenButton: document.getElementById("inspectorOpenButton"),
-    inspectorCloseButton: document.getElementById("inspectorCloseButton"),
     inspectorResizeHandle: document.getElementById("inspectorResizeHandle"),
     showDeviceNames: document.getElementById("showDeviceNames"),
     showIpAddresses: document.getElementById("showIpAddresses"),
@@ -3014,7 +3027,7 @@ Full legal text: https://creativecommons.org/publicdomain/zero/1.0/legalcode</pr
       const taken = hostNicTaken(fromId) || hostNicTaken(toId);
       if (taken) {
         state.linkStartId = null;
-        dom.hint.textContent = `${taken} has a single NIC (eth0) and is already connected.`;
+        dom.modeLabel.textContent = `${taken} has a single NIC (eth0) and is already connected.`;
         sync().render();
         return;
       }
@@ -3248,7 +3261,7 @@ Full legal text: https://creativecommons.org/publicdomain/zero/1.0/legalcode</pr
     if (!anchor || anchor.type !== "switch") return;
     const { members, absorbedLans } = collectLanMembers(anchor.id);
     if (members.length < 2) {
-      dom.hint.textContent = "Collapse LAN needs a switch with at least one attached LAN device.";
+      dom.modeLabel.textContent = "Collapse LAN needs a switch with at least one attached LAN device.";
       return;
     }
     pushUndo();
@@ -3314,7 +3327,7 @@ Full legal text: https://creativecommons.org/publicdomain/zero/1.0/legalcode</pr
     state.linkStartId = null;
     sync().syncPanel();
     sync().render();
-    dom.hint.textContent = `Collapsed ${members.length} devices into ${lan.name}.`;
+    dom.modeLabel.textContent = `Collapsed ${members.length} devices into ${lan.name}.`;
   }
   function expandLan(lan) {
     if (!lan || lan.type !== "lan") return;
@@ -3346,7 +3359,7 @@ Full legal text: https://creativecommons.org/publicdomain/zero/1.0/legalcode</pr
     state.linkStartId = null;
     sync().syncPanel();
     sync().render();
-    dom.hint.textContent = `Expanded ${lan.name}.`;
+    dom.modeLabel.textContent = `Expanded ${lan.name}.`;
   }
   function routerInterfaceFor(router, peerId, vlanTag) {
     ensureConfig(router);
@@ -3361,6 +3374,16 @@ Full legal text: https://creativecommons.org/publicdomain/zero/1.0/legalcode</pr
       const peer = getDevice(peerId);
       const type = peer?.type === "router" ? "serial" : "ethernet";
       iface = { peerId, type, ipv4Address: "", vlanTag: vlanTag ?? null };
+      router.config.interfaces.push(iface);
+    }
+    return iface;
+  }
+  function routerInterfaceForName(router, name) {
+    ensureConfig(router);
+    router.config.interfaces = normaliseRouterInterfaces(router.config.interfaces || []);
+    let iface = router.config.interfaces.find((entry) => entry.peerId === "" && entry.name === name);
+    if (!iface) {
+      iface = { peerId: "", name, type: /^serial/i.test(name) ? "serial" : "ethernet", ipv4Address: "", vlanTag: null };
       router.config.interfaces.push(iface);
     }
     return iface;
@@ -3408,20 +3431,15 @@ Full legal text: https://creativecommons.org/publicdomain/zero/1.0/legalcode</pr
         });
       }
     }
-    const emptyEthernet = Array.from({ length: Math.max(0, ethernetPorts - ethernetIndex) }, (_, index) => ({
-      name: `Ethernet${ethernetIndex + index + 1}`,
-      type: "ethernet",
-      peer: null,
-      peerId: "",
-      config: { peerId: "", type: "ethernet", ipv4Address: "", vlanTag: null }
-    }));
-    const emptySerial = Array.from({ length: Math.max(0, serialPorts - serialIndex) }, (_, index) => ({
-      name: `Serial${serialIndex + index + 1}`,
-      type: "serial",
-      peer: null,
-      peerId: "",
-      config: { peerId: "", type: "serial", ipv4Address: "", vlanTag: null }
-    }));
+    const emptyConfigFor = (name, type) => configured.find((c) => c.peerId === "" && c.name === name) || { peerId: "", name, type, ipv4Address: "", vlanTag: null };
+    const emptyEthernet = Array.from({ length: Math.max(0, ethernetPorts - ethernetIndex) }, (_, index) => {
+      const name = `Ethernet${ethernetIndex + index + 1}`;
+      return { name, type: "ethernet", peer: null, peerId: "", config: emptyConfigFor(name, "ethernet") };
+    });
+    const emptySerial = Array.from({ length: Math.max(0, serialPorts - serialIndex) }, (_, index) => {
+      const name = `Serial${serialIndex + index + 1}`;
+      return { name, type: "serial", peer: null, peerId: "", config: emptyConfigFor(name, "serial") };
+    });
     return [...occupied, ...emptyEthernet, ...emptySerial];
   }
   function routerInterfaceByName(router, name) {
@@ -3592,7 +3610,7 @@ Full legal text: https://creativecommons.org/publicdomain/zero/1.0/legalcode</pr
     if (_setTool) _setTool("configure");
     if (_setNetworkPanel) _setNetworkPanel(true);
     if (_openTerminal) _openTerminal(device);
-    dom.hint.textContent = `Configuring ${device.name}.`;
+    dom.modeLabel.textContent = `Configuring ${device.name}.`;
     sync().syncPanel();
     sync().render();
   }
@@ -4688,7 +4706,7 @@ Full legal text: https://creativecommons.org/publicdomain/zero/1.0/legalcode</pr
     const setup = buildDhcpEvents(device);
     if (typeof setup === "string") return;
     const result = runSimulationHeadless(setup, device.id, "", "dhcp");
-    dom.hint.textContent = result.success ? `${device.name} booted: obtained ${result.assignedIp} via DHCP.` : `${device.name} booted: self-assigned ${device.config?.ipv4Address}/16 (APIPA \u2014 no DHCP server answered).`;
+    dom.modeLabel.textContent = result.success ? `${device.name} booted: obtained ${result.assignedIp} via DHCP.` : `${device.name} booted: self-assigned ${device.config?.ipv4Address}/16 (APIPA \u2014 no DHCP server answered).`;
     sync().syncPanel();
     sync().render();
   }
@@ -7547,16 +7565,30 @@ Address: ${sim.dnsResolvedIp}`);
     <div class="interface-list">
       ${interfaces.map((iface) => {
       const vlanAttr = iface.config.vlanTag != null ? ` data-vlan-tag="${iface.config.vlanTag}"` : "";
+      const peerLabel = iface.peer?.name || "not connected";
+      const ipAttrs = iface.peer ? `data-peer-id="${escapeHtml(iface.peerId)}"${vlanAttr}` : `data-iface-name="${escapeHtml(iface.name)}"`;
       return `
           <div class="interface-row">
-            <span class="interface-name">${escapeHtml(iface.name)}</span>
-            <span class="interface-peer ${iface.peer ? "" : "empty"}" title="${escapeHtml(iface.peer?.name || "Empty")}">${escapeHtml(iface.peer?.name || "Empty")}</span>
-            <input class="router-interface-ip" data-peer-id="${escapeHtml(iface.peerId)}"${vlanAttr} ${iface.peer ? "" : "disabled"} value="${escapeHtml(iface.config.ipv4Address ? `${iface.config.ipv4Address}/${prefixOf(iface.config)}` : "")}" placeholder="192.168.1.1/24" title="${escapeHtml(iface.config.ipv4Address ? `Subnet: ${networkOf(iface.config.ipv4Address, prefixOf(iface.config))}` : "")}" autocomplete="off" inputmode="decimal">
+            <div class="interface-head">
+              <span class="interface-name">${escapeHtml(iface.name)}</span>
+              <span class="interface-peer ${iface.peer ? "" : "empty"}" title="${escapeHtml(peerLabel)}">${escapeHtml(peerLabel)}</span>
+              ${iface.peer ? `<button class="inline-button iface-unlink" data-peer-id="${escapeHtml(iface.peerId)}" type="button" title="Delete link to ${escapeHtml(iface.peer.name)}" aria-label="Delete link to ${escapeHtml(iface.peer.name)}">&times;</button>` : ""}
+            </div>
+            <input class="router-interface-ip" ${ipAttrs} value="${escapeHtml(iface.config.ipv4Address ? `${iface.config.ipv4Address}/${prefixOf(iface.config)}` : "")}" placeholder="192.168.1.1/24" title="${escapeHtml(iface.config.ipv4Address ? `Subnet: ${networkOf(iface.config.ipv4Address, prefixOf(iface.config))}` : "")}" autocomplete="off" inputmode="decimal">
           </div>
         `;
     }).join("")}
     </div>
   `;
+  }
+  function panelHeading(title) {
+    return `
+    <div class="panel-heading">
+      <h2>${title}</h2>
+      <button class="panel-toggle" id="inspectorCloseButton" type="button" title="Close panel" aria-label="Close inspector panel">
+        <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M18 6 6 18"></path><path d="m6 6 12 12"></path></svg>
+      </button>
+    </div>`;
   }
   function renderFirewallRules(device) {
     const rules = device.config?.rules || [];
@@ -7780,7 +7812,7 @@ Address: ${sim.dnsResolvedIp}`);
     const history = link.frameHistory || [];
     const defaultName = `${fromDev?.name ?? link.from} \u2194 ${toDev?.name ?? link.to}`;
     dom.detailsPanel.innerHTML = `
-    <h2>Link</h2>
+    ${panelHeading("Link")}
     <div class="field">
       <label for="selectedLinkName">Name</label>
       <div class="input-with-button">
@@ -7886,7 +7918,7 @@ Address: ${sim.dnsResolvedIp}`);
       }
     }
     dom.detailsPanel.innerHTML = `
-    <h2>Frame</h2>
+    ${panelHeading("Frame")}
     <p class="empty-state">Captured frame \u2014 a running simulation pauses while you inspect. Click elsewhere or press Close to dismiss.</p>
     <table class="data-table frame-detail">
       <tbody>
@@ -7904,8 +7936,6 @@ Address: ${sim.dnsResolvedIp}`);
     });
   }
   function syncPanel() {
-    dom.deviceCount.textContent = String(state.devices.filter(isVisibleDevice).length);
-    dom.linkCount.textContent = String(state.links.filter((link) => !link.hidden).length);
     sync().syncCoordReadout();
     if (state.inspectedFrame) {
       renderFramePanel(state.inspectedFrame);
@@ -7919,13 +7949,13 @@ Address: ${sim.dnsResolvedIp}`);
         renderLinkPanel(link);
       } else {
         dom.detailsPanel.innerHTML = `
-        <h2>Selection</h2>
+        ${panelHeading("Selection")}
         <p class="empty-state">No device selected.</p>
       `;
       }
     } else if (!selected) {
       dom.detailsPanel.innerHTML = `
-      <h2>Selection</h2>
+      ${panelHeading("Selection")}
       <p class="empty-state">No device selected.</p>
     `;
     } else {
@@ -7963,11 +7993,6 @@ Address: ${sim.dnsResolvedIp}`);
         </div>
       </div>
       ${selected.type === "server" ? renderDnsmasqSection(selected) : ""}
-      <button class="wide-button danger" id="deleteSelected">
-        <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M3 6h18"></path><path d="M8 6V4h8v2"></path><path d="M19 6l-1 14H6L5 6"></path></svg>
-        Delete
-      </button>
-      <div style="height: 14px"></div>
       <div class="field">
         <label>ARP table</label>
         ${renderArpTable(selected)}
@@ -8002,13 +8027,15 @@ Address: ${sim.dnsResolvedIp}`);
       </div>
     ` : "";
       const routerConfigFields = selected.type === "router" ? `
-      <div class="field">
-        <label for="selectedRouterEthernetPorts">Ethernet ports</label>
-        <input id="selectedRouterEthernetPorts" type="number" min="0" max="12" step="1" value="${escapeHtml(selected.config?.ethernetPorts ?? 4)}">
-      </div>
-      <div class="field">
-        <label for="selectedRouterSerialPorts">Serial ports</label>
-        <input id="selectedRouterSerialPorts" type="number" min="0" max="12" step="1" value="${escapeHtml(selected.config?.serialPorts ?? 4)}">
+      <div class="field-row">
+        <div class="field">
+          <label for="selectedRouterEthernetPorts">Ethernet ports</label>
+          <input id="selectedRouterEthernetPorts" type="number" min="0" max="12" step="1" value="${escapeHtml(selected.config?.ethernetPorts ?? 4)}">
+        </div>
+        <div class="field">
+          <label for="selectedRouterSerialPorts">Serial ports</label>
+          <input id="selectedRouterSerialPorts" type="number" min="0" max="12" step="1" value="${escapeHtml(selected.config?.serialPorts ?? 4)}">
+        </div>
       </div>
       <div class="field">
         <label>Interfaces</label>
@@ -8042,7 +8069,7 @@ Address: ${sim.dnsResolvedIp}`);
       </div>
     ` : "";
       dom.detailsPanel.innerHTML = `
-      <h2>${isConfiguring ? "Configure" : "Selection"}</h2>
+      ${panelHeading(isConfiguring ? "Configure" : "Selection")}
       <div class="field">
         <label for="selectedName">Name</label>
         <input id="selectedName" value="${escapeHtml(selected.name)}" autocomplete="off">
@@ -8069,17 +8096,16 @@ Address: ${sim.dnsResolvedIp}`);
         <div style="height: 10px"></div>
       ` : ""}
       ${selected.type !== "lan" ? `
-        <button class="wide-button ${selected.poweredOff ? "" : "danger"}" id="togglePower">
-          <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M7 6a7.75 7.75 0 1 0 10 0"></path><path d="M12 2v6"></path></svg>
-          ${selected.poweredOff ? "Power On" : "Power Off"}
-        </button>
-        <div style="height: 10px"></div>
-      ` : ""}
-      ${selected.type !== "lan" && !isHost ? `
-        <button class="wide-button danger" id="deleteSelected">
-          <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M3 6h18"></path><path d="M8 6V4h8v2"></path><path d="M19 6l-1 14H6L5 6"></path></svg>
-          Delete
-        </button>
+        <div class="button-row">
+          <button class="row-button ${selected.poweredOff ? "" : "danger"}" id="togglePower">
+            <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M7 6a7.75 7.75 0 1 0 10 0"></path><path d="M12 2v6"></path></svg>
+            ${selected.poweredOff ? "Power On" : "Power Off"}
+          </button>
+          <button class="row-button danger" id="deleteSelected">
+            <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M3 6h18"></path><path d="M8 6V4h8v2"></path><path d="M19 6l-1 14H6L5 6"></path></svg>
+            Delete
+          </button>
+        </div>
         <div style="height: 14px"></div>
       ` : ""}
       ${pcConfigFields}
@@ -8257,7 +8283,8 @@ Address: ${sim.dnsResolvedIp}`);
       document.querySelectorAll(".router-interface-ip").forEach((input) => {
         captureUndoOnFocus(input);
         input.addEventListener("input", (event) => {
-          if (!event.target.dataset.peerId) return;
+          const { peerId, ifaceName: ifaceName2 } = event.target.dataset;
+          if (!peerId && !ifaceName2) return;
           const value = event.target.value.trim();
           const parsed = value === "" ? null : parseIpv4Token(value);
           if (value !== "" && !parsed) {
@@ -8266,10 +8293,21 @@ Address: ${sim.dnsResolvedIp}`);
           }
           event.target.setCustomValidity("");
           const vlanTag = event.target.dataset.vlanTag != null ? Number(event.target.dataset.vlanTag) : void 0;
-          const iface = routerInterfaceFor(selected, event.target.dataset.peerId, vlanTag);
+          const iface = peerId ? routerInterfaceFor(selected, peerId, vlanTag) : routerInterfaceForName(selected, ifaceName2);
           iface.ipv4Address = parsed ? parsed.address : "";
           if (parsed?.prefixLength != null) iface.prefixLength = parsed.prefixLength;
           event.target.title = iface.ipv4Address ? `Subnet: ${networkOf(iface.ipv4Address, prefixOf(iface))}` : "";
+        });
+      });
+      document.querySelectorAll(".iface-unlink").forEach((button) => {
+        button.addEventListener("click", (event) => {
+          const peerId = event.currentTarget.dataset.peerId;
+          const link = linksFor(selected.id).find((l) => l.from === peerId || l.to === peerId);
+          if (link && deleteLink(link.id)) {
+            state.selectedId = selected.id;
+            syncPanel();
+            sync().render();
+          }
         });
       });
       const routerEthernetPorts = document.getElementById("selectedRouterEthernetPorts");
@@ -8986,21 +9024,21 @@ Address: ${sim.dnsResolvedIp}`);
   }
   function exportConfig() {
     downloadJson(buildConfigPayload(), "topology.json");
-    dom.hint.textContent = "Exported topology.json.";
+    dom.modeLabel.textContent = "Exported topology.json.";
   }
   async function importConfig() {
     const text = await pickFile();
     if (text == null) return;
     try {
       applyConfig(parseConfig(text));
-      dom.hint.textContent = "Imported topology.";
+      dom.modeLabel.textContent = "Imported topology.";
     } catch (error) {
-      dom.hint.textContent = error.message || "Import failed.";
+      dom.modeLabel.textContent = error.message || "Import failed.";
     }
   }
   function exportScenarios() {
     downloadJson(SCENARIOS, "scenarios.json");
-    dom.hint.textContent = "Exported scenarios.json.";
+    dom.modeLabel.textContent = "Exported scenarios.json.";
   }
   async function importScenario() {
     const text = await pickFile();
@@ -9017,25 +9055,25 @@ Address: ${sim.dnsResolvedIp}`);
       }
       if (lastId) {
         loadScenario(lastId);
-        dom.hint.textContent = `Imported scenario "${lastId}".`;
-      } else dom.hint.textContent = "No valid scenarios in file.";
+        dom.modeLabel.textContent = `Imported scenario "${lastId}".`;
+      } else dom.modeLabel.textContent = "No valid scenarios in file.";
     } catch {
-      dom.hint.textContent = "Invalid scenario JSON.";
+      dom.modeLabel.textContent = "Invalid scenario JSON.";
     }
   }
   function exportScript() {
     downloadText(exportTopologyScript(), "topology.routesim.txt");
-    dom.hint.textContent = "Exported topology script.";
+    dom.modeLabel.textContent = "Exported topology script.";
   }
   async function importScript() {
     const text = await pickFile("text/plain,.txt,.routesim,.json");
     if (text == null) return;
     runConsoleScript(text);
-    dom.hint.textContent = "Ran imported script.";
+    dom.modeLabel.textContent = "Ran imported script.";
   }
   function exportLog() {
     downloadJson(state.simulation.log, "simlog.json");
-    dom.hint.textContent = "Exported simlog.json.";
+    dom.modeLabel.textContent = "Exported simlog.json.";
   }
   async function importLog() {
     const text = await pickFile();
@@ -9043,16 +9081,16 @@ Address: ${sim.dnsResolvedIp}`);
     try {
       const log = JSON.parse(text);
       if (!Array.isArray(log)) {
-        dom.hint.textContent = "Invalid log JSON.";
+        dom.modeLabel.textContent = "Invalid log JSON.";
         return;
       }
       state.simulation.log = log;
       state.dock.logView = "events";
       openDock("simlog");
       syncSimLog();
-      dom.hint.textContent = "Imported simulation log.";
+      dom.modeLabel.textContent = "Imported simulation log.";
     } catch {
-      dom.hint.textContent = "Invalid log JSON.";
+      dom.modeLabel.textContent = "Invalid log JSON.";
     }
   }
 
@@ -9062,7 +9100,6 @@ Address: ${sim.dnsResolvedIp}`);
     state.linkStartId = null;
     dom.toolButtons.forEach((button) => button.classList.toggle("active", button.dataset.tool === tool));
     dom.modeLabel.textContent = toolCopy[tool][0];
-    dom.hint.textContent = toolCopy[tool][1];
     dom.canvas.style.cursor = tool === "select" ? "default" : tool === "configure" ? "pointer" : "crosshair";
     render();
   }
@@ -9206,10 +9243,10 @@ Address: ${sim.dnsResolvedIp}`);
         if (!state.linkStartId) {
           state.linkStartId = device.id;
           state.selectedId = device.id;
-          dom.hint.textContent = `Connect ${device.name} to another device.`;
+          dom.modeLabel.textContent = `Connect ${device.name} to another device.`;
         } else {
           openPortSelectionModal(state.linkStartId, device.id);
-          dom.hint.textContent = toolCopy.connect[1];
+          dom.modeLabel.textContent = toolCopy.connect[1];
         }
         syncPanel();
         render();
@@ -9368,7 +9405,8 @@ Address: ${sim.dnsResolvedIp}`);
       "panel-simlog": () => toggleDockTab("simlog"),
       "fit": fitNetwork,
       "help-shortcuts": () => {
-        dom.hint.textContent = "Shortcuts: V select \xB7 C computer \xB7 E server \xB7 S switch \xB7 R router \xB7 F firewall \xB7 L connect \xB7 W configure \xB7 Del delete \xB7 Esc cancel \xB7 Ctrl/Cmd+Z undo \xB7 scroll to zoom.";
+        openConsole();
+        consoleLine("output", "Shortcuts: V select \xB7 C computer \xB7 E server \xB7 S switch \xB7 R router \xB7 F firewall \xB7 L connect \xB7 W configure \xB7 Del delete \xB7 Esc cancel \xB7 Ctrl/Cmd+Z undo \xB7 scroll to zoom.");
       },
       "help-commands": () => openConsole(),
       "help-about": openAbout
@@ -9422,7 +9460,9 @@ Address: ${sim.dnsResolvedIp}`);
       render();
       syncSimLog();
     });
-    dom.inspectorCloseButton.addEventListener("click", () => setNetworkPanel(false));
+    dom.detailsPanel.addEventListener("click", (event) => {
+      if (event.target?.closest?.("#inspectorCloseButton")) setNetworkPanel(false);
+    });
     dom.inspectorResizeHandle.addEventListener("pointerdown", startInspectorResize);
     window.addEventListener("pointermove", moveInspectorResize);
     window.addEventListener("pointerup", stopInspectorResize);
@@ -9589,21 +9629,21 @@ Address: ${sim.dnsResolvedIp}`);
     try {
       if (name === "vlan-roas") {
         applyConfig(normaliseConfig(vlanRoasConfig));
-        dom.hint.textContent = "Loaded VLAN Router-on-a-Stick topology.";
+        dom.modeLabel.textContent = "Loaded VLAN Router-on-a-Stick topology.";
       } else if (name === "router-mesh") {
         applyConfig(normaliseConfig(routerMeshConfig));
-        dom.hint.textContent = "Loaded 5-Router Partial Mesh topology.";
+        dom.modeLabel.textContent = "Loaded 5-Router Partial Mesh topology.";
       } else {
         applyConfig(normaliseConfig(defaultConfig));
-        dom.hint.textContent = "Loaded Basic Network topology.";
+        dom.modeLabel.textContent = "Loaded Basic Network topology.";
       }
     } catch (error) {
-      dom.hint.textContent = error.message;
+      dom.modeLabel.textContent = error.message;
     }
   }
   function loadDefaultConfig() {
     applyConfigWithoutUndo(normaliseConfig(defaultConfig));
-    dom.hint.textContent = "Loaded the Basic Network topology.";
+    dom.modeLabel.textContent = "Loaded the Basic Network topology.";
   }
 
   // src/commands.ts
@@ -10255,6 +10295,10 @@ Address: ${sim.dnsResolvedIp}`);
     if (state.console.lines.length > 200) {
       state.console.lines.splice(0, state.console.lines.length - 200);
     }
+  }
+  function consoleLine(kind, text) {
+    pushConsole(kind, text);
+    syncConsole();
   }
   function submitConsoleCommand(event) {
     event.preventDefault();

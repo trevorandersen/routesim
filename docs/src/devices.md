@@ -6,7 +6,7 @@ Owns the device and link collections: creating, deleting, hit-testing, looking u
 
 ### CRUD
 - **`addDevice(type, x, y, name?)`** — creates a device with a default config (`defaultDeviceConfig`) and auto-generated name (`PC-1`, `SW-1`, `RTR-1`), selects it, returns it.
-- **`addLink(fromId, toId, fromPort?, toPort?)`** — connects two devices, optionally on specific ports. Hosts (computer/server) model a **single NIC** and refuse a second cable (the `hostNicTaken` guard; the hint bar explains). Loaded topologies are unaffected — `normalise`/`applyConfig` build links directly. A new cable fires the **`linkUp`** callback so an unconfigured host can boot (DHCP → APIPA — see [engine.md](engine.md)).
+- **`addLink(fromId, toId, fromPort?, toPort?)`** — connects two devices, optionally on specific ports. Hosts (computer/server) model a **single NIC** and refuse a second cable (the `hostNicTaken` guard; the ribbon status line explains). Loaded topologies are unaffected — `normalise`/`applyConfig` build links directly. A new cable fires the **`linkUp`** callback so an unconfigured host can boot (DHCP → APIPA — see [engine.md](engine.md)).
 - **`deleteLink(linkId)`** — remove a single link (undoable; clears the link selection). Backs the inspector's **Delete link** button.
 - **`deleteSelection()` / `clearNetwork()`** — remove the selected device (and its links) or the selected link / wipe the topology.
 - **`linkName(link)`** — a link's display name: the user-given `link.name` if set, else the derived endpoint combo (`"PC1 ↔ SW"`), which follows device renames. Used by the packet list's Link column, `list links`, and the link inspector.
@@ -23,7 +23,8 @@ Owns the device and link collections: creating, deleting, hit-testing, looking u
 > **Performance:** both indexes are **lazily rebuilt** when `state.devices`/`state.links` change, detected by an array **identity + length** guard (`ref !== state.devices || len !== state.devices.length`). No invalidation calls are needed at mutation sites because every add/remove either reassigns the array or pushes. In-place field changes (config, `hidden`, port number) are visible through the cached object references — which is why the adjacency stores **all** links and callers filter `hidden` themselves. These paths are benchmarked (`getDevice`, `linkedPortsFor`, `connectedIds`).
 
 ### Interface enumeration
-- **`routerInterfacesWithNames`, `routerInterfaceFor`, `routerInterfaceByName`** — resolve a router's interfaces (including VLAN sub-interfaces) to names like `Ethernet1`.
+- **`routerInterfacesWithNames`, `routerInterfaceFor`, `routerInterfaceByName`** — resolve a router's interfaces (including VLAN sub-interfaces) to names like `Ethernet1`. Connected ports key by peer id; unconnected ports surface a saved by-name config when one exists.
+- **`routerInterfaceForName(router, name)`** — find/create the config entry for an **unconnected** port (keyed by name, e.g. `Ethernet3`), so a pre-assigned IP persists before any cable exists (`normaliseRouterInterfaces` keeps it because it has a name). Once a cable occupies the port, the by-peer entry takes over.
 - **`switchInterfacesWithNames`** — a switch's ports with their VLAN/mode/peer, named `Ethernet1..N`. Port numbers derive from link order (see [testing.md](../testing.md)).
 
 ### LAN grouping

@@ -39,6 +39,12 @@ function pushConsole(kind: string, text: string): void {
   }
 }
 
+// Push a line from outside the command flow (e.g. the Help → Shortcuts button).
+export function consoleLine(kind: string, text: string): void {
+  pushConsole(kind, text);
+  syncConsole();
+}
+
 export function submitConsoleCommand(event: Event): void {
   event.preventDefault();
   const command = dom.consoleInput.value;

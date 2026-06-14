@@ -158,20 +158,20 @@ export function loadTopology(name: string): void {
   try {
     if (name === "vlan-roas") {
       applyConfig(normaliseConfig(vlanRoasConfig));
-      dom.hint.textContent = "Loaded VLAN Router-on-a-Stick topology.";
+      dom.modeLabel.textContent = "Loaded VLAN Router-on-a-Stick topology.";
     } else if (name === "router-mesh") {
       applyConfig(normaliseConfig(routerMeshConfig));
-      dom.hint.textContent = "Loaded 5-Router Partial Mesh topology.";
+      dom.modeLabel.textContent = "Loaded 5-Router Partial Mesh topology.";
     } else {
       applyConfig(normaliseConfig(defaultConfig));
-      dom.hint.textContent = "Loaded Basic Network topology.";
+      dom.modeLabel.textContent = "Loaded Basic Network topology.";
     }
   } catch (error: any) {
-    dom.hint.textContent = error.message;
+    dom.modeLabel.textContent = error.message;
   }
 }
 
 export function loadDefaultConfig(): void {
   applyConfigWithoutUndo(normaliseConfig(defaultConfig));
-  dom.hint.textContent = "Loaded the Basic Network topology.";
+  dom.modeLabel.textContent = "Loaded the Basic Network topology.";
 }

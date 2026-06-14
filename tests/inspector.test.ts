@@ -4,12 +4,12 @@
  */
 import { describe, it, expect, beforeAll, beforeEach } from "bun:test";
 import { state } from "../src/state";
-import { renderSwitchPorts, renderSwitchVlans, renderFramePanel } from "../src/inspector";
+import { renderSwitchPorts, renderSwitchVlans, renderRouterInterfaces, renderFramePanel } from "../src/inspector";
 import { findTransitAt } from "../src/canvas";
 import { createIcmpEchoRequest, createTcpSegment } from "../src/frame";
 import { dom } from "../src/dom";
 import { registerNoopCallbacks, resetState } from "./helpers";
-import { basicTopology, vlanTopology } from "./fixtures";
+import { basicTopology, routedTopology, vlanTopology } from "./fixtures";
 
 beforeAll(() => registerNoopCallbacks());
 
@@ -36,6 +36,49 @@ describe("renderSwitchPorts", () => {
     const html = renderSwitchPorts(sw);
     expect(html).not.toContain("port-mode-select");
     expect(html).not.toContain("port-vlan-select");
+  });
+});
+
+describe("renderRouterInterfaces", () => {
+  beforeEach(() => resetState());
+
+  it("stacks each interface: name + peer in a head, the address/prefix input below", () => {
+    const topo = routedTopology();
+    state.devices = topo.devices as any;
+    state.links = topo.links as any;
+    const rtr = state.devices.find(d => d.id === "rtr")!;
+    const html = renderRouterInterfaces(rtr);
+    // The head wraps the name + peer so they share a line above the input.
+    expect(html).toContain("interface-head");
+    expect(html).toContain(`<span class="interface-name">Ethernet1</span>`);
+    expect(html).toContain("SW-A"); // the connected peer's name
+    // The editable IP carries its prefix and stays a separate full-width input.
+    expect(html).toContain("router-interface-ip");
+    expect(html).toContain("192.168.10.1/24");
+  });
+
+  it("a connected interface gets an unlink button; an empty one reads 'not connected'", () => {
+    const topo = routedTopology();
+    state.devices = topo.devices as any;
+    state.links = topo.links as any;
+    const rtr = state.devices.find(d => d.id === "rtr")!;
+    const html = renderRouterInterfaces(rtr);
+    // Ethernet1/2 are cabled → an unlink (×) keyed by peer; empty ports are not.
+    expect(html).toContain("iface-unlink");
+    expect(html).toContain('data-peer-id="sw-a"');
+    // Empty ports (rtr has 4 Ethernet, 2 used) read "not connected".
+    expect(html).toContain("not connected");
+  });
+
+  it("an unconnected port's IP input is enabled and keyed by interface name", () => {
+    const topo = routedTopology();
+    state.devices = topo.devices as any;
+    state.links = topo.links as any;
+    const rtr = state.devices.find(d => d.id === "rtr")!;
+    const html = renderRouterInterfaces(rtr);
+    // Empty ports carry data-iface-name (so an IP can persist) and are never disabled.
+    expect(html).toContain('data-iface-name="Ethernet3"');
+    expect(html).not.toContain("disabled");
   });
 });
 

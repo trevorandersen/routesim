@@ -5,8 +5,8 @@ import { dom } from "./dom";
 import { escapeHtml, isValidIpv4, isValidMac, normaliseMacAddress, randomMac, parseIpv4Token, prefixOf, networkOf } from "./utils";
 import { ensureConfig, normaliseVlans, normaliseDnsRecords, normaliseDhcpLeases } from "./normalise";
 import {
-  getDevice, isVisibleDevice, connectedIds, linkedPortsFor,
-  routerInterfacesWithNames, routerInterfaceFor, switchInterfacesWithNames,
+  getDevice, isVisibleDevice, connectedIds, linkedPortsFor, linksFor,
+  routerInterfacesWithNames, routerInterfaceFor, routerInterfaceForName, switchInterfacesWithNames,
   deleteSelection, deleteLink, collapseLan, expandLan, configureDevice
 } from "./devices";
 import {
@@ -126,16 +126,36 @@ export function renderRouterInterfaces(device: any): string {
     <div class="interface-list">
       ${interfaces.map((iface: any) => {
         const vlanAttr = iface.config.vlanTag != null ? ` data-vlan-tag="${iface.config.vlanTag}"` : "";
+        const peerLabel = iface.peer?.name || "not connected";
+        // Empty ports persist an IP by name; connected ports key by peer.
+        const ipAttrs = iface.peer
+          ? `data-peer-id="${escapeHtml(iface.peerId)}"${vlanAttr}`
+          : `data-iface-name="${escapeHtml(iface.name)}"`;
         return `
           <div class="interface-row">
-            <span class="interface-name">${escapeHtml(iface.name)}</span>
-            <span class="interface-peer ${iface.peer ? "" : "empty"}" title="${escapeHtml(iface.peer?.name || "Empty")}">${escapeHtml(iface.peer?.name || "Empty")}</span>
-            <input class="router-interface-ip" data-peer-id="${escapeHtml(iface.peerId)}"${vlanAttr} ${iface.peer ? "" : "disabled"} value="${escapeHtml(iface.config.ipv4Address ? `${iface.config.ipv4Address}/${prefixOf(iface.config)}` : "")}" placeholder="192.168.1.1/24" title="${escapeHtml(iface.config.ipv4Address ? `Subnet: ${networkOf(iface.config.ipv4Address, prefixOf(iface.config))}` : "")}" autocomplete="off" inputmode="decimal">
+            <div class="interface-head">
+              <span class="interface-name">${escapeHtml(iface.name)}</span>
+              <span class="interface-peer ${iface.peer ? "" : "empty"}" title="${escapeHtml(peerLabel)}">${escapeHtml(peerLabel)}</span>
+              ${iface.peer ? `<button class="inline-button iface-unlink" data-peer-id="${escapeHtml(iface.peerId)}" type="button" title="Delete link to ${escapeHtml(iface.peer.name)}" aria-label="Delete link to ${escapeHtml(iface.peer.name)}">&times;</button>` : ""}
+            </div>
+            <input class="router-interface-ip" ${ipAttrs} value="${escapeHtml(iface.config.ipv4Address ? `${iface.config.ipv4Address}/${prefixOf(iface.config)}` : "")}" placeholder="192.168.1.1/24" title="${escapeHtml(iface.config.ipv4Address ? `Subnet: ${networkOf(iface.config.ipv4Address, prefixOf(iface.config))}` : "")}" autocomplete="off" inputmode="decimal">
           </div>
         `;
       }).join("")}
     </div>
   `;
+}
+
+// The detailsPanel heading: the title plus the inspector close button, kept on
+// one line and sticky so the close affordance sits in line with the heading.
+function panelHeading(title: string): string {
+  return `
+    <div class="panel-heading">
+      <h2>${title}</h2>
+      <button class="panel-toggle" id="inspectorCloseButton" type="button" title="Close panel" aria-label="Close inspector panel">
+        <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M18 6 6 18"></path><path d="m6 6 12 12"></path></svg>
+      </button>
+    </div>`;
 }
 
 export function renderFirewallRules(device: any): string {
@@ -372,7 +392,7 @@ function renderLinkPanel(link: Link): void {
   const history = link.frameHistory || [];
   const defaultName = `${fromDev?.name ?? link.from} ↔ ${toDev?.name ?? link.to}`;
   dom.detailsPanel.innerHTML = `
-    <h2>Link</h2>
+    ${panelHeading("Link")}
     <div class="field">
       <label for="selectedLinkName">Name</label>
       <div class="input-with-button">
@@ -472,7 +492,7 @@ export function renderFramePanel(frame: any): void {
     }
   }
   dom.detailsPanel.innerHTML = `
-    <h2>Frame</h2>
+    ${panelHeading("Frame")}
     <p class="empty-state">Captured frame — a running simulation pauses while you inspect. Click elsewhere or press Close to dismiss.</p>
     <table class="data-table frame-detail">
       <tbody>
@@ -491,8 +511,6 @@ export function renderFramePanel(frame: any): void {
 }
 
 export function syncPanel(): void {
-  dom.deviceCount.textContent = String(state.devices.filter(isVisibleDevice).length);
-  dom.linkCount.textContent = String(state.links.filter(link => !link.hidden).length);
   sync().syncCoordReadout();
   if (state.inspectedFrame) {
     renderFramePanel(state.inspectedFrame);
@@ -507,13 +525,13 @@ export function syncPanel(): void {
       renderLinkPanel(link);
     } else {
       dom.detailsPanel.innerHTML = `
-        <h2>Selection</h2>
+        ${panelHeading("Selection")}
         <p class="empty-state">No device selected.</p>
       `;
     }
   } else if (!selected) {
     dom.detailsPanel.innerHTML = `
-      <h2>Selection</h2>
+      ${panelHeading("Selection")}
       <p class="empty-state">No device selected.</p>
     `;
   } else {
@@ -551,11 +569,6 @@ export function syncPanel(): void {
         </div>
       </div>
       ${selected.type === "server" ? renderDnsmasqSection(selected) : ""}
-      <button class="wide-button danger" id="deleteSelected">
-        <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M3 6h18"></path><path d="M8 6V4h8v2"></path><path d="M19 6l-1 14H6L5 6"></path></svg>
-        Delete
-      </button>
-      <div style="height: 14px"></div>
       <div class="field">
         <label>ARP table</label>
         ${renderArpTable(selected)}
@@ -590,13 +603,15 @@ export function syncPanel(): void {
       </div>
     ` : "";
     const routerConfigFields = selected.type === "router" ? `
-      <div class="field">
-        <label for="selectedRouterEthernetPorts">Ethernet ports</label>
-        <input id="selectedRouterEthernetPorts" type="number" min="0" max="12" step="1" value="${escapeHtml(selected.config?.ethernetPorts ?? 4)}">
-      </div>
-      <div class="field">
-        <label for="selectedRouterSerialPorts">Serial ports</label>
-        <input id="selectedRouterSerialPorts" type="number" min="0" max="12" step="1" value="${escapeHtml(selected.config?.serialPorts ?? 4)}">
+      <div class="field-row">
+        <div class="field">
+          <label for="selectedRouterEthernetPorts">Ethernet ports</label>
+          <input id="selectedRouterEthernetPorts" type="number" min="0" max="12" step="1" value="${escapeHtml(selected.config?.ethernetPorts ?? 4)}">
+        </div>
+        <div class="field">
+          <label for="selectedRouterSerialPorts">Serial ports</label>
+          <input id="selectedRouterSerialPorts" type="number" min="0" max="12" step="1" value="${escapeHtml(selected.config?.serialPorts ?? 4)}">
+        </div>
       </div>
       <div class="field">
         <label>Interfaces</label>
@@ -630,7 +645,7 @@ export function syncPanel(): void {
       </div>
     ` : "";
     dom.detailsPanel.innerHTML = `
-      <h2>${isConfiguring ? "Configure" : "Selection"}</h2>
+      ${panelHeading(isConfiguring ? "Configure" : "Selection")}
       <div class="field">
         <label for="selectedName">Name</label>
         <input id="selectedName" value="${escapeHtml(selected.name)}" autocomplete="off">
@@ -657,17 +672,16 @@ export function syncPanel(): void {
         <div style="height: 10px"></div>
       ` : ""}
       ${selected.type !== "lan" ? `
-        <button class="wide-button ${selected.poweredOff ? "" : "danger"}" id="togglePower">
-          <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M7 6a7.75 7.75 0 1 0 10 0"></path><path d="M12 2v6"></path></svg>
-          ${selected.poweredOff ? "Power On" : "Power Off"}
-        </button>
-        <div style="height: 10px"></div>
-      ` : ""}
-      ${selected.type !== "lan" && !isHost ? `
-        <button class="wide-button danger" id="deleteSelected">
-          <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M3 6h18"></path><path d="M8 6V4h8v2"></path><path d="M19 6l-1 14H6L5 6"></path></svg>
-          Delete
-        </button>
+        <div class="button-row">
+          <button class="row-button ${selected.poweredOff ? "" : "danger"}" id="togglePower">
+            <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M7 6a7.75 7.75 0 1 0 10 0"></path><path d="M12 2v6"></path></svg>
+            ${selected.poweredOff ? "Power On" : "Power Off"}
+          </button>
+          <button class="row-button danger" id="deleteSelected">
+            <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M3 6h18"></path><path d="M8 6V4h8v2"></path><path d="M19 6l-1 14H6L5 6"></path></svg>
+            Delete
+          </button>
+        </div>
         <div style="height: 14px"></div>
       ` : ""}
       ${pcConfigFields}
@@ -846,7 +860,8 @@ export function syncPanel(): void {
     document.querySelectorAll(".router-interface-ip").forEach(input => {
       captureUndoOnFocus(input as HTMLInputElement);
       input.addEventListener("input", (event: any) => {
-        if (!event.target.dataset.peerId) return;
+        const { peerId, ifaceName } = event.target.dataset;
+        if (!peerId && !ifaceName) return;
         const value = event.target.value.trim();
         const parsed = value === "" ? null : parseIpv4Token(value);
         if (value !== "" && !parsed) {
@@ -855,10 +870,23 @@ export function syncPanel(): void {
         }
         event.target.setCustomValidity("");
         const vlanTag = event.target.dataset.vlanTag != null ? Number(event.target.dataset.vlanTag) : undefined;
-        const iface = routerInterfaceFor(selected, event.target.dataset.peerId, vlanTag);
+        // Connected ports key by peer; unconnected ports key by interface name.
+        const iface = peerId ? routerInterfaceFor(selected, peerId, vlanTag) : routerInterfaceForName(selected, ifaceName);
         iface.ipv4Address = parsed ? parsed.address : "";
         if (parsed?.prefixLength != null) iface.prefixLength = parsed.prefixLength;
         event.target.title = iface.ipv4Address ? `Subnet: ${networkOf(iface.ipv4Address, prefixOf(iface))}` : "";
+      });
+    });
+    // The per-interface unlink (×) removes that port's cable.
+    document.querySelectorAll(".iface-unlink").forEach(button => {
+      button.addEventListener("click", (event: any) => {
+        const peerId = event.currentTarget.dataset.peerId;
+        const link = linksFor(selected.id).find((l: Link) => l.from === peerId || l.to === peerId);
+        if (link && deleteLink(link.id)) {
+          state.selectedId = selected.id; // deleteLink clears link selection only; keep the router selected
+          syncPanel();
+          sync().render();
+        }
       });
     });
     const routerEthernetPorts = document.getElementById("selectedRouterEthernetPorts") as HTMLInputElement;

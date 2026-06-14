@@ -54,7 +54,7 @@ routesim/
     ├── scenario-library.ts # The built-in 16-scenario curriculum
     ├── scenario-ui.ts  # Scenario goal banner
     ├── canvas.ts       # Canvas rendering (devices, links, labels, pan/zoom)
-    ├── inspector.ts    # Right-side panel (device details, metrics, options)
+    ├── inspector.ts    # Right-side panel (device details, link history, options)
     ├── ribbon.ts       # Tabbed ribbon UI
     ├── io.ts           # JSON import/export (config/scenario/script/log)
     ├── config.ts       # Topology serialise/apply + built-in topologies

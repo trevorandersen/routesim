@@ -33,7 +33,7 @@ Owns the device and link collections: creating, deleting, hit-testing, looking u
 ### Port-selection modal & callback bridge
 - **`openPortSelectionModal`, `syncPortSelectionModal`, `confirmPortSelection`, `cancelPortSelection`** — when connecting to a multi-port device, prompt for the specific port (computers auto-select).
 - **`registerDeviceCallbacks({ setTool, setNetworkPanel, linkUp, openTerminal })`** — lets `devices.ts` trigger UI/engine work without importing `ui.ts`/`engine.ts`/`terminal/`: `setTool`/`setNetworkPanel` (UI changes after CRUD), `linkUp` (first-boot autoconf when a cable comes up), `openTerminal` (open a device's CLI). Wired in `app.ts`; tests register the pieces they need.
-- **`configureDevice(device)`** — selects a device, switches to the configure tool, and fires `openTerminal` — which `app.ts` gates on `canOpenTerminal` (see [terminal.md](terminal.md)), so configuring a CLI device auto-opens its terminal while unmanaged switches/LANs just show their config.
+- **`configureDevice(device)`** — selects a device, shows its config, and **reverts to the select tool** (configuring is a one-shot action, not a sticky mode — so the configure tool is single-use and double-clicking from any tool lands back in select). Also fires `openTerminal` — which `app.ts` gates on `canOpenTerminal` (see [terminal.md](terminal.md)), so configuring a CLI device auto-opens its terminal while unmanaged switches/LANs just show their config.
 
 ## How it fits
 

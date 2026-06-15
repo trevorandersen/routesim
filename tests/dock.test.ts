@@ -230,4 +230,20 @@ describe("dock — configuring a device opens its terminal", () => {
     configureDevice(pc1);
     expect(state.terminalSessions).toHaveLength(0);
   });
+
+  it("reverts to the select tool (configuring is one-shot, not a sticky mode)", () => {
+    const { pc1 } = lanTopology();
+    let lastTool = "";
+    registerDeviceCallbacks({
+      setTool: (t) => { lastTool = t; }, setNetworkPanel: () => {},
+      openTerminal: (d) => { if (canOpenTerminal(d)) openTerminalFor(d); },
+    });
+    configureDevice(pc1);
+    expect(lastTool).toBe("select");
+    // restore this block's default callbacks
+    registerDeviceCallbacks({
+      setTool: () => {}, setNetworkPanel: () => {},
+      openTerminal: (d) => { if (canOpenTerminal(d)) openTerminalFor(d); },
+    });
+  });
 });

@@ -3607,7 +3607,7 @@ Full legal text: https://creativecommons.org/publicdomain/zero/1.0/legalcode</pr
     state.drag = null;
     state.panDrag = null;
     state.linkStartId = null;
-    if (_setTool) _setTool("configure");
+    if (_setTool) _setTool("select");
     if (_setNetworkPanel) _setNetworkPanel(true);
     if (_openTerminal) _openTerminal(device);
     dom.modeLabel.textContent = `Configuring ${device.name}.`;
@@ -4576,12 +4576,23 @@ Full legal text: https://creativecommons.org/publicdomain/zero/1.0/legalcode</pr
     sim.status = "running";
     sim.mode = mode;
     sim.headless = false;
-    sim.events = setup.events;
+    sim.events = [];
     sim.log = [];
     sim.capture = [];
     sim.transits = [];
     sim.pendingArp = { ...setup.pendingArp };
     sim.stepIndex = 0;
+    let seeded = false;
+    const seedNow = performance.now();
+    for (const ev of setup.events) {
+      if (ev.linkId && ev.fromDeviceId && ev.fromDeviceId !== ev.deviceId) {
+        sim.transits.push({ frame: ev.frame, linkId: ev.linkId, fromDeviceId: ev.fromDeviceId, toDeviceId: ev.deviceId, progress: 0, startTime: seedNow });
+        seeded = true;
+      } else {
+        sim.events.push(ev);
+      }
+    }
+    if (seeded) sim.stepIndex++;
     sim.originDeviceId = originDeviceId;
     sim.pingTargetIp = setup.dns ? null : targetIp;
     sim.pingSuccess = false;
@@ -4605,7 +4616,7 @@ Full legal text: https://creativecommons.org/publicdomain/zero/1.0/legalcode</pr
     syncTerminal();
     syncSimLog();
     startAnimationLoop();
-    if (sim.autoPlay) processNextStep();
+    if (sim.autoPlay && sim.transits.length === 0) processNextStep();
   }
   function stopSimulation() {
     const sim = state.simulation;

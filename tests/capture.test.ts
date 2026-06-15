@@ -124,6 +124,18 @@ describe("capture — frames recorded per wire traversal", () => {
     expect(state.simulation.pingSuccess).toBe(true);
   });
 
+  it("the first leg originates at the source, not the connected switch", () => {
+    const pc1 = lanTopology();
+    const sw = state.devices.find(d => d.name === "SW")!;
+    runAnimated(pc1, "192.168.1.20");
+    const first = state.simulation.capture[0];
+    // The opening frame must leave PC1 → SW (an ARP request), not appear to
+    // start at the switch — the bug this guards against.
+    expect(first.fromDeviceId).toBe(pc1.id);
+    expect(first.toDeviceId).toBe(sw.id);
+    expect(packetColumns(first.frame).protocol).toBe("ARP");
+  });
+
   it("capture entries reference real devices on a real link", () => {
     const pc1 = lanTopology();
     runAnimated(pc1, "192.168.1.20");

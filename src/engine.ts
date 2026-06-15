@@ -24,12 +24,28 @@ export function startSimulation(setup: PingSetup, originDeviceId: string, target
   sim.status = "running";
   sim.mode = mode;
   sim.headless = false;
-  sim.events = setup.events;
+  sim.events = [];
   sim.log = [];
   sim.capture = [];
   sim.transits = [];
   sim.pendingArp = { ...setup.pendingArp };
   sim.stepIndex = 0;
+  // Animate the first leg (source → first hop) as a transit instead of injecting
+  // an arrive event straight at the first hop — otherwise the initial frame
+  // appears to originate at the connected switch/router rather than leaving the
+  // source. Every later hop already animates this way (a completed transit
+  // creates the next arrive event). Headless runs drain the events directly.
+  let seeded = false;
+  const seedNow = performance.now();
+  for (const ev of setup.events) {
+    if (ev.linkId && ev.fromDeviceId && ev.fromDeviceId !== ev.deviceId) {
+      sim.transits.push({ frame: ev.frame, linkId: ev.linkId, fromDeviceId: ev.fromDeviceId, toDeviceId: ev.deviceId, progress: 0, startTime: seedNow });
+      seeded = true;
+    } else {
+      sim.events.push(ev);
+    }
+  }
+  if (seeded) sim.stepIndex++; // the source emitting is step 1
   sim.originDeviceId = originDeviceId;
   sim.pingTargetIp = setup.dns ? null : targetIp;
   sim.pingSuccess = false;
@@ -59,7 +75,9 @@ export function startSimulation(setup: PingSetup, originDeviceId: string, target
   syncTerminal();
   syncSimLog();
   startAnimationLoop();
-  if (sim.autoPlay) processNextStep();
+  // With a seeded first-leg transit, the animation loop drives processing once
+  // it lands; only kick the queue directly if nothing was seeded.
+  if (sim.autoPlay && sim.transits.length === 0) processNextStep();
 }
 
 export function stopSimulation(): void {

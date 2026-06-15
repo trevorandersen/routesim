@@ -753,7 +753,9 @@ export function configureDevice(device: Device): void {
   state.drag = null;
   state.panDrag = null;
   state.linkStartId = null;
-  if (_setTool) _setTool("configure");
+  // Opening a device's config reverts to the select tool — configuring is a
+  // one-shot action, not a sticky mode, so you land back in select afterwards.
+  if (_setTool) _setTool("select");
   if (_setNetworkPanel) _setNetworkPanel(true);
   // Configuring a CLI device also brings up its terminal (no-op for devices
   // without a usable one — unmanaged switches, powered-off, LANs).

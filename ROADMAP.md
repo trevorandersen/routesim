@@ -44,6 +44,29 @@ detection + a visualised storm. Effort: moderate–high.
 
 ## Later
 
+### Simulation modes — frame/packet · physical · streams
+Three complementary lenses on the same topology, switchable per run, so a
+learner can move from one packet, to the wires beneath, to a network under
+load:
+
+- **Frame/packet** *(today)* — individual Ethernet frames (ARP/ICMP/DHCP/DNS/
+  TCP) animated hop-by-hop; the model the whole engine is built on. Best for
+  *how a protocol works*.
+- **Physical** — the layer-1 view: media and link state, signal propagation,
+  collision/broadcast domains. Best for *what's actually wired and up*.
+- **Streams** — drop the individual packets and model **aggregate traffic**:
+  flows with rates, link utilisation, queues, and **congestion** (bottlenecks,
+  drops, backpressure). A link carries load against its bandwidth rather than
+  one dot per frame, so you can drive *high* traffic and watch flow and
+  congestion form — what the packet model can't show at scale. Best for
+  *throughput and capacity*.
+
+Effort: high. Physical is moderate (a layer-1 overlay on the existing model);
+streams is a second, **fluid** simulation engine (rates and queues, not
+discrete frame events) sharing the topology/inspector but not the step loop.
+Depends on **Configurable links** below for per-link bandwidth, which the
+streams model needs as its capacity input.
+
 ### Server — more services
 The server device is built to host more than dnsmasq: an HTTP service (a real
 GET riding the existing TCP handshake), DNAT/port-forwarding on NAT routers so
@@ -56,6 +79,36 @@ multiple interfaces on a computer/server (eth0/eth1/…, each with its own
 address and the port-selection modal already used by switches/routers) for
 multi-homed hosts and dual-NIC servers. Effort: moderate (host config grows an
 interfaces array; the engine's per-host handlers pick the ingress NIC).
+
+### WiFi — access points & wireless clients
+A wireless **access point** that bridges associated clients onto the wired LAN
+(like a switch, but the "cable" is an association), and workstations that
+**connect over the air** instead of a port. Minimum viable: an AP with an SSID,
+clients that associate to an in-range AP (a wireless "link" — drawn, or
+auto-forming by range), and frames bridged AP↔wired exactly as a switch does,
+so ARP/DHCP/IP all work unchanged once associated. Richer later: signal
+range/strength, channels, multiple SSIDs mapped to VLANs, association/auth as a
+visible step. Effort: moderate–high (a new device + a wireless link type; the
+forwarding reuses the switch path). Pairs with the **physical** simulation mode
+(range/signal is a layer-1 story) and **Configurable links** (a wireless link
+is just a link with loss/bandwidth).
+
+### Router roles — border vs internal
+Give routers a **role** that sets sensible defaults and teaches placement, the
+way the Switch tool now splits basic/managed (a Router tool group mirroring
+Endpoint/Switch/Security):
+- **Border / edge router** — faces the outside: a designated outside/WAN
+  interface with `ip nat outside` and a default route pre-wired, naturally
+  pairing with a firewall. The AS boundary (BGP) lives here in the real world —
+  out of scope now, but this is where it would go.
+- **Internal / core router** — interior forwarding only: an IGP (RIP today,
+  OSPF later), no NAT.
+
+Terminology: **border/edge vs internal/core** is the clearest two-way split for
+teaching. The fuller hierarchy — **core / distribution / access**, or the
+routing-role framing **interior vs exterior (AS-boundary)** — is a later
+refinement if three-tier campus design becomes a teaching goal. Mostly a
+defaults + label/icon change, so effort: low–moderate.
 
 ### Configurable links
 Links are now nameable (inspector; the default name is the endpoint combo and

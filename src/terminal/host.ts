@@ -42,6 +42,7 @@ export function setHostIp(device: Device, address: string): string {
   pushUndo();
   ensureConfig(device);
   device.config.ipv4Address = parsed.address;
+  device.config.ipSource = "static"; // hand-configured via the CLI
   if (parsed.prefixLength != null) device.config.prefixLength = clampPrefixLength(parsed.prefixLength);
   sync().syncPanel();
   sync().render();
@@ -53,6 +54,7 @@ export function flushHostIp(device: Device): string {
   pushUndo();
   ensureConfig(device);
   device.config.ipv4Address = "";
+  delete device.config.ipSource; // unassigned again
   device.config.arpTable = [];
   sync().syncPanel();
   sync().render();

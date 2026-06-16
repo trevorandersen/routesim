@@ -260,10 +260,16 @@ export function drawDevice(device: any): void {
     ctx.fillText(label, device.x, labelY);
     labelY += 17;
   }
-  if (HOST_TYPES.has(device.type) && state.options.showIpAddresses && device.config?.ipv4Address) {
-    ctx.fillStyle = cssColor("--label-ip");
+  if (HOST_TYPES.has(device.type) && state.options.showIpAddresses) {
     ctx.font = FONT_SECONDARY;
-    ctx.fillText(`${device.config.ipv4Address}/${prefixOf(device.config)}`, device.x, labelY);
+    if (device.config?.ipv4Address) {
+      ctx.fillStyle = cssColor("--label-ip");
+      ctx.fillText(`${device.config.ipv4Address}/${prefixOf(device.config)}`, device.x, labelY);
+    } else {
+      // No address yet — flag it on the topology, not just in the inspector.
+      ctx.fillStyle = cssColor("--muted");
+      ctx.fillText("unassigned", device.x, labelY);
+    }
     labelY += 15;
   }
   if (HOST_TYPES.has(device.type) && state.options.showMacAddresses && device.config?.macAddress) {

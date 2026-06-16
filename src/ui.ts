@@ -1,6 +1,6 @@
 import { state, toolCopy, networkSnapshot, pushUndoSnapshot, undo, redo, THEMES, DEFAULT_THEME } from "./state";
 import { dom } from "./dom";
-import { addDevice, addLink, deleteSelection, clearNetwork, findDeviceAt, findLinkAt, getDevice, configureDevice, openPortSelectionModal, confirmPortSelection, cancelPortSelection } from "./devices";
+import { addLink, deleteSelection, clearNetwork, findDeviceAt, findLinkAt, getDevice, configureDevice, openPortSelectionModal, confirmPortSelection, cancelPortSelection, placeToolDevice, PLACEMENT_TOOLS } from "./devices";
 import { render, resizeCanvas, screenToWorld, setZoom, syncZoomLevel, fitNetwork, findTransitAt } from "./canvas";
 import { clearCssColorCache } from "./utils";
 import { syncPanel, syncOptionControls, syncNetworkPanel, setNetworkPanel, setInspectorWidth, startInspectorResize, moveInspectorResize, stopInspectorResize } from "./inspector";
@@ -19,10 +19,36 @@ import * as io from "./io";
 export function setTool(tool: string): void {
   state.tool = tool;
   state.linkStartId = null;
+  syncToolGroups(tool); // reflect the active variant on its split-button face first
   dom.toolButtons.forEach(button => button.classList.toggle("active", (button as HTMLElement).dataset.tool === tool));
   dom.modeLabel.textContent = toolCopy[tool][0];
   dom.canvas.style.cursor = tool === "select" ? "default" : tool === "configure" ? "pointer" : "crosshair";
   render();
+}
+
+// Split-button tool groups (Endpoint / Switch / Security): when a grouped
+// variant becomes active — by face click, menu pick, or keyboard shortcut —
+// the owning group's face adopts that variant's icon + data-tool, and its menu
+// marks the active item. Tools outside any group leave the faces untouched, so
+// each group remembers its last-chosen variant.
+function syncToolGroups(tool: string): void {
+  const splits = [...document.querySelectorAll<HTMLElement>(".tool-split")];
+  const split = splits.find(s => [...s.querySelectorAll<HTMLElement>(".tool-menu-item")].some(i => i.dataset.tool === tool));
+  if (!split) return;
+  const match = split.querySelector<HTMLElement>(`.tool-menu-item[data-tool="${tool}"]`)!;
+  split.querySelectorAll<HTMLElement>(".tool-menu-item").forEach(i => i.classList.toggle("active", i === match));
+  const face = split.querySelector<HTMLElement>(".tool-face");
+  const faceSvg = face?.querySelector("svg");
+  const itemSvg = match.querySelector("svg");
+  if (face && faceSvg && itemSvg) {
+    faceSvg.replaceWith(itemSvg.cloneNode(true));
+    face.dataset.tool = tool;
+  }
+}
+
+function closeToolMenus(): void {
+  document.querySelectorAll<HTMLElement>(".tool-menu").forEach(m => { m.hidden = true; });
+  document.querySelectorAll<HTMLElement>(".tool-caret").forEach(c => c.setAttribute("aria-expanded", "false"));
 }
 
 // Bottom-right readout: cursor world coords (while over the canvas) plus the
@@ -141,6 +167,7 @@ export function handleGlobalKeydown(event: KeyboardEvent): void {
       cancelPortSelection();
       return;
     }
+    closeToolMenus();
     (document.activeElement as HTMLElement)?.blur?.();
     state.configuringId = null;
     state.linkStartId = null;
@@ -165,6 +192,37 @@ export function setupUI(): void {
     button.addEventListener("click", () => setTool((button as HTMLElement).dataset.tool!));
   });
 
+  // Split-button tool groups: the caret opens its variant menu; a menu item
+  // activates that variant. Any other click (incl. a face/canvas click) closes
+  // the menus via the document handler below.
+  document.querySelectorAll<HTMLElement>(".tool-caret").forEach(caret => {
+    const split = caret.parentElement!;
+    const menu = split.querySelector<HTMLElement>(".tool-menu");
+    caret.addEventListener("click", (event) => {
+      event.stopPropagation();
+      if (!menu) return;
+      const willOpen = menu.hidden;
+      closeToolMenus();
+      if (willOpen) {
+        // The menu is position:fixed (escapes the ribbon's scroll clip), so
+        // anchor it under the split each time it opens.
+        const rect = split.getBoundingClientRect();
+        menu.style.left = `${rect.left}px`;
+        menu.style.top = `${rect.bottom + 4}px`;
+        menu.hidden = false;
+        caret.setAttribute("aria-expanded", "true");
+      }
+    });
+  });
+  document.querySelectorAll<HTMLElement>(".tool-menu-item").forEach(item => {
+    item.addEventListener("click", (event) => {
+      event.stopPropagation();
+      setTool(item.dataset.tool!);
+      closeToolMenus();
+    });
+  });
+  document.addEventListener("click", () => closeToolMenus());
+
   dom.canvas.addEventListener("pointerdown", (event: PointerEvent) => {
     // Synthetic events (UI automation/tests) carry pointer ids the browser
     // doesn't know — capture is best-effort, never fatal.
@@ -173,8 +231,8 @@ export function setupUI(): void {
     const world = screenToWorld(pointer);
     const device = findDeviceAt(world);
 
-    if (state.tool === "computer" || state.tool === "server" || state.tool === "switch" || state.tool === "router" || state.tool === "firewall") {
-      addDevice(state.tool as any, world.x, world.y);
+    if (PLACEMENT_TOOLS.has(state.tool)) {
+      placeToolDevice(state.tool, world.x, world.y);
       return;
     }
 

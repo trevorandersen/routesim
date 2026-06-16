@@ -587,6 +587,7 @@ export function processAtComputer(device: Device, frame: EthernetFrame, fromDevi
       } else if (dhcp.messageType === "ack") {
         logStep(device, "sim-dhcp", `Received DHCP ACK: assigned ${dhcp.assignedIp}, gateway ${dhcp.gatewayIp}`);
         config.ipv4Address = dhcp.assignedIp || "";
+        config.ipSource = "dhcp";
         if (dhcp.prefixLength != null) config.prefixLength = dhcp.prefixLength; // subnet-mask option
         config.gatewayIpv4Address = dhcp.gatewayIp || "";
         if (dhcp.dnsServerIp) config.dnsServerIp = dhcp.dnsServerIp; // DNS option (6)
@@ -1447,6 +1448,7 @@ function finishSimulation(): void {
       const origin = getDevice(sim.originDeviceId);
       if (origin?.config) {
         origin.config.ipv4Address = apipaIp;
+        origin.config.ipSource = "apipa";
         origin.config.prefixLength = 16;
         origin.config.gatewayIpv4Address = "";
       }

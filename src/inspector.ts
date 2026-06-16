@@ -23,6 +23,21 @@ export function syncOptionControls(): void {
   dom.showMacAddresses.checked = state.options.showMacAddresses;
 }
 
+// The address-source pill shown beside a host's IP field: how the current
+// address was assigned, or "unassigned" when there's none. A configured IP with
+// no recorded source reads as static.
+export function ipSourceInfo(config: any): { cls: string; text: string } {
+  if (!config?.ipv4Address) return { cls: "none", text: "unassigned" };
+  if (config.ipSource === "dhcp") return { cls: "dhcp", text: "DHCP" };
+  if (config.ipSource === "apipa") return { cls: "apipa", text: "APIPA" };
+  return { cls: "static", text: "static" };
+}
+
+function ipSourceBadge(config: any): string {
+  const info = ipSourceInfo(config);
+  return `<span class="ip-source ip-source-${info.cls}" id="ipSourceBadge">${info.text}</span>`;
+}
+
 export function syncNetworkPanel(): void {
   document.body.classList.toggle("inspector-closed", !state.options.networkPanelOpen);
   dom.inspectorOpenButton.setAttribute("aria-expanded", String(state.options.networkPanelOpen));
@@ -541,9 +556,9 @@ export function syncPanel(): void {
     const isHost = selected.type === "computer" || selected.type === "server";
     const pcConfigFields = isHost ? `
       <div class="field">
-        <label for="selectedIpv4">IPv4 address / prefix</label>
+        <label class="label-with-badge" for="selectedIpv4">IPv4 address / prefix ${ipSourceBadge(selected.config)}</label>
         <div class="input-with-button">
-          <input id="selectedIpv4" value="${escapeHtml(selected.config?.ipv4Address ? `${selected.config.ipv4Address}/${prefixOf(selected.config)}` : "")}" placeholder="192.168.1.10/24" autocomplete="off" inputmode="decimal">
+          <input id="selectedIpv4" value="${escapeHtml(selected.config?.ipv4Address ? `${selected.config.ipv4Address}/${prefixOf(selected.config)}` : "")}" placeholder="0.0.0.0" autocomplete="off" inputmode="decimal">
           <button class="inline-button" id="clearIpv4" type="button" title="Clear IPv4 address">&times;</button>
         </div>
         <p class="field-note" id="hostSubnet">${selected.config?.ipv4Address ? `Subnet: ${escapeHtml(networkOf(selected.config.ipv4Address, prefixOf(selected.config)))}` : ""}</p>
@@ -710,6 +725,14 @@ export function syncPanel(): void {
       const c = selected.config || {};
       subnetNote.textContent = c.ipv4Address ? `Subnet: ${networkOf(c.ipv4Address, prefixOf(c))}` : "";
     };
+    // Update the source pill in place (the panel isn't re-rendered per keystroke).
+    const refreshIpSourceBadge = () => {
+      const badge = document.getElementById("ipSourceBadge");
+      if (!badge) return;
+      const info = ipSourceInfo(selected.config || {});
+      badge.className = `ip-source ip-source-${info.cls}`;
+      badge.textContent = info.text;
+    };
     if (ipv4Input) {
       captureUndoOnFocus(ipv4Input);
       ipv4Input.addEventListener("input", (event: any) => {
@@ -721,8 +744,10 @@ export function syncPanel(): void {
           event.target.setCustomValidity("");
           selected.config = selected.config || {};
           selected.config.ipv4Address = parsed ? parsed.address : "";
+          if (parsed) selected.config.ipSource = "static"; else delete selected.config.ipSource;
           if (parsed?.prefixLength != null) selected.config.prefixLength = parsed.prefixLength;
           refreshSubnetNote();
+          refreshIpSourceBadge();
           sync().render();
         }
       });
@@ -747,9 +772,11 @@ export function syncPanel(): void {
         pushUndo();
         selected.config = selected.config || {};
         selected.config.ipv4Address = "";
+        delete selected.config.ipSource;
         ipv4Input.value = "";
         ipv4Input.setCustomValidity("");
         refreshSubnetNote();
+        refreshIpSourceBadge();
         sync().render();
       });
     }

@@ -118,6 +118,10 @@ export interface RipConfig {
 export interface ComputerConfig {
   ipv4Address: string;
   prefixLength?: number;  // subnet prefix (default 24)
+  // How the current address was assigned: hand-configured, leased via DHCP, or
+  // self-assigned link-local after DHCP failed. A bare IP with no source reads
+  // as static (e.g. built-in topologies). Cleared when the address is flushed.
+  ipSource?: "static" | "dhcp" | "apipa";
   gatewayIpv4Address: string;
   macAddress: string;
   arpTable: ArpEntry[];

@@ -8,6 +8,7 @@ Owns the device and link collections: creating, deleting, hit-testing, looking u
 - **`addDevice(type, x, y, name?)`** — creates a device with a default config (`defaultDeviceConfig`) and auto-generated name (`PC-1`, `SW-1`, `RTR-1`), selects it, returns it.
 - **`addLink(fromId, toId, fromPort?, toPort?)`** — connects two devices, optionally on specific ports. Hosts (computer/server) model a **single NIC** and refuse a second cable (the `hostNicTaken` guard; the ribbon status line explains). Loaded topologies are unaffected — `normalise`/`applyConfig` build links directly. A new cable fires the **`linkUp`** callback so an unconfigured host can boot (DHCP → APIPA — see [engine.md](engine.md)).
 - **`deleteLink(linkId)`** — remove a single link (undoable; clears the link selection). Backs the inspector's **Delete link** button.
+- **`placeToolDevice(tool, x, y)` / `PLACEMENT_TOOLS`** — place the device for a drawing tool, resolving UI variants to real types: `managed-switch` (a Switch-group tool variant) becomes a `switch` with `config.managed = true`. `PLACEMENT_TOOLS` is the set the canvas treats as device-placement tools.
 - **`deleteSelection()` / `clearNetwork()`** — remove the selected device (and its links) or the selected link / wipe the topology.
 - **`linkName(link)`** — a link's display name: the user-given `link.name` if set, else the derived endpoint combo (`"PC1 ↔ SW"`), which follows device renames. Used by the packet list's Link column, `list links`, and the link inspector.
 

@@ -26,6 +26,24 @@ export function addDevice(type: DeviceType, x: number, y: number, name?: string)
   return device;
 }
 
+// Tools that place a device on a canvas click. "managed-switch" is a UI variant
+// of the switch tool (the Switch tool group), not a distinct device type.
+export const PLACEMENT_TOOLS = new Set(["computer", "server", "switch", "managed-switch", "router", "firewall"]);
+
+// Place the device for a placement tool, resolving UI variants to real types:
+// "managed-switch" is a switch with management turned on.
+export function placeToolDevice(tool: string, x: number, y: number): Device {
+  if (tool === "managed-switch") {
+    const device = addDevice("switch", x, y);
+    device.config = device.config || {};
+    (device.config as any).managed = true;
+    sync().syncPanel();
+    sync().render();
+    return device;
+  }
+  return addDevice(tool as DeviceType, x, y);
+}
+
 // Hosts (computer/server) model a single NIC (eth0), so they take at most one
 // cable. Returns the offending device's name when fully cabled, else null.
 // (Multi-NIC hosts are a future option — see ROADMAP.)

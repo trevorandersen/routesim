@@ -175,9 +175,16 @@ function normaliseHostFields(device: any): DeviceConfig {
   const openPorts = Array.isArray(device.config?.openPorts)
     ? device.config.openPorts.map(Number).filter((p: number) => Number.isInteger(p) && p >= 1 && p <= 65535)
     : null;
+  // A bare configured IP with no recorded source is static (built-in topologies,
+  // hand-authored JSON); dhcp/apipa only appear when explicitly set.
+  const rawSource = device.config?.ipSource;
+  const ipSource = ipv4Address
+    ? (rawSource === "dhcp" || rawSource === "apipa" ? rawSource : "static")
+    : undefined;
   return {
     ipv4Address,
     ...(device.config?.prefixLength != null ? { prefixLength: clampPrefixLength(device.config.prefixLength) } : {}),
+    ...(ipSource ? { ipSource } : {}),
     gatewayIpv4Address,
     macAddress,
     arpTable: normaliseArpTable(device.config?.arpTable || device.arpTable || []),

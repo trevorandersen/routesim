@@ -24,7 +24,7 @@ Builds the right-hand inspector panel: device configuration forms, the device li
 ## Behaviour notes
 
 - **Config shows on selection** for all device types (selecting a device reveals its editable config — IP/MAC for computers, ports/VLANs for switches, interfaces for routers). The Configure tool/double-click select too, and additionally auto-open the device's terminal when it has one (the `openTerminal` callback, gated by `canOpenTerminal`).
-- **Host IPv4 fields show and accept `address/prefix`** (a bare address keeps the existing prefix), with the derived subnet displayed live beneath the field (`refreshSubnetNote`). Hosts also expose a **DNS nameserver** field (`config.dnsServerIp`, the `/etc/resolv.conf` equivalent).
+- **Host IPv4 fields show and accept `address/prefix`** (a bare address keeps the existing prefix), with the derived subnet displayed live beneath the field (`refreshSubnetNote`). A pill beside the label shows the **address source** — `static` / `DHCP` / `APIPA`, or `unassigned` when there's none (`ipSourceInfo`/`config.ipSource`; a bare IP with no recorded source reads as static). When unassigned the field placeholder reads `0.0.0.0`. Hosts also expose a **DNS nameserver** field (`config.dnsServerIp`, the `/etc/resolv.conf` equivalent).
 - The **power button** on hosts triggers first-boot autoconf when powering on a cabled, unconfigured device (`bootHostAutoconf`).
 - Editing a text input calls `captureUndoOnFocus` so the whole edit is one undo step.
 - All dynamic values (device/interface/VLAN names) are passed through `escapeHtml` before insertion.

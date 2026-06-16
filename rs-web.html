@@ -314,6 +314,67 @@
     .ribbon-btn.active { color: var(--accent); background: var(--accent-soft); border-color: rgba(20, 116, 111, 0.35); }
     .ribbon-btn.danger:hover { color: var(--danger); border-color: rgba(188, 59, 59, 0.36); }
 
+    /* Split-button tool groups (Endpoint / Switch / Security): a face button +
+       a caret that opens a variant menu. */
+    .tool-split { position: relative; display: inline-flex; align-items: stretch; }
+    .tool-split .tool-face { width: 60px; }
+    .tool-caret {
+      appearance: none;
+      align-self: stretch;
+      width: 16px;
+      padding: 0;
+      margin-left: -2px;
+      border: 1px solid transparent;
+      border-radius: 6px;
+      background: transparent;
+      color: var(--muted);
+      cursor: pointer;
+      display: flex;
+      align-items: flex-start;
+      justify-content: center;
+      padding-top: 9px;
+    }
+    .tool-caret svg { width: 14px; height: 14px; stroke: currentColor; stroke-width: 2; stroke-linecap: round; stroke-linejoin: round; fill: none; }
+    .tool-caret:hover { background: var(--panel-soft); border-color: var(--line); color: var(--text); }
+    .tool-caret[aria-expanded="true"] { background: var(--panel-soft); border-color: var(--line); color: var(--text); }
+
+    .tool-menu {
+      /* Fixed, not absolute: the ribbon panel scrolls horizontally (overflow-x:
+         auto forces overflow-y to auto), which would clip an absolute menu.
+         JS positions it under its caret. */
+      position: fixed;
+      z-index: 60;
+      min-width: 168px;
+      padding: 5px;
+      display: flex;
+      flex-direction: column;
+      gap: 2px;
+      border: 1px solid var(--line);
+      border-radius: 10px;
+      background: var(--panel);
+      box-shadow: 0 10px 28px rgba(19, 33, 46, 0.16);
+    }
+    .tool-menu[hidden] { display: none; }
+    .tool-menu-item {
+      appearance: none;
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      width: 100%;
+      padding: 7px 9px;
+      border: 1px solid transparent;
+      border-radius: 7px;
+      background: transparent;
+      color: var(--text);
+      font: inherit;
+      font-size: 12px;
+      text-align: left;
+      cursor: pointer;
+    }
+    .tool-menu-item svg { width: 18px; height: 18px; flex: none; stroke: currentColor; stroke-width: 2; stroke-linecap: round; stroke-linejoin: round; fill: none; }
+    .tool-menu-item:hover { background: var(--panel-soft); border-color: var(--line); }
+    .tool-menu-item.active { color: var(--accent); background: var(--accent-soft); border-color: rgba(20, 116, 111, 0.35); }
+
     .ribbon-check { display: inline-flex; align-items: center; gap: 7px; font-size: 12px; color: var(--text); cursor: pointer; padding: 2px 0; }
     .ribbon-speed { display: flex; flex-direction: column; gap: 5px; font-size: 11px; color: var(--muted); justify-content: center; }
     .ribbon-speed input { width: 140px; }
@@ -761,6 +822,23 @@
       font-size: 11px;
       color: var(--muted);
     }
+
+    /* A field label carrying a status pill (the IP address-source badge). */
+    .label-with-badge { display: flex; align-items: center; gap: 8px; }
+    .ip-source {
+      font-size: 10px;
+      font-weight: 700;
+      text-transform: uppercase;
+      letter-spacing: 0.03em;
+      padding: 1px 7px;
+      border-radius: 999px;
+      border: 1px solid var(--line);
+      color: var(--muted);
+      background: var(--panel-soft);
+    }
+    .ip-source-dhcp { color: var(--accent); background: var(--accent-soft); border-color: rgba(20, 116, 111, 0.35); }
+    .ip-source-apipa { color: var(--danger); border-color: rgba(188, 59, 59, 0.35); }
+    .ip-source-none { font-style: italic; text-transform: none; letter-spacing: 0; }
 
     .field-note:empty {
       display: none;
@@ -1770,11 +1848,35 @@
       <div class="ribbon-panel active" data-tab="main">
         <div class="ribbon-group"><div class="ribbon-items">
           <button class="ribbon-btn tool-button active" data-tool="select" type="button"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 4l7 16l2 -7l7 -2z"></path></svg><span>Select</span></button>
-          <button class="ribbon-btn tool-button" data-tool="computer" type="button"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M3 5a1 1 0 0 1 1 -1h16a1 1 0 0 1 1 1v10a1 1 0 0 1 -1 1h-16a1 1 0 0 1 -1 -1v-10"></path><path d="M7 20h10"></path><path d="M9 16v4"></path><path d="M15 16v4"></path></svg><span>Computer</span></button>
-          <button class="ribbon-btn tool-button" data-tool="server" type="button"><svg viewBox="0 0 24 24" aria-hidden="true"><rect x="3" y="4" width="18" height="8" rx="3"></rect><rect x="3" y="12" width="18" height="8" rx="3"></rect><path d="M7 8l0 .01"></path><path d="M7 16l0 .01"></path></svg><span>Server</span></button>
-          <button class="ribbon-btn tool-button" data-tool="switch" type="button"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M16 3l4 4l-4 4"></path><path d="M10 7l10 0"></path><path d="M8 13l-4 4l4 4"></path><path d="M4 17l9 0"></path></svg><span>Switch</span></button>
+
+          <div class="tool-split" data-group="endpoint">
+            <button class="ribbon-btn tool-button tool-face" data-tool="computer" type="button"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M3 5a1 1 0 0 1 1 -1h16a1 1 0 0 1 1 1v10a1 1 0 0 1 -1 1h-16a1 1 0 0 1 -1 -1v-10"></path><path d="M7 20h10"></path><path d="M9 16v4"></path><path d="M15 16v4"></path></svg><span>Endpoint</span></button>
+            <button class="tool-caret" type="button" aria-label="Choose endpoint type" aria-haspopup="true" aria-expanded="false"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M6 9l6 6l6 -6"></path></svg></button>
+            <div class="tool-menu" hidden>
+              <button class="tool-menu-item active" data-tool="computer" type="button"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M3 5a1 1 0 0 1 1 -1h16a1 1 0 0 1 1 1v10a1 1 0 0 1 -1 1h-16a1 1 0 0 1 -1 -1v-10"></path><path d="M7 20h10"></path><path d="M9 16v4"></path><path d="M15 16v4"></path></svg><span>Computer</span></button>
+              <button class="tool-menu-item" data-tool="server" type="button"><svg viewBox="0 0 24 24" aria-hidden="true"><rect x="3" y="4" width="18" height="8" rx="3"></rect><rect x="3" y="12" width="18" height="8" rx="3"></rect><path d="M7 8l0 .01"></path><path d="M7 16l0 .01"></path></svg><span>Server</span></button>
+            </div>
+          </div>
+
+          <div class="tool-split" data-group="switch">
+            <button class="ribbon-btn tool-button tool-face" data-tool="switch" type="button"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M16 3l4 4l-4 4"></path><path d="M10 7l10 0"></path><path d="M8 13l-4 4l4 4"></path><path d="M4 17l9 0"></path></svg><span>Switch</span></button>
+            <button class="tool-caret" type="button" aria-label="Choose switch type" aria-haspopup="true" aria-expanded="false"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M6 9l6 6l6 -6"></path></svg></button>
+            <div class="tool-menu" hidden>
+              <button class="tool-menu-item active" data-tool="switch" type="button"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M16 3l4 4l-4 4"></path><path d="M10 7l10 0"></path><path d="M8 13l-4 4l4 4"></path><path d="M4 17l9 0"></path></svg><span>Basic switch</span></button>
+              <button class="tool-menu-item" data-tool="managed-switch" type="button"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M16 3l4 4l-4 4"></path><path d="M10 7l10 0"></path><path d="M8 13l-4 4l4 4"></path><path d="M4 17l9 0"></path></svg><span>Managed switch</span></button>
+            </div>
+          </div>
+
           <button class="ribbon-btn tool-button" data-tool="router" type="button"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 12m-9 0a9 9 0 1 0 18 0a9 9 0 1 0 -18 0"></path><path d="M6 12h5"></path><path d="M8 10l3 2l-3 2"></path><path d="M18 12h-5"></path><path d="M16 10l-3 2l3 2"></path></svg><span>Router</span></button>
-          <button class="ribbon-btn tool-button" data-tool="firewall" type="button"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 3a12 12 0 0 0 8.5 3a12 12 0 0 1 -8.5 15a12 12 0 0 1 -8.5 -15a12 12 0 0 0 8.5 -3"></path><path d="M9 12l2 2l4 -4"></path></svg><span>Firewall</span></button>
+
+          <div class="tool-split" data-group="security">
+            <button class="ribbon-btn tool-button tool-face" data-tool="firewall" type="button"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 3a12 12 0 0 0 8.5 3a12 12 0 0 1 -8.5 15a12 12 0 0 1 -8.5 -15a12 12 0 0 0 8.5 -3"></path><path d="M9 12l2 2l4 -4"></path></svg><span>Security</span></button>
+            <button class="tool-caret" type="button" aria-label="Choose security device" aria-haspopup="true" aria-expanded="false"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M6 9l6 6l6 -6"></path></svg></button>
+            <div class="tool-menu" hidden>
+              <button class="tool-menu-item active" data-tool="firewall" type="button"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 3a12 12 0 0 0 8.5 3a12 12 0 0 1 -8.5 15a12 12 0 0 1 -8.5 -15a12 12 0 0 0 8.5 -3"></path><path d="M9 12l2 2l4 -4"></path></svg><span>Firewall</span></button>
+            </div>
+          </div>
+
           <button class="ribbon-btn tool-button" data-tool="connect" type="button"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M7 7m-3 0a3 3 0 1 0 6 0a3 3 0 1 0 -6 0"></path><path d="M17 17m-3 0a3 3 0 1 0 6 0a3 3 0 1 0 -6 0"></path><path d="M9 9l6 6"></path></svg><span>Connect</span></button>
           <button class="ribbon-btn tool-button" data-tool="configure" type="button"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M16 5l3 3l-11 11h-3v-3z"></path><path d="M14 7l3 3"></path></svg><span>Configure</span></button>
         </div><span class="ribbon-label">Tools</span></div>
@@ -2291,9 +2393,12 @@ Full legal text: https://creativecommons.org/publicdomain/zero/1.0/legalcode</pr
       throw new Error(`${label} has an invalid MAC address.`);
     }
     const openPorts = Array.isArray(device.config?.openPorts) ? device.config.openPorts.map(Number).filter((p) => Number.isInteger(p) && p >= 1 && p <= 65535) : null;
+    const rawSource = device.config?.ipSource;
+    const ipSource = ipv4Address ? rawSource === "dhcp" || rawSource === "apipa" ? rawSource : "static" : void 0;
     return {
       ipv4Address,
       ...device.config?.prefixLength != null ? { prefixLength: clampPrefixLength(device.config.prefixLength) } : {},
+      ...ipSource ? { ipSource } : {},
       gatewayIpv4Address,
       macAddress,
       arpTable: normaliseArpTable(device.config?.arpTable || device.arpTable || []),
@@ -2584,6 +2689,7 @@ Full legal text: https://creativecommons.org/publicdomain/zero/1.0/legalcode</pr
     computer: ["Add computer", "Click the canvas to place a computer."],
     server: ["Add server", "Click the canvas to place a server (DNS/DHCP via dnsmasq)."],
     switch: ["Add switch", "Click the canvas to place a switch."],
+    "managed-switch": ["Add managed switch", "Click the canvas to place a managed switch."],
     connect: ["Connect devices", "Click one device, then another device to connect them."],
     router: ["Add router", "Click the canvas to place a router."],
     firewall: ["Add firewall", "Click the canvas to place a firewall."],
@@ -3012,6 +3118,18 @@ Full legal text: https://creativecommons.org/publicdomain/zero/1.0/legalcode</pr
     sync().syncPanel();
     sync().render();
     return device;
+  }
+  var PLACEMENT_TOOLS = /* @__PURE__ */ new Set(["computer", "server", "switch", "managed-switch", "router", "firewall"]);
+  function placeToolDevice(tool, x, y) {
+    if (tool === "managed-switch") {
+      const device = addDevice("switch", x, y);
+      device.config = device.config || {};
+      device.config.managed = true;
+      sync().syncPanel();
+      sync().render();
+      return device;
+    }
+    return addDevice(tool, x, y);
   }
   function hostNicTaken(deviceId) {
     const device = getDevice(deviceId);
@@ -4230,10 +4348,15 @@ Full legal text: https://creativecommons.org/publicdomain/zero/1.0/legalcode</pr
       ctx.fillText(label, device.x, labelY);
       labelY += 17;
     }
-    if (HOST_TYPES.has(device.type) && state.options.showIpAddresses && device.config?.ipv4Address) {
-      ctx.fillStyle = cssColor("--label-ip");
+    if (HOST_TYPES.has(device.type) && state.options.showIpAddresses) {
       ctx.font = FONT_SECONDARY;
-      ctx.fillText(`${device.config.ipv4Address}/${prefixOf(device.config)}`, device.x, labelY);
+      if (device.config?.ipv4Address) {
+        ctx.fillStyle = cssColor("--label-ip");
+        ctx.fillText(`${device.config.ipv4Address}/${prefixOf(device.config)}`, device.x, labelY);
+      } else {
+        ctx.fillStyle = cssColor("--muted");
+        ctx.fillText("unassigned", device.x, labelY);
+      }
       labelY += 15;
     }
     if (HOST_TYPES.has(device.type) && state.options.showMacAddresses && device.config?.macAddress) {
@@ -5006,6 +5129,7 @@ Full legal text: https://creativecommons.org/publicdomain/zero/1.0/legalcode</pr
         } else if (dhcp.messageType === "ack") {
           logStep(device, "sim-dhcp", `Received DHCP ACK: assigned ${dhcp.assignedIp}, gateway ${dhcp.gatewayIp}`);
           config.ipv4Address = dhcp.assignedIp || "";
+          config.ipSource = "dhcp";
           if (dhcp.prefixLength != null) config.prefixLength = dhcp.prefixLength;
           config.gatewayIpv4Address = dhcp.gatewayIp || "";
           if (dhcp.dnsServerIp) config.dnsServerIp = dhcp.dnsServerIp;
@@ -5713,6 +5837,7 @@ Full legal text: https://creativecommons.org/publicdomain/zero/1.0/legalcode</pr
         const origin = getDevice(sim.originDeviceId);
         if (origin?.config) {
           origin.config.ipv4Address = apipaIp;
+          origin.config.ipSource = "apipa";
           origin.config.prefixLength = 16;
           origin.config.gatewayIpv4Address = "";
         }
@@ -5823,6 +5948,7 @@ Address: ${sim.dnsResolvedIp}`);
     pushUndo();
     ensureConfig(device);
     device.config.ipv4Address = parsed.address;
+    device.config.ipSource = "static";
     if (parsed.prefixLength != null) device.config.prefixLength = clampPrefixLength(parsed.prefixLength);
     sync().syncPanel();
     sync().render();
@@ -5833,6 +5959,7 @@ Address: ${sim.dnsResolvedIp}`);
     pushUndo();
     ensureConfig(device);
     device.config.ipv4Address = "";
+    delete device.config.ipSource;
     device.config.arpTable = [];
     sync().syncPanel();
     sync().render();
@@ -7501,6 +7628,16 @@ Address: ${sim.dnsResolvedIp}`);
     dom.showIpAddresses.checked = state.options.showIpAddresses;
     dom.showMacAddresses.checked = state.options.showMacAddresses;
   }
+  function ipSourceInfo(config) {
+    if (!config?.ipv4Address) return { cls: "none", text: "unassigned" };
+    if (config.ipSource === "dhcp") return { cls: "dhcp", text: "DHCP" };
+    if (config.ipSource === "apipa") return { cls: "apipa", text: "APIPA" };
+    return { cls: "static", text: "static" };
+  }
+  function ipSourceBadge(config) {
+    const info = ipSourceInfo(config);
+    return `<span class="ip-source ip-source-${info.cls}" id="ipSourceBadge">${info.text}</span>`;
+  }
   function syncNetworkPanel() {
     document.body.classList.toggle("inspector-closed", !state.options.networkPanelOpen);
     dom.inspectorOpenButton.setAttribute("aria-expanded", String(state.options.networkPanelOpen));
@@ -7990,9 +8127,9 @@ Address: ${sim.dnsResolvedIp}`);
       const isHost = selected.type === "computer" || selected.type === "server";
       const pcConfigFields = isHost ? `
       <div class="field">
-        <label for="selectedIpv4">IPv4 address / prefix</label>
+        <label class="label-with-badge" for="selectedIpv4">IPv4 address / prefix ${ipSourceBadge(selected.config)}</label>
         <div class="input-with-button">
-          <input id="selectedIpv4" value="${escapeHtml(selected.config?.ipv4Address ? `${selected.config.ipv4Address}/${prefixOf(selected.config)}` : "")}" placeholder="192.168.1.10/24" autocomplete="off" inputmode="decimal">
+          <input id="selectedIpv4" value="${escapeHtml(selected.config?.ipv4Address ? `${selected.config.ipv4Address}/${prefixOf(selected.config)}` : "")}" placeholder="0.0.0.0" autocomplete="off" inputmode="decimal">
           <button class="inline-button" id="clearIpv4" type="button" title="Clear IPv4 address">&times;</button>
         </div>
         <p class="field-note" id="hostSubnet">${selected.config?.ipv4Address ? `Subnet: ${escapeHtml(networkOf(selected.config.ipv4Address, prefixOf(selected.config)))}` : ""}</p>
@@ -8158,6 +8295,13 @@ Address: ${sim.dnsResolvedIp}`);
         const c = selected.config || {};
         subnetNote.textContent = c.ipv4Address ? `Subnet: ${networkOf(c.ipv4Address, prefixOf(c))}` : "";
       };
+      const refreshIpSourceBadge = () => {
+        const badge = document.getElementById("ipSourceBadge");
+        if (!badge) return;
+        const info = ipSourceInfo(selected.config || {});
+        badge.className = `ip-source ip-source-${info.cls}`;
+        badge.textContent = info.text;
+      };
       if (ipv4Input) {
         captureUndoOnFocus(ipv4Input);
         ipv4Input.addEventListener("input", (event) => {
@@ -8169,8 +8313,11 @@ Address: ${sim.dnsResolvedIp}`);
             event.target.setCustomValidity("");
             selected.config = selected.config || {};
             selected.config.ipv4Address = parsed ? parsed.address : "";
+            if (parsed) selected.config.ipSource = "static";
+            else delete selected.config.ipSource;
             if (parsed?.prefixLength != null) selected.config.prefixLength = parsed.prefixLength;
             refreshSubnetNote();
+            refreshIpSourceBadge();
             sync().render();
           }
         });
@@ -8195,9 +8342,11 @@ Address: ${sim.dnsResolvedIp}`);
           pushUndo();
           selected.config = selected.config || {};
           selected.config.ipv4Address = "";
+          delete selected.config.ipSource;
           ipv4Input.value = "";
           ipv4Input.setCustomValidity("");
           refreshSubnetNote();
+          refreshIpSourceBadge();
           sync().render();
         });
       }
@@ -9124,10 +9273,31 @@ Address: ${sim.dnsResolvedIp}`);
   function setTool(tool) {
     state.tool = tool;
     state.linkStartId = null;
+    syncToolGroups(tool);
     dom.toolButtons.forEach((button) => button.classList.toggle("active", button.dataset.tool === tool));
     dom.modeLabel.textContent = toolCopy[tool][0];
     dom.canvas.style.cursor = tool === "select" ? "default" : tool === "configure" ? "pointer" : "crosshair";
     render();
+  }
+  function syncToolGroups(tool) {
+    const splits = [...document.querySelectorAll(".tool-split")];
+    const split = splits.find((s) => [...s.querySelectorAll(".tool-menu-item")].some((i) => i.dataset.tool === tool));
+    if (!split) return;
+    const match = split.querySelector(`.tool-menu-item[data-tool="${tool}"]`);
+    split.querySelectorAll(".tool-menu-item").forEach((i) => i.classList.toggle("active", i === match));
+    const face = split.querySelector(".tool-face");
+    const faceSvg = face?.querySelector("svg");
+    const itemSvg = match.querySelector("svg");
+    if (face && faceSvg && itemSvg) {
+      faceSvg.replaceWith(itemSvg.cloneNode(true));
+      face.dataset.tool = tool;
+    }
+  }
+  function closeToolMenus() {
+    document.querySelectorAll(".tool-menu").forEach((m) => {
+      m.hidden = true;
+    });
+    document.querySelectorAll(".tool-caret").forEach((c) => c.setAttribute("aria-expanded", "false"));
   }
   function updateCoordReadout(world) {
     const parts = [];
@@ -9225,6 +9395,7 @@ Address: ${sim.dnsResolvedIp}`);
         cancelPortSelection();
         return;
       }
+      closeToolMenus();
       document.activeElement?.blur?.();
       state.configuringId = null;
       state.linkStartId = null;
@@ -9247,6 +9418,31 @@ Address: ${sim.dnsResolvedIp}`);
     dom.toolButtons.forEach((button) => {
       button.addEventListener("click", () => setTool(button.dataset.tool));
     });
+    document.querySelectorAll(".tool-caret").forEach((caret) => {
+      const split = caret.parentElement;
+      const menu = split.querySelector(".tool-menu");
+      caret.addEventListener("click", (event) => {
+        event.stopPropagation();
+        if (!menu) return;
+        const willOpen = menu.hidden;
+        closeToolMenus();
+        if (willOpen) {
+          const rect = split.getBoundingClientRect();
+          menu.style.left = `${rect.left}px`;
+          menu.style.top = `${rect.bottom + 4}px`;
+          menu.hidden = false;
+          caret.setAttribute("aria-expanded", "true");
+        }
+      });
+    });
+    document.querySelectorAll(".tool-menu-item").forEach((item) => {
+      item.addEventListener("click", (event) => {
+        event.stopPropagation();
+        setTool(item.dataset.tool);
+        closeToolMenus();
+      });
+    });
+    document.addEventListener("click", () => closeToolMenus());
     dom.canvas.addEventListener("pointerdown", (event) => {
       try {
         dom.canvas.setPointerCapture(event.pointerId);
@@ -9255,8 +9451,8 @@ Address: ${sim.dnsResolvedIp}`);
       const pointer = pointerFromEvent(event);
       const world = screenToWorld(pointer);
       const device = findDeviceAt(world);
-      if (state.tool === "computer" || state.tool === "server" || state.tool === "switch" || state.tool === "router" || state.tool === "firewall") {
-        addDevice(state.tool, world.x, world.y);
+      if (PLACEMENT_TOOLS.has(state.tool)) {
+        placeToolDevice(state.tool, world.x, world.y);
         return;
       }
       if (state.tool === "connect") {
@@ -9611,6 +9807,7 @@ Address: ${sim.dnsResolvedIp}`);
     return {
       ipv4Address: config?.ipv4Address || "",
       ...config?.prefixLength != null ? { prefixLength: config.prefixLength } : {},
+      ...config?.ipSource ? { ipSource: config.ipSource } : {},
       gatewayIpv4Address: config?.gatewayIpv4Address || "",
       macAddress: config?.macAddress || "",
       arpTable: normaliseArpTable(config?.arpTable || []),

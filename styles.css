@@ -305,6 +305,67 @@
     .ribbon-btn.active { color: var(--accent); background: var(--accent-soft); border-color: rgba(20, 116, 111, 0.35); }
     .ribbon-btn.danger:hover { color: var(--danger); border-color: rgba(188, 59, 59, 0.36); }
 
+    /* Split-button tool groups (Endpoint / Switch / Security): a face button +
+       a caret that opens a variant menu. */
+    .tool-split { position: relative; display: inline-flex; align-items: stretch; }
+    .tool-split .tool-face { width: 60px; }
+    .tool-caret {
+      appearance: none;
+      align-self: stretch;
+      width: 16px;
+      padding: 0;
+      margin-left: -2px;
+      border: 1px solid transparent;
+      border-radius: 6px;
+      background: transparent;
+      color: var(--muted);
+      cursor: pointer;
+      display: flex;
+      align-items: flex-start;
+      justify-content: center;
+      padding-top: 9px;
+    }
+    .tool-caret svg { width: 14px; height: 14px; stroke: currentColor; stroke-width: 2; stroke-linecap: round; stroke-linejoin: round; fill: none; }
+    .tool-caret:hover { background: var(--panel-soft); border-color: var(--line); color: var(--text); }
+    .tool-caret[aria-expanded="true"] { background: var(--panel-soft); border-color: var(--line); color: var(--text); }
+
+    .tool-menu {
+      /* Fixed, not absolute: the ribbon panel scrolls horizontally (overflow-x:
+         auto forces overflow-y to auto), which would clip an absolute menu.
+         JS positions it under its caret. */
+      position: fixed;
+      z-index: 60;
+      min-width: 168px;
+      padding: 5px;
+      display: flex;
+      flex-direction: column;
+      gap: 2px;
+      border: 1px solid var(--line);
+      border-radius: 10px;
+      background: var(--panel);
+      box-shadow: 0 10px 28px rgba(19, 33, 46, 0.16);
+    }
+    .tool-menu[hidden] { display: none; }
+    .tool-menu-item {
+      appearance: none;
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      width: 100%;
+      padding: 7px 9px;
+      border: 1px solid transparent;
+      border-radius: 7px;
+      background: transparent;
+      color: var(--text);
+      font: inherit;
+      font-size: 12px;
+      text-align: left;
+      cursor: pointer;
+    }
+    .tool-menu-item svg { width: 18px; height: 18px; flex: none; stroke: currentColor; stroke-width: 2; stroke-linecap: round; stroke-linejoin: round; fill: none; }
+    .tool-menu-item:hover { background: var(--panel-soft); border-color: var(--line); }
+    .tool-menu-item.active { color: var(--accent); background: var(--accent-soft); border-color: rgba(20, 116, 111, 0.35); }
+
     .ribbon-check { display: inline-flex; align-items: center; gap: 7px; font-size: 12px; color: var(--text); cursor: pointer; padding: 2px 0; }
     .ribbon-speed { display: flex; flex-direction: column; gap: 5px; font-size: 11px; color: var(--muted); justify-content: center; }
     .ribbon-speed input { width: 140px; }
@@ -752,6 +813,23 @@
       font-size: 11px;
       color: var(--muted);
     }
+
+    /* A field label carrying a status pill (the IP address-source badge). */
+    .label-with-badge { display: flex; align-items: center; gap: 8px; }
+    .ip-source {
+      font-size: 10px;
+      font-weight: 700;
+      text-transform: uppercase;
+      letter-spacing: 0.03em;
+      padding: 1px 7px;
+      border-radius: 999px;
+      border: 1px solid var(--line);
+      color: var(--muted);
+      background: var(--panel-soft);
+    }
+    .ip-source-dhcp { color: var(--accent); background: var(--accent-soft); border-color: rgba(20, 116, 111, 0.35); }
+    .ip-source-apipa { color: var(--danger); border-color: rgba(188, 59, 59, 0.35); }
+    .ip-source-none { font-style: italic; text-transform: none; letter-spacing: 0; }
 
     .field-note:empty {
       display: none;

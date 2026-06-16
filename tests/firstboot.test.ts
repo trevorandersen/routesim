@@ -35,6 +35,7 @@ describe("first boot — link-up autoconf", () => {
     expect(c.ipv4Address).toMatch(/^169\.254\.\d+\.\d+$/);
     expect(c.prefixLength).toBe(16);
     expect(c.gatewayIpv4Address).toBe("");
+    expect(c.ipSource).toBe("apipa");
   });
 
   it("leases from a reachable DHCP router instead", () => {
@@ -49,6 +50,7 @@ describe("first boot — link-up autoconf", () => {
     const c = pc("PC1").config;
     expect(c.ipv4Address).toBe("192.168.1.100");
     expect(c.gatewayIpv4Address).toBe("192.168.1.1");
+    expect(c.ipSource).toBe("dhcp");
   });
 
   it("leases from a dnsmasq server, learning the nameserver too", () => {

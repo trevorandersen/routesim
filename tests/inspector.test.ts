@@ -4,7 +4,7 @@
  */
 import { describe, it, expect, beforeAll, beforeEach } from "bun:test";
 import { state } from "../src/state";
-import { renderSwitchPorts, renderSwitchVlans, renderRouterInterfaces, renderFramePanel } from "../src/inspector";
+import { renderSwitchPorts, renderSwitchVlans, renderRouterInterfaces, renderFramePanel, ipSourceInfo } from "../src/inspector";
 import { findTransitAt } from "../src/canvas";
 import { createIcmpEchoRequest, createTcpSegment } from "../src/frame";
 import { dom } from "../src/dom";
@@ -12,6 +12,18 @@ import { registerNoopCallbacks, resetState } from "./helpers";
 import { basicTopology, routedTopology, vlanTopology } from "./fixtures";
 
 beforeAll(() => registerNoopCallbacks());
+
+describe("ipSourceInfo — the address-source badge", () => {
+  it("maps the source field (and bare IPs) to a label", () => {
+    expect(ipSourceInfo({ ipv4Address: "" })).toMatchObject({ cls: "none", text: "unassigned" });
+    expect(ipSourceInfo(undefined)).toMatchObject({ cls: "none" });
+    // A configured IP with no recorded source reads as static.
+    expect(ipSourceInfo({ ipv4Address: "10.0.0.5" })).toMatchObject({ cls: "static", text: "static" });
+    expect(ipSourceInfo({ ipv4Address: "10.0.0.5", ipSource: "static" })).toMatchObject({ cls: "static" });
+    expect(ipSourceInfo({ ipv4Address: "10.0.0.5", ipSource: "dhcp" })).toMatchObject({ cls: "dhcp", text: "DHCP" });
+    expect(ipSourceInfo({ ipv4Address: "169.254.1.2", ipSource: "apipa" })).toMatchObject({ cls: "apipa", text: "APIPA" });
+  });
+});
 
 describe("renderSwitchPorts", () => {
   beforeEach(() => resetState());

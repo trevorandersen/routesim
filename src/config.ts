@@ -99,6 +99,7 @@ function hostConfigForPayload(config: any): any {
   return {
     ipv4Address: config?.ipv4Address || "",
     ...(config?.prefixLength != null ? { prefixLength: config.prefixLength } : {}),
+    ...(config?.ipSource ? { ipSource: config.ipSource } : {}),
     gatewayIpv4Address: config?.gatewayIpv4Address || "",
     macAddress: config?.macAddress || "",
     arpTable: normaliseArpTable(config?.arpTable || []),

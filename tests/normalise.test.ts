@@ -221,6 +221,16 @@ describe("normaliseDeviceConfig", () => {
     expect(result.macAddress).toBe("AA:BB:CC:DD:EE:FF");
   });
 
+  it("defaults a bare IP's source to static and preserves dhcp/apipa", () => {
+    // A configured IP with no recorded source reads as static.
+    expect(normaliseDeviceConfig({ type: "computer", config: { ipv4Address: "10.0.0.1" } } as any).ipSource).toBe("static");
+    // Explicit dhcp/apipa round-trip.
+    expect(normaliseDeviceConfig({ type: "computer", config: { ipv4Address: "10.0.0.1", ipSource: "dhcp" } } as any).ipSource).toBe("dhcp");
+    expect(normaliseDeviceConfig({ type: "computer", config: { ipv4Address: "169.254.1.2", ipSource: "apipa" } } as any).ipSource).toBe("apipa");
+    // No address → no source.
+    expect(normaliseDeviceConfig({ type: "computer", config: {} } as any).ipSource).toBeUndefined();
+  });
+
   it("normalises managed switch config with VLAN fields", () => {
     const device = {
       type: "switch",

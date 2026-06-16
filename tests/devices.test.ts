@@ -1,6 +1,6 @@
 import { describe, it, expect, beforeAll, beforeEach } from "bun:test";
 import { state } from "../src/state";
-import { addDevice, addLink, deleteSelection, clearNetwork, findDeviceAt, getDevice, connectedIds, linkedPortsFor, routerInterfaceForName, routerInterfacesWithNames } from "../src/devices";
+import { addDevice, addLink, deleteSelection, clearNetwork, findDeviceAt, getDevice, connectedIds, linkedPortsFor, routerInterfaceForName, routerInterfacesWithNames, placeToolDevice, PLACEMENT_TOOLS } from "../src/devices";
 import { freshNameCounters } from "../src/device-registry";
 import { registerNoopCallbacks, resetState } from "./helpers";
 
@@ -39,6 +39,17 @@ describe("addDevice", () => {
     addDevice("computer", 100, 200);
     expect(state.devices).toHaveLength(1);
     expect(state.devices[0].type).toBe("computer");
+  });
+
+  it("placeToolDevice resolves the managed-switch variant to a managed switch", () => {
+    const basic = placeToolDevice("switch", 0, 0);
+    expect(basic.type).toBe("switch");
+    expect(basic.config?.managed).toBeFalsy();
+    const managed = placeToolDevice("managed-switch", 200, 0);
+    expect(managed.type).toBe("switch");          // a real switch device...
+    expect(managed.config?.managed).toBe(true);   // ...with management on
+    // managed-switch is a placement tool but not a device type.
+    expect(PLACEMENT_TOOLS.has("managed-switch")).toBe(true);
   });
 
   it("auto-generates sequential names", () => {

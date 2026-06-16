@@ -44,7 +44,7 @@ Both are wired once in `app.ts` at startup. Tests register no-op versions via `r
 A ping/DHCP run is driven by `engine.ts`:
 
 1. **Process phase** — `buildPingEvents()`/`buildDhcpEvents()` (`simulation.ts`) validate the request and produce an initial queue of `SimEvent`s plus a `pendingArp` map for deferred ICMPs. The engine dequeues each event, runs the per-device handler (`processAtComputer` / `processAtSwitch` / `processAtRouter`), and collects the outgoing frames.
-2. **Animate phase** — a `requestAnimationFrame` loop interpolates "transit dots" along links (amber = ARP, blue = ICMP request, green = ICMP reply, violet = DHCP, orange = TCP, cyan = DNS, red = errors). When a dot arrives, the frame is delivered (and recorded in the packet capture) and re-enters the process phase at the next hop.
+2. **Animate phase** — a `requestAnimationFrame` loop interpolates "transit dots" along links (amber = ARP, blue = ICMP request, green = ICMP reply, violet = DHCP, orange = TCP, cyan = DNS, red = errors). The opening frame is seeded as a transit from the source (so it animates off the source, not the first hop); when a dot arrives, the frame is delivered (and recorded in the packet capture) and re-enters the process phase at the next hop.
 
 Routers run `runRipConvergence()` before a simulation starts so RIP-learned routes exist. Forwarding uses a merged routing table (`buildRoutingTable`) combining connected, static, and RIP routes.
 

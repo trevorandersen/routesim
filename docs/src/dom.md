@@ -4,7 +4,7 @@ A thin module that resolves and caches every `getElementById` reference the app 
 
 ## Key export
 
-- **`dom`** — an object of typed element references (`dom.canvas`, `dom.ctx`, `dom.hint`, `dom.detailsPanel`, `dom.terminalInput`, `dom.toolButtons`, `dom.saveButton`, …), resolved **once at module load**.
+- **`dom`** — an object of typed element references (`dom.canvas`, `dom.ctx`, `dom.modeLabel`, `dom.detailsPanel`, `dom.terminalInput`, `dom.toolButtons`, `dom.simLogOutput`, …), resolved **once at module load**.
 
 ## How it fits
 

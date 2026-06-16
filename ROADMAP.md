@@ -28,13 +28,13 @@ committed scope — it's a menu for "what next".
 ## Next up (ranked)
 
 ### 1. Sim log filtering & captures
-The packet list shipped; what remains is making it queryable: **protocol
-chips and a device filter** (aspiring to a Wireshark display-filter
-expression like `dns || icmp && !arp`), **multi-run captures** kept side by
-side so a troubleshooting fix can be compared before/after, and
-**cross-linking** (a packet row highlights its wire/devices on the canvas).
-Effort: low–moderate, all renderer/filter-model work on data already
-captured.
+The packet list and **log ↔ canvas cross-linking** shipped (clicking a packet
+row glows its wire + endpoint devices amber on the canvas). What remains is
+making the list queryable: **protocol chips and a device filter** (aspiring to
+a Wireshark display-filter expression like `dns || icmp && !arp`) and
+**multi-run captures** kept side by side so a troubleshooting fix can be
+compared before/after. Effort: low–moderate, all renderer/filter-model work on
+data already captured.
 
 ### 2. STP / L2 loop handling
 The last real correctness gap: a switching loop is only saved by the engine's
@@ -97,9 +97,6 @@ The JSON import path already exists.
   tab completion for the Linux host/server commands (the router already has
   `?` + abbreviation); a right-click device context menu (Terminal /
   Configure / Power / Delete).
-- **Log ↔ canvas cross-linking** — a packet row already opens the frame
-  breakdown; highlighting its wire/devices on the canvas is the missing half
-  (also listed under "Sim log filtering & captures").
 
 ### Polish
 - **Annotations / notes on the canvas** — labels and callouts for teaching.

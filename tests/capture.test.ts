@@ -4,7 +4,7 @@
  */
 import { describe, it, expect, beforeAll, beforeEach, afterEach } from "bun:test";
 import { state } from "../src/state";
-import { startSimulation, stepOnce } from "../src/engine";
+import { startSimulation, stepOnce, stopSimulation } from "../src/engine";
 import { buildPingEvents } from "../src/simulation";
 import {
   packetColumns, createArpRequest, createArpReply, createIcmpEchoRequest,
@@ -134,6 +134,21 @@ describe("capture — frames recorded per wire traversal", () => {
     expect(first.fromDeviceId).toBe(pc1.id);
     expect(first.toDeviceId).toBe(sw.id);
     expect(packetColumns(first.frame).protocol).toBe("ARP");
+  });
+
+  it("the packet-list cross-link clears on a new run and on stop", () => {
+    const pc1 = lanTopology();
+    runAnimated(pc1, "192.168.1.20");
+    // What a packet-row click sets — the canvas highlights its wire + endpoints.
+    state.inspectedCapture = state.simulation.capture[0];
+    expect(state.inspectedCapture).not.toBeNull();
+    // A fresh run invalidates the previous selection (no stale canvas highlight).
+    runAnimated(pc1, "192.168.1.20");
+    expect(state.inspectedCapture).toBeNull();
+    // Stopping clears it too (the capture it referenced is gone).
+    state.inspectedCapture = state.simulation.capture[0];
+    stopSimulation();
+    expect(state.inspectedCapture).toBeNull();
   });
 
   it("capture entries reference real devices on a real link", () => {

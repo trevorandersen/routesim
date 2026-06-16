@@ -2525,6 +2525,7 @@ Full legal text: https://creativecommons.org/publicdomain/zero/1.0/legalcode</pr
     undoStack: [],
     redoStack: [],
     inspectedFrame: null,
+    inspectedCapture: null,
     isApplyingCompositeChange: false,
     simulation: {
       status: "idle",
@@ -4089,13 +4090,18 @@ Full legal text: https://creativecommons.org/publicdomain/zero/1.0/legalcode</pr
     if (!isVisibleDevice(from) || !isVisibleDevice(to) || link.hidden) return;
     const linkSelected = state.selectedLinkId === link.id;
     const active = linkSelected || state.selectedId === from.id || state.selectedId === to.id || state.linkStartId === from.id || state.linkStartId === to.id;
-    const linkColor = active ? cssColor("--link-active") : linkColorFor(from, to);
+    const captureLink = state.inspectedCapture?.linkId === link.id;
+    const linkColor = captureLink ? colors.selected : active ? cssColor("--link-active") : linkColorFor(from, to);
     const dimmed = from.poweredOff || to.poweredOff;
     const trunk = isTrunkLink(from, to);
     ctx.save();
     if (dimmed) ctx.globalAlpha = 0.3;
+    if (captureLink) {
+      ctx.shadowColor = colors.selected;
+      ctx.shadowBlur = 12;
+    }
     ctx.strokeStyle = linkColor;
-    ctx.lineWidth = active ? 3 : 2;
+    ctx.lineWidth = captureLink ? 4 : active ? 3 : 2;
     if (trunk) {
       const dx = to.x - from.x;
       const dy = to.y - from.y;
@@ -4118,7 +4124,7 @@ Full legal text: https://creativecommons.org/publicdomain/zero/1.0/legalcode</pr
     }
     const midX = (from.x + to.x) / 2;
     const midY = (from.y + to.y) / 2;
-    ctx.fillStyle = active ? linkColor : cssColor("--canvas-bg");
+    ctx.fillStyle = active || captureLink ? linkColor : cssColor("--canvas-bg");
     ctx.strokeStyle = linkColor;
     ctx.lineWidth = 2;
     ctx.beginPath();
@@ -4189,13 +4195,19 @@ Full legal text: https://creativecommons.org/publicdomain/zero/1.0/legalcode</pr
     if (device.hidden) return;
     const selected = state.selectedId === device.id;
     const linking = state.linkStartId === device.id;
+    const cap = state.inspectedCapture;
+    const captureEndpoint = !!cap && (cap.fromDeviceId === device.id || cap.toDeviceId === device.id);
     const palette = devicePalette(device.type);
     ctx.save();
     if (device.poweredOff) ctx.globalAlpha = 0.35;
-    if (selected || linking) {
-      ctx.strokeStyle = selected ? colors.selected : cssColor("--link-active");
+    if (selected || linking || captureEndpoint) {
+      ctx.strokeStyle = selected || captureEndpoint ? colors.selected : cssColor("--link-active");
       ctx.lineWidth = 4;
-      ctx.setLineDash(selected ? [] : [7, 5]);
+      if (captureEndpoint && !selected) {
+        ctx.shadowColor = colors.selected;
+        ctx.shadowBlur = 10;
+      }
+      ctx.setLineDash(linking && !selected && !captureEndpoint ? [7, 5] : []);
       roundRect(device.x - device.width / 2 - 7, device.y - device.height / 2 - 7, device.width + 14, device.height + 14, 12);
       ctx.stroke();
       ctx.setLineDash([]);
@@ -4572,6 +4584,7 @@ Full legal text: https://creativecommons.org/publicdomain/zero/1.0/legalcode</pr
     runRipConvergence();
     pushUndo();
     state.inspectedFrame = null;
+    state.inspectedCapture = null;
     const sim = state.simulation;
     sim.status = "running";
     sim.mode = mode;
@@ -4627,6 +4640,7 @@ Full legal text: https://creativecommons.org/publicdomain/zero/1.0/legalcode</pr
     sim.capture = [];
     sim.transits = [];
     sim.pendingArp = {};
+    state.inspectedCapture = null;
     stopAnimationLoop();
     syncSimLog();
     syncTerminal();
@@ -5664,7 +5678,7 @@ Full legal text: https://creativecommons.org/publicdomain/zero/1.0/legalcode</pr
       const cols = packetColumns(entry.frame);
       const link = linkById.get(entry.linkId);
       const wire = link ? linkName(link) : `${getDevice(entry.fromDeviceId)?.name ?? "?"} \u2194 ${getDevice(entry.toDeviceId)?.name ?? "?"}`;
-      const selected = state.inspectedFrame === entry.frame ? " selected" : "";
+      const selected = (state.inspectedCapture ? state.inspectedCapture.no === entry.no : state.inspectedFrame === entry.frame) ? " selected" : "";
       return `<tr class="pkt-row pkt-${escapeHtml(cols.tone)}${selected}" data-no="${entry.no}">
       <td class="pkt-num">${entry.no}</td>
       <td class="pkt-num">${entry.step}</td>
@@ -7941,6 +7955,7 @@ Address: ${sim.dnsResolvedIp}`);
   `;
     document.getElementById("closeFramePanel")?.addEventListener("click", () => {
       state.inspectedFrame = null;
+      state.inspectedCapture = null;
       syncPanel();
       sync().render();
       syncSimLog();
@@ -9279,6 +9294,7 @@ Address: ${sim.dnsResolvedIp}`);
         const transit = findTransitAt(world);
         if (transit) {
           state.inspectedFrame = transit.frame;
+          state.inspectedCapture = null;
           pauseSimulation();
           if (!state.options.networkPanelOpen) setNetworkPanel(true);
           syncPanel();
@@ -9289,6 +9305,7 @@ Address: ${sim.dnsResolvedIp}`);
       }
       if (state.inspectedFrame) {
         state.inspectedFrame = null;
+        state.inspectedCapture = null;
         syncSimLog();
       }
       if (device) {
@@ -9465,6 +9482,7 @@ Address: ${sim.dnsResolvedIp}`);
       const entry = state.simulation.capture.find((c) => c.no === Number(row.dataset.no));
       if (!entry) return;
       state.inspectedFrame = entry.frame;
+      state.inspectedCapture = entry;
       pauseSimulation();
       if (!state.options.networkPanelOpen) setNetworkPanel(true);
       syncPanel();

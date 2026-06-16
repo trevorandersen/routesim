@@ -106,14 +106,18 @@ export function drawLink(link: any): void {
   if (!isVisibleDevice(from) || !isVisibleDevice(to) || link.hidden) return;
   const linkSelected = state.selectedLinkId === link.id;
   const active = linkSelected || state.selectedId === from.id || state.selectedId === to.id || state.linkStartId === from.id || state.linkStartId === to.id;
-  const linkColor = active ? cssColor("--link-active") : linkColorFor(from, to);
+  // Cross-link: a selected packet-list row glows its wire amber (matches the
+  // inspected-frame transit dot), so the row and the canvas point at each other.
+  const captureLink = state.inspectedCapture?.linkId === link.id;
+  const linkColor = captureLink ? colors.selected : active ? cssColor("--link-active") : linkColorFor(from, to);
   const dimmed = from.poweredOff || to.poweredOff;
   const trunk = isTrunkLink(from, to);
 
   ctx.save();
   if (dimmed) ctx.globalAlpha = 0.3;
+  if (captureLink) { ctx.shadowColor = colors.selected; ctx.shadowBlur = 12; }
   ctx.strokeStyle = linkColor;
-  ctx.lineWidth = active ? 3 : 2;
+  ctx.lineWidth = captureLink ? 4 : active ? 3 : 2;
 
   if (trunk) {
     // Double line for trunk links
@@ -139,7 +143,7 @@ export function drawLink(link: any): void {
 
   const midX = (from.x + to.x) / 2;
   const midY = (from.y + to.y) / 2;
-  ctx.fillStyle = active ? linkColor : cssColor("--canvas-bg");
+  ctx.fillStyle = (active || captureLink) ? linkColor : cssColor("--canvas-bg");
   ctx.strokeStyle = linkColor;
   ctx.lineWidth = 2;
   ctx.beginPath();
@@ -218,14 +222,18 @@ function drawDeviceIcon(device: any): void {
   if (device.hidden) return;
   const selected = state.selectedId === device.id;
   const linking = state.linkStartId === device.id;
+  const cap = state.inspectedCapture;
+  const captureEndpoint = !!cap && (cap.fromDeviceId === device.id || cap.toDeviceId === device.id);
   const palette = devicePalette(device.type);
 
   ctx.save();
   if (device.poweredOff) ctx.globalAlpha = 0.35;
-  if (selected || linking) {
-    ctx.strokeStyle = selected ? colors.selected : cssColor("--link-active");
+  if (selected || linking || captureEndpoint) {
+    // captureEndpoint (a cross-linked packet's wire end) glows amber like the wire.
+    ctx.strokeStyle = (selected || captureEndpoint) ? colors.selected : cssColor("--link-active");
     ctx.lineWidth = 4;
-    ctx.setLineDash(selected ? [] : [7, 5]);
+    if (captureEndpoint && !selected) { ctx.shadowColor = colors.selected; ctx.shadowBlur = 10; }
+    ctx.setLineDash(linking && !selected && !captureEndpoint ? [7, 5] : []);
     roundRect(device.x - device.width / 2 - 7, device.y - device.height / 2 - 7, device.width + 14, device.height + 14, 12);
     ctx.stroke();
     ctx.setLineDash([]);

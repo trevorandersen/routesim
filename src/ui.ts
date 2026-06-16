@@ -217,6 +217,7 @@ export function setupUI(): void {
       const transit = findTransitAt(world);
       if (transit) {
         state.inspectedFrame = transit.frame;
+        state.inspectedCapture = null; // a canvas-dot pick is not a packet-list row
         pauseSimulation();
         if (!state.options.networkPanelOpen) setNetworkPanel(true);
         syncPanel();
@@ -227,6 +228,7 @@ export function setupUI(): void {
     }
     if (state.inspectedFrame) {
       state.inspectedFrame = null; // clicking elsewhere dismisses the frame panel
+      state.inspectedCapture = null;
       syncSimLog();
     }
 
@@ -415,6 +417,7 @@ export function setupUI(): void {
     const entry = state.simulation.capture.find(c => c.no === Number(row.dataset.no));
     if (!entry) return;
     state.inspectedFrame = entry.frame;
+    state.inspectedCapture = entry; // cross-link: highlight this wire + its endpoints on the canvas
     pauseSimulation();
     if (!state.options.networkPanelOpen) setNetworkPanel(true);
     syncPanel();

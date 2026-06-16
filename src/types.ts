@@ -453,6 +453,7 @@ export interface AppState {
   undoStack: string[];
   redoStack: string[];
   inspectedFrame: EthernetFrame | null;  // click-a-packet: frame shown in the inspector
+  inspectedCapture: CaptureEntry | null; // selected packet-list row: cross-links the wire + endpoints on the canvas
   isApplyingCompositeChange: boolean;
   simulation: SimulationState;
   portSelection: PortSelectionState | null;

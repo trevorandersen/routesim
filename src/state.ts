@@ -81,6 +81,7 @@ export const state: AppState = {
   undoStack: [],
   redoStack: [],
   inspectedFrame: null,
+  inspectedCapture: null,
   isApplyingCompositeChange: false,
   simulation: {
     status: "idle",

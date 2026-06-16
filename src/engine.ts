@@ -20,6 +20,7 @@ export function startSimulation(setup: PingSetup, originDeviceId: string, target
   runRipConvergence();
   pushUndo();
   state.inspectedFrame = null; // a new run invalidates the inspected frame
+  state.inspectedCapture = null;
   const sim = state.simulation;
   sim.status = "running";
   sim.mode = mode;
@@ -89,6 +90,7 @@ export function stopSimulation(): void {
   sim.capture = [];
   sim.transits = [];
   sim.pendingArp = {};
+  state.inspectedCapture = null; // the capture it referenced is gone
   stopAnimationLoop();
   syncSimLog();
   syncTerminal();
@@ -1400,7 +1402,11 @@ function renderPacketList(): string {
     const link = linkById.get(entry.linkId);
     const wire = link ? linkName(link)
       : `${getDevice(entry.fromDeviceId)?.name ?? "?"} ↔ ${getDevice(entry.toDeviceId)?.name ?? "?"}`;
-    const selected = state.inspectedFrame === entry.frame ? " selected" : "";
+    // Highlight the specific selected row (by capture no), falling back to frame
+    // reference for a canvas-dot pick (which has no row of its own).
+    const selected = (state.inspectedCapture
+      ? state.inspectedCapture.no === entry.no
+      : state.inspectedFrame === entry.frame) ? " selected" : "";
     return `<tr class="pkt-row pkt-${escapeHtml(cols.tone)}${selected}" data-no="${entry.no}">
       <td class="pkt-num">${entry.no}</td>
       <td class="pkt-num">${entry.step}</td>

@@ -504,6 +504,7 @@ export function renderFramePanel(frame: any): void {
   `;
   document.getElementById("closeFramePanel")?.addEventListener("click", () => {
     state.inspectedFrame = null;
+    state.inspectedCapture = null;
     syncPanel();
     sync().render();
     syncSimLog(); // clear the packet-list row highlight

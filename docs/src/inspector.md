@@ -5,7 +5,7 @@ Builds the right-hand inspector panel: device configuration forms, the device li
 ## Key exports
 
 ### Panel orchestration
-- **`renderFramePanel(frame)`** — the click-a-packet view: a full field table (Ethernet/ARP/IPv4/ICMP/TCP/DNS/DHCP) for a transit dot clicked mid-flight or a packet-list row; shown while `state.inspectedFrame` is set (the simulation pauses on capture).
+- **`renderFramePanel(frame)`** — the click-a-packet view: a full field table (Ethernet/ARP/IPv4/ICMP/TCP/DNS/DHCP) for a transit dot clicked mid-flight or a packet-list row; shown while `state.inspectedFrame` is set (the simulation pauses on capture). A packet-list row additionally sets `state.inspectedCapture`, which cross-links the canvas (its wire + endpoints glow — see [canvas.md](canvas.md)); the frame-panel Close clears both.
 - **`syncPanel()`** — the entry point. Rebuilds the panel for the current selection: a link (editable name — empty reverts to the derived default — plus a **Delete link** button and the frame history), nothing, or a device. Every panel opens with `panelHeading(title)` — the title (Selection/Configure/Link/Frame) plus the inspector close button, on one line and sticky at the top, so the close affordance stays in line with the heading as the panel scrolls. For a device it emits the name field, a **Terminal** button (CLI devices), a compact **Power / Delete** button row, then type-specific config fields, and wires all the inputs/buttons. Called via `sync().syncPanel()` whenever selection or config changes.
 - **`syncDeviceList()`** — rebuilds the network device list (each row selects its device).
 

@@ -57,6 +57,10 @@
       --fw-stroke: #c0564e;
       --fw-accent: #3a2020;
       --fw-icon: #e88a82;
+      --hub-fill: #2b2718;
+      --hub-stroke: #b89a3a;
+      --hub-accent: #38311d;
+      --hub-icon: #e6cd7a;
       --shadow: 0 18px 40px rgba(0, 0, 0, 0.34);
       --inspector-width: 320px;
       --terminal-height: 280px;
@@ -113,6 +117,10 @@
       --lan-stroke: #837a6b;
       --lan-accent: #ece5d8;
       --lan-icon: #5a5246;
+      --hub-fill: #f7f1e3;
+      --hub-stroke: #927a2a;
+      --hub-accent: #efe4c6;
+      --hub-icon: #6f5b18;
       --fw-fill: #fbf2f0;
       --fw-stroke: #b5443c;
       --fw-accent: #f6dedb;
@@ -175,6 +183,10 @@
       --fw-stroke: #ff9a9a;
       --fw-accent: #1a4ea3;
       --fw-icon: #ffd0d0;
+      --hub-fill: #123f8f;
+      --hub-stroke: #d8b24f;
+      --hub-accent: #0e3170;
+      --hub-icon: #ffe7ac;
       --shadow: 0 14px 36px rgba(0, 0, 0, 0.4);
     }
 
@@ -910,6 +922,12 @@
       background: #e8eef3;
       font-size: 12px;
       font-weight: 700;
+    }
+
+    /* A link's admin status pill when it's shut. */
+    .pill-down {
+      color: #fff;
+      background: var(--danger);
     }
 
     .port-list {

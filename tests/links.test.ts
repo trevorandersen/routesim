@@ -4,7 +4,7 @@
  */
 import { describe, it, expect, beforeAll, beforeEach } from "bun:test";
 import { state } from "../src/state";
-import { linkName, deleteLink, deleteSelection, addLink } from "../src/devices";
+import { linkName, deleteLink, deleteSelection, addLink, toggleLinkShutdown } from "../src/devices";
 import { buildConfigPayload, parseConfig } from "../src/config";
 import { runConsoleScript, runConsoleCommand as exec } from "../src/commands";
 import { registerNoopCallbacks, resetState } from "./helpers";
@@ -126,5 +126,57 @@ describe("links — single NIC per host", () => {
       link R1 SW
     `);
     expect(state.links).toHaveLength(3); // the switch holds three; each PC one
+  });
+});
+
+describe("links — admin status (shutdown)", () => {
+  beforeEach(() => resetState());
+
+  function lan() {
+    runConsoleScript(`
+      add computer PC1 at 0 0
+      add switch SW at 200 0
+      add computer PC2 at 400 0
+      link PC1 SW
+      link PC2 SW
+      ip PC1 192.168.1.10/24
+      ip PC2 192.168.1.20/24
+    `);
+    const sw = state.devices.find(d => d.name === "SW")!;
+    const pc2 = state.devices.find(d => d.name === "PC2")!;
+    return state.links.find(l => (l.from === pc2.id && l.to === sw.id) || (l.from === sw.id && l.to === pc2.id))!;
+  }
+
+  it("a shut link carries no traffic; noshut restores it", () => {
+    const link = lan();
+    expect(exec("run ping PC1 192.168.1.20").ok).toBe(true);   // reachable to start
+    exec("shut PC2 SW");
+    expect(link.shutdown).toBe(true);
+    expect(exec("run ping PC1 192.168.1.20").ok).toBe(false);  // its only path is down
+    exec("noshut PC2 SW");
+    expect(link.shutdown).toBeUndefined();
+    expect(exec("run ping PC1 192.168.1.20").ok).toBe(true);   // back up
+  });
+
+  it("shut state round-trips through config and the script export", () => {
+    const link = lan();
+    link.shutdown = true;
+    const parsed = parseConfig(JSON.stringify(buildConfigPayload()));
+    expect(parsed.links.find((l: any) => l.shutdown)).toBeDefined();
+    expect(exec("export").data).toContain("shut PC2 SW");
+  });
+
+  it("shut/noshut report a missing link", () => {
+    runConsoleScript(`add computer PC1 at 0 0\nadd computer PC2 at 200 0`);
+    expect(exec("shut PC1 PC2").ok).toBe(false);
+  });
+
+  it("toggleLinkShutdown flips state and selects the link (the canvas dbl-click path)", () => {
+    const link = lan();
+    expect(link.shutdown).toBeUndefined();
+    expect(toggleLinkShutdown(link.id)!.shutdown).toBe(true);
+    expect(state.selectedLinkId).toBe(link.id);
+    expect(toggleLinkShutdown(link.id)!.shutdown).toBeUndefined(); // back up
+    expect(toggleLinkShutdown("no-such-link")).toBeNull();
   });
 });

@@ -111,14 +111,17 @@ refinement if three-tier campus design becomes a teaching goal. Mostly a
 defaults + label/icon change, so effort: low–moderate.
 
 ### Configurable links
-Links are now nameable (inspector; the default name is the endpoint combo and
-the packet list's Link column shows it) and deletable. Make them properly
-configurable:
+Links are nameable, deletable, and now carry **admin status** — a link can be
+shut (administratively down) without deleting it: it stays in the topology but
+carries no traffic (inspector toggle, `shut`/`noshut` console commands, or a
+canvas double-click; dashed-red on the canvas, frames dropped with a sim-log
+entry). **Canvas labels
+for named links** also shipped (a named link shows its name at the midpoint).
+What remains:
 **bandwidth/latency/loss** (per-hop transit time and drop probability would
-make speed and reliability teachable), **admin status** (shut a link without
-deleting it — instant troubleshooting scenarios), canvas labels for named
-links, and per-link colour/style. Effort: low (status, labels) to moderate
-(latency/loss touching the transit model).
+make speed and reliability teachable — also the capacity input the *streams*
+simulation mode needs), and per-link colour/style. Effort: moderate (the
+transit model gains a per-link cost).
 
 ### Firewall — beyond basic packet filtering
 **Stateful filtering + REJECT replies** (conntrack-style `-m state`, and an

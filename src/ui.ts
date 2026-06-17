@@ -1,6 +1,6 @@
 import { state, toolCopy, networkSnapshot, pushUndoSnapshot, undo, redo, THEMES, DEFAULT_THEME } from "./state";
 import { dom } from "./dom";
-import { addLink, deleteSelection, clearNetwork, findDeviceAt, findLinkAt, getDevice, configureDevice, openPortSelectionModal, confirmPortSelection, cancelPortSelection, placeToolDevice, PLACEMENT_TOOLS } from "./devices";
+import { addLink, deleteSelection, clearNetwork, findDeviceAt, findLinkAt, getDevice, configureDevice, openPortSelectionModal, confirmPortSelection, cancelPortSelection, placeToolDevice, PLACEMENT_TOOLS, toggleLinkShutdown, linkName } from "./devices";
 import { render, resizeCanvas, screenToWorld, setZoom, syncZoomLevel, fitNetwork, findTransitAt } from "./canvas";
 import { clearCssColorCache } from "./utils";
 import { syncPanel, syncOptionControls, syncNetworkPanel, setNetworkPanel, setInspectorWidth, startInspectorResize, moveInspectorResize, stopInspectorResize } from "./inspector";
@@ -183,6 +183,7 @@ export function handleGlobalKeydown(event: KeyboardEvent): void {
   if (event.key.toLowerCase() === "s") setTool("switch");
   if (event.key.toLowerCase() === "r") setTool("router");
   if (event.key.toLowerCase() === "f") setTool("firewall");
+  if (event.key.toLowerCase() === "h") setTool("hub");
   if (event.key.toLowerCase() === "l") setTool("connect");
   if (event.key.toLowerCase() === "w") setTool("configure");
 }
@@ -365,8 +366,15 @@ export function setupUI(): void {
   });
 
   dom.canvas.addEventListener("dblclick", (event: MouseEvent) => {
-    const device = findDeviceAt(screenToWorld(pointerFromEvent(event)));
-    if (device) configureDevice(device);
+    const world = screenToWorld(pointerFromEvent(event));
+    const device = findDeviceAt(world);
+    if (device) { configureDevice(device); return; }
+    // Double-clicking a link toggles its admin status (up ⇄ shut).
+    const link = findLinkAt(world);
+    if (link) {
+      const updated = toggleLinkShutdown(link.id);
+      if (updated) dom.modeLabel.textContent = `${linkName(updated)} is now ${updated.shutdown ? "administratively down (shut)" : "up"}.`;
+    }
   });
 
   dom.canvas.addEventListener("pointerup", () => {

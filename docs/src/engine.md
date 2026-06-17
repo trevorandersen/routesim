@@ -26,6 +26,7 @@ Each handler takes a device, an incoming frame, and the ingress peer id, and ret
 
 - **`processAtServer`** — answers DNS queries from its A-records (a `DnsPayload` response; unknown name → NXDOMAIN) and serves DHCP from its configured `dhcp-range` (`handleServerDhcp`, with router + nameserver options), both gated on `dnsmasqRunning`; everything else falls through to `processAtComputer`, so a server is also an ordinary host endpoint. See [dns.md](dns.md).
 
+- **`processAtHub`** — a layer-1 repeater (the **Legacy** device class): copies every incoming frame out all other ports, with no MAC learning and no forwarding logic — the dumb predecessor to a switch (one collision domain; floods unicast too, which is the teaching contrast with a switch).
 - **`processAtFirewall`** — a transparent inline packet filter: bridges ARP/control frames to the other port(s) and evaluates each IPv4 packet against the FORWARD chain via `evaluateFirewall` (first-match-wins, else the chain policy) + `firewallRuleMatches` (src/dst CIDR, protocol, ICMP type). ACCEPT forwards, DROP/REJECT discards (logged `Firewall DROP …`). See [firewall.md](firewall.md).
 
 ## Routing & RIP

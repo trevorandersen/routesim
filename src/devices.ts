@@ -28,7 +28,7 @@ export function addDevice(type: DeviceType, x: number, y: number, name?: string)
 
 // Tools that place a device on a canvas click. "managed-switch" is a UI variant
 // of the switch tool (the Switch tool group), not a distinct device type.
-export const PLACEMENT_TOOLS = new Set(["computer", "server", "switch", "managed-switch", "router", "firewall"]);
+export const PLACEMENT_TOOLS = new Set(["computer", "server", "switch", "managed-switch", "router", "firewall", "hub"]);
 
 // Place the device for a placement tool, resolving UI variants to real types:
 // "managed-switch" is a switch with management turned on.
@@ -110,6 +110,22 @@ export function deleteLink(linkId: string): boolean {
   sync().syncPanel();
   sync().render();
   return true;
+}
+
+// Flip a link's admin status (shut ⇄ up), select it, and re-sync. Returns the
+// link (with its new state) or null if not found. Backs the canvas double-click
+// gesture; the inspector toggle and `shut`/`noshut` console commands set it too.
+export function toggleLinkShutdown(linkId: string): Link | null {
+  const link = state.links.find(l => l.id === linkId);
+  if (!link) return null;
+  pushUndo();
+  if (link.shutdown) delete link.shutdown; else link.shutdown = true;
+  state.selectedLinkId = link.id;
+  state.selectedId = null;
+  state.configuringId = null;
+  sync().syncPanel();
+  sync().render();
+  return link;
 }
 
 export function deleteSelection(): void {
@@ -612,7 +628,8 @@ function buildPortList(deviceId: string): PortOption[] {
     }];
   }
 
-  if (device.type === "switch") {
+  if (device.type === "switch" || device.type === "hub") {
+    // A hub enumerates ports the same way (it just has ethernetPorts).
     const ifaces = switchInterfacesWithNames(device);
     return ifaces.map((iface: any) => ({
       name: iface.name,

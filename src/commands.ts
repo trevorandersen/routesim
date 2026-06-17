@@ -7,7 +7,7 @@
  * tests. See docs/scripting.md for the command reference.
  */
 import type { Device, DeviceType } from "./types";
-import { state, undo, redo, sync, THEMES } from "./state";
+import { state, undo, redo, sync, pushUndo, THEMES } from "./state";
 import { USER_ADDABLE_TYPES } from "./device-registry";
 import { dom } from "./dom";
 import {
@@ -115,6 +115,23 @@ function cmdUnlink(args: string[]): CommandResult {
   sync().render();
   return ok(`Unlinked ${a.name} ↔ ${b.name}.`);
 }
+
+function cmdLinkState(args: string[], down: boolean): CommandResult {
+  const a = resolveDevice(args[0]);
+  if (typeof a === "string") return err(a);
+  const b = resolveDevice(args[1]);
+  if (typeof b === "string") return err(b);
+  const link = state.links.find(l => !l.hidden &&
+    ((l.from === a.id && l.to === b.id) || (l.from === b.id && l.to === a.id)));
+  if (!link) return err(`No link between ${a.name} and ${b.name}.`);
+  pushUndo();
+  if (down) link.shutdown = true; else delete link.shutdown;
+  sync().syncPanel();
+  sync().render();
+  return ok(`Link ${a.name} ↔ ${b.name} is now ${down ? "administratively down (shut)" : "up (no shut)"}.`);
+}
+function cmdShut(args: string[]): CommandResult { return cmdLinkState(args, true); }
+function cmdNoShut(args: string[]): CommandResult { return cmdLinkState(args, false); }
 
 function cmdMove(args: string[]): CommandResult {
   const device = resolveDevice(args[0]);
@@ -526,6 +543,7 @@ type Handler = (args: string[], rest: string) => CommandResult;
 
 const COMMANDS: Record<string, Handler> = {
   add: cmdAdd, remove: cmdRemove, delete: cmdRemove, link: cmdLink, unlink: cmdUnlink,
+  shut: cmdShut, noshut: cmdNoShut,
   move: cmdMove, rename: cmdRename, clear: cmdClear, collapse: cmdCollapse, expand: cmdExpand,
   ip: cmdIp, gateway: cmdGateway, nameserver: cmdNameserver, mac: cmdMac, interface: cmdInterface, route: cmdRoute,
   vlan: cmdVlan, port: cmdPort, cli: cmdCli,
@@ -540,8 +558,9 @@ const COMMANDS: Record<string, Handler> = {
 };
 
 const HELP: Record<string, string> = {
-  add: "add <computer|server|switch|router|firewall> [name] [at <x> <y>]",
+  add: "add <computer|server|switch|router|firewall|hub> [name] [at <x> <y>]",
   remove: "remove <device>", link: "link <a> <b> [portA portB]", unlink: "unlink <a> <b>",
+  shut: "shut <a> <b> (administratively down the link)", noshut: "noshut <a> <b> (bring the link up)",
   move: "move <device> <x> <y>", rename: "rename <device> <name>", clear: "remove all devices",
   collapse: "collapse <switch> into a LAN", expand: "expand <lan>",
   ip: "ip <host> <addr/prefix>", gateway: "gateway <host> <ip>", nameserver: "nameserver <host> <ip>", mac: "mac <host> <addr>",
@@ -635,6 +654,7 @@ export function exportTopologyScript(): string {
     if (!f || !t) continue;
     const ports = (l.fromPort != null || l.toPort != null) ? ` ${l.fromPort ?? 1} ${l.toPort ?? 1}` : "";
     lines.push(`link ${f} ${t}${ports}`);
+    if (l.shutdown) lines.push(`shut ${f} ${t}`);
   }
 
   return lines.join("\n");

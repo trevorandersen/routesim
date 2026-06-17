@@ -85,7 +85,7 @@ describe("setSwitchPortVlan", () => {
 | `tests/prefix.test.ts` | Real subnet prefixes: longest-prefix behaviour and the display/export surfaces |
 | `tests/capture.test.ts` | The packet list: `packetColumns` mapping + per-wire capture recording (cap, headless preservation) |
 | `tests/dock.test.ts` | The bottom dock: terminal sessions/tabs, console `cli` session sharing, configure-opens-terminal |
-| `tests/links.test.ts` | Link naming (derived default + override), link deletion, the single-NIC host guard |
+| `tests/links.test.ts` | Link naming (derived default + override), link deletion, the single-NIC host guard, admin status (shut blocks traffic; `shut`/`noshut`; round-trip) |
 | `tests/firstboot.test.ts` | First-boot autoconf: DHCP on link-up/power-on with APIPA fallback |
 | `tests/terminal.test.ts` | Terminal display + mutator helpers (host/router/switch, VLAN, trunk) |
 | `tests/terminal-commands.test.ts` | The command **dispatchers**, router mode machine, abbreviation + `?` |

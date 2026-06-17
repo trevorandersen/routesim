@@ -386,6 +386,11 @@ function processNextStep(): void {
   for (const out of outgoing) {
     const link = findLinkBetween(event.deviceId, out.toDeviceId);
     if (!link) continue;
+    if (link.shutdown) {
+      // Administratively down — the cable's there but it carries no traffic.
+      logStep(device, "sim-drop", `${linkName(link)} is administratively down — frame dropped`);
+      continue;
+    }
     sim.transits.push({
       frame: out.frame,
       linkId: link.id,
@@ -428,6 +433,7 @@ const PROCESSORS: Partial<Record<DeviceType, (device: Device, frame: EthernetFra
   switch: processAtSwitch,
   router: processAtRouter,
   firewall: processAtFirewall,
+  hub: processAtHub,
 };
 
 // ─── Computer processing ─────────────────────────────────────────────────────
@@ -869,6 +875,25 @@ export function processAtSwitch(device: Device, frame: EthernetFrame, fromDevice
     }
   }
 
+  return outgoing;
+}
+
+// A hub is a layer-1 repeater: it copies every incoming frame out all other
+// ports, with no MAC learning and no forwarding logic (the dumb predecessor to
+// a switch — one collision domain, every port sees every frame). The teaching
+// contrast with a switch is exactly that it floods unicast too.
+export function processAtHub(device: Device, frame: EthernetFrame, fromDeviceId: string | null): OutgoingFrame[] {
+  const outgoing: OutgoingFrame[] = [];
+  if (device.poweredOff) return outgoing;
+  const ports = linkedPortsFor(device.id);
+  const ingressIdx = fromDeviceId ? ports.findIndex(p => p.peer.id === fromDeviceId) : -1;
+  const repeated: string[] = [];
+  ports.forEach((port, idx) => {
+    if (idx === ingressIdx) return;
+    outgoing.push({ frame: { ...frame, id: `${frame.id}-${idx}` }, toDeviceId: port.peer.id });
+    repeated.push(`Ethernet${idx + 1}`);
+  });
+  logStep(device, "sim-forward", `Repeat ${frameLabel(frame)} → ${repeated.join(", ") || "(none)"}`);
   return outgoing;
 }
 

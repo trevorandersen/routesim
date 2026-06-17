@@ -66,6 +66,10 @@
       --fw-stroke: #c0564e;
       --fw-accent: #3a2020;
       --fw-icon: #e88a82;
+      --hub-fill: #2b2718;
+      --hub-stroke: #b89a3a;
+      --hub-accent: #38311d;
+      --hub-icon: #e6cd7a;
       --shadow: 0 18px 40px rgba(0, 0, 0, 0.34);
       --inspector-width: 320px;
       --terminal-height: 280px;
@@ -122,6 +126,10 @@
       --lan-stroke: #837a6b;
       --lan-accent: #ece5d8;
       --lan-icon: #5a5246;
+      --hub-fill: #f7f1e3;
+      --hub-stroke: #927a2a;
+      --hub-accent: #efe4c6;
+      --hub-icon: #6f5b18;
       --fw-fill: #fbf2f0;
       --fw-stroke: #b5443c;
       --fw-accent: #f6dedb;
@@ -184,6 +192,10 @@
       --fw-stroke: #ff9a9a;
       --fw-accent: #1a4ea3;
       --fw-icon: #ffd0d0;
+      --hub-fill: #123f8f;
+      --hub-stroke: #d8b24f;
+      --hub-accent: #0e3170;
+      --hub-icon: #ffe7ac;
       --shadow: 0 14px 36px rgba(0, 0, 0, 0.4);
     }
 
@@ -919,6 +931,12 @@
       background: #e8eef3;
       font-size: 12px;
       font-weight: 700;
+    }
+
+    /* A link's admin status pill when it's shut. */
+    .pill-down {
+      color: #fff;
+      background: var(--danger);
     }
 
     .port-list {
@@ -1849,11 +1867,11 @@
         <div class="ribbon-group"><div class="ribbon-items">
           <button class="ribbon-btn tool-button active" data-tool="select" type="button"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 4l7 16l2 -7l7 -2z"></path></svg><span>Select</span></button>
 
-          <div class="tool-split" data-group="endpoint">
-            <button class="ribbon-btn tool-button tool-face" data-tool="computer" type="button"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M3 5a1 1 0 0 1 1 -1h16a1 1 0 0 1 1 1v10a1 1 0 0 1 -1 1h-16a1 1 0 0 1 -1 -1v-10"></path><path d="M7 20h10"></path><path d="M9 16v4"></path><path d="M15 16v4"></path></svg><span>Endpoint</span></button>
-            <button class="tool-caret" type="button" aria-label="Choose endpoint type" aria-haspopup="true" aria-expanded="false"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M6 9l6 6l6 -6"></path></svg></button>
+          <div class="tool-split" data-group="computer">
+            <button class="ribbon-btn tool-button tool-face" data-tool="computer" type="button"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M3 5a1 1 0 0 1 1 -1h16a1 1 0 0 1 1 1v10a1 1 0 0 1 -1 1h-16a1 1 0 0 1 -1 -1v-10"></path><path d="M7 20h10"></path><path d="M9 16v4"></path><path d="M15 16v4"></path></svg><span>Computer</span></button>
+            <button class="tool-caret" type="button" aria-label="Choose computer type" aria-haspopup="true" aria-expanded="false"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M6 9l6 6l6 -6"></path></svg></button>
             <div class="tool-menu" hidden>
-              <button class="tool-menu-item active" data-tool="computer" type="button"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M3 5a1 1 0 0 1 1 -1h16a1 1 0 0 1 1 1v10a1 1 0 0 1 -1 1h-16a1 1 0 0 1 -1 -1v-10"></path><path d="M7 20h10"></path><path d="M9 16v4"></path><path d="M15 16v4"></path></svg><span>Computer</span></button>
+              <button class="tool-menu-item active" data-tool="computer" type="button"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M3 5a1 1 0 0 1 1 -1h16a1 1 0 0 1 1 1v10a1 1 0 0 1 -1 1h-16a1 1 0 0 1 -1 -1v-10"></path><path d="M7 20h10"></path><path d="M9 16v4"></path><path d="M15 16v4"></path></svg><span>Client PC</span></button>
               <button class="tool-menu-item" data-tool="server" type="button"><svg viewBox="0 0 24 24" aria-hidden="true"><rect x="3" y="4" width="18" height="8" rx="3"></rect><rect x="3" y="12" width="18" height="8" rx="3"></rect><path d="M7 8l0 .01"></path><path d="M7 16l0 .01"></path></svg><span>Server</span></button>
             </div>
           </div>
@@ -1879,6 +1897,14 @@
 
           <button class="ribbon-btn tool-button" data-tool="connect" type="button"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M7 7m-3 0a3 3 0 1 0 6 0a3 3 0 1 0 -6 0"></path><path d="M17 17m-3 0a3 3 0 1 0 6 0a3 3 0 1 0 -6 0"></path><path d="M9 9l6 6"></path></svg><span>Connect</span></button>
           <button class="ribbon-btn tool-button" data-tool="configure" type="button"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M16 5l3 3l-11 11h-3v-3z"></path><path d="M14 7l3 3"></path></svg><span>Configure</span></button>
+
+          <div class="tool-split" data-group="legacy">
+            <button class="ribbon-btn tool-button tool-face" data-tool="hub" type="button"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 12m-2 0a2 2 0 1 0 4 0a2 2 0 1 0 -4 0"></path><path d="M5 6m-1.5 0a1.5 1.5 0 1 0 3 0a1.5 1.5 0 1 0 -3 0"></path><path d="M19 6m-1.5 0a1.5 1.5 0 1 0 3 0a1.5 1.5 0 1 0 -3 0"></path><path d="M5 18m-1.5 0a1.5 1.5 0 1 0 3 0a1.5 1.5 0 1 0 -3 0"></path><path d="M19 18m-1.5 0a1.5 1.5 0 1 0 3 0a1.5 1.5 0 1 0 -3 0"></path><path d="M10.5 10.5l-4 -3"></path><path d="M13.5 10.5l4 -3"></path><path d="M10.5 13.5l-4 3"></path><path d="M13.5 13.5l4 3"></path></svg><span>Legacy</span></button>
+            <button class="tool-caret" type="button" aria-label="Choose legacy device" aria-haspopup="true" aria-expanded="false"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M6 9l6 6l6 -6"></path></svg></button>
+            <div class="tool-menu" hidden>
+              <button class="tool-menu-item active" data-tool="hub" type="button"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 12m-2 0a2 2 0 1 0 4 0a2 2 0 1 0 -4 0"></path><path d="M5 6m-1.5 0a1.5 1.5 0 1 0 3 0a1.5 1.5 0 1 0 -3 0"></path><path d="M19 6m-1.5 0a1.5 1.5 0 1 0 3 0a1.5 1.5 0 1 0 -3 0"></path><path d="M5 18m-1.5 0a1.5 1.5 0 1 0 3 0a1.5 1.5 0 1 0 -3 0"></path><path d="M19 18m-1.5 0a1.5 1.5 0 1 0 3 0a1.5 1.5 0 1 0 -3 0"></path><path d="M10.5 10.5l-4 -3"></path><path d="M13.5 10.5l4 -3"></path><path d="M10.5 13.5l-4 3"></path><path d="M13.5 13.5l4 3"></path></svg><span>Hub</span></button>
+            </div>
+          </div>
         </div><span class="ribbon-label">Tools</span></div>
         <div class="ribbon-group"><div class="ribbon-items">
           <button class="ribbon-btn" id="undoButton" data-action="undo" type="button" disabled><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M9 14l-4 -4l4 -4"></path><path d="M5 10h11a4 4 0 1 1 0 8h-1"></path></svg><span>Undo</span></button>
@@ -2141,7 +2167,7 @@ Full legal text: https://creativecommons.org/publicdomain/zero/1.0/legalcode</pr
   // src/device-registry.ts
   var DEVICE_SPECS = {
     computer: {
-      label: "Computer",
+      label: "Client PC",
       namePrefix: "PC",
       width: 92,
       height: 68,
@@ -2225,6 +2251,27 @@ Full legal text: https://creativecommons.org/publicdomain/zero/1.0/legalcode</pr
         "M9 12l2 2l4 -4"
       ],
       defaultConfig: () => ({ ethernetPorts: 2, rules: [], policy: { forward: "accept" } })
+    },
+    hub: {
+      label: "Hub",
+      namePrefix: "HUB",
+      width: 96,
+      height: 56,
+      paletteVar: "hub",
+      iconRadius: 8,
+      userAddable: true,
+      iconPaths: [
+        "M12 12m-2 0a2 2 0 1 0 4 0a2 2 0 1 0 -4 0",
+        "M5 6m-1.5 0a1.5 1.5 0 1 0 3 0a1.5 1.5 0 1 0 -3 0",
+        "M19 6m-1.5 0a1.5 1.5 0 1 0 3 0a1.5 1.5 0 1 0 -3 0",
+        "M5 18m-1.5 0a1.5 1.5 0 1 0 3 0a1.5 1.5 0 1 0 -3 0",
+        "M19 18m-1.5 0a1.5 1.5 0 1 0 3 0a1.5 1.5 0 1 0 -3 0",
+        "M10.5 10.5l-4 -3",
+        "M13.5 10.5l4 -3",
+        "M10.5 13.5l-4 3",
+        "M13.5 13.5l4 3"
+      ],
+      defaultConfig: () => ({ ethernetPorts: 4 })
     },
     lan: {
       label: "LAN",
@@ -2407,6 +2454,9 @@ Full legal text: https://creativecommons.org/publicdomain/zero/1.0/legalcode</pr
     };
   }
   function normaliseDeviceConfig(device) {
+    if (device.type === "hub") {
+      return { ethernetPorts: clampPortCount(device.config?.ethernetPorts ?? device.ethernetPorts ?? 4) };
+    }
     if (device.type === "switch") {
       const ethernetPorts = clampPortCount(device.config?.ethernetPorts ?? device.ethernetPorts ?? 8);
       const managed = Boolean(device.config?.managed ?? device.managed ?? false);
@@ -2530,6 +2580,7 @@ Full legal text: https://creativecommons.org/publicdomain/zero/1.0/legalcode</pr
         from,
         to,
         ...link.name ? { name: String(link.name).trim() } : {},
+        ...link.shutdown ? { shutdown: true } : {},
         ...link.fromPort != null ? { fromPort: Number(link.fromPort) } : {},
         ...link.toPort != null ? { toPort: Number(link.toPort) } : {},
         hidden: Boolean(link.hidden),
@@ -2686,13 +2737,14 @@ Full legal text: https://creativecommons.org/publicdomain/zero/1.0/legalcode</pr
   }
   var toolCopy = {
     select: ["Select and move devices", "Drag devices to arrange the network."],
-    computer: ["Add computer", "Click the canvas to place a computer."],
+    computer: ["Add client PC", "Click the canvas to place a client PC."],
     server: ["Add server", "Click the canvas to place a server (DNS/DHCP via dnsmasq)."],
     switch: ["Add switch", "Click the canvas to place a switch."],
     "managed-switch": ["Add managed switch", "Click the canvas to place a managed switch."],
     connect: ["Connect devices", "Click one device, then another device to connect them."],
     router: ["Add router", "Click the canvas to place a router."],
     firewall: ["Add firewall", "Click the canvas to place a firewall."],
+    hub: ["Add hub", "Click the canvas to place a hub (a layer-1 repeater)."],
     configure: ["Configure device", "Click a device to edit its static configuration."]
   };
   var colors = {
@@ -3119,7 +3171,7 @@ Full legal text: https://creativecommons.org/publicdomain/zero/1.0/legalcode</pr
     sync().render();
     return device;
   }
-  var PLACEMENT_TOOLS = /* @__PURE__ */ new Set(["computer", "server", "switch", "managed-switch", "router", "firewall"]);
+  var PLACEMENT_TOOLS = /* @__PURE__ */ new Set(["computer", "server", "switch", "managed-switch", "router", "firewall", "hub"]);
   function placeToolDevice(tool, x, y) {
     if (tool === "managed-switch") {
       const device = addDevice("switch", x, y);
@@ -3187,6 +3239,19 @@ Full legal text: https://creativecommons.org/publicdomain/zero/1.0/legalcode</pr
     sync().syncPanel();
     sync().render();
     return true;
+  }
+  function toggleLinkShutdown(linkId) {
+    const link = state.links.find((l) => l.id === linkId);
+    if (!link) return null;
+    pushUndo();
+    if (link.shutdown) delete link.shutdown;
+    else link.shutdown = true;
+    state.selectedLinkId = link.id;
+    state.selectedId = null;
+    state.configuringId = null;
+    sync().syncPanel();
+    sync().render();
+    return link;
   }
   function deleteSelection() {
     if (!state.selectedId && state.selectedLinkId) {
@@ -3600,7 +3665,7 @@ Full legal text: https://creativecommons.org/publicdomain/zero/1.0/legalcode</pr
         connectedTo: occupied ? linked[0]?.peer?.name || null : null
       }];
     }
-    if (device.type === "switch") {
+    if (device.type === "switch" || device.type === "hub") {
       const ifaces = switchInterfacesWithNames(device);
       return ifaces.map((iface) => ({
         name: iface.name,
@@ -4113,7 +4178,7 @@ Full legal text: https://creativecommons.org/publicdomain/zero/1.0/legalcode</pr
   }
   function findFirstHop(source) {
     for (const link of linksFor(source.id)) {
-      if (link.hidden) continue;
+      if (link.hidden || link.shutdown) continue;
       const isFrom = link.from === source.id;
       const peerId = isFrom ? link.to : link.from;
       const peer = getDevice(peerId);
@@ -4209,17 +4274,20 @@ Full legal text: https://creativecommons.org/publicdomain/zero/1.0/legalcode</pr
     const linkSelected = state.selectedLinkId === link.id;
     const active = linkSelected || state.selectedId === from.id || state.selectedId === to.id || state.linkStartId === from.id || state.linkStartId === to.id;
     const captureLink = state.inspectedCapture?.linkId === link.id;
-    const linkColor = captureLink ? colors.selected : active ? cssColor("--link-active") : linkColorFor(from, to);
+    const shut = !!link.shutdown;
+    const linkColor = captureLink ? colors.selected : active ? cssColor("--link-active") : shut ? cssColor("--danger") : linkColorFor(from, to);
     const dimmed = from.poweredOff || to.poweredOff;
     const trunk = isTrunkLink(from, to);
     ctx.save();
     if (dimmed) ctx.globalAlpha = 0.3;
+    else if (shut) ctx.globalAlpha = 0.6;
     if (captureLink) {
       ctx.shadowColor = colors.selected;
       ctx.shadowBlur = 12;
     }
     ctx.strokeStyle = linkColor;
     ctx.lineWidth = captureLink ? 4 : active ? 3 : 2;
+    if (shut) ctx.setLineDash([6, 5]);
     if (trunk) {
       const dx = to.x - from.x;
       const dy = to.y - from.y;
@@ -4240,6 +4308,7 @@ Full legal text: https://creativecommons.org/publicdomain/zero/1.0/legalcode</pr
       ctx.lineTo(to.x, to.y);
       ctx.stroke();
     }
+    ctx.setLineDash([]);
     const midX = (from.x + to.x) / 2;
     const midY = (from.y + to.y) / 2;
     ctx.fillStyle = active || captureLink ? linkColor : cssColor("--canvas-bg");
@@ -4249,6 +4318,17 @@ Full legal text: https://creativecommons.org/publicdomain/zero/1.0/legalcode</pr
     ctx.arc(midX, midY, 5, 0, Math.PI * 2);
     ctx.fill();
     ctx.stroke();
+    const labelParts = [];
+    if (link.name) labelParts.push(link.name);
+    if (shut) labelParts.push("down");
+    if (labelParts.length) {
+      ctx.globalAlpha = 1;
+      ctx.font = FONT_SMALL;
+      ctx.textAlign = "center";
+      ctx.textBaseline = "bottom";
+      ctx.fillStyle = shut ? cssColor("--danger") : cssColor("--muted");
+      ctx.fillText(labelParts.join(" \xB7 "), midX, midY - 8);
+    }
     ctx.restore();
   }
   function drawIconDevice(device, palette) {
@@ -4968,6 +5048,10 @@ Full legal text: https://creativecommons.org/publicdomain/zero/1.0/legalcode</pr
     for (const out of outgoing) {
       const link = findLinkBetween(event.deviceId, out.toDeviceId);
       if (!link) continue;
+      if (link.shutdown) {
+        logStep(device, "sim-drop", `${linkName(link)} is administratively down \u2014 frame dropped`);
+        continue;
+      }
       sim.transits.push({
         frame: out.frame,
         linkId: link.id,
@@ -4994,7 +5078,8 @@ Full legal text: https://creativecommons.org/publicdomain/zero/1.0/legalcode</pr
     server: processAtServer,
     switch: processAtSwitch,
     router: processAtRouter,
-    firewall: processAtFirewall
+    firewall: processAtFirewall,
+    hub: processAtHub
   };
   function processAtComputer(device, frame, fromDeviceId) {
     const sim = state.simulation;
@@ -5374,6 +5459,20 @@ Full legal text: https://creativecommons.org/publicdomain/zero/1.0/legalcode</pr
         outgoing.push({ frame: egressFrame, toDeviceId: peer.id });
       }
     }
+    return outgoing;
+  }
+  function processAtHub(device, frame, fromDeviceId) {
+    const outgoing = [];
+    if (device.poweredOff) return outgoing;
+    const ports = linkedPortsFor(device.id);
+    const ingressIdx = fromDeviceId ? ports.findIndex((p) => p.peer.id === fromDeviceId) : -1;
+    const repeated = [];
+    ports.forEach((port, idx) => {
+      if (idx === ingressIdx) return;
+      outgoing.push({ frame: { ...frame, id: `${frame.id}-${idx}` }, toDeviceId: port.peer.id });
+      repeated.push(`Ethernet${idx + 1}`);
+    });
+    logStep(device, "sim-forward", `Repeat ${frameLabel(frame)} \u2192 ${repeated.join(", ") || "(none)"}`);
     return outgoing;
   }
   function processAtRouter(device, frame, fromDeviceId) {
@@ -7982,9 +8081,15 @@ Address: ${sim.dnsResolvedIp}`);
         <button class="inline-button" id="clearLinkName" type="button" title="Revert to the default name">&times;</button>
       </div>
     </div>
+    <div class="field">
+      <label for="selectedLinkShutdown">Administratively down (shut)</label>
+      <input id="selectedLinkShutdown" type="checkbox" ${link.shutdown ? "checked" : ""}>
+      <p class="field-note">A shut link stays in the topology but carries no traffic.</p>
+    </div>
     <div class="pill-row">
       <span class="pill">${escapeHtml(fromDev?.name || link.from)}</span>
       <span class="pill">${escapeHtml(toDev?.name || link.to)}</span>
+      <span class="pill ${link.shutdown ? "pill-down" : ""}">${link.shutdown ? "DOWN" : "UP"}</span>
     </div>
     <div style="height: 12px"></div>
     <div class="field">
@@ -8035,6 +8140,16 @@ Address: ${sim.dnsResolvedIp}`);
         delete link.name;
         nameInput.value = "";
         syncSimLog();
+      });
+    }
+    const shutdownInput = document.getElementById("selectedLinkShutdown");
+    if (shutdownInput) {
+      shutdownInput.addEventListener("change", (event) => {
+        pushUndo();
+        if (event.target.checked) link.shutdown = true;
+        else delete link.shutdown;
+        syncPanel();
+        sync().render();
       });
     }
   }
@@ -8231,6 +8346,20 @@ Address: ${sim.dnsResolvedIp}`);
         ${renderFirewallRules(selected)}
       </div>
     ` : "";
+      const hubConfigFields = selected.type === "hub" ? `
+      <p class="field-note">A hub is a layer-1 repeater: it copies every frame out all other ports (no MAC learning, one collision domain).</p>
+      <div style="height: 10px"></div>
+      <div class="field">
+        <label for="selectedPorts">Ethernet ports</label>
+        <input id="selectedPorts" type="number" min="4" max="24" step="1" value="${escapeHtml(selected.config?.ethernetPorts || 4)}">
+      </div>
+      <div class="field">
+        <label>Ports</label>
+        <div class="port-list" id="switchPortList">
+          ${renderSwitchPorts(selected)}
+        </div>
+      </div>
+    ` : "";
       dom.detailsPanel.innerHTML = `
       ${panelHeading(isConfiguring ? "Configure" : "Selection")}
       <div class="field">
@@ -8275,6 +8404,7 @@ Address: ${sim.dnsResolvedIp}`);
       ${switchConfigFields}
       ${routerConfigFields}
       ${firewallConfigFields}
+      ${hubConfigFields}
       <div class="pill-row">
         <span class="pill">${selectedType}</span>
         <span class="pill">${neighbors.length} links</span>
@@ -9411,6 +9541,7 @@ Address: ${sim.dnsResolvedIp}`);
     if (event.key.toLowerCase() === "s") setTool("switch");
     if (event.key.toLowerCase() === "r") setTool("router");
     if (event.key.toLowerCase() === "f") setTool("firewall");
+    if (event.key.toLowerCase() === "h") setTool("hub");
     if (event.key.toLowerCase() === "l") setTool("connect");
     if (event.key.toLowerCase() === "w") setTool("configure");
   }
@@ -9574,8 +9705,17 @@ Address: ${sim.dnsResolvedIp}`);
       if (state.tool === "connect" && state.linkStartId) render();
     });
     dom.canvas.addEventListener("dblclick", (event) => {
-      const device = findDeviceAt(screenToWorld(pointerFromEvent(event)));
-      if (device) configureDevice(device);
+      const world = screenToWorld(pointerFromEvent(event));
+      const device = findDeviceAt(world);
+      if (device) {
+        configureDevice(device);
+        return;
+      }
+      const link = findLinkAt(world);
+      if (link) {
+        const updated = toggleLinkShutdown(link.id);
+        if (updated) dom.modeLabel.textContent = `${linkName(updated)} is now ${updated.shutdown ? "administratively down (shut)" : "up"}.`;
+      }
     });
     dom.canvas.addEventListener("pointerup", () => {
       if (state.drag?.undoSnapshot && state.drag.undoSnapshot !== networkSnapshot()) {
@@ -9791,10 +9931,11 @@ Address: ${sim.dnsResolvedIp}`);
           }
         } : {}
       })),
-      links: state.links.map(({ from, to, name, fromPort, toPort, hidden, collapsedBy, proxy }) => ({
+      links: state.links.map(({ from, to, name, shutdown, fromPort, toPort, hidden, collapsedBy, proxy }) => ({
         from,
         to,
         ...name ? { name } : {},
+        ...shutdown ? { shutdown: true } : {},
         ...fromPort != null ? { fromPort } : {},
         ...toPort != null ? { toPort } : {},
         ...hidden ? { hidden: true } : {},
@@ -9938,6 +10079,26 @@ Address: ${sim.dnsResolvedIp}`);
     sync().syncPanel();
     sync().render();
     return ok(`Unlinked ${a.name} \u2194 ${b.name}.`);
+  }
+  function cmdLinkState(args, down) {
+    const a = resolveDevice(args[0]);
+    if (typeof a === "string") return err(a);
+    const b = resolveDevice(args[1]);
+    if (typeof b === "string") return err(b);
+    const link = state.links.find((l) => !l.hidden && (l.from === a.id && l.to === b.id || l.from === b.id && l.to === a.id));
+    if (!link) return err(`No link between ${a.name} and ${b.name}.`);
+    pushUndo();
+    if (down) link.shutdown = true;
+    else delete link.shutdown;
+    sync().syncPanel();
+    sync().render();
+    return ok(`Link ${a.name} \u2194 ${b.name} is now ${down ? "administratively down (shut)" : "up (no shut)"}.`);
+  }
+  function cmdShut(args) {
+    return cmdLinkState(args, true);
+  }
+  function cmdNoShut(args) {
+    return cmdLinkState(args, false);
   }
   function cmdMove(args) {
     const device = resolveDevice(args[0]);
@@ -10344,6 +10505,8 @@ Address: ${sim.dnsResolvedIp}`);
     delete: cmdRemove,
     link: cmdLink,
     unlink: cmdUnlink,
+    shut: cmdShut,
+    noshut: cmdNoShut,
     move: cmdMove,
     rename: cmdRename,
     clear: cmdClear,
@@ -10388,10 +10551,12 @@ Address: ${sim.dnsResolvedIp}`);
     help: cmdHelp
   };
   var HELP = {
-    add: "add <computer|server|switch|router|firewall> [name] [at <x> <y>]",
+    add: "add <computer|server|switch|router|firewall|hub> [name] [at <x> <y>]",
     remove: "remove <device>",
     link: "link <a> <b> [portA portB]",
     unlink: "unlink <a> <b>",
+    shut: "shut <a> <b> (administratively down the link)",
+    noshut: "noshut <a> <b> (bring the link up)",
     move: "move <device> <x> <y>",
     rename: "rename <device> <name>",
     clear: "remove all devices",
@@ -10494,6 +10659,7 @@ Address: ${sim.dnsResolvedIp}`);
       if (!f || !t) continue;
       const ports = l.fromPort != null || l.toPort != null ? ` ${l.fromPort ?? 1} ${l.toPort ?? 1}` : "";
       lines.push(`link ${f} ${t}${ports}`);
+      if (l.shutdown) lines.push(`shut ${f} ${t}`);
     }
     return lines.join("\n");
   }

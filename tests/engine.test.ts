@@ -1,13 +1,53 @@
 import { describe, it, expect, beforeAll, beforeEach } from "bun:test";
 import { state } from "../src/state";
-import { processAtSwitch, processAtRouter, processAtComputer, runSimulationHeadless, runTraceroute } from "../src/engine";
+import { processAtSwitch, processAtRouter, processAtComputer, processAtHub, runSimulationHeadless, runTraceroute } from "../src/engine";
 import { buildPingEvents } from "../src/simulation";
 import { createArpRequest, createArpReply, createIcmpEchoRequest, createIcmpEchoReply, createDhcpOffer, createDhcpAck, BROADCAST_MAC } from "../src/frame";
+import { runConsoleScript } from "../src/commands";
 import { registerNoopCallbacks, resetState } from "./helpers";
 import { basicTopology, routedTopology, vlanTopology, trunkTopology } from "./fixtures";
 
 beforeAll(() => {
   registerNoopCallbacks();
+});
+
+// ── processAtHub ─────────────────────────────────────────────────────────────
+
+describe("processAtHub — layer-1 repeater", () => {
+  beforeEach(() => resetState());
+
+  function hubLan() {
+    runConsoleScript(`
+      add hub HUB at 200 0
+      add computer PC1 at 0 0
+      add computer PC2 at 400 0
+      add computer PC3 at 200 200
+      link PC1 HUB
+      link PC2 HUB
+      link PC3 HUB
+    `);
+    return state.devices.find(d => d.name === "HUB")!;
+  }
+
+  it("repeats a frame out every port except ingress (floods broadcast)", () => {
+    const hub = hubLan();
+    const pc1 = state.devices.find(d => d.name === "PC1")!;
+    const frame = createArpRequest("02:00:00:00:01:10", "192.168.1.10", "192.168.1.20");
+    const out = processAtHub(hub, frame, pc1.id);
+    const targets = out.map(o => o.toDeviceId).sort();
+    const others = state.devices.filter(d => d.name === "PC2" || d.name === "PC3").map(d => d.id).sort();
+    expect(targets).toEqual(others); // PC2 + PC3, never back to PC1
+  });
+
+  it("repeats unicast too (no MAC learning — the switch contrast)", () => {
+    const hub = hubLan();
+    const pc1 = state.devices.find(d => d.name === "PC1")!;
+    // A unicast frame addressed to PC2 still goes everywhere (PC2 and PC3).
+    const unicast = createIcmpEchoRequest("02:00:00:00:01:10", "02:00:00:00:01:20", "192.168.1.10", "192.168.1.20", 64);
+    const out = processAtHub(hub, unicast, pc1.id);
+    expect(out).toHaveLength(2);
+    expect(hub.config.macTable).toBeUndefined(); // a hub keeps no table
+  });
 });
 
 // ── processAtSwitch ──────────────────────────────────────────────────────────

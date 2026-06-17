@@ -194,6 +194,10 @@ function normaliseHostFields(device: any): DeviceConfig {
 }
 
 export function normaliseDeviceConfig(device: any): DeviceConfig {
+  if (device.type === "hub") {
+    // A hub is a dumb layer-1 repeater — just a port count, no tables.
+    return { ethernetPorts: clampPortCount(device.config?.ethernetPorts ?? device.ethernetPorts ?? 4) };
+  }
   if (device.type === "switch") {
     const ethernetPorts = clampPortCount(device.config?.ethernetPorts ?? device.ethernetPorts ?? 8);
     const managed = Boolean(device.config?.managed ?? device.managed ?? false);
@@ -328,6 +332,7 @@ export function normaliseConfig(parsed: any): { devices: Device[]; links: Link[]
       from,
       to,
       ...(link.name ? { name: String(link.name).trim() } : {}),
+      ...(link.shutdown ? { shutdown: true } : {}),
       ...(link.fromPort != null ? { fromPort: Number(link.fromPort) } : {}),
       ...(link.toPort != null ? { toPort: Number(link.toPort) } : {}),
       hidden: Boolean(link.hidden),

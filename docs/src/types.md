@@ -4,10 +4,10 @@ The single source of truth for the data model. No runtime code — only `interfa
 
 ## Device model
 
-- **`DeviceType`** = `"computer" | "server" | "switch" | "router" | "firewall" | "lan"`.
+- **`DeviceType`** = `"computer" | "server" | "switch" | "router" | "firewall" | "hub" | "lan"`.
 - **`Device`** — `id`, `type`, `name`, position/size, `config`, and optional flags (`hidden`, `poweredOff`, `collapsedBy`).
-- **Per-type configs** — `ComputerConfig`, `ServerConfig`, `SwitchConfig`, `RouterConfig`, `FirewallConfig`, `LanConfig` describe each device type's `config` shape (e.g. computer: `ipv4Address`/`ipSource` (static/dhcp/apipa)/`macAddress`/`arpTable`/`openPorts`/`dnsServerIp`; server **extends** the computer with the dnsmasq fields — `dnsmasqRunning`/`dnsRecords`/`dhcpRangeStart`/`dhcpRangeEnd`/`dhcpRouterIp`/`dhcpLeases`; switch: `managed`/`ethernetPorts`/`vlans`/`portVlans`/…; router: `interfaces`/`staticRoutes`/`rip`/`natTranslations`; firewall: `rules`/`policy`; lan: `anchorId`/`members`).
-- **`DeviceConfig`** = `Partial<ComputerConfig & ServerConfig & SwitchConfig & RouterConfig & FirewallConfig & LanConfig>` — a permissive superset where every field is optional. `Device.config` is typed as this.
+- **Per-type configs** — `ComputerConfig`, `ServerConfig`, `SwitchConfig`, `RouterConfig`, `FirewallConfig`, `LanConfig` describe each device type's `config` shape (e.g. computer: `ipv4Address`/`ipSource` (static/dhcp/apipa)/`macAddress`/`arpTable`/`openPorts`/`dnsServerIp`; server **extends** the computer with the dnsmasq fields — `dnsmasqRunning`/`dnsRecords`/`dhcpRangeStart`/`dhcpRangeEnd`/`dhcpRouterIp`/`dhcpLeases`; switch: `managed`/`ethernetPorts`/`vlans`/`portVlans`/…; router: `interfaces`/`staticRoutes`/`rip`/`natTranslations`; firewall: `rules`/`policy`; hub: just `ethernetPorts` (a layer-1 repeater, no tables); lan: `anchorId`/`members`).
+- **`DeviceConfig`** = `Partial<ComputerConfig & ServerConfig & SwitchConfig & RouterConfig & FirewallConfig & HubConfig & LanConfig>` — a permissive superset where every field is optional. `Device.config` is typed as this.
 
 > **Why a superset, not a discriminated union?** Most code accesses `device.config?.field` generically (e.g. in `engine.ts`, `inspector.ts`). A discriminated union would require narrowing at ~200 call sites. The all-optional superset gives real type-safety (typos and wrong field types are caught; `arpTable` is `ArpEntry[]`, not `any`) with **zero** churn at access sites. Where strictness helps, narrow explicitly.
 

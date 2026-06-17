@@ -81,10 +81,11 @@ export function buildConfigPayload(): any {
         }
       } : {})
     })),
-    links: state.links.map(({ from, to, name, fromPort, toPort, hidden, collapsedBy, proxy }: any) => ({
+    links: state.links.map(({ from, to, name, shutdown, fromPort, toPort, hidden, collapsedBy, proxy }: any) => ({
       from,
       to,
       ...(name ? { name } : {}),
+      ...(shutdown ? { shutdown: true } : {}),
       ...(fromPort != null ? { fromPort } : {}),
       ...(toPort != null ? { toPort } : {}),
       ...(hidden ? { hidden: true } : {}),

@@ -109,15 +109,18 @@ export function drawLink(link: any): void {
   // Cross-link: a selected packet-list row glows its wire amber (matches the
   // inspected-frame transit dot), so the row and the canvas point at each other.
   const captureLink = state.inspectedCapture?.linkId === link.id;
-  const linkColor = captureLink ? colors.selected : active ? cssColor("--link-active") : linkColorFor(from, to);
+  const shut = !!link.shutdown;
+  const linkColor = captureLink ? colors.selected : active ? cssColor("--link-active") : shut ? cssColor("--danger") : linkColorFor(from, to);
   const dimmed = from.poweredOff || to.poweredOff;
   const trunk = isTrunkLink(from, to);
 
   ctx.save();
   if (dimmed) ctx.globalAlpha = 0.3;
+  else if (shut) ctx.globalAlpha = 0.6; // administratively down — drawn faint + dashed
   if (captureLink) { ctx.shadowColor = colors.selected; ctx.shadowBlur = 12; }
   ctx.strokeStyle = linkColor;
   ctx.lineWidth = captureLink ? 4 : active ? 3 : 2;
+  if (shut) ctx.setLineDash([6, 5]);
 
   if (trunk) {
     // Double line for trunk links
@@ -141,6 +144,7 @@ export function drawLink(link: any): void {
     ctx.stroke();
   }
 
+  ctx.setLineDash([]);
   const midX = (from.x + to.x) / 2;
   const midY = (from.y + to.y) / 2;
   ctx.fillStyle = (active || captureLink) ? linkColor : cssColor("--canvas-bg");
@@ -150,6 +154,19 @@ export function drawLink(link: any): void {
   ctx.arc(midX, midY, 5, 0, Math.PI * 2);
   ctx.fill();
   ctx.stroke();
+
+  // Label: an explicit name (opt-in canvas label), plus a "down" marker when shut.
+  const labelParts: string[] = [];
+  if (link.name) labelParts.push(link.name);
+  if (shut) labelParts.push("down");
+  if (labelParts.length) {
+    ctx.globalAlpha = 1;
+    ctx.font = FONT_SMALL;
+    ctx.textAlign = "center";
+    ctx.textBaseline = "bottom";
+    ctx.fillStyle = shut ? cssColor("--danger") : cssColor("--muted");
+    ctx.fillText(labelParts.join(" · "), midX, midY - 8);
+  }
   ctx.restore();
 }
 

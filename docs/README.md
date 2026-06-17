@@ -1,6 +1,6 @@
 # RouteSim — Documentation
 
-RouteSim is an interactive network topology simulator: a canvas-based editor where you build networks of computers, servers, switches, routers, and firewalls, then run a discrete, frame-level simulation that animates real Ethernet frames (ARP, ICMP, DHCP, DNS, TCP) hop-by-hop. Each device has a CLI terminal modelled on a real open-source NOS.
+RouteSim is an interactive network topology simulator: a canvas-based editor where you build networks of computers, servers, switches, routers, firewalls, and hubs, then run a discrete, frame-level simulation that animates real Ethernet frames (ARP, ICMP, DHCP, DNS, TCP) hop-by-hop. Each device has a CLI terminal modelled on a real open-source NOS.
 
 It is a single-page app with **no framework and no runtime dependencies** — it builds to one portable HTML file. The toolchain is just two binaries: `esbuild` (bundler) and `bun` (runtime, test runner, dev server, build inliner).
 

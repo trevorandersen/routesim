@@ -23,7 +23,7 @@ export function l2Reachable(fromId: string, toId: string, vlanId: number | null)
     const id = queue.shift()!;
     if (id === toId) return true;
     for (const link of linksFor(id)) {
-      if (link.hidden) continue;
+      if (link.hidden || link.shutdown) continue; // a shut link breaks the path
       const isFrom = link.from === id;
       const nextId = isFrom ? link.to : link.from;
       if (seen.has(nextId)) continue;
@@ -342,7 +342,7 @@ export function buildDhcpEvents(source: any): PingSetup | string {
 
 function findFirstHop(source: any): { peerId: string; linkId: string } | null {
   for (const link of linksFor(source.id)) {
-    if (link.hidden) continue;
+    if (link.hidden || link.shutdown) continue; // a shut link carries no traffic
     const isFrom = link.from === source.id;
     const peerId = isFrom ? link.to : link.from;
     const peer = getDevice(peerId);

@@ -27,7 +27,7 @@ export interface DeviceSpec {
 
 export const DEVICE_SPECS: Record<DeviceType, DeviceSpec> = {
   computer: {
-    label: "Computer", namePrefix: "PC", width: 92, height: 68,
+    label: "Client PC", namePrefix: "PC", width: 92, height: 68,
     paletteVar: "pc", iconRadius: 10, userAddable: true,
     iconPaths: [
       "M3 5a1 1 0 0 1 1 -1h16a1 1 0 0 1 1 1v10a1 1 0 0 1 -1 1h-16a1 1 0 0 1 -1 -1v-10",
@@ -85,6 +85,22 @@ export const DEVICE_SPECS: Record<DeviceType, DeviceSpec> = {
       "M9 12l2 2l4 -4"
     ],
     defaultConfig: () => ({ ethernetPorts: 2, rules: [], policy: { forward: "accept" } })
+  },
+  hub: {
+    label: "Hub", namePrefix: "HUB", width: 96, height: 56,
+    paletteVar: "hub", iconRadius: 8, userAddable: true,
+    iconPaths: [
+      "M12 12m-2 0a2 2 0 1 0 4 0a2 2 0 1 0 -4 0",
+      "M5 6m-1.5 0a1.5 1.5 0 1 0 3 0a1.5 1.5 0 1 0 -3 0",
+      "M19 6m-1.5 0a1.5 1.5 0 1 0 3 0a1.5 1.5 0 1 0 -3 0",
+      "M5 18m-1.5 0a1.5 1.5 0 1 0 3 0a1.5 1.5 0 1 0 -3 0",
+      "M19 18m-1.5 0a1.5 1.5 0 1 0 3 0a1.5 1.5 0 1 0 -3 0",
+      "M10.5 10.5l-4 -3",
+      "M13.5 10.5l4 -3",
+      "M10.5 13.5l-4 3",
+      "M13.5 13.5l4 3"
+    ],
+    defaultConfig: () => ({ ethernetPorts: 4 })
   },
   lan: {
     label: "LAN", namePrefix: "LAN", width: 112, height: 72,

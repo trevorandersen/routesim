@@ -113,7 +113,7 @@ sync().syncPanel();
 ## Features
 
 - **Canvas editor** — pan, zoom, drag devices, auto-grid snapping
-- **Device types** — computers, servers (dnsmasq: DNS + DHCP), switches (managed/unmanaged), routers, firewalls (transparent inline iptables filter)
+- **Device types** — computers, servers (dnsmasq: DNS + DHCP), switches (managed/unmanaged), routers, firewalls (transparent inline iptables filter), hubs (layer-1 repeater)
 - **PC terminal** — `ip addr`, `ip route`, `ping`, `traceroute`, `nslookup`, `nc -z`, `arp -n`, `/etc/resolv.conf`
 - **Server terminal** — Linux shell + dnsmasq (`/etc/dnsmasq.conf` directives, `systemctl`)
 - **Router terminal** — FRRouting (vtysh): interfaces, static routes, RIP, NAT/PAT, iptables INPUT/FORWARD

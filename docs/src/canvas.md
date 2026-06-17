@@ -15,6 +15,7 @@ All `<canvas>` drawing and the pan/zoom view transform. The entire scene is redr
 - **`drawLink`, `drawDevice`, `drawIconDevice`, `drawTablerIcon`, `drawManagedBadge`** — the drawing primitives. Every device body/icon is drawn by `drawIconDevice` from its `DEVICE_SPECS` entry (`device-registry.ts`: size, corner radius, palette var, Tabler `Path2D` paths); managed switches add the badge.
 - **`findTransitAt(world)`** — hit-tests a click against the in-flight transit dots (click-a-packet inspector); the inspected frame gets a selection ring.
 - **Packet-list cross-link** — when a packet-list row is selected (`state.inspectedCapture`), `drawLink` glows that wire amber (with a shadow) and `drawDeviceIcon` rings both endpoint devices, so the sim log and the canvas point at each other.
+- **Link state/labels** — `drawLink` renders an administratively-down link (`link.shutdown`) dashed, faint, and danger-coloured, and draws a midpoint label for an explicitly-named link (the name, plus a "down" marker when shut).
 - **`linkColorFor`, `devicePalette`** — resolve themed colours; **`clampText`, `roundRect`** — drawing helpers.
 
 ## Performance

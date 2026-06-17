@@ -1,4 +1,4 @@
-export type DeviceType = "computer" | "server" | "switch" | "router" | "firewall" | "lan";
+export type DeviceType = "computer" | "server" | "switch" | "router" | "firewall" | "hub" | "lan";
 export type PortMode = "access" | "trunk";
 
 export interface Point {
@@ -211,11 +211,17 @@ export interface FirewallConfig {
   policy: Record<string, "accept" | "drop">;  // chain → default policy
 }
 
+// A hub is a layer-1 repeater — a "legacy" device. No MAC table, no VLANs, no
+// management: it copies every incoming frame out all other ports.
+export interface HubConfig {
+  ethernetPorts: number;
+}
+
 // Permissive superset (every field optional) so existing `device.config?.x`
 // access sites compile unchanged, while typos and wrong field types are caught.
 // The strict per-type interfaces above type the normalise layer and the
 // asComputer/asSwitch/asRouter/asLan accessors.
-export type DeviceConfig = Partial<ComputerConfig & ServerConfig & SwitchConfig & RouterConfig & FirewallConfig & LanConfig>;
+export type DeviceConfig = Partial<ComputerConfig & ServerConfig & SwitchConfig & RouterConfig & FirewallConfig & HubConfig & LanConfig>;
 
 export interface DragState {
   id: string;
@@ -263,6 +269,7 @@ export interface Link {
   from: string;
   to: string;
   name?: string;       // user-given name; unnamed links derive "A ↔ B" (linkName in devices.ts)
+  shutdown?: boolean;  // administratively down — present in the topology but carries no traffic
   fromPort?: number;   // 1-based port number on the "from" device
   toPort?: number;     // 1-based port number on the "to" device
   hidden?: boolean;

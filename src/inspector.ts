@@ -415,9 +415,15 @@ function renderLinkPanel(link: Link): void {
         <button class="inline-button" id="clearLinkName" type="button" title="Revert to the default name">&times;</button>
       </div>
     </div>
+    <div class="field">
+      <label for="selectedLinkShutdown">Administratively down (shut)</label>
+      <input id="selectedLinkShutdown" type="checkbox" ${link.shutdown ? "checked" : ""}>
+      <p class="field-note">A shut link stays in the topology but carries no traffic.</p>
+    </div>
     <div class="pill-row">
       <span class="pill">${escapeHtml(fromDev?.name || link.from)}</span>
       <span class="pill">${escapeHtml(toDev?.name || link.to)}</span>
+      <span class="pill ${link.shutdown ? "pill-down" : ""}">${link.shutdown ? "DOWN" : "UP"}</span>
     </div>
     <div style="height: 12px"></div>
     <div class="field">
@@ -469,6 +475,15 @@ function renderLinkPanel(link: Link): void {
       delete link.name;
       nameInput.value = "";
       syncSimLog();
+    });
+  }
+  const shutdownInput = document.getElementById("selectedLinkShutdown") as HTMLInputElement | null;
+  if (shutdownInput) {
+    shutdownInput.addEventListener("change", (event: any) => {
+      pushUndo();
+      if (event.target.checked) link.shutdown = true; else delete link.shutdown;
+      syncPanel();
+      sync().render(); // redraw the link's down/up styling
     });
   }
 }
@@ -660,6 +675,20 @@ export function syncPanel(): void {
         ${renderFirewallRules(selected)}
       </div>
     ` : "";
+    const hubConfigFields = selected.type === "hub" ? `
+      <p class="field-note">A hub is a layer-1 repeater: it copies every frame out all other ports (no MAC learning, one collision domain).</p>
+      <div style="height: 10px"></div>
+      <div class="field">
+        <label for="selectedPorts">Ethernet ports</label>
+        <input id="selectedPorts" type="number" min="4" max="24" step="1" value="${escapeHtml(selected.config?.ethernetPorts || 4)}">
+      </div>
+      <div class="field">
+        <label>Ports</label>
+        <div class="port-list" id="switchPortList">
+          ${renderSwitchPorts(selected)}
+        </div>
+      </div>
+    ` : "";
     dom.detailsPanel.innerHTML = `
       ${panelHeading(isConfiguring ? "Configure" : "Selection")}
       <div class="field">
@@ -704,6 +733,7 @@ export function syncPanel(): void {
       ${switchConfigFields}
       ${routerConfigFields}
       ${firewallConfigFields}
+      ${hubConfigFields}
       <div class="pill-row">
         <span class="pill">${selectedType}</span>
         <span class="pill">${neighbors.length} links</span>

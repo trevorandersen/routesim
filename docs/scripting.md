@@ -24,10 +24,12 @@ routesim.snapshot()                             // { devices, links, simulation 
 ### Topology
 | Command | Effect |
 |---------|--------|
-| `add <computer\|switch\|router\|firewall> [name] [at <x> <y>]` | Create a device (computers get a random MAC). |
+| `add <computer\|server\|switch\|router\|firewall\|hub> [name] [at <x> <y>]` | Create a device (computers/servers get a random MAC). |
 | `remove <ref>` / `delete <ref>` | Delete a device and its links. |
 | `link <a> <b> [portA portB]` | Connect two devices (optional explicit ports). |
 | `unlink <a> <b>` | Remove the link between two devices. |
+| `shut <a> <b>` | Administratively down the link (stays in the topology, carries no traffic). |
+| `noshut <a> <b>` | Bring the link back up. |
 | `move <ref> <x> <y>` | Reposition a device. |
 | `rename <ref> <name>` | Rename a device. |
 | `collapse <switch>` / `expand <lan>` | Collapse a switch + hosts into a LAN node / undo. |

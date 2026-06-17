@@ -11,6 +11,7 @@ Owns the device and link collections: creating, deleting, hit-testing, looking u
 - **`placeToolDevice(tool, x, y)` / `PLACEMENT_TOOLS`** — place the device for a drawing tool, resolving UI variants to real types: `managed-switch` (a Switch-group tool variant) becomes a `switch` with `config.managed = true`. `PLACEMENT_TOOLS` is the set the canvas treats as device-placement tools.
 - **`deleteSelection()` / `clearNetwork()`** — remove the selected device (and its links) or the selected link / wipe the topology.
 - **`linkName(link)`** — a link's display name: the user-given `link.name` if set, else the derived endpoint combo (`"PC1 ↔ SW"`), which follows device renames. Used by the packet list's Link column, `list links`, and the link inspector.
+- **Admin status** — a link may be `shutdown` (administratively down): it stays in the topology but the engine's traffic chokepoints (`findFirstHop`/`l2Reachable` in simulation.ts, the transit creation in engine.ts) skip it. **`toggleLinkShutdown(linkId)`** flips it (and selects the link) — the canvas double-click path; the link inspector toggle and the `shut`/`noshut` console commands set it too. Round-trips through config.
 
 ### Hit testing
 - **`findDeviceAt(point)` / `findLinkAt(point)`** — translate a canvas coordinate to the device/link under it (used by `ui.ts` pointer handling).

@@ -53,7 +53,15 @@ load:
   TCP) animated hop-by-hop; the model the whole engine is built on. Best for
   *how a protocol works*.
 - **Physical** — the layer-1 view: media and link state, signal propagation,
-  collision/broadcast domains. Best for *what's actually wired and up*.
+  collision/broadcast domains. The ambition runs deeper than logical layer 1:
+  model the **geometry and radio-acoustics of a building** — rooms and floors,
+  real **cable lengths** and runs (with distance limits, e.g. ~100 m copper),
+  attenuation through walls, and wireless coverage/interference (pairs with
+  **WiFi** below). Bring in the structured-cabling kit that the logical view
+  hides — **patch panels**, wall jacks, racks — so a "cable" becomes a path
+  through real plant. Eventually a **3D rendering** of the space, not just the
+  schematic. Best for *what's actually wired, how far, and whether the signal
+  makes it*.
 - **Streams** — drop the individual packets and model **aggregate traffic**:
   flows with rates, link utilisation, queues, and **congestion** (bottlenecks,
   drops, backpressure). A link carries load against its bandwidth rather than
@@ -61,11 +69,14 @@ load:
   congestion form — what the packet model can't show at scale. Best for
   *throughput and capacity*.
 
-Effort: high. Physical is moderate (a layer-1 overlay on the existing model);
-streams is a second, **fluid** simulation engine (rates and queues, not
-discrete frame events) sharing the topology/inspector but not the step loop.
-Depends on **Configurable links** below for per-link bandwidth, which the
-streams model needs as its capacity input.
+Effort: high overall, and staged. Physical starts moderate (a layer-1 overlay
+on the existing model) but the building/cabling/3D ambition is large — a
+spatial model, a cabling-plant layer, and eventually a 3D renderer, each
+shippable on its own. Streams is a second, **fluid** simulation engine (rates
+and queues, not discrete frame events) sharing the topology/inspector but not
+the step loop. Depends on **Configurable links** below for per-link bandwidth
+(streams' capacity input) and per-link length/latency (the physical model's
+distance metric).
 
 ### Server — more services
 The server device is built to host more than dnsmasq: an HTTP service (a real

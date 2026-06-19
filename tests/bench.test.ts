@@ -9,9 +9,10 @@
  */
 import { describe, it, expect, beforeAll, beforeEach } from "bun:test";
 import { state } from "../src/state";
-import { getDevice, linkedPortsFor, connectedIds } from "../src/devices";
-import { l2Reachable } from "../src/simulation";
-import { processAtSwitch, processAtRouter, processAtServer, buildRoutingTable, runRipConvergence, evaluateFirewall } from "../src/engine";
+import { getDevice, linkedPortsFor, connectedIds, linkById } from "../src/devices";
+import { l2Reachable, getVlanForDevice } from "../src/simulation";
+import { isTrunkLink } from "../src/canvas";
+import { processAtSwitch, processAtRouter, processAtServer, buildRoutingTable, routingLookup, runRipConvergence, evaluateFirewall } from "../src/engine";
 import { createArpRequest, createArpReply, createIcmpEchoRequest, createIcmpEchoReply, createTcpSegment, createDnsResponse, createDhcpDiscover, packetColumns, BROADCAST_MAC } from "../src/frame";
 import { registerNoopCallbacks, resetState } from "./helpers";
 import { bench, printResults, type BenchResult } from "./bench-harness";
@@ -177,6 +178,64 @@ describe("bench: l2Reachable", () => {
     results.push(bench("l2Reachable — 50-host segment", () => {
       l2Reachable("pc-0", "pc-49", null);
     }, { budget: 150 }));
+    expect(results[results.length - 1].passed).toBe(true);
+  });
+
+  it("prints results", () => {
+    if (results.length) printResults(results);
+  });
+});
+
+// ── 2d. Render-path hot helpers (memoised per-frame normalisation) ──────────
+
+describe("bench: render-path helpers", () => {
+  const results: BenchResult[] = [];
+  beforeEach(() => resetState());
+
+  it("getVlanForDevice — host on an 8-port managed switch", () => {
+    const topo = managedSwitch(8);
+    state.devices = topo.devices as any;
+    state.links = topo.links as any;
+    getVlanForDevice("pc-0"); // warm the port-vlan memo + lazy indexes
+    results.push(bench("getVlanForDevice — managed 8p", () => {
+      getVlanForDevice("pc-0");
+    }, { budget: 25 }));
+    expect(results[results.length - 1].passed).toBe(true);
+  });
+
+  it("isTrunkLink — managed-switch endpoint", () => {
+    const topo = managedSwitch(8);
+    state.devices = topo.devices as any;
+    state.links = topo.links as any;
+    const sw = state.devices.find(d => d.id === "msw-0")!;
+    const pc = state.devices.find(d => d.id === "pc-0")!;
+    isTrunkLink(sw, pc); // warm the port-mode memo
+    results.push(bench("isTrunkLink — managed endpoint", () => {
+      isTrunkLink(sw, pc);
+    }, { budget: 25 }));
+    expect(results[results.length - 1].passed).toBe(true);
+  });
+
+  it("prints results", () => {
+    if (results.length) printResults(results);
+  });
+});
+
+// ── 2e. Link-by-id index ────────────────────────────────────────────────────
+
+describe("bench: linkById", () => {
+  const results: BenchResult[] = [];
+  beforeEach(() => resetState());
+
+  it("linkById — 50-link topo", () => {
+    const topo = largeMesh(50);
+    state.devices = topo.devices as any;
+    state.links = topo.links as any;
+    const id = state.links[state.links.length - 1].id;
+    linkById(id); // build the index once
+    results.push(bench("linkById — 50-link topo", () => {
+      linkById(id);
+    }, { budget: 5 }));
     expect(results[results.length - 1].passed).toBe(true);
   });
 
@@ -487,6 +546,40 @@ describe("bench: routing", () => {
       router.config.natTranslations = []; // fresh table each run
       processAtRouter(router, frame, ingress.peerId);
     }, { budget: 100 }));
+    expect(results[results.length - 1].passed).toBe(true);
+  });
+
+  it("prints results", () => {
+    if (results.length) printResults(results);
+  });
+});
+
+// ── 4b. Routing lookup (per-frame; ARP-flush reuses one table) ──────────────
+
+describe("bench: routingLookup", () => {
+  const results: BenchResult[] = [];
+  beforeEach(() => resetState());
+
+  it("routingLookup — builds the table per call (5i + 10s)", () => {
+    const topo = routerWithRoutes(5, 10);
+    state.devices = topo.devices as any;
+    state.links = topo.links as any;
+    const router = state.devices.find(d => d.id === "rtr-0")!;
+    results.push(bench("routingLookup — build per call", () => {
+      routingLookup(router, "10.0.0.10");
+    }, { budget: 60 }));
+    expect(results[results.length - 1].passed).toBe(true);
+  });
+
+  it("routingLookup — prebuilt table (ARP-flush reuse)", () => {
+    const topo = routerWithRoutes(5, 10);
+    state.devices = topo.devices as any;
+    state.links = topo.links as any;
+    const router = state.devices.find(d => d.id === "rtr-0")!;
+    const table = buildRoutingTable(router);
+    results.push(bench("routingLookup — prebuilt table", () => {
+      routingLookup(router, "10.0.0.10", table);
+    }, { budget: 25 }));
     expect(results[results.length - 1].passed).toBe(true);
   });
 

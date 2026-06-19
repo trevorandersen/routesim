@@ -1,6 +1,7 @@
 import { describe, it, expect, beforeAll, beforeEach } from "bun:test";
 import { state } from "../src/state";
 import { getVlanForDevice, l2Reachable, buildPingEvents, buildDhcpEvents } from "../src/simulation";
+import { setSwitchPortVlan } from "../src/terminal";
 import { registerNoopCallbacks, resetState } from "./helpers";
 import { basicTopology, routedTopology, vlanTopology, trunkTopology } from "./fixtures";
 
@@ -46,6 +47,17 @@ describe("getVlanForDevice", () => {
   it("returns 1 for device not in state", () => {
     resetState();
     expect(getVlanForDevice("nonexistent")).toBe(1);
+  });
+
+  it("reflects a VLAN change made after the first read (memoised port-vlan map invalidates on edit)", () => {
+    const topo = vlanTopology();
+    state.devices = topo.devices as any;
+    state.links = topo.links as any;
+    expect(getVlanForDevice("pc-v10")).toBe(10); // primes the memo
+    const link = state.links.find(l => l.from === "pc-v10" || l.to === "pc-v10")!;
+    const sw = state.devices.find(d => d.id === (link.from === "pc-v10" ? link.to : link.from))!;
+    setSwitchPortVlan(sw, "Ethernet2", "30"); // mutator replaces config.portVlans
+    expect(getVlanForDevice("pc-v10")).toBe(30); // recomputed, not a stale cache hit
   });
 });
 

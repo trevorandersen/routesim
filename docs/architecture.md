@@ -55,8 +55,9 @@ See [engine.md](src/engine.md) and [simulation.md](src/simulation.md) for detail
 
 The render loop and engine are hot paths. Key optimisations (all in the relevant module docs):
 
-- `getDevice` and link adjacency (`linksFor`) use **lazy indexes** in `devices.ts`, rebuilt only when `state.devices`/`state.links` change (detected by array identity + length).
+- `getDevice`, link adjacency (`linksFor`), and link-by-id (`linkById`) use **lazy indexes** in `devices.ts`, rebuilt only when `state.devices`/`state.links` change (detected by array identity + length).
 - `cssColor` (`utils.ts`) **caches** `getComputedStyle` results, cleared on theme change, so the draw loop never forces a style recalc.
-- `runRipConvergence` memoises router interface normalisation across iterations.
+- The render loop caches static icon `Path2D`s and reads a switch's port maps through the **memoised** `memoPortModes`/`memoPortVlans` (`normalise.ts`, keyed on config-object identity).
+- `runRipConvergence` memoises router interface normalisation across iterations; an ARP-reply that flushes several buffered frames builds the routing table once and passes it into each `routingLookup`.
 
 These paths are guarded by the benchmark suite — see [benchmarking.md](benchmarking.md).

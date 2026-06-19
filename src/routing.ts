@@ -55,8 +55,10 @@ function ifaceOnSubnet(ifaces: any[], ip: string): any | undefined {
   );
 }
 
-export function routingLookup(router: Device, dstIp: string): { egressIface: any; nextHopIp: string } | null {
-  const table = buildRoutingTable(router);
+export function routingLookup(router: Device, dstIp: string, prebuilt?: RouteEntry[]): { egressIface: any; nextHopIp: string } | null {
+  // A caller resolving several frames for the same router in one pass (e.g. an
+  // ARP-reply flushing buffered frames) can pass a table built once.
+  const table = prebuilt ?? buildRoutingTable(router);
   const ifaces: any[] = router.config?.interfaces || [];
 
   // Longest-prefix match wins; ties resolve by metric. Single allocation-free

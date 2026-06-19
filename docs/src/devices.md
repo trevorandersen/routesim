@@ -19,10 +19,11 @@ Owns the device and link collections: creating, deleting, hit-testing, looking u
 ### Lookups (with lazy indexes)
 - **`getDevice(id)`** — O(1) lookup via a `Map` index.
 - **`linksFor(id)`** — all links touching a device, via a `Map<deviceId, Link[]>` adjacency index.
+- **`linkById(id)`** — O(1) link-by-id lookup via a `Map` index on the same lazy (ref, length) signal; replaces per-frame `state.links.find(l => l.id === …)` scans in the engine.
 - **`connectedIds(id)`, `linkedDevicesFor(id)`, `linkedPortsFor(id)`** — neighbours and per-port peer resolution, built on `linksFor`.
 - **`isVisibleDevice(device)`** — type guard for "defined and not hidden".
 
-> **Performance:** both indexes are **lazily rebuilt** when `state.devices`/`state.links` change, detected by an array **identity + length** guard (`ref !== state.devices || len !== state.devices.length`). No invalidation calls are needed at mutation sites because every add/remove either reassigns the array or pushes. In-place field changes (config, `hidden`, port number) are visible through the cached object references — which is why the adjacency stores **all** links and callers filter `hidden` themselves. These paths are benchmarked (`getDevice`, `linkedPortsFor`, `connectedIds`).
+> **Performance:** both indexes are **lazily rebuilt** when `state.devices`/`state.links` change, detected by an array **identity + length** guard (`ref !== state.devices || len !== state.devices.length`). No invalidation calls are needed at mutation sites because every add/remove either reassigns the array or pushes. In-place field changes (config, `hidden`, port number) are visible through the cached object references — which is why the adjacency stores **all** links and callers filter `hidden` themselves. These paths are benchmarked (`getDevice`, `linkedPortsFor`, `connectedIds`, `linkById`).
 
 ### Interface enumeration
 - **`routerInterfacesWithNames`, `routerInterfaceFor`, `routerInterfaceByName`** — resolve a router's interfaces (including VLAN sub-interfaces) to names like `Ethernet1`. Connected ports key by peer id; unconnected ports surface a saved by-name config when one exists.

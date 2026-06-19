@@ -24,6 +24,8 @@ The draw loop is hot, so:
 - It pulls colours through **`cssColor`** (`utils.ts`), which caches `getComputedStyle` results — the loop never forces a style recalc. The cache is cleared on theme change.
 - Repeated `ctx.font` strings are hoisted to module-level constants (`FONT_LABEL`, `FONT_SECONDARY`, …) to avoid per-draw allocation.
 - `render()` resolves devices via the `getDevice` index.
+- Static Tabler icon `Path2D`s are built **once** and cached (`path2dFor`) rather than reallocated per path per device per frame.
+- The per-frame port-map reads (`isTrunkLink`, and `getVlanForDevice` in `simulation.ts`) use the **memoised** `memoPortModes`/`memoPortVlans` (`normalise.ts`) — read-only, keyed on the stored config object's identity, so a switch's port maps are normalised once and reused until an edit (mutators replace the object). The router interface-label list is only built when a label toggle that would render it is on. Both helpers are benchmarked (`bench: render-path helpers`).
 
 `render()` early-returns when there is **no 2D context** (`if (!ctx) return`). In the browser the context is always present; this makes the function a no-op under the headless test stub (where `dom.ctx` is `null`), so calling `setTool` — which renders — is safe in tests.
 

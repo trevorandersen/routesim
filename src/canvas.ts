@@ -4,7 +4,7 @@ import { dom } from "./dom";
 import { cssColor, prefixOf } from "./utils";
 import { DEVICE_SPECS } from "./device-registry";
 import { getDevice, isVisibleDevice, routerInterfacesWithNames, linkedPortsFor } from "./devices";
-import { normalisePortModes } from "./normalise";
+import { memoPortModes } from "./normalise";
 import { getVlanForDevice } from "./simulation";
 import { frameLabel, frameColor } from "./frame";
 
@@ -88,10 +88,11 @@ export function devicePalette(type: string): { fill: string; stroke: string; acc
   };
 }
 
-function isTrunkLink(from: any, to: any): boolean {
+// Exported for benchmarking the per-frame render cost (memoised port-mode read).
+export function isTrunkLink(from: any, to: any): boolean {
   function hasTrunkPort(sw: any, peerId: string): boolean {
     if (sw.type !== "switch" || !sw.config?.managed) return false;
-    const portModes = normalisePortModes(sw.config.portModes || {});
+    const portModes = memoPortModes(sw.config.portModes);
     const ports = linkedPortsFor(sw.id);
     const idx = ports.findIndex((p: any) => p.peer.id === peerId);
     if (idx < 0) return false;
@@ -190,6 +191,15 @@ export function drawIconDevice(device: any, palette: any): void {
   drawTablerIcon(device.x, device.y, spec.iconPaths, palette.dark, Math.min(device.width, device.height) - 22, spec.iconStrokeWidth ?? 1.7);
 }
 
+// Icon paths are static compiled-in strings; build each Path2D once and reuse it
+// every frame rather than reallocating per path, per device, per animation tick.
+const _path2dCache = new Map<string, Path2D>();
+function path2dFor(path: string): Path2D {
+  let p = _path2dCache.get(path);
+  if (!p) { p = new Path2D(path); _path2dCache.set(path, p); }
+  return p;
+}
+
 export function drawTablerIcon(centerX: number, centerY: number, paths: string[], color: string, size: number, strokeWidth = 1.7): void {
   const scale = size / 24;
   ctx.save();
@@ -201,7 +211,7 @@ export function drawTablerIcon(centerX: number, centerY: number, paths: string[]
   ctx.lineJoin = "round";
   ctx.fillStyle = "transparent";
   paths.forEach(path => {
-    ctx.stroke(new Path2D(path));
+    ctx.stroke(path2dFor(path));
   });
   ctx.restore();
 }
@@ -327,7 +337,9 @@ export function drawDevice(device: any): void {
       labelY += 14;
     }
   }
-  if (device.type === "router") {
+  // Only build the (allocation-heavy) interface list when a label toggle that
+  // would actually render it is on — otherwise the result is discarded.
+  if (device.type === "router" && (state.options.showIpAddresses || state.options.showMacAddresses)) {
     const ifaces = routerInterfacesWithNames(device);
     for (const iface of ifaces) {
       if (!iface.peer) continue;

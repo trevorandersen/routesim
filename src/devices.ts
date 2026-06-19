@@ -278,6 +278,21 @@ export function getDevice(id: string | null): Device | undefined {
   return id == null ? undefined : deviceIndex().get(id);
 }
 
+let _linkByIdIndex = new Map<string, Link>();
+let _linkByIdRef: Link[] | null = null;
+let _linkByIdLen = -1;
+
+// O(1) link-by-id lookup, lazily rebuilt on the same (ref, length) signal as the
+// adjacency index. Replaces per-frame `state.links.find(l => l.id === …)` scans.
+export function linkById(id: string): Link | undefined {
+  if (_linkByIdRef !== state.links || _linkByIdLen !== state.links.length) {
+    _linkByIdIndex = new Map(state.links.map(l => [l.id, l]));
+    _linkByIdRef = state.links;
+    _linkByIdLen = state.links.length;
+  }
+  return _linkByIdIndex.get(id);
+}
+
 // A link's display name: the user-given name, or the endpoint combo (which
 // follows device renames automatically). Used by the link inspector and the
 // packet list's Link column.

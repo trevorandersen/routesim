@@ -77,6 +77,31 @@ export function normalisePortModes(portModes: unknown): Record<string, PortMode>
   ) as Record<string, PortMode>;
 }
 
+// ── Memoised, READ-ONLY variants for hot paths (the render loop and the sim
+// re-normalise a switch's port maps every frame, though they only change on an
+// edit). Keyed on the stored config object's identity: mutators always REPLACE
+// device.config.portModes/portVlans (never mutate it in place), so any edit is a
+// cache miss and recomputes. Callers MUST treat the result as read-only — the
+// mutators keep using the fresh-copy normalisePortModes/normalisePortVlans.
+const EMPTY_MODES: Record<string, PortMode> = {};
+const EMPTY_VLANS: Record<string, number> = {};
+const _portModesMemo = new WeakMap<object, Record<string, PortMode>>();
+const _portVlansMemo = new WeakMap<object, Record<string, number>>();
+
+export function memoPortModes(stored: unknown): Record<string, PortMode> {
+  if (!stored || typeof stored !== "object") return EMPTY_MODES;
+  let hit = _portModesMemo.get(stored as object);
+  if (!hit) { hit = normalisePortModes(stored); _portModesMemo.set(stored as object, hit); }
+  return hit;
+}
+
+export function memoPortVlans(stored: unknown): Record<string, number> {
+  if (!stored || typeof stored !== "object") return EMPTY_VLANS;
+  let hit = _portVlansMemo.get(stored as object);
+  if (!hit) { hit = normalisePortVlans(stored); _portVlansMemo.set(stored as object, hit); }
+  return hit;
+}
+
 export function normaliseTrunkAllowedVlans(allowed: unknown): Record<string, number[]> {
   if (!allowed || typeof allowed !== "object") return {};
   return Object.fromEntries(

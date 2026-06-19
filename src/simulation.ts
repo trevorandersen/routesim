@@ -1,7 +1,7 @@
 import type { SimEvent, EthernetFrame } from "./types";
 import { state } from "./state";
 import { getDevice, linkedPortsFor, linksFor } from "./devices";
-import { normalisePortVlans, normalisePortModes, normaliseTrunkAllowedVlans } from "./normalise";
+import { normalisePortVlans, normalisePortModes, normaliseTrunkAllowedVlans, memoPortVlans } from "./normalise";
 import { isValidIpv4, sameSubnet, prefixOf } from "./utils";
 import { createArpRequest, createIcmpEchoRequest, createDhcpDiscover, createTcpSegment, createDnsQuery } from "./frame";
 
@@ -83,7 +83,7 @@ export function getVlanForDevice(deviceId: string): number {
     const portIdx = ports.findIndex((p: any) => p.peer.id === deviceId);
     if (portIdx === -1) continue;
     const portName = `Ethernet${portIdx + 1}`;
-    const portVlans = normalisePortVlans(sw.config.portVlans || {});
+    const portVlans = memoPortVlans(sw.config.portVlans); // read-only; recomputed on edit
     return portVlans[portName] || 1;
   }
   return 1;

@@ -1,14 +1,14 @@
 import type { EthernetFrame, ArpPayload, Ipv4Payload, DhcpPayload, TcpPayload, DnsPayload, NatEntry, SimEvent, SimLogEntry, ActiveTransit, FrameHistoryEntry, RouteEntry, Device, DeviceType, FirewallRule, FirewallTarget } from "./types";
 import { state, pushUndo, sync } from "./state";
 import { dom } from "./dom";
-import { getDevice, linkedPortsFor, routerInterfacesWithNames, linkName } from "./devices";
+import { getDevice, linkedPortsFor, routerInterfacesWithNames, linkName, linkById, linksFor } from "./devices";
 import { normalisePortVlans, normalisePortModes, normaliseTrunkAllowedVlans, normaliseArpTable, normaliseMacTable, normaliseDhcpLeases, normaliseStaticRoutes, ensureConfig } from "./normalise";
 import { sameSubnet, prefixOf, isValidIpv4, escapeHtml, ipv4ToInt, intToIpv4, normaliseMacAddress } from "./utils";
 import { createArpRequest, createArpReply, createIcmpEchoRequest, createIcmpEchoReply, createIcmpTimeExceeded, createDhcpOffer, createDhcpRequest, createDhcpAck, createTcpSegment, createDnsResponse, BROADCAST_MAC, frameLabel, packetColumns } from "./frame";
 import { terminalLine, terminalLineFor, sessionFor, syncTerminal, openDock, syncSimLogBadge } from "./terminal";
 import { buildPingEvents, buildResolveEvents, buildDhcpEvents, findPingTarget } from "./simulation";
 import type { PingSetup } from "./simulation";
-import { routingLookup, runRipConvergence } from "./routing";
+import { routingLookup, runRipConvergence, buildRoutingTable } from "./routing";
 
 // Re-exported so existing imports (terminal, tests, benchmarks) keep working.
 export { buildRoutingTable, routingLookup, runRipConvergence } from "./routing";
@@ -40,7 +40,7 @@ export function startSimulation(setup: PingSetup, originDeviceId: string, target
   const seedNow = performance.now();
   for (const ev of setup.events) {
     if (ev.linkId && ev.fromDeviceId && ev.fromDeviceId !== ev.deviceId) {
-      const seedLink = state.links.find(l => l.id === ev.linkId);
+      const seedLink = linkById(ev.linkId);
       sim.transits.push({ frame: ev.frame, linkId: ev.linkId, fromDeviceId: ev.fromDeviceId, toDeviceId: ev.deviceId, progress: 0, startTime: seedNow, latencyFactor: linkLatencyFactor(seedLink) });
       seeded = true;
     } else {
@@ -383,7 +383,7 @@ function deliverCompletedTransits(): void {
       if (sim.capture.length > 1000) sim.capture.shift();
     }
     // Record frame on link
-    const link = state.links.find(l => l.id === t.linkId);
+    const link = linkById(t.linkId);
     if (link) {
       if (!link.frameHistory) link.frameHistory = [];
       link.frameHistory.push({
@@ -1016,12 +1016,13 @@ function handleRouterArp(device: Device, frame: EthernetFrame, ifaces: any[], in
     const pendingKey = `${device.id}:${arp.senderIp}`;
     const pending = sim.pendingArp[pendingKey];
     if (pending && pending.length > 0) {
+      const table = buildRoutingTable(device); // build once for the whole flush
       for (const pf of pending) {
         const ipv4 = pf.payload as Ipv4Payload;
         // Re-run the routing decision: the buffered frame may be destined for a
         // network reached VIA the next-hop we just resolved (static/RIP route),
         // so the egress lookup must use the route, not the final destination.
-        const route = routingLookup(device, ipv4.dstIp);
+        const route = routingLookup(device, ipv4.dstIp, table);
         if (route && route.nextHopIp === arp.senderIp) {
           pf.srcMac = route.egressIface.macAddress;
           pf.dstMac = arp.senderMac;
@@ -1510,7 +1511,8 @@ function renderPacketList(): string {
 }
 
 function findLinkBetween(a: string, b: string): any | null {
-  return state.links.find(link =>
+  // Use the by-endpoint adjacency index instead of scanning every link.
+  return linksFor(a).find(link =>
     !link.hidden && ((link.from === a && link.to === b) || (link.from === b && link.to === a))
   ) || null;
 }

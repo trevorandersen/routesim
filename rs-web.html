@@ -2487,6 +2487,28 @@ Full legal text: https://creativecommons.org/publicdomain/zero/1.0/legalcode</pr
       Object.entries(portModes).map(([port, mode]) => [String(port).trim(), valid.has(String(mode)) ? String(mode) : "access"]).filter(([port]) => port)
     );
   }
+  var EMPTY_MODES = {};
+  var EMPTY_VLANS = {};
+  var _portModesMemo = /* @__PURE__ */ new WeakMap();
+  var _portVlansMemo = /* @__PURE__ */ new WeakMap();
+  function memoPortModes(stored) {
+    if (!stored || typeof stored !== "object") return EMPTY_MODES;
+    let hit = _portModesMemo.get(stored);
+    if (!hit) {
+      hit = normalisePortModes(stored);
+      _portModesMemo.set(stored, hit);
+    }
+    return hit;
+  }
+  function memoPortVlans(stored) {
+    if (!stored || typeof stored !== "object") return EMPTY_VLANS;
+    let hit = _portVlansMemo.get(stored);
+    if (!hit) {
+      hit = normalisePortVlans(stored);
+      _portVlansMemo.set(stored, hit);
+    }
+    return hit;
+  }
   function normaliseTrunkAllowedVlans(allowed) {
     if (!allowed || typeof allowed !== "object") return {};
     return Object.fromEntries(
@@ -3522,6 +3544,17 @@ Full legal text: https://creativecommons.org/publicdomain/zero/1.0/legalcode</pr
   function getDevice(id) {
     return id == null ? void 0 : deviceIndex().get(id);
   }
+  var _linkByIdIndex = /* @__PURE__ */ new Map();
+  var _linkByIdRef = null;
+  var _linkByIdLen = -1;
+  function linkById(id) {
+    if (_linkByIdRef !== state.links || _linkByIdLen !== state.links.length) {
+      _linkByIdIndex = new Map(state.links.map((l) => [l.id, l]));
+      _linkByIdRef = state.links;
+      _linkByIdLen = state.links.length;
+    }
+    return _linkByIdIndex.get(id);
+  }
   function linkName(link) {
     if (link.name) return link.name;
     return `${getDevice(link.from)?.name ?? link.from} \u2194 ${getDevice(link.to)?.name ?? link.to}`;
@@ -4143,7 +4176,7 @@ Full legal text: https://creativecommons.org/publicdomain/zero/1.0/legalcode</pr
       const portIdx = ports.findIndex((p) => p.peer.id === deviceId);
       if (portIdx === -1) continue;
       const portName = `Ethernet${portIdx + 1}`;
-      const portVlans = normalisePortVlans(sw.config.portVlans || {});
+      const portVlans = memoPortVlans(sw.config.portVlans);
       return portVlans[portName] || 1;
     }
     return 1;
@@ -4420,7 +4453,7 @@ Full legal text: https://creativecommons.org/publicdomain/zero/1.0/legalcode</pr
   function isTrunkLink(from, to) {
     function hasTrunkPort(sw, peerId) {
       if (sw.type !== "switch" || !sw.config?.managed) return false;
-      const portModes = normalisePortModes(sw.config.portModes || {});
+      const portModes = memoPortModes(sw.config.portModes);
       const ports = linkedPortsFor(sw.id);
       const idx = ports.findIndex((p) => p.peer.id === peerId);
       if (idx < 0) return false;
@@ -4508,6 +4541,15 @@ Full legal text: https://creativecommons.org/publicdomain/zero/1.0/legalcode</pr
     ctx.fill();
     drawTablerIcon(device.x, device.y, spec.iconPaths, palette.dark, Math.min(device.width, device.height) - 22, spec.iconStrokeWidth ?? 1.7);
   }
+  var _path2dCache = /* @__PURE__ */ new Map();
+  function path2dFor(path) {
+    let p = _path2dCache.get(path);
+    if (!p) {
+      p = new Path2D(path);
+      _path2dCache.set(path, p);
+    }
+    return p;
+  }
   function drawTablerIcon(centerX, centerY, paths, color, size, strokeWidth = 1.7) {
     const scale = size / 24;
     ctx.save();
@@ -4519,7 +4561,7 @@ Full legal text: https://creativecommons.org/publicdomain/zero/1.0/legalcode</pr
     ctx.lineJoin = "round";
     ctx.fillStyle = "transparent";
     paths.forEach((path) => {
-      ctx.stroke(new Path2D(path));
+      ctx.stroke(path2dFor(path));
     });
     ctx.restore();
   }
@@ -4636,7 +4678,7 @@ Full legal text: https://creativecommons.org/publicdomain/zero/1.0/legalcode</pr
         labelY += 14;
       }
     }
-    if (device.type === "router") {
+    if (device.type === "router" && (state.options.showIpAddresses || state.options.showMacAddresses)) {
       const ifaces = routerInterfacesWithNames(device);
       for (const iface of ifaces) {
         if (!iface.peer) continue;
@@ -4821,8 +4863,8 @@ Full legal text: https://creativecommons.org/publicdomain/zero/1.0/legalcode</pr
       (iface) => iface.ipv4Address && isValidIpv4(iface.ipv4Address) && sameSubnet(iface.ipv4Address, ip, prefixOf(iface))
     );
   }
-  function routingLookup(router, dstIp) {
-    const table = buildRoutingTable(router);
+  function routingLookup(router, dstIp, prebuilt) {
+    const table = prebuilt ?? buildRoutingTable(router);
     const ifaces = router.config?.interfaces || [];
     let route = null;
     let bestLen = -1;
@@ -4963,7 +5005,7 @@ Full legal text: https://creativecommons.org/publicdomain/zero/1.0/legalcode</pr
     const seedNow = performance.now();
     for (const ev of setup.events) {
       if (ev.linkId && ev.fromDeviceId && ev.fromDeviceId !== ev.deviceId) {
-        const seedLink = state.links.find((l) => l.id === ev.linkId);
+        const seedLink = linkById(ev.linkId);
         sim.transits.push({ frame: ev.frame, linkId: ev.linkId, fromDeviceId: ev.fromDeviceId, toDeviceId: ev.deviceId, progress: 0, startTime: seedNow, latencyFactor: linkLatencyFactor(seedLink) });
         seeded = true;
       } else {
@@ -5201,7 +5243,7 @@ Full legal text: https://creativecommons.org/publicdomain/zero/1.0/legalcode</pr
         });
         if (sim.capture.length > 1e3) sim.capture.shift();
       }
-      const link = state.links.find((l) => l.id === t.linkId);
+      const link = linkById(t.linkId);
       if (link) {
         if (!link.frameHistory) link.frameHistory = [];
         link.frameHistory.push({
@@ -5723,9 +5765,10 @@ Full legal text: https://creativecommons.org/publicdomain/zero/1.0/legalcode</pr
       const pendingKey = `${device.id}:${arp.senderIp}`;
       const pending = sim.pendingArp[pendingKey];
       if (pending && pending.length > 0) {
+        const table = buildRoutingTable(device);
         for (const pf of pending) {
           const ipv4 = pf.payload;
-          const route = routingLookup(device, ipv4.dstIp);
+          const route = routingLookup(device, ipv4.dstIp, table);
           if (route && route.nextHopIp === arp.senderIp) {
             pf.srcMac = route.egressIface.macAddress;
             pf.dstMac = arp.senderMac;
@@ -6100,10 +6143,10 @@ Full legal text: https://creativecommons.org/publicdomain/zero/1.0/legalcode</pr
     if (sim.capture.length === 0) {
       return `<p class="sim-log-line sim-learn">No packets captured \u2014 run a simulation (headless checks don't capture). The Events view holds imported logs.</p>`;
     }
-    const linkById = new Map(state.links.map((l) => [l.id, l]));
+    const linkById2 = new Map(state.links.map((l) => [l.id, l]));
     const rows = sim.capture.map((entry) => {
       const cols = packetColumns(entry.frame);
-      const link = linkById.get(entry.linkId);
+      const link = linkById2.get(entry.linkId);
       const wire = link ? linkName(link) : `${getDevice(entry.fromDeviceId)?.name ?? "?"} \u2194 ${getDevice(entry.toDeviceId)?.name ?? "?"}`;
       const selected = (state.inspectedCapture ? state.inspectedCapture.no === entry.no : state.inspectedFrame === entry.frame) ? " selected" : "";
       return `<tr class="pkt-row pkt-${escapeHtml(cols.tone)}${selected}" data-no="${entry.no}">
@@ -6122,7 +6165,7 @@ Full legal text: https://creativecommons.org/publicdomain/zero/1.0/legalcode</pr
   </table>`;
   }
   function findLinkBetween(a, b) {
-    return state.links.find(
+    return linksFor(a).find(
       (link) => !link.hidden && (link.from === a && link.to === b || link.from === b && link.to === a)
     ) || null;
   }

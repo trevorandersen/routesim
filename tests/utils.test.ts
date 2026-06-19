@@ -195,6 +195,17 @@ describe("parseIpv4Token", () => {
     expect(parseIpv4Token("garbage")).toBeNull();
     expect(parseIpv4Token("")).toBeNull();
   });
+
+  it("accepts the /0 and /32 prefix bounds", () => {
+    expect(parseIpv4Token("10.0.0.0/0")!.prefixLength).toBe(0);
+    expect(parseIpv4Token("10.0.0.0/32")!.prefixLength).toBe(32);
+  });
+
+  it("rejects out-of-range and leading-zero prefixes", () => {
+    expect(parseIpv4Token("10.0.0.0/33")).toBeNull();
+    expect(parseIpv4Token("10.0.0.0/01")).toBeNull(); // leading zero
+    expect(parseIpv4Token("10.0.0.0/00")).toBeNull();
+  });
 });
 
 // ── escapeHtml ────────────────────────────────────────────────────────────────

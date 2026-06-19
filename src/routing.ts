@@ -5,7 +5,7 @@
  * runRipConvergence exchanges advertisements until stable (split horizon,
  * metric 16 = unreachable). Subnet decisions honour per-interface prefixes.
  */
-import type { Device, RouteEntry } from "./types";
+import type { Device, RouteEntry, RouterInterface, NamedRouterIface } from "./types";
 import { state } from "./state";
 import { getDevice, routerInterfacesWithNames } from "./devices";
 import { normaliseStaticRoutes } from "./normalise";
@@ -49,8 +49,9 @@ export function buildRoutingTable(router: Device): RouteEntry[] {
 }
 
 // The interface whose connected network contains the address (per-iface prefix).
-function ifaceOnSubnet(ifaces: any[], ip: string): any | undefined {
-  return ifaces.find((iface: any) =>
+// Takes the FLAT RouterInterface[] (address at the top level), not the named view.
+function ifaceOnSubnet(ifaces: RouterInterface[], ip: string): RouterInterface | undefined {
+  return ifaces.find((iface) =>
     iface.ipv4Address && isValidIpv4(iface.ipv4Address) && sameSubnet(iface.ipv4Address, ip, prefixOf(iface))
   );
 }
@@ -59,7 +60,7 @@ export function routingLookup(router: Device, dstIp: string, prebuilt?: RouteEnt
   // A caller resolving several frames for the same router in one pass (e.g. an
   // ARP-reply flushing buffered frames) can pass a table built once.
   const table = prebuilt ?? buildRoutingTable(router);
-  const ifaces: any[] = router.config?.interfaces || [];
+  const ifaces: RouterInterface[] = router.config?.interfaces || [];
 
   // Longest-prefix match wins; ties resolve by metric. Single allocation-free
   // pass — this runs per routed frame and is benchmarked.
@@ -94,7 +95,7 @@ interface RipAdvertisement {
   sourceInterface: string;
 }
 
-function buildRipAdvertisements(ifaces: any[], ripNetworks: string[], learnedRoutes: any[]): RipAdvertisement[] {
+function buildRipAdvertisements(ifaces: NamedRouterIface[], ripNetworks: string[], learnedRoutes: any[]): RipAdvertisement[] {
   const advertisements: RipAdvertisement[] = [];
 
   // Connected routes matching RIP networks
@@ -119,7 +120,7 @@ function buildRipAdvertisements(ifaces: any[], ripNetworks: string[], learnedRou
 }
 
 function applyRipUpdates(
-  neighbor: Device, neighborIface: any, neighborIfaces: any[],
+  neighbor: Device, neighborIface: NamedRouterIface, neighborIfaces: NamedRouterIface[],
   advertisements: RipAdvertisement[], egressIfaceName: string, egressIfaceIp: string
 ): { changed: boolean; exchanged: number } {
   let changed = false;

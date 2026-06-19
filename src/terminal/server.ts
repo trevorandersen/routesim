@@ -13,7 +13,7 @@
  */
 import type { Device, DnsRecord } from "../types";
 import { sync, pushUndo } from "../state";
-import { isValidIpv4 } from "../utils";
+import { isValidIpv4, ipv4ToInt } from "../utils";
 import { ensureConfig, normaliseDnsRecords } from "../normalise";
 import { terminalLine } from "./core";
 import { runHostTerminalCommand, hostHelpLines } from "./host";
@@ -59,6 +59,9 @@ export function applyDnsmasqConfLine(device: Device, line: string): string {
     const start = rangeMatch[1].trim();
     const end = rangeMatch[2].trim();
     if (!isValidIpv4(start) || !isValidIpv4(end)) return `dnsmasq: bad dhcp-range at line: ${trimmed}`;
+    // Reject an inverted range at read time (as real dnsmasq does) rather than
+    // accepting it and silently handing out no leases at allocation time.
+    if (ipv4ToInt(end) < ipv4ToInt(start)) return `dnsmasq: dhcp-range end ${end} is before start ${start}`;
     pushUndo();
     ensureConfig(device);
     device.config.dhcpRangeStart = start;

@@ -90,6 +90,18 @@ export interface RouterInterface {
   natRole?: "inside" | "outside";  // Cisco-style `ip nat inside|outside` mark
 }
 
+// The "named view" of a router interface that `routerInterfacesWithNames` builds:
+// the resolved port name + peer plus the underlying `RouterInterface` config.
+// Distinct from the flat `RouterInterface` (address at top level vs under .config)
+// so the two are not silently interchanged on the routing hot path.
+export interface NamedRouterIface {
+  name: string;
+  type: string;
+  peer: Device | null;
+  peerId: string;
+  config: Partial<RouterInterface>;
+}
+
 export interface RouteEntry {
   network: string;       // "192.168.1.0/24"
   nextHop: string;       // next-hop IP, or "" for connected
@@ -286,9 +298,42 @@ export interface Link {
   frameHistory?: FrameHistoryEntry[];
 }
 
+// A serialised topology (the JSON export shape). Device/link config sub-objects
+// are type-specific and re-normalised on load, so they stay loosely typed.
+export interface SerialisedDevice {
+  id: string;
+  type: DeviceType;
+  name: string;
+  x: number;
+  y: number;
+  hidden?: boolean;
+  poweredOff?: boolean;
+  collapsedBy?: string;
+  config?: Record<string, any>;
+}
+export interface SerialisedLink {
+  from: string;
+  to: string;
+  name?: string;
+  shutdown?: boolean;
+  bandwidth?: number;
+  latency?: number;
+  loss?: number;
+  fromPort?: number;
+  toPort?: number;
+  hidden?: boolean;
+  collapsedBy?: string;
+  proxy?: boolean;
+}
+export interface SerialisedTopology {
+  version: number;
+  devices: SerialisedDevice[];
+  links: SerialisedLink[];
+}
+
 export interface ConfigStore {
   version: number;
-  configs: Record<string, any>;
+  configs: Record<string, SerialisedTopology>;
 }
 
 // --- Frame-level simulation types ---

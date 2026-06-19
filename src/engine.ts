@@ -943,12 +943,6 @@ export function processAtHub(device: Device, frame: EthernetFrame, fromDeviceId:
   return outgoing;
 }
 
-function getPortVlan(device: Device, portName: string): string {
-  if (!device.config?.managed) return "";
-  const portVlans = normalisePortVlans(device.config.portVlans || {});
-  return String(portVlans[portName] || 1);
-}
-
 // ─── Router processing ──────────────────────────────────────────────────────
 
 export function processAtRouter(device: Device, frame: EthernetFrame, fromDeviceId: string | null): OutgoingFrame[] {
@@ -1018,7 +1012,8 @@ function handleRouterArp(device: Device, frame: EthernetFrame, ifaces: any[], in
     if (pending && pending.length > 0) {
       const table = buildRoutingTable(device); // build once for the whole flush
       for (const pf of pending) {
-        const ipv4 = pf.payload as Ipv4Payload;
+        if (pf.payload.type !== "ipv4") continue; // only IPv4 frames are ever buffered for ARP
+        const ipv4 = pf.payload;
         // Re-run the routing decision: the buffered frame may be destined for a
         // network reached VIA the next-hop we just resolved (static/RIP route),
         // so the egress lookup must use the route, not the final destination.
@@ -1404,10 +1399,6 @@ function allocateDhcpIp(iface: any, router: Device): string | null {
     if (!usedIps.has(candidate)) return candidate;
   }
   return null;
-}
-
-function findEgressInterface(ifaces: any[], dstIp: string): any | null {
-  return ifaces.find((iface: any) => iface.ipv4Address && isValidIpv4(iface.ipv4Address) && sameSubnet(iface.ipv4Address, dstIp, prefixOf(iface))) || null;
 }
 
 function ifaceName(iface: any): string {

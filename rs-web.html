@@ -355,7 +355,7 @@
          auto forces overflow-y to auto), which would clip an absolute menu.
          JS positions it under its caret. */
       position: fixed;
-      z-index: 60;
+      z-index: 40; /* below the 50 modal/overlay tier — a transient dropdown shouldn't cover a blocking modal */
       min-width: 168px;
       padding: 5px;
       display: flex;
@@ -786,33 +786,6 @@
       stroke-linecap: round;
       stroke-linejoin: round;
       fill: none;
-    }
-
-    .option-list {
-      display: grid;
-      gap: 10px;
-    }
-
-    .option-list.closed {
-      display: none;
-    }
-
-    .toggle-row {
-      min-width: 0;
-      display: flex;
-      align-items: center;
-      justify-content: space-between;
-      gap: 12px;
-      color: var(--text);
-      font-size: 14px;
-      font-weight: 700;
-    }
-
-    .toggle-row input {
-      width: 18px;
-      height: 18px;
-      accent-color: var(--accent);
-      flex: 0 0 auto;
     }
 
     .field {
@@ -1407,24 +1380,6 @@
       }
     }
 
-    /* ─── Simulation controls ─────────────────────────────── */
-
-    .sim-controls {
-      display: none;
-      position: absolute;
-      bottom: 12px;
-      left: 50%;
-      transform: translateX(-50%);
-      background: var(--panel);
-      border: 1px solid var(--border);
-      border-radius: 10px;
-      padding: 6px 14px;
-      gap: 8px;
-      align-items: center;
-      z-index: 10;
-      box-shadow: 0 4px 16px rgba(0,0,0,.3);
-    }
-
     .scenario-panel {
       display: none;
       position: absolute;
@@ -1473,43 +1428,6 @@
     .scenario-status { font-size: 12px; font-weight: 700; }
     .scenario-status.pass { color: #22c55e; }
     .scenario-status.fail { color: var(--muted); }
-
-    .sim-controls.active {
-      display: flex;
-    }
-
-    .sim-btn {
-      width: 32px;
-      height: 32px;
-      border: none;
-      background: var(--surface);
-      color: var(--text-primary);
-      border-radius: 6px;
-      cursor: pointer;
-      font-size: 14px;
-      display: flex;
-      align-items: center;
-      justify-content: center;
-      transition: background .15s;
-    }
-
-    .sim-btn:hover {
-      background: var(--border);
-    }
-
-    .sim-speed-label {
-      display: flex;
-      align-items: center;
-      gap: 6px;
-      color: var(--text-secondary);
-      font-size: 11px;
-      font-weight: 600;
-    }
-
-    .sim-speed-label input[type="range"] {
-      width: 80px;
-      accent-color: var(--accent, #6366f1);
-    }
 
     /* ─── Simulation terminal log colors ─────────────────── */
 
@@ -1735,12 +1653,12 @@
       transition: border-color 0.15s, background 0.15s;
     }
     .port-option:hover:not(.occupied) {
-      border-color: var(--accent, #f0b429);
-      background: rgba(240, 180, 41, 0.06);
+      border-color: var(--accent);
+      background: color-mix(in srgb, var(--accent) 6%, transparent);
     }
     .port-option.selected {
-      border-color: var(--accent, #f0b429);
-      background: rgba(240, 180, 41, 0.12);
+      border-color: var(--accent);
+      background: color-mix(in srgb, var(--accent) 12%, transparent);
     }
     .port-option.occupied {
       opacity: 0.4;
@@ -2124,11 +2042,11 @@
     <div class="port-selection-modal">
       <div class="port-selection-header">
         <h3>Select Interfaces</h3>
-        <button class="panel-toggle" id="portSelectionCancel">&#x2715;</button>
+        <button class="panel-toggle" id="portSelectionCancel" type="button" title="Cancel" aria-label="Cancel interface selection">&#x2715;</button>
       </div>
       <div class="port-selection-body" id="portSelectionBody"></div>
       <div class="port-selection-footer">
-        <button class="wide-button" id="portSelectionConfirm">Connect</button>
+        <button class="wide-button" id="portSelectionConfirm" type="button">Connect</button>
       </div>
     </div>
   </div>
@@ -2166,7 +2084,7 @@
     <div class="about-modal" id="aboutModal">
       <div class="about-header" id="aboutHeader">
         <h3>About</h3>
-        <button class="panel-toggle" id="aboutClose">&#x2715;</button>
+        <button class="panel-toggle" id="aboutClose" type="button" title="Close" aria-label="Close about dialog">&#x2715;</button>
       </div>
       <div class="about-body">
         <p class="about-title">RouteSim</p>
@@ -2266,9 +2184,10 @@ Full legal text: https://creativecommons.org/publicdomain/zero/1.0/legalcode</pr
     const match = String(value || "").trim().match(/^([^/]+)(?:\/(\d{1,2}))?$/);
     if (!match) return null;
     const address = match[1];
-    const prefixLength = match[2] == null ? null : Number(match[2]);
+    const prefixStr = match[2];
+    const prefixLength = prefixStr == null ? null : Number(prefixStr);
     if (!isValidIpv4(address)) return null;
-    if (prefixLength != null && (!Number.isInteger(prefixLength) || prefixLength < 0 || prefixLength > 32)) return null;
+    if (prefixLength != null && (prefixStr !== String(prefixLength) || prefixLength > 32)) return null;
     return { address, prefixLength };
   }
   function normaliseVlanId(value) {
@@ -2522,6 +2441,8 @@ Full legal text: https://creativecommons.org/publicdomain/zero/1.0/legalcode</pr
     if (!Array.isArray(entries)) return [];
     return entries.map((raw, index) => {
       const entry = asObject(raw);
+      const suppliedMac = normaliseMacAddress(entry.macAddress || "");
+      const macAddress = isValidMac(suppliedMac) ? suppliedMac : generateRouterIfaceMac(routerId || "", index);
       return {
         peerId: String(entry.peerId || entry.peer || entry.linkedDeviceId || "").trim(),
         type: entry.type === "serial" ? "serial" : "ethernet",
@@ -2529,7 +2450,7 @@ Full legal text: https://creativecommons.org/publicdomain/zero/1.0/legalcode</pr
         ipv4Address: String(entry.ipv4Address || entry.ip || "").trim(),
         ...entry.prefixLength != null ? { prefixLength: clampPrefixLength(entry.prefixLength) } : {},
         ...entry.natRole === "inside" || entry.natRole === "outside" ? { natRole: entry.natRole } : {},
-        macAddress: entry.macAddress || generateRouterIfaceMac(routerId || "", index),
+        macAddress,
         arpTable: normaliseArpTable(entry.arpTable || []),
         dhcpLeases: normaliseDhcpLeases(entry.dhcpLeases || []),
         vlanTag: entry.vlanTag != null ? normaliseVlanId(entry.vlanTag) || null : null
@@ -2562,9 +2483,10 @@ Full legal text: https://creativecommons.org/publicdomain/zero/1.0/legalcode</pr
     for (let i = 0; i < routerId.length; i++) {
       hash = (hash << 5) - hash + routerId.charCodeAt(i) | 0;
     }
-    const rr = ((hash >>> 0) % 256).toString(16).padStart(2, "0");
+    const h = hash >>> 0;
+    const b = (shift) => (h >>> shift & 255).toString(16).padStart(2, "0");
     const ii = ((ifaceIndex + 1) % 256).toString(16).padStart(2, "0");
-    return `02:${rr}:00:00:${ii}:01`;
+    return `02:${b(0)}:${b(8)}:${b(16)}:${ii}:01`;
   }
   var FIREWALL_TARGETS = /* @__PURE__ */ new Set(["accept", "drop", "reject"]);
   var FIREWALL_PROTOCOLS = /* @__PURE__ */ new Set(["icmp", "udp", "tcp", "all"]);
@@ -3360,7 +3282,7 @@ Full legal text: https://creativecommons.org/publicdomain/zero/1.0/legalcode</pr
   function hostNicTaken(deviceId) {
     const device = getDevice(deviceId);
     if (!device || device.type !== "computer" && device.type !== "server") return null;
-    const cabled = state.links.some((l) => !l.hidden && (l.from === deviceId || l.to === deviceId));
+    const cabled = state.links.some((l) => l.from === deviceId || l.to === deviceId);
     return cabled ? device.name : null;
   }
   function addLink(fromId, toId, fromPort, toPort) {
@@ -3716,7 +3638,6 @@ Full legal text: https://creativecommons.org/publicdomain/zero/1.0/legalcode</pr
       if (device.collapsedBy === lanId) {
         device.hidden = false;
         delete device.collapsedBy;
-        if (absorbedLanSet.has(device.id)) return;
       }
     });
     state.links = state.links.filter((link) => !link.proxy || link.collapsedBy !== lanId);
@@ -3794,7 +3715,7 @@ Full legal text: https://creativecommons.org/publicdomain/zero/1.0/legalcode</pr
           occupied.push({
             name: `${baseName}.${config.vlanTag}`,
             type: entry.type,
-            peer: entry.peer,
+            peer: entry.peer ?? null,
             peerId: entry.peerId,
             config
           });
@@ -4652,11 +4573,11 @@ Full legal text: https://creativecommons.org/publicdomain/zero/1.0/legalcode</pr
       const vlan = getVlanForDevice(device.id);
       if (vlan > 1) {
         const color = vlanColor(vlan);
+        ctx.font = FONT_SMALL;
         ctx.fillStyle = color;
         ctx.beginPath();
         ctx.arc(device.x - ctx.measureText(`VLAN ${vlan}`).width / 2 - 8, labelY + 5, 4, 0, Math.PI * 2);
         ctx.fill();
-        ctx.font = FONT_SMALL;
         ctx.fillText(`VLAN ${vlan}`, device.x + 2, labelY);
         labelY += 13;
       }
@@ -5767,6 +5688,7 @@ Full legal text: https://creativecommons.org/publicdomain/zero/1.0/legalcode</pr
       if (pending && pending.length > 0) {
         const table = buildRoutingTable(device);
         for (const pf of pending) {
+          if (pf.payload.type !== "ipv4") continue;
           const ipv4 = pf.payload;
           const route = routingLookup(device, ipv4.dstIp, table);
           if (route && route.nextHopIp === arp.senderIp) {
@@ -6280,7 +6202,8 @@ Address: ${sim.dnsResolvedIp}`);
   }
   function showHostRoute(device) {
     const gateway = device.config?.gatewayIpv4Address;
-    return gateway ? `default via ${gateway} dev eth0` : "No default route configured.";
+    const hasAddress = !!device.config?.ipv4Address;
+    return gateway && hasAddress ? `default via ${gateway} dev eth0` : "No default route configured.";
   }
   function showHostArp(device) {
     const entries = normaliseArpTable(device.config?.arpTable || []);
@@ -6556,6 +6479,7 @@ Address: ${sim.dnsResolvedIp}`);
       const start = rangeMatch[1].trim();
       const end = rangeMatch[2].trim();
       if (!isValidIpv4(start) || !isValidIpv4(end)) return `dnsmasq: bad dhcp-range at line: ${trimmed}`;
+      if (ipv4ToInt(end) < ipv4ToInt(start)) return `dnsmasq: dhcp-range end ${end} is before start ${start}`;
       pushUndo();
       ensureConfig(device);
       device.config.dhcpRangeStart = start;
@@ -6680,6 +6604,7 @@ Address: ${sim.dnsResolvedIp}`);
         i++;
       } else return `iptables: unknown option "${t}"`;
     }
+    if (rule.dport != null && rule.protocol !== "tcp") return "iptables: --dport requires -p tcp";
     if (!hasTarget) return "iptables: rule needs -j ACCEPT|DROP|REJECT";
     return rule;
   }
@@ -7126,6 +7051,10 @@ Address: ${sim.dnsResolvedIp}`);
       return true;
     }
     if (lower === "enable") {
+      if (state.terminal.mode !== "exec" && state.terminal.mode !== "privileged") {
+        terminalLine("error", "% Invalid input \u2014 leave configuration mode first (end).");
+        return true;
+      }
       state.terminal.mode = "privileged";
       state.terminal.interfacePeerId = null;
       state.terminal.interfaceVlanTag = null;
@@ -7207,7 +7136,7 @@ Address: ${sim.dnsResolvedIp}`);
   function routerInterfaceCommand(router, command, lower) {
     const interfaceMatch = command.match(/^interface\s+(\S+)$/i);
     if (interfaceMatch) {
-      if (state.terminal.mode !== "config") {
+      if (state.terminal.mode !== "config" && state.terminal.mode !== "interface") {
         terminalLine("error", "% Enter configuration mode first.");
         return true;
       }
@@ -7311,7 +7240,7 @@ Address: ${sim.dnsResolvedIp}`);
       let network;
       const parsed = parseIpv4Token(networkToken);
       if (parsed) {
-        network = parsed.prefixLength != null ? `${parsed.address}/${parsed.prefixLength}` : `${parsed.address}/24`;
+        network = networkOf(parsed.address, parsed.prefixLength ?? 24);
       } else {
         const iface = routerInterfaceByName(router, networkToken);
         if (!iface) {
@@ -7421,11 +7350,11 @@ Address: ${sim.dnsResolvedIp}`);
       const networkToken = noIpRouteMatch[1];
       const nextHop = noIpRouteMatch[2] || null;
       const parsedNetwork = parseIpv4Token(networkToken);
-      if (!parsedNetwork) {
-        terminalLine("error", `% Invalid network: ${networkToken}`);
+      if (!parsedNetwork || parsedNetwork.prefixLength == null) {
+        terminalLine("error", `% Invalid network: ${networkToken}. Use CIDR notation (e.g. 10.0.0.0/24).`);
         return true;
       }
-      const network = parsedNetwork.prefixLength != null ? `${parsedNetwork.address}/${parsedNetwork.prefixLength}` : parsedNetwork.address;
+      const network = `${parsedNetwork.address}/${parsedNetwork.prefixLength}`;
       pushUndo();
       router.config = router.config || {};
       const statics = normaliseStaticRoutes(router.config.staticRoutes || []);
@@ -7889,8 +7818,8 @@ Address: ${sim.dnsResolvedIp}`);
     if (tab.dataset.session) {
       const session = sessionFor(tab.dataset.session);
       if (session) state.terminal = session;
-      setDockTab("terminal");
       syncTerminal();
+      setDockTab("terminal");
       return;
     }
     setDockTab(tab.dataset.pane);
@@ -8426,7 +8355,8 @@ Address: ${sim.dnsResolvedIp}`);
           ${history.map((entry) => {
       const dir = getDevice(entry.fromDeviceId)?.name || entry.fromDeviceId;
       const label = frameLabel(entry.frame);
-      const kind = entry.frame.etherType === 2054 ? "arp" : entry.frame.payload?.payload?.type === "dhcp" ? "dhcp" : "icmp";
+      const p = entry.frame.payload;
+      const kind = entry.frame.etherType === 2054 ? "arp" : p.type === "ipv4" && p.payload.type === "dhcp" ? "dhcp" : "icmp";
       return `<div class="frame-history-entry ${kind}">
               <span class="frame-step">Step ${entry.step}</span>
               <span class="frame-label">${escapeHtml(label)}</span>
@@ -9490,7 +9420,7 @@ Address: ${sim.dnsResolvedIp}`);
       lastResult = null;
       return;
     }
-    if (lastResult && lastResult.id !== scenario.id) lastResult = null;
+    if (lastResult && (lastResult.id !== scenario.id || lastResult.checks.length !== scenario.checks.length)) lastResult = null;
     dom.scenarioName.textContent = scenario.name;
     dom.scenarioObjective.textContent = scenario.objective;
     dom.scenarioChecks.innerHTML = scenario.checks.map((c, i) => {
@@ -9978,13 +9908,15 @@ Address: ${sim.dnsResolvedIp}`);
         if (updated) dom.modeLabel.textContent = `${linkName(updated)} is now ${updated.shutdown ? "administratively down (shut)" : "up"}.`;
       }
     });
-    dom.canvas.addEventListener("pointerup", () => {
+    const endCanvasDrag = () => {
       if (state.drag?.undoSnapshot && state.drag.undoSnapshot !== networkSnapshot()) {
         pushUndoSnapshot(state.drag.undoSnapshot);
       }
       state.drag = null;
       state.panDrag = null;
-    });
+    };
+    dom.canvas.addEventListener("pointerup", endCanvasDrag);
+    dom.canvas.addEventListener("pointercancel", endCanvasDrag);
     dom.canvas.addEventListener("pointerleave", () => {
       if (state.drag?.undoSnapshot && state.drag.undoSnapshot !== networkSnapshot()) {
         pushUndoSnapshot(state.drag.undoSnapshot);
@@ -10282,6 +10214,82 @@ Address: ${sim.dnsResolvedIp}`);
     dom.modeLabel.textContent = "Loaded the Basic Network topology.";
   }
 
+  // src/settings-url.ts
+  var SPEED_MIN = 200;
+  var SPEED_MAX = 3e3;
+  var SPEED_DEFAULT = 1e3;
+  var BOOL_PARAMS = [
+    { param: "names", key: "showDeviceNames", def: true },
+    { param: "ips", key: "showIpAddresses", def: true },
+    { param: "macs", key: "showMacAddresses", def: true },
+    { param: "autodhcp", key: "autoDhcp", def: false },
+    { param: "apipa", key: "apipaFallback", def: false }
+  ];
+  function parseBool(raw) {
+    const v = raw.trim().toLowerCase();
+    if (v === "1" || v === "true" || v === "yes" || v === "on") return true;
+    if (v === "0" || v === "false" || v === "no" || v === "off") return false;
+    return void 0;
+  }
+  function resolveTheme(raw) {
+    const v = raw.trim().toLowerCase();
+    const id = v === "light" ? "warm-light" : v;
+    return THEMES.some((t) => t.id === id) ? id : void 0;
+  }
+  function clampSpeed(n) {
+    return Math.min(SPEED_MAX, Math.max(SPEED_MIN, Math.round(n)));
+  }
+  function parseSettingsFromUrl(search) {
+    const out = { options: {}, applied: [], ignored: [] };
+    let params;
+    try {
+      params = new URLSearchParams(search || "");
+    } catch {
+      return out;
+    }
+    for (const [rawKey, value] of params) {
+      const key = rawKey.trim().toLowerCase();
+      const boolSpec = BOOL_PARAMS.find((b) => b.param === key);
+      if (boolSpec) {
+        const parsed = parseBool(value);
+        if (parsed === void 0) {
+          out.ignored.push(rawKey);
+          continue;
+        }
+        out.options[boolSpec.key] = parsed;
+        out.applied.push(key);
+      } else if (key === "theme") {
+        const id = resolveTheme(value);
+        if (!id) {
+          out.ignored.push(rawKey);
+          continue;
+        }
+        out.theme = id;
+        out.applied.push(key);
+      } else if (key === "speed") {
+        const n = Number(value);
+        if (!Number.isFinite(n)) {
+          out.ignored.push(rawKey);
+          continue;
+        }
+        out.speed = clampSpeed(n);
+        out.applied.push(key);
+      } else {
+        out.ignored.push(rawKey);
+      }
+    }
+    return out;
+  }
+  function buildSettingsQuery() {
+    const params = new URLSearchParams();
+    for (const { param, key, def } of BOOL_PARAMS) {
+      if (state.options[key] !== def) params.set(param, state.options[key] ? "1" : "0");
+    }
+    if (state.theme !== DEFAULT_THEME) params.set("theme", state.theme);
+    if (state.simulation.speed !== SPEED_DEFAULT) params.set("speed", String(state.simulation.speed));
+    return params.toString();
+  }
+
   // src/commands.ts
   var ok = (...output) => ({ ok: true, output });
   var err = (...output) => ({ ok: false, output });
@@ -10351,6 +10359,35 @@ Address: ${sim.dnsResolvedIp}`);
     sync().syncPanel();
     sync().render();
     return ok(`Unlinked ${a.name} \u2194 ${b.name}.`);
+  }
+  function cmdLinkSet(args) {
+    const a = resolveDevice(args[0]);
+    if (typeof a === "string") return err(a);
+    const b = resolveDevice(args[1]);
+    if (typeof b === "string") return err(b);
+    const link = state.links.find((l) => !l.hidden && (l.from === a.id && l.to === b.id || l.from === b.id && l.to === a.id));
+    if (!link) return err(`No link between ${a.name} and ${b.name}.`);
+    const attr = (args[2] || "").toLowerCase();
+    const value = args.slice(3).join(" ");
+    pushUndo();
+    if (attr === "name") {
+      if (value) link.name = value;
+      else delete link.name;
+      sync().syncPanel();
+      sync().render();
+      return ok(value ? `Named link ${a.name} \u2194 ${b.name} "${value}".` : `Cleared link name.`);
+    }
+    if (attr === "bandwidth" || attr === "latency" || attr === "loss") {
+      const n = Number(value);
+      if (!Number.isFinite(n) || n < 0) return err(`linkset: ${attr} must be a non-negative number (0 clears it).`);
+      const v = attr === "loss" ? Math.min(100, n) : n;
+      if (v > 0) link[attr] = v;
+      else delete link[attr];
+      sync().syncPanel();
+      sync().render();
+      return ok(`Set ${a.name} \u2194 ${b.name} ${attr} to ${v}.`);
+    }
+    return err(`linkset: expected "name|bandwidth|latency|loss <value>".`);
   }
   function cmdLinkState(args, down) {
     const a = resolveDevice(args[0]);
@@ -10447,7 +10484,8 @@ Address: ${sim.dnsResolvedIp}`);
       if (!(Number.isInteger(vlanTag) && vlanTag >= 1 && vlanTag <= 4094)) return err(`interface: vlan tag must be 1-4094.`);
     }
     const msg = setRouterInterfaceIp(router, peer.id, args[ipIdx + 1], vlanTag);
-    return msg.startsWith("Invalid") ? err(msg) : ok(msg);
+    if (msg.startsWith("Invalid")) return err(msg);
+    return ok(msg || `Set ${router.name} interface to ${peer.name}: ${args[ipIdx + 1]}${vlanTag ? ` (VLAN ${vlanTag})` : ""}.`);
   }
   function cmdRoute(args) {
     const router = resolveDevice(args[0]);
@@ -10624,8 +10662,10 @@ Address: ${sim.dnsResolvedIp}`);
   function cmdSpeed(args) {
     const ms = Number(args[0]);
     if (!Number.isFinite(ms) || ms <= 0) return err(`speed: expected a positive number of ms.`);
-    state.simulation.speed = ms;
-    return ok(`Speed set to ${ms} ms/hop.`);
+    const clamped = Math.min(SPEED_MAX, Math.max(SPEED_MIN, Math.round(ms)));
+    state.simulation.speed = clamped;
+    dom.simSpeed.value = String(clamped);
+    return ok(`Speed set to ${clamped} ms/hop.`);
   }
   function cmdTopology(args) {
     const name = (args[0] || "").toLowerCase();
@@ -10785,6 +10825,7 @@ Address: ${sim.dnsResolvedIp}`);
     delete: cmdRemove,
     link: cmdLink,
     unlink: cmdUnlink,
+    linkset: cmdLinkSet,
     shut: cmdShut,
     noshut: cmdNoShut,
     move: cmdMove,
@@ -10835,6 +10876,7 @@ Address: ${sim.dnsResolvedIp}`);
     remove: "remove <device>",
     link: "link <a> <b> [portA portB]",
     unlink: "unlink <a> <b>",
+    linkset: "linkset <a> <b> name|bandwidth|latency|loss <value> (0 clears a number)",
     shut: "shut <a> <b> (administratively down the link)",
     noshut: "noshut <a> <b> (bring the link up)",
     move: "move <device> <x> <y>",
@@ -10940,6 +10982,10 @@ Address: ${sim.dnsResolvedIp}`);
       const ports = l.fromPort != null || l.toPort != null ? ` ${l.fromPort ?? 1} ${l.toPort ?? 1}` : "";
       lines.push(`link ${f} ${t}${ports}`);
       if (l.shutdown) lines.push(`shut ${f} ${t}`);
+      if (l.name) lines.push(`linkset ${f} ${t} name ${l.name}`);
+      if (l.bandwidth) lines.push(`linkset ${f} ${t} bandwidth ${l.bandwidth}`);
+      if (l.latency) lines.push(`linkset ${f} ${t} latency ${l.latency}`);
+      if (l.loss) lines.push(`linkset ${f} ${t} loss ${l.loss}`);
     }
     return lines.join("\n");
   }
@@ -11014,82 +11060,6 @@ Address: ${sim.dnsResolvedIp}`);
     }
   }
 
-  // src/settings-url.ts
-  var SPEED_MIN = 200;
-  var SPEED_MAX = 3e3;
-  var SPEED_DEFAULT = 1e3;
-  var BOOL_PARAMS = [
-    { param: "names", key: "showDeviceNames", def: true },
-    { param: "ips", key: "showIpAddresses", def: true },
-    { param: "macs", key: "showMacAddresses", def: true },
-    { param: "autodhcp", key: "autoDhcp", def: false },
-    { param: "apipa", key: "apipaFallback", def: false }
-  ];
-  function parseBool(raw) {
-    const v = raw.trim().toLowerCase();
-    if (v === "1" || v === "true" || v === "yes" || v === "on") return true;
-    if (v === "0" || v === "false" || v === "no" || v === "off") return false;
-    return void 0;
-  }
-  function resolveTheme(raw) {
-    const v = raw.trim().toLowerCase();
-    const id = v === "light" ? "warm-light" : v;
-    return THEMES.some((t) => t.id === id) ? id : void 0;
-  }
-  function clampSpeed(n) {
-    return Math.min(SPEED_MAX, Math.max(SPEED_MIN, Math.round(n)));
-  }
-  function parseSettingsFromUrl(search) {
-    const out = { options: {}, applied: [], ignored: [] };
-    let params;
-    try {
-      params = new URLSearchParams(search || "");
-    } catch {
-      return out;
-    }
-    for (const [rawKey, value] of params) {
-      const key = rawKey.trim().toLowerCase();
-      const boolSpec = BOOL_PARAMS.find((b) => b.param === key);
-      if (boolSpec) {
-        const parsed = parseBool(value);
-        if (parsed === void 0) {
-          out.ignored.push(rawKey);
-          continue;
-        }
-        out.options[boolSpec.key] = parsed;
-        out.applied.push(key);
-      } else if (key === "theme") {
-        const id = resolveTheme(value);
-        if (!id) {
-          out.ignored.push(rawKey);
-          continue;
-        }
-        out.theme = id;
-        out.applied.push(key);
-      } else if (key === "speed") {
-        const n = Number(value);
-        if (!Number.isFinite(n)) {
-          out.ignored.push(rawKey);
-          continue;
-        }
-        out.speed = clampSpeed(n);
-        out.applied.push(key);
-      } else {
-        out.ignored.push(rawKey);
-      }
-    }
-    return out;
-  }
-  function buildSettingsQuery() {
-    const params = new URLSearchParams();
-    for (const { param, key, def } of BOOL_PARAMS) {
-      if (state.options[key] !== def) params.set(param, state.options[key] ? "1" : "0");
-    }
-    if (state.theme !== DEFAULT_THEME) params.set("theme", state.theme);
-    if (state.simulation.speed !== SPEED_DEFAULT) params.set("speed", String(state.simulation.speed));
-    return params.toString();
-  }
-
   // src/app.ts
   registerCallbacks({
     render,
@@ -11143,6 +11113,9 @@ Address: ${sim.dnsResolvedIp}`);
     loadDefaultConfig();
     syncPanel();
     render();
+    if (urlSettings.ignored.length) {
+      dom.modeLabel.textContent = `Ignored unknown URL setting${urlSettings.ignored.length > 1 ? "s" : ""}: ${urlSettings.ignored.join(", ")}.`;
+    }
   }
   initialiseApp();
 })();

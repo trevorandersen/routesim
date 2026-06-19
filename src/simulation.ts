@@ -68,10 +68,6 @@ export function l2Reachable(fromId: string, toId: string, vlanId: number | null)
   return false;
 }
 
-export function devicesHavePath(fromId: string, toId: string): boolean {
-  return l2Reachable(fromId, toId, null);
-}
-
 export function getVlanForDevice(deviceId: string): number {
   for (const link of linksFor(deviceId)) {
     if (link.hidden) continue;

@@ -48,12 +48,6 @@ export function screenToWorld(point: { x: number; y: number }): { x: number; y: 
   };
 }
 
-export function worldToScreen(point: { x: number; y: number }): { x: number; y: number } {
-  return {
-    x: point.x * state.scale + state.pan.x,
-    y: point.y * state.scale + state.pan.y
-  };
-}
 
 export function setZoom(nextScale: number, anchor: { x: number; y: number }): void {
   const before = screenToWorld(anchor);
@@ -310,11 +304,11 @@ export function drawDevice(device: any): void {
     const vlan = getVlanForDevice(device.id);
     if (vlan > 1) {
       const color = vlanColor(vlan);
+      ctx.font = FONT_SMALL; // set before measureText so the dot offset matches the label font
       ctx.fillStyle = color;
       ctx.beginPath();
       ctx.arc(device.x - ctx.measureText(`VLAN ${vlan}`).width / 2 - 8, labelY + 5, 4, 0, Math.PI * 2);
       ctx.fill();
-      ctx.font = FONT_SMALL;
       ctx.fillText(`VLAN ${vlan}`, device.x + 2, labelY);
       labelY += 13;
     }

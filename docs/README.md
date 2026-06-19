@@ -27,7 +27,7 @@ It is a single-page app with **no framework and no runtime dependencies** — it
 | `src/inspector.ts` | [inspector.md](src/inspector.md) | Right panel: device config + link history |
 | `src/terminal/` | [terminal.md](src/terminal.md) | Per-device CLI: core dispatch/UI + host/server/router/switch/firewall modules |
 | `src/devices.ts` | [devices.md](src/devices.md) | Device/link CRUD, hit-testing, lookup indexes, LAN grouping |
-| `src/config.ts` | [config.md](src/config.md) | Save/load `config.json`, built-in + embedded configs |
+| `src/config.ts` | [config.md](src/config.md) | Topology serialise/apply + built-in topologies (no `config.json`/fetch) |
 | `src/engine.ts` | [engine.md](src/engine.md) | The simulation engine: per-device frame processing, headless runs, traceroute |
 | `src/routing.ts` | [engine.md](src/engine.md) | Routing table, longest-match lookup, RIP convergence |
 | `src/device-registry.ts` | [architecture.md](architecture.md) | Per-type device spec: label, name prefix, size, palette, icon, defaults |
@@ -37,12 +37,14 @@ It is a single-page app with **no framework and no runtime dependencies** — it
 | `src/commands.ts` | [scripting.md](scripting.md) | The text-command engine (parser, verb registry, topology export) |
 | `src/console.ts` | [scripting.md](scripting.md) | The command console panel UI |
 | `src/scenarios.ts` | [scenarios.md](scenarios.md) | Scenario data model, registry, and goal checking |
+| `src/scenario-library.ts` | [scenarios.md](scenarios.md) | The built-in scenario curriculum |
 | `src/scenario-ui.ts` | [scenarios.md](scenarios.md) | The scenario goal banner UI |
 | `src/simulation.ts` | [simulation.md](src/simulation.md) | Ping/DHCP event setup, L2 reachability, routing helpers |
 | `src/frame.ts` | [frame.md](src/frame.md) | Ethernet frame factories + label/colour helpers |
 | `src/normalise.ts` | [normalise.md](src/normalise.md) | Defensive config normalisation + defaults |
 | `src/utils.ts` | [utils.md](src/utils.md) | Pure helpers: IPv4/MAC, escaping, the `cssColor` cache |
 | `src/io.ts` | [scripting.md](scripting.md) | JSON import/export (config/scenario/script/log) |
+| `src/settings-url.ts` | [settings-url.md](src/settings-url.md) | Read/apply settings from the URL query string (+ inverse) |
 | `src/ribbon.ts` | [src/ribbon.md](src/ribbon.md) | Tabbed ribbon: tab switching + dynamic scenario buttons |
 
 ## Conventions

@@ -346,7 +346,7 @@
          auto forces overflow-y to auto), which would clip an absolute menu.
          JS positions it under its caret. */
       position: fixed;
-      z-index: 60;
+      z-index: 40; /* below the 50 modal/overlay tier — a transient dropdown shouldn't cover a blocking modal */
       min-width: 168px;
       padding: 5px;
       display: flex;
@@ -777,33 +777,6 @@
       stroke-linecap: round;
       stroke-linejoin: round;
       fill: none;
-    }
-
-    .option-list {
-      display: grid;
-      gap: 10px;
-    }
-
-    .option-list.closed {
-      display: none;
-    }
-
-    .toggle-row {
-      min-width: 0;
-      display: flex;
-      align-items: center;
-      justify-content: space-between;
-      gap: 12px;
-      color: var(--text);
-      font-size: 14px;
-      font-weight: 700;
-    }
-
-    .toggle-row input {
-      width: 18px;
-      height: 18px;
-      accent-color: var(--accent);
-      flex: 0 0 auto;
     }
 
     .field {
@@ -1398,24 +1371,6 @@
       }
     }
 
-    /* ─── Simulation controls ─────────────────────────────── */
-
-    .sim-controls {
-      display: none;
-      position: absolute;
-      bottom: 12px;
-      left: 50%;
-      transform: translateX(-50%);
-      background: var(--panel);
-      border: 1px solid var(--border);
-      border-radius: 10px;
-      padding: 6px 14px;
-      gap: 8px;
-      align-items: center;
-      z-index: 10;
-      box-shadow: 0 4px 16px rgba(0,0,0,.3);
-    }
-
     .scenario-panel {
       display: none;
       position: absolute;
@@ -1464,43 +1419,6 @@
     .scenario-status { font-size: 12px; font-weight: 700; }
     .scenario-status.pass { color: #22c55e; }
     .scenario-status.fail { color: var(--muted); }
-
-    .sim-controls.active {
-      display: flex;
-    }
-
-    .sim-btn {
-      width: 32px;
-      height: 32px;
-      border: none;
-      background: var(--surface);
-      color: var(--text-primary);
-      border-radius: 6px;
-      cursor: pointer;
-      font-size: 14px;
-      display: flex;
-      align-items: center;
-      justify-content: center;
-      transition: background .15s;
-    }
-
-    .sim-btn:hover {
-      background: var(--border);
-    }
-
-    .sim-speed-label {
-      display: flex;
-      align-items: center;
-      gap: 6px;
-      color: var(--text-secondary);
-      font-size: 11px;
-      font-weight: 600;
-    }
-
-    .sim-speed-label input[type="range"] {
-      width: 80px;
-      accent-color: var(--accent, #6366f1);
-    }
 
     /* ─── Simulation terminal log colors ─────────────────── */
 
@@ -1726,12 +1644,12 @@
       transition: border-color 0.15s, background 0.15s;
     }
     .port-option:hover:not(.occupied) {
-      border-color: var(--accent, #f0b429);
-      background: rgba(240, 180, 41, 0.06);
+      border-color: var(--accent);
+      background: color-mix(in srgb, var(--accent) 6%, transparent);
     }
     .port-option.selected {
-      border-color: var(--accent, #f0b429);
-      background: rgba(240, 180, 41, 0.12);
+      border-color: var(--accent);
+      background: color-mix(in srgb, var(--accent) 12%, transparent);
     }
     .port-option.occupied {
       opacity: 0.4;

@@ -1,6 +1,6 @@
 import { describe, it, expect, beforeAll, beforeEach } from "bun:test";
 import { state } from "../src/state";
-import { addDevice, addLink, deleteSelection, clearNetwork, findDeviceAt, getDevice, connectedIds, linkedPortsFor, routerInterfaceForName, routerInterfacesWithNames, placeToolDevice, PLACEMENT_TOOLS } from "../src/devices";
+import { addDevice, addLink, deleteSelection, clearNetwork, findDeviceAt, getDevice, connectedIds, linkedPortsFor, linkById, routerInterfaceForName, routerInterfacesWithNames, placeToolDevice, PLACEMENT_TOOLS } from "../src/devices";
 import { freshNameCounters } from "../src/device-registry";
 import { registerNoopCallbacks, resetState } from "./helpers";
 
@@ -229,6 +229,23 @@ describe("index invalidation", () => {
     deleteSelection();                                // removes pc and its link
     expect(connectedIds(sw.id)).toEqual([]);          // adjacency rebuilt
     expect(linkedPortsFor(sw.id)).toHaveLength(0);
+  });
+
+  it("linkById resolves, then invalidates on add/delete", () => {
+    const sw = addDevice("switch", 0, 0);
+    const a = addDevice("computer", 100, 0);
+    const b = addDevice("computer", 200, 0);
+    addLink(sw.id, a.id);
+    addLink(sw.id, b.id);                             // length change → index rebuilt
+    const linkA = state.links.find(l => l.from === sw.id && l.to === a.id)!;
+    const linkB = state.links.find(l => l.from === sw.id && l.to === b.id)!;
+    expect(linkById(linkA.id)).toBe(linkA);
+    expect(linkById(linkB.id)).toBe(linkB);
+    expect(linkById("nope")).toBeUndefined();
+    state.selectedId = a.id;
+    deleteSelection();                                // reassigns state.links (drops linkA)
+    expect(linkById(linkA.id)).toBeUndefined();
+    expect(linkById(linkB.id)).toBe(linkB);           // survivor still resolves
   });
 });
 

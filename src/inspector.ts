@@ -450,8 +450,9 @@ function renderLinkPanel(link: Link): void {
           ${history.map((entry: any) => {
             const dir = getDevice(entry.fromDeviceId)?.name || entry.fromDeviceId;
             const label = frameLabel(entry.frame);
+            const p = entry.frame.payload;
             const kind = entry.frame.etherType === 0x0806 ? "arp"
-              : ((entry.frame.payload as any)?.payload?.type === "dhcp" ? "dhcp" : "icmp");
+              : (p.type === "ipv4" && p.payload.type === "dhcp" ? "dhcp" : "icmp");
             return `<div class="frame-history-entry ${kind}">
               <span class="frame-step">Step ${entry.step}</span>
               <span class="frame-label">${escapeHtml(label)}</span>

@@ -1,4 +1,5 @@
 import { state, toolCopy, networkSnapshot, pushUndoSnapshot, undo, redo, THEMES, DEFAULT_THEME } from "./state";
+import type { DisplayOptions } from "./types";
 import { dom } from "./dom";
 import { addLink, deleteSelection, clearNetwork, findDeviceAt, findLinkAt, getDevice, configureDevice, openPortSelectionModal, confirmPortSelection, cancelPortSelection, placeToolDevice, PLACEMENT_TOOLS, toggleLinkShutdown, linkName } from "./devices";
 import { render, resizeCanvas, screenToWorld, setZoom, syncZoomLevel, fitNetwork, findTransitAt } from "./canvas";
@@ -96,14 +97,13 @@ export function toggleTheme(): void {
   setTheme(THEMES[(i + 1) % THEMES.length].id);
 }
 
-export function bindOptionToggle(input: HTMLInputElement, optionKey: string): void {
+export function bindOptionToggle(input: HTMLInputElement, optionKey: keyof DisplayOptions): void {
   input.addEventListener("change", () => {
-    (state.options as any)[optionKey] = input.checked;
+    state.options[optionKey] = input.checked;
     render();
   });
 }
 
-// Global keyboard shortcuts. Extracted from setupUI() so it can be unit-tested.
 export function openAbout(): void {
   // Reset any drag position so it re-centres each time it opens.
   dom.aboutModal.style.position = "";
@@ -156,6 +156,7 @@ function endAboutDrag(event: PointerEvent): void {
   try { dom.aboutHeader.releasePointerCapture(event.pointerId); } catch { /* already released */ }
 }
 
+// Global keyboard shortcuts. Extracted from setupUI() so it can be unit-tested.
 export function handleGlobalKeydown(event: KeyboardEvent): void {
   const inField = ["INPUT", "SELECT", "TEXTAREA"].includes((event.target as HTMLElement)?.tagName);
   // Undo/redo — but NOT while typing in a field: there, Ctrl/Cmd+Z must drive
@@ -395,13 +396,17 @@ export function setupUI(): void {
     }
   });
 
-  dom.canvas.addEventListener("pointerup", () => {
+  const endCanvasDrag = () => {
     if (state.drag?.undoSnapshot && state.drag.undoSnapshot !== networkSnapshot()) {
       pushUndoSnapshot(state.drag.undoSnapshot);
     }
     state.drag = null;
     state.panDrag = null;
-  });
+  };
+  dom.canvas.addEventListener("pointerup", endCanvasDrag);
+  // A browser-cancelled (touch/pen) gesture won't fire pointerup — clean up too,
+  // or the drag latches and the cursor sticks at "grabbing".
+  dom.canvas.addEventListener("pointercancel", endCanvasDrag);
 
   dom.canvas.addEventListener("pointerleave", () => {
     if (state.drag?.undoSnapshot && state.drag.undoSnapshot !== networkSnapshot()) {

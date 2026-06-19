@@ -199,7 +199,7 @@ export function packetColumns(frame: EthernetFrame): PacketColumns {
       ? { src: frame.srcMac, dst: "Broadcast", protocol: "ARP", info: `Who has ${arp.targetIp}? Tell ${arp.senderIp}`, tone: "arp" }
       : { src: frame.srcMac, dst: frame.dstMac, protocol: "ARP", info: `${arp.senderIp} is at ${arp.senderMac}`, tone: "arp" };
   }
-  const ipv4 = frame.payload as Ipv4Payload;
+  const ipv4 = frame.payload; // narrowed to Ipv4Payload after the arp branch returns
   const src = ipv4.srcIp;
   const dst = ipv4.dstIp;
   const p = ipv4.payload;
@@ -231,7 +231,7 @@ export function frameLabel(frame: EthernetFrame): string {
   if (frame.payload.type === "arp") {
     label = frame.payload.operation === "request" ? "ARP Req" : "ARP Reply";
   } else {
-    const ipv4 = frame.payload as Ipv4Payload;
+    const ipv4 = frame.payload; // narrowed to Ipv4Payload after the arp branch returns
     if (ipv4.payload.type === "dhcp") {
       const dhcp = ipv4.payload as DhcpPayload;
       const labels: Record<string, string> = { discover: "DHCP Disc", offer: "DHCP Offer", request: "DHCP Req", ack: "DHCP ACK" };
@@ -256,7 +256,7 @@ export function frameLabel(frame: EthernetFrame): string {
 
 export function frameColor(frame: EthernetFrame): string {
   if (frame.payload.type === "arp") return "#f59e0b";    // amber
-  const ipv4 = frame.payload as Ipv4Payload;
+  const ipv4 = frame.payload; // narrowed to Ipv4Payload after the arp branch returns
   if (ipv4.payload.type === "dhcp") return "#a78bfa";    // violet
   if (ipv4.payload.type === "dns") return ipv4.payload.op === "response" && !ipv4.payload.address ? "#ef4444" : "#22d3ee"; // cyan (NXDOMAIN red)
   if (ipv4.payload.type === "tcp") return ipv4.payload.flags === "rst" ? "#ef4444" : "#fb923c"; // orange (RST red)

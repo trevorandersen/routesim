@@ -132,6 +132,13 @@ describe("resolv.conf + dnsmasq.conf terminals", () => {
     expect(srv.config.dhcpRouterIp).toBe("192.168.1.1");
   });
 
+  it("rejects an inverted dhcp-range (end before start) instead of storing it", () => {
+    const { srv } = flatTopology();
+    exec("cli SRV echo dhcp-range=192.168.1.200,192.168.1.100 >> /etc/dnsmasq.conf");
+    expect(srv.config.dhcpRangeStart).toBeFalsy();
+    expect(srv.config.dhcpRangeEnd).toBeFalsy();
+  });
+
   it("rejects unsupported directives", () => {
     flatTopology();
     const r = exec("cli SRV echo bogus-directive=1 >> /etc/dnsmasq.conf");

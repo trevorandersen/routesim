@@ -99,9 +99,12 @@ export function parseIpv4Token(value: any): { address: string; prefixLength: num
   const match = String(value || "").trim().match(/^([^/]+)(?:\/(\d{1,2}))?$/);
   if (!match) return null;
   const address = match[1];
-  const prefixLength = match[2] == null ? null : Number(match[2]);
+  const prefixStr = match[2];
+  const prefixLength = prefixStr == null ? null : Number(prefixStr);
   if (!isValidIpv4(address)) return null;
-  if (prefixLength != null && (!Number.isInteger(prefixLength) || prefixLength < 0 || prefixLength > 32)) return null;
+  // The `\d{1,2}` capture already guarantees a non-negative integer, so only the
+  // upper bound and a leading-zero check (e.g. "/01") remain.
+  if (prefixLength != null && (prefixStr !== String(prefixLength) || prefixLength > 32)) return null;
   return { address, prefixLength };
 }
 

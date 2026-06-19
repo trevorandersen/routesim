@@ -36,7 +36,7 @@ iptables -I FORWARD [pos] [match...] -j TARGET  insert a rule
 iptables -D FORWARD <rulenum>                   delete rule N
 iptables -P FORWARD ACCEPT|DROP                 default policy
 iptables -F [FORWARD]                           flush rules
-  matches: -s <ip/cidr>  -d <ip/cidr>  -p icmp|udp|all  --icmp-type <t>
+  matches: -s <ip/cidr>  -d <ip/cidr>  -p icmp|tcp|udp|all  --icmp-type <t>  --dport <port>
   targets: ACCEPT  DROP  REJECT
 ```
 

@@ -118,6 +118,11 @@ export function normaliseRouterInterfaces(entries: unknown, routerId?: string): 
   if (!Array.isArray(entries)) return [];
   return entries.map((raw, index) => {
     const entry = asObject(raw);
+    // Normalise a supplied MAC (upper-case, ":"-separated) and fall back to the
+    // deterministic one if it's missing or malformed — matching how host MACs are
+    // handled, rather than storing whatever the import provided verbatim.
+    const suppliedMac = normaliseMacAddress(entry.macAddress || "");
+    const macAddress = isValidMac(suppliedMac) ? suppliedMac : generateRouterIfaceMac(routerId || "", index);
     return {
       peerId: String(entry.peerId || entry.peer || entry.linkedDeviceId || "").trim(),
       type: (entry.type === "serial" ? "serial" : "ethernet") as "serial" | "ethernet",
@@ -125,7 +130,7 @@ export function normaliseRouterInterfaces(entries: unknown, routerId?: string): 
       ipv4Address: String(entry.ipv4Address || entry.ip || "").trim(),
       ...(entry.prefixLength != null ? { prefixLength: clampPrefixLength(entry.prefixLength) } : {}),
       ...(entry.natRole === "inside" || entry.natRole === "outside" ? { natRole: entry.natRole } : {}),
-      macAddress: entry.macAddress || generateRouterIfaceMac(routerId || "", index),
+      macAddress,
       arpTable: normaliseArpTable(entry.arpTable || []),
       dhcpLeases: normaliseDhcpLeases(entry.dhcpLeases || []),
       vlanTag: entry.vlanTag != null ? (normaliseVlanId(entry.vlanTag) || null) : null
@@ -159,14 +164,17 @@ export function normaliseStaticRoutes(routes: unknown): StaticRoute[] {
 }
 
 function generateRouterIfaceMac(routerId: string, ifaceIndex: number): string {
-  // Deterministic MAC from router ID hash + interface index
+  // Deterministic MAC from a hash of the router id + interface index. Folds 24
+  // bits of the hash into octets 2–4 (02:RR:HH:HH:II:01) so two router ids no
+  // longer collide just because their hashes match mod 256.
   let hash = 0;
   for (let i = 0; i < routerId.length; i++) {
     hash = ((hash << 5) - hash + routerId.charCodeAt(i)) | 0;
   }
-  const rr = ((hash >>> 0) % 256).toString(16).padStart(2, "0");
+  const h = hash >>> 0;
+  const b = (shift: number) => ((h >>> shift) & 0xff).toString(16).padStart(2, "0");
   const ii = ((ifaceIndex + 1) % 256).toString(16).padStart(2, "0");
-  return `02:${rr}:00:00:${ii}:01`;
+  return `02:${b(0)}:${b(8)}:${b(16)}:${ii}:01`;
 }
 
 const FIREWALL_TARGETS = new Set(["accept", "drop", "reject"]);
@@ -387,13 +395,6 @@ export function normaliseConfig(parsed: any): { devices: Device[]; links: Link[]
   });
 
   return { devices, links };
-}
-
-export function normaliseConfigStore(store: any): any {
-  return {
-    version: 1,
-    configs: store && store.configs && typeof store.configs === "object" ? store.configs : {}
-  };
 }
 
 export function normaliseConfigName(value: unknown): string {

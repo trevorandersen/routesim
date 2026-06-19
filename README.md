@@ -11,7 +11,7 @@ The app builds into a single self-contained **`rs-web.html`** — no server, no 
 ./build.sh            # dev build  — produces rs-web.html
 ./build.sh --minify   # minified build
 
-# Preview / serve locally (File System Access API needs localhost or HTTPS)
+# Preview / serve locally (optional — rs-web.html also opens directly as a file)
 bun test-server.ts            # serves on http://localhost:8767
 # then open http://localhost:8767/rs-web.html
 ```
@@ -95,19 +95,19 @@ Modules are organized to keep concerns separate while producing a flat IIFE bund
 
 ### Circular dependency pattern
 
-Several modules need to call each other (e.g., `terminal` needs `simulation.pingFromHost`, `simulation` needs `inspector.syncPanel`). Instead of circular imports, `state.ts` exposes a **callback registry**:
+Several modules need to call each other (e.g., `engine` needs the canvas to `render`, `devices` needs `inspector.syncPanel`). Instead of circular imports, `state.ts` exposes a **callback registry**:
 
 ```typescript
 // state.ts
-const callbacks = { syncPanel: () => {}, redraw: () => {}, ... };
+const callbacks = { render: () => {}, syncPanel: () => {}, syncTerminal: () => {}, ... };
 export function registerCallbacks(cbs) { Object.assign(callbacks, cbs); }
 export function sync() { return callbacks; }
 
 // app.ts — wires everything at startup
-registerCallbacks({ syncPanel: buildInspector, redraw: draw, ... });
+registerCallbacks({ render, syncPanel, syncTerminal, resizeCanvas, syncScenarioPanel, syncCoordReadout });
 
-// simulation.ts — calls without importing inspector
-sync().syncPanel();
+// engine.ts — calls without importing canvas/inspector
+sync().render();
 ```
 
 ## Features

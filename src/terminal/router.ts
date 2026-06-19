@@ -377,6 +377,12 @@ function routerSessionCommand(lower: string): boolean {
     return true;
   }
   if (lower === "enable") {
+    // `enable` raises user-exec to privileged; it isn't a config-mode command
+    // (use `end`/`exit` to leave config first), matching IOS/FRR.
+    if (state.terminal.mode !== "exec" && state.terminal.mode !== "privileged") {
+      terminalLine("error", "% Invalid input — leave configuration mode first (end).");
+      return true;
+    }
     state.terminal.mode = "privileged";
     state.terminal.interfacePeerId = null;
     state.terminal.interfaceVlanTag = null;
@@ -464,7 +470,9 @@ function routerShowCommand(router: Device, lower: string): boolean {
 function routerInterfaceCommand(router: Device, command: string, lower: string): boolean {
   const interfaceMatch = command.match(/^interface\s+(\S+)$/i);
   if (interfaceMatch) {
-    if (state.terminal.mode !== "config") {
+    // FRR/IOS let you retarget the active interface directly from interface mode,
+    // not only from config mode.
+    if (state.terminal.mode !== "config" && state.terminal.mode !== "interface") {
       terminalLine("error", "% Enter configuration mode first.");
       return true;
     }
@@ -571,7 +579,9 @@ function routerRipCommand(router: Device, command: string, lower: string): boole
     let network: string;
     const parsed = parseIpv4Token(networkToken);
     if (parsed) {
-      network = parsed.prefixLength != null ? `${parsed.address}/${parsed.prefixLength}` : `${parsed.address}/24`;
+      // Store the masked network (192.168.1.5/24 -> 192.168.1.0/24), matching the
+      // `network <ifname>` branch below and FRR's running-config display.
+      network = networkOf(parsed.address, parsed.prefixLength ?? 24);
     } else {
       // FRR `network <ifname>` — enable RIP on the interface's connected network.
       const iface = routerInterfaceByName(router, networkToken);
@@ -684,13 +694,13 @@ function routerStaticRouteCommand(router: Device, command: string): boolean {
     const networkToken = noIpRouteMatch[1];
     const nextHop = noIpRouteMatch[2] || null;
     const parsedNetwork = parseIpv4Token(networkToken);
-    if (!parsedNetwork) {
-      terminalLine("error", `% Invalid network: ${networkToken}`);
+    // Stored routes always carry a prefix (the add path requires CIDR), so the
+    // removal must too — otherwise a bare `no ip route 10.0.0.0` never matches.
+    if (!parsedNetwork || parsedNetwork.prefixLength == null) {
+      terminalLine("error", `% Invalid network: ${networkToken}. Use CIDR notation (e.g. 10.0.0.0/24).`);
       return true;
     }
-    const network = parsedNetwork.prefixLength != null
-      ? `${parsedNetwork.address}/${parsedNetwork.prefixLength}`
-      : parsedNetwork.address;
+    const network = `${parsedNetwork.address}/${parsedNetwork.prefixLength}`;
     pushUndo();
     router.config = router.config || {};
     const statics = normaliseStaticRoutes(router.config.staticRoutes || []);

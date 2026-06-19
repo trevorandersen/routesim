@@ -169,8 +169,11 @@ export function handleDockTabClick(event: Event): void {
   if (tab.dataset.session) {
     const session = sessionFor(tab.dataset.session);
     if (session) state.terminal = session;
-    setDockTab("terminal");
+    // syncTerminal first so the input's disabled state is up to date before
+    // setDockTab tries to focus it (otherwise a placeholder→real switch leaves
+    // the input unfocused).
     syncTerminal();
+    setDockTab("terminal");
     return;
   }
   setDockTab(tab.dataset.pane as DockTab);
@@ -277,11 +280,6 @@ function withErrorLine(text: string): TerminalSession {
   const session = freshTerminalSession();
   session.lines.push({ kind: "error", text });
   return session;
-}
-
-// Back-compat name: closing "the terminal" now closes the dock.
-export function closeTerminal(): void {
-  closeDock();
 }
 
 export function syncTerminal(): void {

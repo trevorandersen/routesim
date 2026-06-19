@@ -7,7 +7,7 @@ import { state } from "./state";
 import { dom } from "./dom";
 import { escapeHtml } from "./utils";
 import { runConsoleCommand } from "./commands";
-import { openDock, closeDock } from "./terminal";
+import { openDock } from "./terminal";
 
 export function openConsole(): void {
   if (state.console.lines.length === 0) {
@@ -19,10 +19,6 @@ export function openConsole(): void {
   openDock("console");
   syncConsole();
   if (!dom.consoleInput.disabled) dom.consoleInput.focus();
-}
-
-export function closeConsole(): void {
-  if (state.dock.open && state.dock.activeTab === "console") closeDock();
 }
 
 export function syncConsole(): void {

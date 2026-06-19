@@ -344,3 +344,20 @@ describe("config vlan member del — non-member must not demote a trunk", () => 
     expect((sw.config.portModes || {}).Ethernet2).toBeUndefined();   // collapsed back to access
   });
 });
+
+describe("showHostRoute — flush drops the default route", () => {
+  beforeEach(() => resetState());
+
+  it("hides the default route once eth0 has no address", () => {
+    const topo = basicTopology();
+    state.devices = topo.devices as any;
+    state.links = topo.links as any;
+    const pc = state.devices.find(d => d.id === "pc1")!;
+    pc.config.ipv4Address = "192.168.1.10";
+    pc.config.prefixLength = 24;
+    pc.config.gatewayIpv4Address = "192.168.1.1";
+    expect(showHostRoute(pc)).toContain("default via 192.168.1.1");
+    flushHostIp(pc); // clears the address
+    expect(showHostRoute(pc)).toBe("No default route configured.");
+  });
+});

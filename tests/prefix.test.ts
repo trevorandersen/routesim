@@ -4,7 +4,7 @@
  */
 import { describe, it, expect, beforeAll, beforeEach } from "bun:test";
 import { state } from "../src/state";
-import { runSimulationHeadless, routingLookup } from "../src/engine";
+import { runSimulationHeadless, routingLookup, buildRoutingTable } from "../src/engine";
 import { buildPingEvents } from "../src/simulation";
 import { buildConfigPayload, parseConfig } from "../src/config";
 import { runConsoleScript, runConsoleCommand as exec } from "../src/commands";
@@ -72,6 +72,24 @@ describe("prefixes — longest-prefix routing", () => {
     // Elsewhere in the /16, the connected route applies (egress toward SW1).
     const inConnected = routingLookup(r1, "10.0.99.7")!;
     expect(inConnected.nextHopIp).toBe("10.0.99.7");
+  });
+
+  it("a prebuilt routing table yields the same lookup as building per call (ARP-flush path)", () => {
+    runConsoleScript(`
+      add router R1 at 0 0
+      add switch SW1 at 200 0
+      add switch SW2 at -200 0
+      link R1 SW1
+      link R1 SW2
+    `);
+    const r1 = state.devices.find(d => d.name === "R1")!;
+    exec("interface R1 SW1 ip 10.0.0.1/24");
+    exec("interface R1 SW2 ip 172.16.0.1/24");
+    exec("route R1 192.168.9.0/24 172.16.0.9");
+    const table = buildRoutingTable(r1);
+    for (const ip of ["10.0.0.5", "192.168.9.9", "8.8.8.8"]) {
+      expect(routingLookup(r1, ip, table)).toEqual(routingLookup(r1, ip)); // prebuilt === per-call
+    }
   });
 });
 

@@ -100,6 +100,13 @@ describe("firewall — iptables CLI", () => {
     runFirewallTerminalCommand(fw, "iptables -A FORWARD -p tcp --dport 80 -j DROP");
     expect(fw.config.rules![0]).toMatchObject({ target: "drop", protocol: "tcp", dport: 80 });
   });
+
+  it("rejects --dport without -p tcp (the rule would never match)", () => {
+    const fw = loadFw();
+    runFirewallTerminalCommand(fw, "iptables -A FORWARD -p udp --dport 53 -j DROP");
+    expect(state.terminal.lines.some(l => l.kind === "error")).toBe(true);
+    expect(fw.config.rules ?? []).toHaveLength(0);
+  });
 });
 
 describe("firewall — packet filtering in the simulation", () => {

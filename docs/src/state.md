@@ -22,7 +22,7 @@ The heart of the app. Holds the single mutable `state` object, the cross-module 
 
 ### Static data
 - **`toolCopy`** — per-tool label + hint strings shown in the header.
-- **`colors`, `deviceIcons`** — palette names and the SVG path data used by `canvas.ts` to draw device icons.
+- **`colors`** — shared palette names used by `canvas.ts`. (Per-device icon paths live in `device-registry.ts` as `DEVICE_SPECS[type].iconPaths`.)
 - **`defaultConfig`, `vlanRoasConfig`, `routerMeshConfig`** — the three built-in topologies offered in the topology chooser (Basic Network, VLAN Router-on-a-Stick, 5-Router Partial Mesh).
 
 ## How it fits

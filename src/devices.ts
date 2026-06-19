@@ -1,4 +1,4 @@
-import type { PortOption, Device, Link, DeviceType } from "./types";
+import type { PortOption, Device, Link, DeviceType, NamedRouterIface } from "./types";
 import { state, sync, pushUndo, networkSnapshot, dropTerminalSessions } from "./state";
 import { dom } from "./dom";
 import { deviceSize, defaultDeviceConfig, ensureConfig, normaliseRouterInterfaces, normalisePortVlans, normalisePortModes } from "./normalise";
@@ -50,7 +50,10 @@ export function placeToolDevice(tool: string, x: number, y: number): Device {
 function hostNicTaken(deviceId: string): string | null {
   const device = getDevice(deviceId);
   if (!device || (device.type !== "computer" && device.type !== "server")) return null;
-  const cabled = state.links.some(l => !l.hidden && (l.from === deviceId || l.to === deviceId));
+  // Count ANY link, including a hidden one: a host collapsed into a LAN still
+  // holds its single cable, so it must not be linkable again (the console `link`
+  // command resolves by name regardless of collapse state).
+  const cabled = state.links.some(l => l.from === deviceId || l.to === deviceId);
   return cabled ? device.name : null;
 }
 
@@ -311,13 +314,6 @@ export function connectedIds(id: string): string[] {
     .map(link => link.from === id ? link.to : link.from);
 }
 
-export function linkedDevicesFor(id: string): any[] {
-  return linksFor(id)
-    .filter(link => !link.hidden)
-    .map(link => getDevice(link.from === id ? link.to : link.from))
-    .filter(isVisibleDevice);
-}
-
 export function linkedPortsFor(id: string): any[] {
   const entries = linksFor(id)
     .filter(link => !link.hidden)
@@ -489,7 +485,6 @@ export function expandLan(lan: any): void {
     if (device.collapsedBy === lanId) {
       device.hidden = false;
       delete device.collapsedBy;
-      if (absorbedLanSet.has(device.id)) return;
     }
   });
   state.links = state.links.filter(link => !link.proxy || link.collapsedBy !== lanId);
@@ -549,7 +544,7 @@ export function routerInterfaceForName(router: any, name: string): any {
   return iface;
 }
 
-export function routerInterfacesWithNames(router: any): any[] {
+export function routerInterfacesWithNames(router: any): NamedRouterIface[] {
   const ethernetPorts = clampRouterPortCount(router.config?.ethernetPorts ?? 4);
   const serialPorts = clampRouterPortCount(router.config?.serialPorts ?? 4);
   const configured = normaliseRouterInterfaces(router.config?.interfaces || []);
@@ -579,7 +574,7 @@ export function routerInterfacesWithNames(router: any): any[] {
         occupied.push({
           name: `${baseName}.${config.vlanTag}`,
           type: entry.type,
-          peer: entry.peer,
+          peer: entry.peer ?? null,
           peerId: entry.peerId,
           config
         });

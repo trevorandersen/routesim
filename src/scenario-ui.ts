@@ -14,7 +14,10 @@ export function syncScenarioPanel(): void {
   const scenario = getScenario(state.activeScenarioId);
   document.body.classList.toggle("scenario-active", !!scenario);
   if (!scenario) { lastResult = null; return; }
-  if (lastResult && lastResult.id !== scenario.id) lastResult = null;
+  // Discard a stale result when the active scenario changed id OR was replaced
+  // (a same-id JSON import with a different checks array) — otherwise the marks
+  // would be paired against the new labels positionally.
+  if (lastResult && (lastResult.id !== scenario.id || lastResult.checks.length !== scenario.checks.length)) lastResult = null;
 
   dom.scenarioName.textContent = scenario.name;
   dom.scenarioObjective.textContent = scenario.objective;

@@ -61,6 +61,22 @@ describe("processAtHub — layer-1 repeater", () => {
     expect(out).toHaveLength(2);
     expect(hub.config.macTable).toBeUndefined(); // a hub keeps no table
   });
+
+  it("a powered-off hub repeats nothing", () => {
+    const hub = hubLan();
+    hub.poweredOff = true;
+    const pc1 = state.devices.find(d => d.name === "PC1")!;
+    const frame = createArpRequest("02:00:00:00:01:10", "192.168.1.10", "192.168.1.20");
+    expect(processAtHub(hub, frame, pc1.id)).toEqual([]);
+  });
+
+  it("with no ingress (fromDeviceId null) floods every port", () => {
+    const hub = hubLan();
+    const frame = createArpRequest("02:00:00:00:01:10", "192.168.1.10", "192.168.1.20");
+    const out = processAtHub(hub, frame, null);
+    const all = state.devices.filter(d => d.name.startsWith("PC")).map(d => d.id).sort();
+    expect(out.map(o => o.toDeviceId).sort()).toEqual(all); // PC1 + PC2 + PC3, none skipped
+  });
 });
 
 // ── processAtSwitch ──────────────────────────────────────────────────────────

@@ -4,7 +4,29 @@ import {
   normalisePortVlans, normalisePortModes, normaliseTrunkAllowedVlans,
   normaliseRouterInterfaces, normaliseDeviceConfig, normaliseConfig,
   defaultDeviceConfig, normaliseConfigName, deviceSize, ensureConfig,
+  memoPortModes, memoPortVlans,
 } from "../src/normalise";
+
+describe("memoPortModes / memoPortVlans (read-only render-path cache)", () => {
+  it("returns the same shared empty object for null/undefined", () => {
+    expect(memoPortModes(null)).toEqual({});
+    expect(memoPortModes(undefined)).toBe(memoPortModes(null)); // shared EMPTY constant
+    expect(memoPortVlans(undefined)).toBe(memoPortVlans(null));
+  });
+
+  it("caches by input-object identity and recomputes on replacement", () => {
+    const stored = { Ethernet1: "trunk" };
+    const first = memoPortModes(stored);
+    expect(memoPortModes(stored)).toBe(first);       // same ref → === cache hit
+    expect(first).toEqual({ Ethernet1: "trunk" });
+    expect(memoPortModes({ ...stored })).not.toBe(first); // replaced object → recompute (a mutator replaces the ref)
+
+    const vstored = { Ethernet1: 20 };
+    const v = memoPortVlans(vstored);
+    expect(memoPortVlans(vstored)).toBe(v);
+    expect(v).toEqual({ Ethernet1: 20 });
+  });
+});
 
 // ── ARP table ─────────────────────────────────────────────────────────────────
 
@@ -204,9 +226,10 @@ describe("normaliseRouterInterfaces", () => {
     ];
     const result = normaliseRouterInterfaces(interfaces, "rtr-1");
     expect(result).toHaveLength(2);
-    // MAC format: 02:RR:00:00:II:01
-    expect(result[0].macAddress).toMatch(/^02:[0-9a-fA-F]{2}:00:00:[0-9a-fA-F]{2}:01$/);
-    expect(result[1].macAddress).toMatch(/^02:[0-9a-fA-F]{2}:00:00:[0-9a-fA-F]{2}:01$/);
+    // MAC format: 02:RR:HH:HH:II:01 (locally-administered; 24 hash bits + iface index)
+    expect(result[0].macAddress).toMatch(/^02(:[0-9a-fA-F]{2}){3}:[0-9a-fA-F]{2}:01$/);
+    expect(result[1].macAddress).toMatch(/^02(:[0-9a-fA-F]{2}){3}:[0-9a-fA-F]{2}:01$/);
+    expect(result[0].macAddress).not.toBe(result[1].macAddress); // distinct per interface
   });
 
   it("preserves vlanTag when set", () => {

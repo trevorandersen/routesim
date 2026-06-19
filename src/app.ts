@@ -73,6 +73,11 @@ function initialiseApp(): void {
   loadDefaultConfig();
   syncPanel();
   render();
+
+  // Surface any unrecognised URL settings rather than dropping them silently.
+  if (urlSettings.ignored.length) {
+    dom.modeLabel.textContent = `Ignored unknown URL setting${urlSettings.ignored.length > 1 ? "s" : ""}: ${urlSettings.ignored.join(", ")}.`;
+  }
 }
 
 initialiseApp();

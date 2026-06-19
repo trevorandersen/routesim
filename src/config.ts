@@ -1,5 +1,8 @@
 import { state, pushUndo, sync, dropTerminalSessions } from "./state";
 import { dom } from "./dom";
+import type { SerialisedTopology, Device, Link } from "./types";
+
+type NormalisedConfig = { devices: Device[]; links: Link[] };
 import { clampPortCount, clampRouterPortCount } from "./utils";
 import {
   normaliseArpTable, normaliseMacTable, normaliseVlans, normalisePortVlans,
@@ -14,7 +17,7 @@ import { syncTerminal } from "./terminal";
 import { setTool } from "./ui";
 import { defaultConfig, vlanRoasConfig, routerMeshConfig } from "./state";
 
-export function buildConfigPayload(): any {
+export function buildConfigPayload(): SerialisedTopology {
   return {
     version: 1,
     devices: state.devices.map(({ id, type, name, x, y, config, hidden, poweredOff, collapsedBy }: any) => ({
@@ -118,7 +121,7 @@ export function routerInterfacesForPayload(device: any): any[] {
     .filter((entry: any) => !entry.peerId || connectedPeerIds.has(entry.peerId));
 }
 
-export function parseConfig(text: string): any {
+export function parseConfig(text: string): NormalisedConfig {
   let parsed;
   try {
     parsed = JSON.parse(text);
@@ -129,12 +132,12 @@ export function parseConfig(text: string): any {
   return normaliseConfig(parsed);
 }
 
-export function applyConfig(config: any): void {
+export function applyConfig(config: NormalisedConfig): void {
   pushUndo();
   applyConfigWithoutUndo(config);
 }
 
-export function applyConfigWithoutUndo(config: any): void {
+export function applyConfigWithoutUndo(config: NormalisedConfig): void {
   state.devices = config.devices;
   state.links = config.links;
   state.selectedId = config.devices[0]?.id || null;

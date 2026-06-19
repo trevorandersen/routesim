@@ -63,6 +63,10 @@ function parseFirewallRule(chain: string, toks: string[]): FirewallRule | string
     }
     else return `iptables: unknown option "${t}"`;
   }
+  // Only TCP carries a port in the model, so a --dport rule must be -p tcp —
+  // otherwise it would be accepted and listed but never match (real iptables
+  // likewise rejects --dport without a port-bearing protocol).
+  if (rule.dport != null && rule.protocol !== "tcp") return "iptables: --dport requires -p tcp";
   if (!hasTarget) return "iptables: rule needs -j ACCEPT|DROP|REJECT";
   return rule;
 }

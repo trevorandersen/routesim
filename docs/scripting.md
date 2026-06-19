@@ -49,6 +49,7 @@ Param keys and boolean values are case-insensitive. Adding a setting is a one-ro
 | `add <computer\|server\|switch\|router\|firewall\|hub> [name] [at <x> <y>]` | Create a device (computers/servers get a random MAC). |
 | `remove <ref>` / `delete <ref>` | Delete a device and its links. |
 | `link <a> <b> [portA portB]` | Connect two devices (optional explicit ports). |
+| `linkset <a> <b> <name\|bandwidth\|latency\|loss> <value>` | Set a link attribute (`0` clears a numeric one). |
 | `unlink <a> <b>` | Remove the link between two devices. |
 | `shut <a> <b>` | Administratively down the link (stays in the topology, carries no traffic). |
 | `noshut <a> <b>` | Bring the link back up. |
@@ -62,6 +63,7 @@ Param keys and boolean values are case-insensitive. Adding a setting is a one-ro
 |---------|--------|
 | `ip <host> <addr/prefix>` | Set a host IPv4 (e.g. `192.168.1.10/24`). |
 | `gateway <host> <ip>` | Set a host default gateway. |
+| `nameserver <host> <ip>` | Set a host DNS server (`/etc/resolv.conf`). |
 | `mac <host> <addr>` | Set a host MAC. |
 | `interface <router> <peer> ip <addr> [vlan <tag>]` | Set a router interface IP (by connected peer; optional sub-interface VLAN). |
 | `route <router> <net/prefix> <nextHop>` | Add a static route. |
@@ -101,6 +103,14 @@ Param keys and boolean values are case-insensitive. Adding a setting is a one-ro
 | `show <ref>` | A device's config summary. |
 | `status` | Simulation status + last result + counts. |
 | `log` | The hop-by-hop log of the last/current simulation. |
+
+### Scenarios
+| Command | Effect |
+|---------|--------|
+| `scenario list` | List the built-in scenarios (`id — name`). |
+| `scenario load <id>` | Load a scenario topology + goals. |
+| `scenario goal` | Print the active scenario's objective + checklist. |
+| `scenario check` | Run the goal checks against the current topology. |
 
 ### View
 `select <ref>` · `tool <name>` · `theme <warm-light\|dark\|blueprint>` · `zoom <scale>` · `fit` · `help [command]`

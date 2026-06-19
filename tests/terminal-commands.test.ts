@@ -379,3 +379,54 @@ describe("runDeviceCommand — simulator-issued (injected) commands", () => {
     expect(session.lines[0].text).toContain("ip addr add 10.1.2.3/24 dev eth0");
   });
 });
+
+describe("router CLI — faithfulness fixes", () => {
+  beforeEach(() => resetState());
+
+  it("interface retargets directly from interface mode (no need to exit first)", () => {
+    const rtr = loadRouter();
+    runRouterTerminalCommand(rtr, "enable");
+    runRouterTerminalCommand(rtr, "configure terminal");
+    runRouterTerminalCommand(rtr, "interface Ethernet1");
+    expect(state.terminal.interfacePeerId).toBe("sw-a");
+    state.terminal.lines = [];
+    runRouterTerminalCommand(rtr, "interface Ethernet2"); // retarget while in interface mode
+    expect(state.terminal.mode).toBe("interface");
+    expect(state.terminal.interfacePeerId).toBe("sw-b");
+    expect(hasError()).toBe(false);
+  });
+
+  it("enable is rejected from configuration mode", () => {
+    const rtr = loadRouter();
+    runRouterTerminalCommand(rtr, "enable");
+    runRouterTerminalCommand(rtr, "configure terminal");
+    state.terminal.lines = [];
+    runRouterTerminalCommand(rtr, "enable"); // not a config command
+    expect(state.terminal.mode).toBe("config"); // unchanged
+    expect(hasError()).toBe(true);
+  });
+
+  it("no ip route requires the prefix and matches the stored CIDR route", () => {
+    const rtr = loadRouter();
+    runRouterTerminalCommand(rtr, "enable");
+    runRouterTerminalCommand(rtr, "configure terminal");
+    runRouterTerminalCommand(rtr, "ip route 10.0.0.0/24 192.168.10.2");
+    expect((rtr.config.staticRoutes || []).length).toBe(1);
+    state.terminal.lines = [];
+    runRouterTerminalCommand(rtr, "no ip route 10.0.0.0"); // bare network — rejected
+    expect(hasError()).toBe(true);
+    expect((rtr.config.staticRoutes || []).length).toBe(1);
+    runRouterTerminalCommand(rtr, "no ip route 10.0.0.0/24"); // with prefix — removes
+    expect((rtr.config.staticRoutes || []).length).toBe(0);
+  });
+
+  it("RIP network with host bits is stored masked", () => {
+    const rtr = loadRouter();
+    runRouterTerminalCommand(rtr, "enable");
+    runRouterTerminalCommand(rtr, "configure terminal");
+    runRouterTerminalCommand(rtr, "router rip");
+    runRouterTerminalCommand(rtr, "network 192.168.5.7/24");
+    expect(rtr.config.rip!.networks).toContain("192.168.5.0/24");
+    expect(rtr.config.rip!.networks).not.toContain("192.168.5.7/24");
+  });
+});

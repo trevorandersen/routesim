@@ -24,7 +24,11 @@ export function showHostIp(device: Device): string {
 
 export function showHostRoute(device: Device): string {
   const gateway = device.config?.gatewayIpv4Address;
-  return gateway ? `default via ${gateway} dev eth0` : "No default route configured.";
+  const hasAddress = !!device.config?.ipv4Address;
+  // A configured gateway is only an installed route while eth0 has an address:
+  // flushing the address drops its connected route, so Linux also drops the
+  // default (its next hop is no longer reachable).
+  return gateway && hasAddress ? `default via ${gateway} dev eth0` : "No default route configured.";
 }
 
 export function showHostArp(device: Device): string {

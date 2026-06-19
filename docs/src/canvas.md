@@ -5,7 +5,7 @@ All `<canvas>` drawing and the pan/zoom view transform. The entire scene is redr
 ## Key exports
 
 ### View transform
-- **`screenToWorld` / `worldToScreen`** — convert between screen pixels and world coordinates given `state.pan`/`state.scale`.
+- **`screenToWorld`** — converts screen pixels to world coordinates given `state.pan`/`state.scale`.
 - **`setZoom(scale, anchor)`** — zoom toward a point; **`syncZoomLevel`** updates the readout.
 - **`resizeCanvas`** — handle DPR and canvas sizing (re-renders).
 - **`fitNetwork`** — auto-pan/zoom so the whole topology is visible.

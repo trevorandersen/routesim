@@ -226,3 +226,55 @@ describe("commands — input validation", () => {
     expect(new Set(swPorts).size).toBe(2); // both links keep a distinct SW port
   });
 });
+
+describe("commands — speed clamp and interface confirmation", () => {
+  beforeEach(reset);
+
+  it("speed clamps to the 200-3000 ms slider range", () => {
+    expect(exec("speed 50").output.join("")).toContain("200");
+    expect(state.simulation.speed).toBe(200);
+    exec("speed 999999");
+    expect(state.simulation.speed).toBe(3000);
+    exec("speed 800");
+    expect(state.simulation.speed).toBe(800);
+  });
+
+  it("interface returns a confirmation rather than a blank line", () => {
+    runConsoleScript("add router R1 at 0 0\nadd switch SW1 at 100 0\nlink R1 SW1");
+    const r = exec("interface R1 SW1 ip 10.0.0.1/24");
+    expect(r.ok).toBe(true);
+    expect(r.output.join("").trim().length).toBeGreaterThan(0);
+  });
+});
+
+describe("commands — linkset and export round-trip", () => {
+  beforeEach(reset);
+
+  it("link attributes round-trip through export (linkset)", () => {
+    runConsoleScript("add computer A at 0 0\nadd switch B at 100 0\nlink A B");
+    exec("linkset A B name Uplink");
+    exec("linkset A B latency 100");
+    exec("linkset A B loss 5");
+    exec("linkset A B bandwidth 1000");
+    const script = exportTopologyScript();
+    expect(script).toContain("linkset A B name Uplink");
+    expect(script).toContain("linkset A B latency 100");
+
+    reset(); // replay into a fresh state
+    runConsoleScript(script);
+    const link = state.links[0];
+    expect(link.name).toBe("Uplink");
+    expect(link.latency).toBe(100);
+    expect(link.loss).toBe(5);
+    expect(link.bandwidth).toBe(1000);
+  });
+
+  it("linkset 0 clears a numeric attribute; rejects negatives", () => {
+    runConsoleScript("add computer A at 0 0\nadd switch B at 100 0\nlink A B");
+    exec("linkset A B latency 50");
+    expect(state.links[0].latency).toBe(50);
+    exec("linkset A B latency 0");
+    expect(state.links[0].latency).toBeUndefined();
+    expect(exec("linkset A B latency -5").ok).toBe(false);
+  });
+});

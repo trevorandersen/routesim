@@ -30,6 +30,7 @@ import { setTool, setTheme } from "./ui";
 import { setZoom, fitNetwork } from "./canvas";
 import { isValidMac, normaliseMacAddress, prefixOf, networkOf } from "./utils";
 import { SCENARIOS, getScenario, loadScenario, checkScenario } from "./scenarios";
+import { SPEED_MIN, SPEED_MAX } from "./settings-url";
 
 export interface CommandResult {
   ok: boolean;
@@ -124,6 +125,34 @@ function cmdUnlink(args: string[]): CommandResult {
   return ok(`Unlinked ${a.name} ↔ ${b.name}.`);
 }
 
+function cmdLinkSet(args: string[]): CommandResult {
+  // linkset <a> <b> name|bandwidth|latency|loss <value>
+  const a = resolveDevice(args[0]);
+  if (typeof a === "string") return err(a);
+  const b = resolveDevice(args[1]);
+  if (typeof b === "string") return err(b);
+  const link = state.links.find(l => !l.hidden &&
+    ((l.from === a.id && l.to === b.id) || (l.from === b.id && l.to === a.id)));
+  if (!link) return err(`No link between ${a.name} and ${b.name}.`);
+  const attr = (args[2] || "").toLowerCase();
+  const value = args.slice(3).join(" "); // names may contain spaces
+  pushUndo();
+  if (attr === "name") {
+    if (value) link.name = value; else delete link.name;
+    sync().syncPanel(); sync().render();
+    return ok(value ? `Named link ${a.name} ↔ ${b.name} "${value}".` : `Cleared link name.`);
+  }
+  if (attr === "bandwidth" || attr === "latency" || attr === "loss") {
+    const n = Number(value);
+    if (!Number.isFinite(n) || n < 0) return err(`linkset: ${attr} must be a non-negative number (0 clears it).`);
+    const v = attr === "loss" ? Math.min(100, n) : n;
+    if (v > 0) (link as any)[attr] = v; else delete (link as any)[attr];
+    sync().syncPanel(); sync().render();
+    return ok(`Set ${a.name} ↔ ${b.name} ${attr} to ${v}.`);
+  }
+  return err(`linkset: expected "name|bandwidth|latency|loss <value>".`);
+}
+
 function cmdLinkState(args: string[], down: boolean): CommandResult {
   const a = resolveDevice(args[0]);
   if (typeof a === "string") return err(a);
@@ -215,7 +244,10 @@ function cmdInterface(args: string[]): CommandResult {
     if (!(Number.isInteger(vlanTag) && vlanTag >= 1 && vlanTag <= 4094)) return err(`interface: vlan tag must be 1-4094.`);
   }
   const msg = setRouterInterfaceIp(router, peer.id, args[ipIdx + 1], vlanTag);
-  return msg.startsWith("Invalid") ? err(msg) : ok(msg);
+  if (msg.startsWith("Invalid")) return err(msg);
+  // setRouterInterfaceIp returns "" on success — synthesise a confirmation so the
+  // command doesn't print a blank line, matching every other config verb.
+  return ok(msg || `Set ${router.name} interface to ${peer.name}: ${args[ipIdx + 1]}${vlanTag ? ` (VLAN ${vlanTag})` : ""}.`);
 }
 
 function cmdRoute(args: string[]): CommandResult {
@@ -383,8 +415,11 @@ function cmdStop(): CommandResult { stopSimulation(); return ok("Stopped."); }
 function cmdSpeed(args: string[]): CommandResult {
   const ms = Number(args[0]);
   if (!Number.isFinite(ms) || ms <= 0) return err(`speed: expected a positive number of ms.`);
-  state.simulation.speed = ms;
-  return ok(`Speed set to ${ms} ms/hop.`);
+  // Clamp to the same range the slider and the URL `speed` setting use.
+  const clamped = Math.min(SPEED_MAX, Math.max(SPEED_MIN, Math.round(ms)));
+  state.simulation.speed = clamped;
+  dom.simSpeed.value = String(clamped);
+  return ok(`Speed set to ${clamped} ms/hop.`);
 }
 
 // ── Management ───────────────────────────────────────────────────────────────
@@ -558,7 +593,7 @@ function cmdHelp(args: string[]): CommandResult {
 type Handler = (args: string[], rest: string) => CommandResult;
 
 const COMMANDS: Record<string, Handler> = {
-  add: cmdAdd, remove: cmdRemove, delete: cmdRemove, link: cmdLink, unlink: cmdUnlink,
+  add: cmdAdd, remove: cmdRemove, delete: cmdRemove, link: cmdLink, unlink: cmdUnlink, linkset: cmdLinkSet,
   shut: cmdShut, noshut: cmdNoShut,
   move: cmdMove, rename: cmdRename, clear: cmdClear, collapse: cmdCollapse, expand: cmdExpand,
   ip: cmdIp, gateway: cmdGateway, nameserver: cmdNameserver, mac: cmdMac, interface: cmdInterface, route: cmdRoute,
@@ -576,6 +611,7 @@ const COMMANDS: Record<string, Handler> = {
 const HELP: Record<string, string> = {
   add: "add <computer|server|switch|router|firewall|hub> [name] [at <x> <y>]",
   remove: "remove <device>", link: "link <a> <b> [portA portB]", unlink: "unlink <a> <b>",
+  linkset: "linkset <a> <b> name|bandwidth|latency|loss <value> (0 clears a number)",
   shut: "shut <a> <b> (administratively down the link)", noshut: "noshut <a> <b> (bring the link up)",
   move: "move <device> <x> <y>", rename: "rename <device> <name>", clear: "remove all devices",
   collapse: "collapse <switch> into a LAN", expand: "expand <lan>",
@@ -622,7 +658,9 @@ export function runConsoleScript(text: string): CommandResult[] {
 
 /**
  * Serialises the current topology to a reproducible command script. Running the
- * output through runConsoleScript() recreates the topology (round-trip).
+ * output through runConsoleScript() recreates the topology (round-trip): devices
+ * + positions, host/router/switch config, links (ports, admin status, and
+ * name/bandwidth/latency/loss via `linkset`).
  */
 export function exportTopologyScript(): string {
   const payload: any = buildConfigPayload();
@@ -671,6 +709,10 @@ export function exportTopologyScript(): string {
     const ports = (l.fromPort != null || l.toPort != null) ? ` ${l.fromPort ?? 1} ${l.toPort ?? 1}` : "";
     lines.push(`link ${f} ${t}${ports}`);
     if (l.shutdown) lines.push(`shut ${f} ${t}`);
+    if (l.name) lines.push(`linkset ${f} ${t} name ${l.name}`);
+    if (l.bandwidth) lines.push(`linkset ${f} ${t} bandwidth ${l.bandwidth}`);
+    if (l.latency) lines.push(`linkset ${f} ${t} latency ${l.latency}`);
+    if (l.loss) lines.push(`linkset ${f} ${t} loss ${l.loss}`);
   }
 
   return lines.join("\n");

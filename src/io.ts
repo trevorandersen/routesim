@@ -8,6 +8,7 @@ import { dom } from "./dom";
 import { buildConfigPayload, parseConfig, applyConfig } from "./config";
 import { exportTopologyScript, runConsoleScript } from "./commands";
 import { SCENARIOS, registerScenario, loadScenario } from "./scenarios";
+import { normaliseConfig } from "./normalise";
 import { syncSimLog } from "./engine";
 import { openDock } from "./terminal";
 
@@ -81,10 +82,13 @@ export async function importScenario(): Promise<void> {
     const list = Array.isArray(parsed) ? parsed : [parsed];
     let lastId = "";
     for (const s of list) {
-      if (s && typeof s.id === "string" && s.topology && Array.isArray(s.checks)) {
-        registerScenario(s);
-        lastId = s.id;
-      }
+      if (!(s && typeof s.id === "string" && s.topology && Array.isArray(s.checks))) continue;
+      // Validate the topology (the throw-prone normalise that loadScenario runs)
+      // BEFORE registering, so a malformed scenario never poisons the global
+      // registry/dropdown — re-selecting it would then throw on every load.
+      try { normaliseConfig(s.topology); } catch { continue; }
+      registerScenario(s);
+      lastId = s.id;
     }
     if (lastId) { loadScenario(lastId); dom.modeLabel.textContent = `Imported scenario "${lastId}".`; }
     else dom.modeLabel.textContent = "No valid scenarios in file.";
@@ -120,7 +124,11 @@ export async function importLog(): Promise<void> {
   try {
     const log = JSON.parse(text);
     if (!Array.isArray(log)) { dom.modeLabel.textContent = "Invalid log JSON."; return; }
-    state.simulation.log = log;
+    // Keep only well-formed entries (renderEventLog reads entry.summary as a
+    // string — a shapeless entry would render the literal "undefined").
+    const clean = log.filter((e: any) => e && typeof e === "object" && typeof e.summary === "string");
+    if (log.length && !clean.length) { dom.modeLabel.textContent = "Invalid log JSON."; return; }
+    state.simulation.log = clean;
     state.dock.logView = "events"; // imported logs are event entries, not captures
     openDock("simlog");
     syncSimLog();

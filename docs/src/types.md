@@ -17,7 +17,7 @@ The single source of truth for the data model. No runtime code — only `interfa
 
 ## Frames & simulation
 
-- **`EthernetFrame`** — `srcMac`/`dstMac`/`etherType`/`vlanTag`/`payload`. Payloads form a union: `ArpPayload | IcmpPayload | DhcpPayload | Ipv4Payload` (with `Ipv4Payload.payload` itself being `IcmpPayload | DhcpPayload | TcpPayload | DnsPayload`).
+- **`EthernetFrame`** — `srcMac`/`dstMac`/`etherType`/`vlanTag`/`payload`. The payload is `ArpPayload | Ipv4Payload` (an L2 frame carries either ARP or IPv4; `Ipv4Payload.payload` is itself `IcmpPayload | DhcpPayload | TcpPayload | DnsPayload`).
 - **`SimEvent`, `ActiveTransit`, `SimLogEntry`, `SimulationState`** — the queue, animated dots, log lines, and overall sim status used by `engine.ts`.
 - **`CaptureEntry`** — one packet-list row: running number, step, frame, endpoint device ids, link id (`sim.capture`).
 

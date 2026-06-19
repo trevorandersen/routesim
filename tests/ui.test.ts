@@ -129,3 +129,24 @@ describe("undo / redo", () => {
     expect(state.devices).toHaveLength(before);
   });
 });
+
+describe("handleGlobalKeydown — Ctrl/Cmd+Z text-field guard", () => {
+  beforeEach(() => resetState());
+  const ctrlZ = (target: any) =>
+    handleGlobalKeydown({ key: "z", metaKey: true, shiftKey: false, target, preventDefault() {} } as any);
+
+  it("does NOT undo while typing in a field (native text-undo must win)", () => {
+    exec("add computer PC1 at 0 0");
+    exec("add computer PC2 at 100 0");
+    expect(state.devices).toHaveLength(2);
+    ctrlZ({ tagName: "INPUT" });
+    expect(state.devices).toHaveLength(2); // topology unchanged
+  });
+
+  it("undoes when focus is not in a text field", () => {
+    exec("add computer PC1 at 0 0");
+    exec("add computer PC2 at 100 0");
+    ctrlZ({});
+    expect(state.devices).toHaveLength(1);
+  });
+});

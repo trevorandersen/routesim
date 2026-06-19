@@ -69,8 +69,8 @@ export function addLink(fromId: string, toId: string, fromPort?: number, toPort?
       return;
     }
     pushUndo();
-    const resolvedFromPort = fromPort ?? nextAvailablePort(fromId);
-    const resolvedToPort = toPort ?? nextAvailablePort(toId);
+    const resolvedFromPort = resolvePort(fromId, fromPort);
+    const resolvedToPort = resolvePort(toId, toPort);
     state.links.push({
       id: crypto.randomUUID ? crypto.randomUUID() : `${Date.now()}-${Math.random()}`,
       from: fromId,
@@ -99,6 +99,22 @@ export function nextAvailablePort(deviceId: string): number {
   let port = 1;
   while (occupied.has(port)) port++;
   return port;
+}
+
+function portTaken(deviceId: string, port: number): boolean {
+  return state.links.some(l => !l.hidden &&
+    ((l.from === deviceId && l.fromPort === port) || (l.to === deviceId && l.toPort === port)));
+}
+
+// An explicit port request is honoured only when it's a positive integer that's
+// free; otherwise fall back to the next available port. Prevents a NaN or an
+// already-occupied console-supplied port from landing two links on the same
+// slot (the second would overwrite the first in linkedPortsFor and orphan it).
+function resolvePort(deviceId: string, requested: number | undefined): number {
+  if (requested != null && Number.isInteger(requested) && requested >= 1 && !portTaken(deviceId, requested)) {
+    return requested;
+  }
+  return nextAvailablePort(deviceId);
 }
 
 // Remove a link by id. Returns true if one was removed.

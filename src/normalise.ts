@@ -5,25 +5,39 @@ import type {
 import { normaliseMacAddress, isValidMac, isValidIpv4, clampPortCount, clampRouterPortCount, clampPrefixLength, normaliseVlanId } from "./utils";
 import { DEVICE_SPECS } from "./device-registry";
 
+// Each element is coerced to an object before use: imported JSON may carry a
+// null / primitive in a table array, and dereferencing it raw threw a TypeError
+// that aborted the whole import (and poisoned the scenario registry).
+function asObject(raw: unknown): any {
+  return raw && typeof raw === "object" ? raw : {};
+}
+
 export function normaliseArpTable(entries: unknown): ArpEntry[] {
   if (!Array.isArray(entries)) return [];
-  return entries.map(entry => ({
-    ipv4Address: String(entry.ipv4Address || entry.ip || "").trim(),
-    macAddress: normaliseMacAddress(entry.macAddress || entry.mac || "")
-  })).filter(entry => entry.ipv4Address || entry.macAddress);
+  return entries.map(raw => {
+    const entry = asObject(raw);
+    return {
+      ipv4Address: String(entry.ipv4Address || entry.ip || "").trim(),
+      macAddress: normaliseMacAddress(entry.macAddress || entry.mac || "")
+    };
+  }).filter(entry => entry.ipv4Address || entry.macAddress);
 }
 
 export function normaliseDhcpLeases(entries: unknown): DhcpLease[] {
   if (!Array.isArray(entries)) return [];
-  return entries.map(entry => ({
-    macAddress: normaliseMacAddress(entry.macAddress || entry.mac || ""),
-    ipv4Address: String(entry.ipv4Address || entry.ip || "").trim()
-  })).filter(entry => entry.macAddress && entry.ipv4Address);
+  return entries.map(raw => {
+    const entry = asObject(raw);
+    return {
+      macAddress: normaliseMacAddress(entry.macAddress || entry.mac || ""),
+      ipv4Address: String(entry.ipv4Address || entry.ip || "").trim()
+    };
+  }).filter(entry => entry.macAddress && entry.ipv4Address);
 }
 
 export function normaliseMacTable(entries: unknown): MacTableEntry[] {
   if (!Array.isArray(entries)) return [];
-  return entries.map(entry => {
+  return entries.map(raw => {
+    const entry = asObject(raw);
     const vlan = entry.vlan == null ? "" : String(entry.vlan).trim();
     const macAddress = normaliseMacAddress(entry.macAddress || entry.mac || "");
     const port = String(entry.port || "").trim();
@@ -38,7 +52,7 @@ export function normaliseVlans(entries: unknown): Vlan[] {
   const seen = new Set<number>();
   const vlans: Vlan[] = [{ id: 1, name: "default" }];
   source.forEach(entry => {
-    const id = normaliseVlanId(typeof entry === "object" ? entry.id : entry);
+    const id = normaliseVlanId(entry && typeof entry === "object" ? entry.id : entry);
     if (!id || seen.has(id) || id === 1) return;
     seen.add(id);
     vlans.push({ id, name: String(entry.name || `Vlan${id}`).trim() });
@@ -77,18 +91,21 @@ export function normaliseTrunkAllowedVlans(allowed: unknown): Record<string, num
 
 export function normaliseRouterInterfaces(entries: unknown, routerId?: string): RouterInterface[] {
   if (!Array.isArray(entries)) return [];
-  return entries.map((entry, index) => ({
-    peerId: String(entry.peerId || entry.peer || entry.linkedDeviceId || "").trim(),
-    type: entry.type === "serial" ? "serial" : "ethernet",
-    name: String(entry.name || "").trim(),
-    ipv4Address: String(entry.ipv4Address || entry.ip || "").trim(),
-    ...(entry.prefixLength != null ? { prefixLength: clampPrefixLength(entry.prefixLength) } : {}),
-    ...(entry.natRole === "inside" || entry.natRole === "outside" ? { natRole: entry.natRole } : {}),
-    macAddress: entry.macAddress || generateRouterIfaceMac(routerId || "", index),
-    arpTable: normaliseArpTable(entry.arpTable || []),
-    dhcpLeases: normaliseDhcpLeases(entry.dhcpLeases || []),
-    vlanTag: entry.vlanTag != null ? (normaliseVlanId(entry.vlanTag) || null) : null
-  })).filter(entry => entry.peerId || entry.name || entry.ipv4Address || entry.arpTable.length);
+  return entries.map((raw, index) => {
+    const entry = asObject(raw);
+    return {
+      peerId: String(entry.peerId || entry.peer || entry.linkedDeviceId || "").trim(),
+      type: (entry.type === "serial" ? "serial" : "ethernet") as "serial" | "ethernet",
+      name: String(entry.name || "").trim(),
+      ipv4Address: String(entry.ipv4Address || entry.ip || "").trim(),
+      ...(entry.prefixLength != null ? { prefixLength: clampPrefixLength(entry.prefixLength) } : {}),
+      ...(entry.natRole === "inside" || entry.natRole === "outside" ? { natRole: entry.natRole } : {}),
+      macAddress: entry.macAddress || generateRouterIfaceMac(routerId || "", index),
+      arpTable: normaliseArpTable(entry.arpTable || []),
+      dhcpLeases: normaliseDhcpLeases(entry.dhcpLeases || []),
+      vlanTag: entry.vlanTag != null ? (normaliseVlanId(entry.vlanTag) || null) : null
+    };
+  }).filter(entry => entry.peerId || entry.name || entry.ipv4Address || entry.arpTable.length);
 }
 
 export function normaliseRipConfig(rip: any): RipConfig {

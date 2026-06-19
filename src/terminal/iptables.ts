@@ -55,7 +55,7 @@ function parseFirewallRule(chain: string, toks: string[]): FirewallRule | string
       if (p !== "all") rule.protocol = p as any; i++;
     }
     else if (t === "--icmp-type") { if (!val) return "iptables: --icmp-type needs a value"; rule.icmpType = val.toLowerCase(); i++; }
-    else if (t === "--dport") { rule.dport = Number(val); i++; }
+    else if (t === "--dport") { if (!val || !/^\d+$/.test(val) || Number(val) > 65535) return "iptables: --dport needs a port number (1-65535)"; rule.dport = Number(val); i++; }
     else if (t === "-j" || t === "--jump") {
       const tgt = (val || "").toLowerCase();
       if (!["accept", "drop", "reject"].includes(tgt)) return `iptables: unknown target "${val}"`;

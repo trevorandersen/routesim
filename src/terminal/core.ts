@@ -47,9 +47,12 @@ export function runDeviceCommand(device: Device, command: string): void {
   state.terminal = ensureSession(device);
   openDock("terminal");
   injectedMode = true;
-  terminalLine("command", `${terminalPromptText(device)} ${trimmed}`);
-  run(device, trimmed);
-  injectedMode = false;
+  try {
+    terminalLine("command", `${terminalPromptText(device)} ${trimmed}`);
+    run(device, trimmed);
+  } finally {
+    injectedMode = false; // never leak the flag if a handler throws
+  }
   sync().syncTerminal();
 }
 

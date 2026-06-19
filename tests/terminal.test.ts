@@ -4,6 +4,7 @@ import { showHostIp, showHostRoute, showHostArp, setHostIp, flushHostIp, setHost
 import { showRouterInterfaceBrief, showRouterRoute, showRouterArp } from "../src/terminal";
 import { showSwitchInterfaces, showSwitchVlans, showSwitchMacTable } from "../src/terminal";
 import { addSwitchVlan, removeSwitchVlan, setSwitchPortVlan, setSwitchPortMode, setSwitchTrunkNative, modifySwitchTrunkAllowed } from "../src/terminal";
+import { runSwitchTerminalCommand } from "../src/terminal";
 import { registerNoopCallbacks, resetState } from "./helpers";
 import { basicTopology, routedTopology, vlanTopology } from "./fixtures";
 
@@ -318,5 +319,28 @@ describe("modifySwitchTrunkAllowed", () => {
     modifySwitchTrunkAllowed(sw, "Ethernet1", "30", "add");
     modifySwitchTrunkAllowed(sw, "Ethernet1", "30", "remove");
     expect(sw.config.trunkAllowedVlans.Ethernet1).toBeUndefined();
+  });
+});
+
+describe("config vlan member del — non-member must not demote a trunk", () => {
+  beforeEach(() => resetState());
+
+  it("deleting a non-member VLAN leaves a native-only trunk intact", () => {
+    const sw = loadManagedSwitch();
+    setSwitchPortMode(sw, "Ethernet2", "trunk");
+    setSwitchTrunkNative(sw, "Ethernet2", "99"); // native set, no tagged-allowed members
+    runSwitchTerminalCommand(sw, "config vlan member del 50 Ethernet2"); // 50 is not a member
+    // The bug deleted portModes[Ethernet2] (demoting to access) and removed the
+    // native; both must survive an unrelated non-member delete.
+    expect((sw.config.portModes || {}).Ethernet2).toBe("trunk");   // still a trunk
+    expect((sw.config.trunkNativeVlans || {}).Ethernet2).toBe(99); // native preserved
+  });
+
+  it("deleting the last tagged member still collapses to access (unchanged)", () => {
+    const sw = loadManagedSwitch();
+    setSwitchPortMode(sw, "Ethernet2", "trunk");
+    modifySwitchTrunkAllowed(sw, "Ethernet2", "20", "add");
+    runSwitchTerminalCommand(sw, "config vlan member del 20 Ethernet2"); // removes the last member
+    expect((sw.config.portModes || {}).Ethernet2).toBeUndefined();   // collapsed back to access
   });
 });

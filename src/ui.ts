@@ -157,12 +157,15 @@ function endAboutDrag(event: PointerEvent): void {
 }
 
 export function handleGlobalKeydown(event: KeyboardEvent): void {
-  if ((event.metaKey || event.ctrlKey) && event.key.toLowerCase() === "z") {
+  const inField = ["INPUT", "SELECT", "TEXTAREA"].includes((event.target as HTMLElement)?.tagName);
+  // Undo/redo — but NOT while typing in a field: there, Ctrl/Cmd+Z must drive
+  // the browser's native text undo, not revert an unrelated topology change.
+  if (!inField && (event.metaKey || event.ctrlKey) && event.key.toLowerCase() === "z") {
     event.preventDefault();
     if (event.shiftKey) redo(); else undo();
     return;
   }
-  if ((event.metaKey || event.ctrlKey) && event.key.toLowerCase() === "y") {
+  if (!inField && (event.metaKey || event.ctrlKey) && event.key.toLowerCase() === "y") {
     event.preventDefault();
     redo();
     return;
@@ -190,7 +193,7 @@ export function handleGlobalKeydown(event: KeyboardEvent): void {
     setTool("select");
     return;
   }
-  if (["INPUT", "SELECT", "TEXTAREA"].includes((event.target as HTMLElement)?.tagName)) return;
+  if (inField) return;
   if (event.key === "Delete" || event.key === "Backspace") deleteSelection();
   if (event.key.toLowerCase() === "v") setTool("select");
   if (event.key.toLowerCase() === "c") setTool("computer");
@@ -443,7 +446,7 @@ export function setupUI(): void {
     "panel-console": () => openConsole(),
     "panel-simlog": () => toggleDockTab("simlog"),
     "fit": fitNetwork,
-    "help-shortcuts": () => { openConsole(); consoleLine("output", "Shortcuts: V select · C computer · E server · S switch · R router · F firewall · L connect · W configure · Del delete · Esc cancel · Ctrl/Cmd+Z undo · scroll to zoom."); },
+    "help-shortcuts": () => { openConsole(); consoleLine("output", "Shortcuts: V select · C computer · E server · S switch · R router · F firewall · H hub · L connect · W configure · Del delete · Esc cancel · Ctrl/Cmd+Z undo · Ctrl/Cmd+Shift+Z redo · scroll to zoom."); },
     "help-commands": () => openConsole(),
     "help-about": openAbout,
     "open-settings": openSettings,

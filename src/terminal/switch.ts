@@ -249,8 +249,11 @@ function sonicVlanMemberDel(device: Device, vlanId: string, portName: string): s
       trunkAllowed[name] = trunkAllowed[name].filter((v: number) => v !== id);
       changed = true;
     }
-    if (!trunkAllowed[name] || trunkAllowed[name].length === 0) {
-      // No tagged members left — collapse back to an access port.
+    if (changed && (!trunkAllowed[name] || trunkAllowed[name].length === 0)) {
+      // This delete removed a member and none remain — collapse back to an
+      // access port. Gated on `changed` so deleting a *non-member* VLAN from a
+      // native-only trunk no longer silently demotes the port (it now correctly
+      // returns "not a member" and leaves the trunk untouched).
       delete trunkAllowed[name];
       delete portModes[name];
       const native = trunkNative[name];

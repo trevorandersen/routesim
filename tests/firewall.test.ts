@@ -87,6 +87,19 @@ describe("firewall — iptables CLI", () => {
     expect(state.terminal.lines.some(l => l.kind === "error")).toBe(true);
     expect(fw.config.rules ?? []).toHaveLength(0);
   });
+
+  it("rejects a non-numeric --dport instead of storing a NaN rule that never matches", () => {
+    const fw = loadFw();
+    runFirewallTerminalCommand(fw, "iptables -A FORWARD -p tcp --dport 80x -j DROP");
+    expect(state.terminal.lines.some(l => l.kind === "error")).toBe(true);
+    expect(fw.config.rules ?? []).toHaveLength(0);
+  });
+
+  it("accepts a valid numeric --dport", () => {
+    const fw = loadFw();
+    runFirewallTerminalCommand(fw, "iptables -A FORWARD -p tcp --dport 80 -j DROP");
+    expect(fw.config.rules![0]).toMatchObject({ target: "drop", protocol: "tcp", dport: 80 });
+  });
 });
 
 describe("firewall — packet filtering in the simulation", () => {

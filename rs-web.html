@@ -2194,7 +2194,7 @@ Full legal text: https://creativecommons.org/publicdomain/zero/1.0/legalcode</pr
 (() => {
   // src/utils.ts
   function escapeHtml(value) {
-    return String(value).replaceAll("&", "&amp;").replaceAll("<", "&lt;").replaceAll(">", "&gt;").replaceAll('"', "&quot;");
+    return String(value).replaceAll("&", "&amp;").replaceAll("<", "&lt;").replaceAll(">", "&gt;").replaceAll('"', "&quot;").replaceAll("'", "&#39;");
   }
   function isValidIpv4(value) {
     const parts = value.split(".");
@@ -2429,23 +2429,33 @@ Full legal text: https://creativecommons.org/publicdomain/zero/1.0/legalcode</pr
   }
 
   // src/normalise.ts
+  function asObject(raw) {
+    return raw && typeof raw === "object" ? raw : {};
+  }
   function normaliseArpTable(entries) {
     if (!Array.isArray(entries)) return [];
-    return entries.map((entry) => ({
-      ipv4Address: String(entry.ipv4Address || entry.ip || "").trim(),
-      macAddress: normaliseMacAddress(entry.macAddress || entry.mac || "")
-    })).filter((entry) => entry.ipv4Address || entry.macAddress);
+    return entries.map((raw) => {
+      const entry = asObject(raw);
+      return {
+        ipv4Address: String(entry.ipv4Address || entry.ip || "").trim(),
+        macAddress: normaliseMacAddress(entry.macAddress || entry.mac || "")
+      };
+    }).filter((entry) => entry.ipv4Address || entry.macAddress);
   }
   function normaliseDhcpLeases(entries) {
     if (!Array.isArray(entries)) return [];
-    return entries.map((entry) => ({
-      macAddress: normaliseMacAddress(entry.macAddress || entry.mac || ""),
-      ipv4Address: String(entry.ipv4Address || entry.ip || "").trim()
-    })).filter((entry) => entry.macAddress && entry.ipv4Address);
+    return entries.map((raw) => {
+      const entry = asObject(raw);
+      return {
+        macAddress: normaliseMacAddress(entry.macAddress || entry.mac || ""),
+        ipv4Address: String(entry.ipv4Address || entry.ip || "").trim()
+      };
+    }).filter((entry) => entry.macAddress && entry.ipv4Address);
   }
   function normaliseMacTable(entries) {
     if (!Array.isArray(entries)) return [];
-    return entries.map((entry) => {
+    return entries.map((raw) => {
+      const entry = asObject(raw);
       const vlan = entry.vlan == null ? "" : String(entry.vlan).trim();
       const macAddress = normaliseMacAddress(entry.macAddress || entry.mac || "");
       const port = String(entry.port || "").trim();
@@ -2459,7 +2469,7 @@ Full legal text: https://creativecommons.org/publicdomain/zero/1.0/legalcode</pr
     const seen = /* @__PURE__ */ new Set();
     const vlans = [{ id: 1, name: "default" }];
     source.forEach((entry) => {
-      const id = normaliseVlanId(typeof entry === "object" ? entry.id : entry);
+      const id = normaliseVlanId(entry && typeof entry === "object" ? entry.id : entry);
       if (!id || seen.has(id) || id === 1) return;
       seen.add(id);
       vlans.push({ id, name: String(entry.name || `Vlan${id}`).trim() });
@@ -2488,18 +2498,21 @@ Full legal text: https://creativecommons.org/publicdomain/zero/1.0/legalcode</pr
   }
   function normaliseRouterInterfaces(entries, routerId) {
     if (!Array.isArray(entries)) return [];
-    return entries.map((entry, index) => ({
-      peerId: String(entry.peerId || entry.peer || entry.linkedDeviceId || "").trim(),
-      type: entry.type === "serial" ? "serial" : "ethernet",
-      name: String(entry.name || "").trim(),
-      ipv4Address: String(entry.ipv4Address || entry.ip || "").trim(),
-      ...entry.prefixLength != null ? { prefixLength: clampPrefixLength(entry.prefixLength) } : {},
-      ...entry.natRole === "inside" || entry.natRole === "outside" ? { natRole: entry.natRole } : {},
-      macAddress: entry.macAddress || generateRouterIfaceMac(routerId || "", index),
-      arpTable: normaliseArpTable(entry.arpTable || []),
-      dhcpLeases: normaliseDhcpLeases(entry.dhcpLeases || []),
-      vlanTag: entry.vlanTag != null ? normaliseVlanId(entry.vlanTag) || null : null
-    })).filter((entry) => entry.peerId || entry.name || entry.ipv4Address || entry.arpTable.length);
+    return entries.map((raw, index) => {
+      const entry = asObject(raw);
+      return {
+        peerId: String(entry.peerId || entry.peer || entry.linkedDeviceId || "").trim(),
+        type: entry.type === "serial" ? "serial" : "ethernet",
+        name: String(entry.name || "").trim(),
+        ipv4Address: String(entry.ipv4Address || entry.ip || "").trim(),
+        ...entry.prefixLength != null ? { prefixLength: clampPrefixLength(entry.prefixLength) } : {},
+        ...entry.natRole === "inside" || entry.natRole === "outside" ? { natRole: entry.natRole } : {},
+        macAddress: entry.macAddress || generateRouterIfaceMac(routerId || "", index),
+        arpTable: normaliseArpTable(entry.arpTable || []),
+        dhcpLeases: normaliseDhcpLeases(entry.dhcpLeases || []),
+        vlanTag: entry.vlanTag != null ? normaliseVlanId(entry.vlanTag) || null : null
+      };
+    }).filter((entry) => entry.peerId || entry.name || entry.ipv4Address || entry.arpTable.length);
   }
   function normaliseRipConfig(rip) {
     if (!rip || typeof rip !== "object") return { enabled: false, networks: [], passiveInterfaces: [], learnedRoutes: [] };
@@ -2807,7 +2820,6 @@ Full legal text: https://creativecommons.org/publicdomain/zero/1.0/legalcode</pr
       showDeviceNames: true,
       showIpAddresses: true,
       showMacAddresses: true,
-      displayOptionsOpen: false,
       networkPanelOpen: false,
       autoDhcp: false,
       apipaFallback: false
@@ -3343,8 +3355,8 @@ Full legal text: https://creativecommons.org/publicdomain/zero/1.0/legalcode</pr
         return;
       }
       pushUndo();
-      const resolvedFromPort = fromPort ?? nextAvailablePort(fromId);
-      const resolvedToPort = toPort ?? nextAvailablePort(toId);
+      const resolvedFromPort = resolvePort(fromId, fromPort);
+      const resolvedToPort = resolvePort(toId, toPort);
       state.links.push({
         id: crypto.randomUUID ? crypto.randomUUID() : `${Date.now()}-${Math.random()}`,
         from: fromId,
@@ -3370,6 +3382,15 @@ Full legal text: https://creativecommons.org/publicdomain/zero/1.0/legalcode</pr
     let port = 1;
     while (occupied.has(port)) port++;
     return port;
+  }
+  function portTaken(deviceId, port) {
+    return state.links.some((l) => !l.hidden && (l.from === deviceId && l.fromPort === port || l.to === deviceId && l.toPort === port));
+  }
+  function resolvePort(deviceId, requested) {
+    if (requested != null && Number.isInteger(requested) && requested >= 1 && !portTaken(deviceId, requested)) {
+      return requested;
+    }
+    return nextAvailablePort(deviceId);
   }
   function deleteLink(linkId) {
     if (!state.links.some((l) => l.id === linkId)) return false;
@@ -6605,6 +6626,7 @@ Address: ${sim.dnsResolvedIp}`);
         rule.icmpType = val.toLowerCase();
         i++;
       } else if (t === "--dport") {
+        if (!val || !/^\d+$/.test(val) || Number(val) > 65535) return "iptables: --dport needs a port number (1-65535)";
         rule.dport = Number(val);
         i++;
       } else if (t === "-j" || t === "--jump") {
@@ -7605,7 +7627,7 @@ Address: ${sim.dnsResolvedIp}`);
         trunkAllowed[name] = trunkAllowed[name].filter((v) => v !== id);
         changed = true;
       }
-      if (!trunkAllowed[name] || trunkAllowed[name].length === 0) {
+      if (changed && (!trunkAllowed[name] || trunkAllowed[name].length === 0)) {
         delete trunkAllowed[name];
         delete portModes[name];
         const native = trunkNative[name];
@@ -7728,9 +7750,12 @@ Address: ${sim.dnsResolvedIp}`);
     state.terminal = ensureSession(device);
     openDock("terminal");
     injectedMode = true;
-    terminalLine("command", `${terminalPromptText(device)} ${trimmed}`);
-    run(device, trimmed);
-    injectedMode = false;
+    try {
+      terminalLine("command", `${terminalPromptText(device)} ${trimmed}`);
+      run(device, trimmed);
+    } finally {
+      injectedMode = false;
+    }
     sync().syncTerminal();
   }
   function sessionFor(deviceId) {
@@ -8835,7 +8860,7 @@ Address: ${sim.dnsResolvedIp}`);
     }
     const visibleDevices = state.devices.filter(isVisibleDevice);
     dom.deviceList.innerHTML = visibleDevices.map((device) => `
-    <button class="device-row ${device.id === state.selectedId ? "active" : ""}" data-id="${device.id}">
+    <button class="device-row ${device.id === state.selectedId ? "active" : ""}" data-id="${escapeHtml(device.id)}">
       <span class="device-name">${escapeHtml(device.name)}</span>
       <span class="device-type">${DEVICE_SPECS[device.type]?.label ?? "Device"}</span>
     </button>
@@ -9524,10 +9549,14 @@ Address: ${sim.dnsResolvedIp}`);
       const list = Array.isArray(parsed) ? parsed : [parsed];
       let lastId = "";
       for (const s of list) {
-        if (s && typeof s.id === "string" && s.topology && Array.isArray(s.checks)) {
-          registerScenario(s);
-          lastId = s.id;
+        if (!(s && typeof s.id === "string" && s.topology && Array.isArray(s.checks))) continue;
+        try {
+          normaliseConfig(s.topology);
+        } catch {
+          continue;
         }
+        registerScenario(s);
+        lastId = s.id;
       }
       if (lastId) {
         loadScenario(lastId);
@@ -9560,7 +9589,12 @@ Address: ${sim.dnsResolvedIp}`);
         dom.modeLabel.textContent = "Invalid log JSON.";
         return;
       }
-      state.simulation.log = log;
+      const clean = log.filter((e) => e && typeof e === "object" && typeof e.summary === "string");
+      if (log.length && !clean.length) {
+        dom.modeLabel.textContent = "Invalid log JSON.";
+        return;
+      }
+      state.simulation.log = clean;
       state.dock.logView = "events";
       openDock("simlog");
       syncSimLog();
@@ -9684,13 +9718,14 @@ Address: ${sim.dnsResolvedIp}`);
     }
   }
   function handleGlobalKeydown(event) {
-    if ((event.metaKey || event.ctrlKey) && event.key.toLowerCase() === "z") {
+    const inField = ["INPUT", "SELECT", "TEXTAREA"].includes(event.target?.tagName);
+    if (!inField && (event.metaKey || event.ctrlKey) && event.key.toLowerCase() === "z") {
       event.preventDefault();
       if (event.shiftKey) redo();
       else undo();
       return;
     }
-    if ((event.metaKey || event.ctrlKey) && event.key.toLowerCase() === "y") {
+    if (!inField && (event.metaKey || event.ctrlKey) && event.key.toLowerCase() === "y") {
       event.preventDefault();
       redo();
       return;
@@ -9716,7 +9751,7 @@ Address: ${sim.dnsResolvedIp}`);
       setTool("select");
       return;
     }
-    if (["INPUT", "SELECT", "TEXTAREA"].includes(event.target?.tagName)) return;
+    if (inField) return;
     if (event.key === "Delete" || event.key === "Backspace") deleteSelection();
     if (event.key.toLowerCase() === "v") setTool("select");
     if (event.key.toLowerCase() === "c") setTool("computer");
@@ -9953,7 +9988,7 @@ Address: ${sim.dnsResolvedIp}`);
       "fit": fitNetwork,
       "help-shortcuts": () => {
         openConsole();
-        consoleLine("output", "Shortcuts: V select \xB7 C computer \xB7 E server \xB7 S switch \xB7 R router \xB7 F firewall \xB7 L connect \xB7 W configure \xB7 Del delete \xB7 Esc cancel \xB7 Ctrl/Cmd+Z undo \xB7 scroll to zoom.");
+        consoleLine("output", "Shortcuts: V select \xB7 C computer \xB7 E server \xB7 S switch \xB7 R router \xB7 F firewall \xB7 H hub \xB7 L connect \xB7 W configure \xB7 Del delete \xB7 Esc cancel \xB7 Ctrl/Cmd+Z undo \xB7 Ctrl/Cmd+Shift+Z redo \xB7 scroll to zoom.");
       },
       "help-commands": () => openConsole(),
       "help-about": openAbout,
@@ -10207,6 +10242,7 @@ Address: ${sim.dnsResolvedIp}`);
   // src/commands.ts
   var ok = (...output) => ({ ok: true, output });
   var err = (...output) => ({ ok: false, output });
+  var mutatorResult = (msg) => msg.startsWith("Invalid") || msg.startsWith("Unknown") ? err(msg) : ok(msg);
   function resolveDevice(ref) {
     if (!ref) return "Missing device reference.";
     const byId = getDevice(ref);
@@ -10256,6 +10292,8 @@ Address: ${sim.dnsResolvedIp}`);
     if (typeof b === "string") return err(b);
     const fromPort = args[2] ? Number(args[2]) : void 0;
     const toPort = args[3] ? Number(args[3]) : void 0;
+    const badPort = (p) => p !== void 0 && !(Number.isInteger(p) && p >= 1);
+    if (badPort(fromPort) || badPort(toPort)) return err("link: ports must be positive whole numbers.");
     addLink(a.id, b.id, fromPort, toPort);
     return ok(`Linked ${a.name} \u2194 ${b.name}.`);
   }
@@ -10360,7 +10398,11 @@ Address: ${sim.dnsResolvedIp}`);
     const ipIdx = args.indexOf("ip");
     if (ipIdx < 0 || !args[ipIdx + 1]) return err(`interface: expected "ip <addr>".`);
     const vlanIdx = args.indexOf("vlan");
-    const vlanTag = vlanIdx >= 0 ? Number(args[vlanIdx + 1]) : null;
+    let vlanTag = null;
+    if (vlanIdx >= 0) {
+      vlanTag = Number(args[vlanIdx + 1]);
+      if (!(Number.isInteger(vlanTag) && vlanTag >= 1 && vlanTag <= 4094)) return err(`interface: vlan tag must be 1-4094.`);
+    }
     const msg = setRouterInterfaceIp(router, peer.id, args[ipIdx + 1], vlanTag);
     return msg.startsWith("Invalid") ? err(msg) : ok(msg);
   }
@@ -10383,8 +10425,8 @@ Address: ${sim.dnsResolvedIp}`);
     if (typeof sw === "string") return err(sw);
     const action = (args[1] || "").toLowerCase();
     const id = args[2];
-    if (action === "add") return ok(addSwitchVlan(sw, id));
-    if (["del", "delete", "remove"].includes(action)) return ok(removeSwitchVlan(sw, id));
+    if (action === "add") return mutatorResult(addSwitchVlan(sw, id));
+    if (["del", "delete", "remove"].includes(action)) return mutatorResult(removeSwitchVlan(sw, id));
     return err(`vlan: expected "add|del <id>".`);
   }
   function cmdPort(args) {
@@ -10392,13 +10434,17 @@ Address: ${sim.dnsResolvedIp}`);
     if (typeof sw === "string") return err(sw);
     const port = args[1];
     const sub = (args[2] || "").toLowerCase();
-    if (sub === "vlan") return ok(setSwitchPortVlan(sw, port, args[3]));
-    if (sub === "mode") return ok(setSwitchPortMode(sw, port, (args[3] || "").toLowerCase()));
-    if (sub === "native") return ok(setSwitchTrunkNative(sw, port, args[3]));
+    if (sub === "vlan") return mutatorResult(setSwitchPortVlan(sw, port, args[3]));
+    if (sub === "mode") {
+      const mode = (args[3] || "").toLowerCase();
+      if (mode !== "access" && mode !== "trunk") return err(`port mode: expected "access|trunk".`);
+      return mutatorResult(setSwitchPortMode(sw, port, mode));
+    }
+    if (sub === "native") return mutatorResult(setSwitchTrunkNative(sw, port, args[3]));
     if (sub === "allowed") {
       const act = (args[3] || "").toLowerCase();
       if (act !== "add" && act !== "remove") return err(`port allowed: expected "add|remove <id>".`);
-      return ok(modifySwitchTrunkAllowed(sw, port, args[4], act));
+      return mutatorResult(modifySwitchTrunkAllowed(sw, port, args[4], act));
     }
     return err(`port: expected "vlan|mode|native|allowed ...".`);
   }
@@ -10576,7 +10622,7 @@ Address: ${sim.dnsResolvedIp}`);
       if (!state.links.length) return ok("(no links)");
       return ok(...state.links.map((l) => linkName(l)));
     }
-    const devices = state.devices.filter((d) => d.type !== "lan" || true);
+    const devices = state.devices.filter((d) => d.type !== "lan");
     if (!devices.length) return ok("(no devices)");
     return ok(...devices.map((d) => `${d.name} (${d.type}) at ${Math.round(d.x)},${Math.round(d.y)}`));
   }

@@ -936,7 +936,7 @@ export function syncDeviceList(): void {
   }
   const visibleDevices = state.devices.filter(isVisibleDevice);
   dom.deviceList.innerHTML = visibleDevices.map(device => `
-    <button class="device-row ${device.id === state.selectedId ? "active" : ""}" data-id="${device.id}">
+    <button class="device-row ${device.id === state.selectedId ? "active" : ""}" data-id="${escapeHtml(device.id)}">
       <span class="device-name">${escapeHtml(device.name)}</span>
       <span class="device-type">${DEVICE_SPECS[device.type as DeviceType]?.label ?? "Device"}</span>
     </button>

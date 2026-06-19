@@ -178,3 +178,51 @@ describe("commands — query & view", () => {
     expect(exec("theme chartreuse").ok).toBe(false);
   });
 });
+
+describe("commands — input validation", () => {
+  beforeEach(reset);
+
+  it("vlan reports ok:false on an invalid VLAN id (not a silent success)", () => {
+    exec("add switch SW1 at 0 0");
+    const r = exec("vlan SW1 add notanumber");
+    expect(r.ok).toBe(false);
+    expect(r.output.join("")).toContain("Invalid VLAN ID");
+  });
+
+  it("port reports ok:false on an unknown interface", () => {
+    exec("add switch SW1 at 0 0");
+    const r = exec("port SW1 Ethernet99 vlan 5");
+    expect(r.ok).toBe(false);
+    expect(r.output.join("")).toContain("Unknown interface");
+  });
+
+  it("port mode rejects a non-access/trunk value", () => {
+    exec("add switch SW1 at 0 0");
+    expect(exec("port SW1 Ethernet1 mode trnuk").ok).toBe(false);
+  });
+
+  it("interface vlan tag must be a number, not NaN", () => {
+    runConsoleScript("add router R1 at 0 0\nadd switch SW1 at 100 0\nlink R1 SW1");
+    expect(exec("interface R1 SW1 ip 10.0.0.1 vlan notanumber").ok).toBe(false);
+  });
+
+  it("link rejects non-numeric ports instead of storing NaN", () => {
+    exec("add computer A at 0 0");
+    exec("add switch B at 100 0");
+    const r = exec("link A B foo bar");
+    expect(r.ok).toBe(false);
+    expect(state.links).toHaveLength(0);
+  });
+
+  it("link with a duplicate explicit port falls back instead of orphaning the first", () => {
+    exec("add switch SW at 0 0");
+    exec("add computer PC1 at 100 0");
+    exec("add computer PC2 at 100 100");
+    const swId = state.devices.find(d => d.name === "SW")!.id;
+    exec("link PC1 SW 1 1");
+    exec("link PC2 SW 2 1"); // SW port 1 is already taken → must fall back, not overwrite
+    expect(state.links).toHaveLength(2);
+    const swPorts = state.links.map(l => (l.from === swId ? l.fromPort : l.toPort));
+    expect(new Set(swPorts).size).toBe(2); // both links keep a distinct SW port
+  });
+});

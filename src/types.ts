@@ -48,7 +48,6 @@ export interface DisplayOptions {
   showDeviceNames: boolean;
   showIpAddresses: boolean;
   showMacAddresses: boolean;
-  displayOptionsOpen: boolean;
   networkPanelOpen: boolean;
   // Simulation-behaviour toggles (pedagogical): whether booting hosts attempt
   // DHCP, and whether a failed DHCP falls back to link-local APIPA.

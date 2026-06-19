@@ -206,6 +206,10 @@ describe("escapeHtml", () => {
     expect(escapeHtml('"hello"')).toBe("&quot;hello&quot;");
   });
 
+  it("escapes the apostrophe (so single-quoted attributes can't break out)", () => {
+    expect(escapeHtml("x' onmouseover='alert(1)")).toBe("x&#39; onmouseover=&#39;alert(1)");
+  });
+
   it("returns plain text unchanged", () => {
     expect(escapeHtml("hello world")).toBe("hello world");
   });

@@ -73,7 +73,6 @@ export const state: AppState = {
     showDeviceNames: true,
     showIpAddresses: true,
     showMacAddresses: true,
-    displayOptionsOpen: false,
     networkPanelOpen: false,
     autoDhcp: false,
     apipaFallback: false

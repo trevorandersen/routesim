@@ -40,6 +40,12 @@ export interface CommandResult {
 const ok = (...output: string[]): CommandResult => ({ ok: true, output });
 const err = (...output: string[]): CommandResult => ({ ok: false, output });
 
+// Switch/router mutators report failure with a magic-prefixed string ("Invalid
+// VLAN ID: …", "Unknown interface …"). Surface those as a command error so
+// scripts and window.routesim see ok===false rather than a silent success.
+const mutatorResult = (msg: string): CommandResult =>
+  (msg.startsWith("Invalid") || msg.startsWith("Unknown")) ? err(msg) : ok(msg);
+
 // ── Helpers ──────────────────────────────────────────────────────────────────
 
 function resolveDevice(ref: string): Device | string {
@@ -98,6 +104,8 @@ function cmdLink(args: string[]): CommandResult {
   if (typeof b === "string") return err(b);
   const fromPort = args[2] ? Number(args[2]) : undefined;
   const toPort = args[3] ? Number(args[3]) : undefined;
+  const badPort = (p: number | undefined) => p !== undefined && !(Number.isInteger(p) && p >= 1);
+  if (badPort(fromPort) || badPort(toPort)) return err("link: ports must be positive whole numbers.");
   addLink(a.id, b.id, fromPort, toPort);
   return ok(`Linked ${a.name} ↔ ${b.name}.`);
 }
@@ -201,7 +209,11 @@ function cmdInterface(args: string[]): CommandResult {
   const ipIdx = args.indexOf("ip");
   if (ipIdx < 0 || !args[ipIdx + 1]) return err(`interface: expected "ip <addr>".`);
   const vlanIdx = args.indexOf("vlan");
-  const vlanTag = vlanIdx >= 0 ? Number(args[vlanIdx + 1]) : null;
+  let vlanTag: number | null = null;
+  if (vlanIdx >= 0) {
+    vlanTag = Number(args[vlanIdx + 1]);
+    if (!(Number.isInteger(vlanTag) && vlanTag >= 1 && vlanTag <= 4094)) return err(`interface: vlan tag must be 1-4094.`);
+  }
   const msg = setRouterInterfaceIp(router, peer.id, args[ipIdx + 1], vlanTag);
   return msg.startsWith("Invalid") ? err(msg) : ok(msg);
 }
@@ -225,8 +237,8 @@ function cmdVlan(args: string[]): CommandResult {
   if (typeof sw === "string") return err(sw);
   const action = (args[1] || "").toLowerCase();
   const id = args[2];
-  if (action === "add") return ok(addSwitchVlan(sw, id));
-  if (["del", "delete", "remove"].includes(action)) return ok(removeSwitchVlan(sw, id));
+  if (action === "add") return mutatorResult(addSwitchVlan(sw, id));
+  if (["del", "delete", "remove"].includes(action)) return mutatorResult(removeSwitchVlan(sw, id));
   return err(`vlan: expected "add|del <id>".`);
 }
 
@@ -235,13 +247,17 @@ function cmdPort(args: string[]): CommandResult {
   const sw = resolveDevice(args[0]);
   if (typeof sw === "string") return err(sw);
   const port = args[1]; const sub = (args[2] || "").toLowerCase();
-  if (sub === "vlan") return ok(setSwitchPortVlan(sw, port, args[3]));
-  if (sub === "mode") return ok(setSwitchPortMode(sw, port, (args[3] || "").toLowerCase()));
-  if (sub === "native") return ok(setSwitchTrunkNative(sw, port, args[3]));
+  if (sub === "vlan") return mutatorResult(setSwitchPortVlan(sw, port, args[3]));
+  if (sub === "mode") {
+    const mode = (args[3] || "").toLowerCase();
+    if (mode !== "access" && mode !== "trunk") return err(`port mode: expected "access|trunk".`);
+    return mutatorResult(setSwitchPortMode(sw, port, mode));
+  }
+  if (sub === "native") return mutatorResult(setSwitchTrunkNative(sw, port, args[3]));
   if (sub === "allowed") {
     const act = (args[3] || "").toLowerCase();
     if (act !== "add" && act !== "remove") return err(`port allowed: expected "add|remove <id>".`);
-    return ok(modifySwitchTrunkAllowed(sw, port, args[4], act));
+    return mutatorResult(modifySwitchTrunkAllowed(sw, port, args[4], act));
   }
   return err(`port: expected "vlan|mode|native|allowed ...".`);
 }
@@ -412,7 +428,7 @@ function cmdList(args: string[]): CommandResult {
     if (!state.links.length) return ok("(no links)");
     return ok(...state.links.map(l => linkName(l)));
   }
-  const devices = state.devices.filter(d => d.type !== "lan" || true);
+  const devices = state.devices.filter(d => d.type !== "lan");
   if (!devices.length) return ok("(no devices)");
   return ok(...devices.map(d => `${d.name} (${d.type}) at ${Math.round(d.x)},${Math.round(d.y)}`));
 }

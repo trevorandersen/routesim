@@ -8,6 +8,32 @@ import {
 
 // ── ARP table ─────────────────────────────────────────────────────────────────
 
+describe("normalisers — malformed-element resilience", () => {
+  // Imported JSON can carry a null / primitive inside a table array; dereferencing
+  // it raw threw a TypeError that aborted the whole import (and poisoned the
+  // scenario registry). Every array normaliser must defend and drop the junk.
+  it("drops null/primitive elements instead of throwing", () => {
+    expect(() => normaliseArpTable([null, 5, "x"] as any)).not.toThrow();
+    expect(normaliseArpTable([null] as any)).toEqual([]);
+    expect(() => normaliseMacTable([null, undefined] as any)).not.toThrow();
+    expect(() => normaliseVlans([null, 3] as any)).not.toThrow();
+    expect(normaliseVlans([null, 3] as any).map(v => v.id)).toEqual([1, 3]); // bare-number id still works
+    expect(() => normaliseRouterInterfaces([null, {}] as any, "r1")).not.toThrow();
+  });
+
+  it("a whole config with null table elements normalises cleanly", () => {
+    const cfg = {
+      devices: [
+        { id: "a", type: "computer", x: 0, y: 0, config: { arpTable: [null] } },
+        { id: "b", type: "switch", x: 0, y: 0, config: { managed: true, vlans: [null] } },
+        { id: "c", type: "router", x: 0, y: 0, config: { interfaces: [null] } },
+      ],
+      links: [],
+    };
+    expect(() => normaliseConfig(cfg)).not.toThrow();
+  });
+});
+
 describe("normaliseArpTable", () => {
   it("returns empty array for empty input", () => {
     expect(normaliseArpTable([])).toEqual([]);

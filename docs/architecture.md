@@ -10,6 +10,7 @@ app.ts (entry)
   ├── dom.ts         ← getElementById refs (evaluated at load time)
   ├── ribbon.ts      ← tabbed ribbon (Main/File/View/Help) + scenario chooser
   ├── io.ts          ← JSON import/export (config/scenario/script/log)
+  ├── settings-url.ts ← parse/apply settings from the URL query string (+ inverse)
   ├── ui.ts          ← event listeners, tool switching, keyboard, theme
   ├── canvas.ts      ← render loop, pan/zoom, device/link/transit drawing
   ├── inspector.ts   ← right panel: device details, link frame history

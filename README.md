@@ -125,6 +125,7 @@ sync().syncPanel();
 - **Scenarios** — a 16-entry guided curriculum with goal checking, every entry solvable (tested)
 - **Undo/redo** — snapshot-based history for topology and config changes
 - **Persistence** — import/export configs, scenarios, scripts, and logs as JSON files
+- **URL settings** — share a pre-configured link, e.g. `?theme=dark&names=0&autodhcp=on&speed=400` (see [docs/scripting.md](docs/scripting.md#url-settings))
 - **Dark/light theme** — toggle via toolbar, implemented with CSS custom properties
 - **LAN grouping** — collapse multiple devices into a LAN cloud
 

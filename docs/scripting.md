@@ -15,9 +15,31 @@ routesim.exec("add computer PC1 at 100 200")   // run one command → CommandRes
 routesim.run("clear\nadd router R1\n...")       // run a script → CommandResult[]
 routesim.export()                               // current topology as a reproducible script (string)
 routesim.snapshot()                             // { devices, links, simulation } (read-only live refs)
+routesim.urlSettings()                          // what the current URL query string would apply (ParsedSettings)
+routesim.settingsQuery()                        // a shareable query string built from the live settings
 ```
 
 `CommandResult` is `{ ok: boolean, output: string[], data?: unknown }`. For `run ping`/`run dhcp`, `data` is the `SimResult` (`{ success, ttl, assignedIp, assignedGateway, log, steps }`) and `ok` reflects reachability.
+
+## URL settings
+
+Settings can be supplied in the page's query string and are applied on load — handy for sharing a pre-configured link (`src/settings-url.ts`, applied in `app.ts`). Unknown or unparseable params are ignored (visible via `routesim.urlSettings().ignored`), and `routesim.settingsQuery()` builds the reverse — a query string of just the settings that differ from the defaults.
+
+```
+rs-web.html?names=0&ips=1&macs=0&autodhcp=on&apipa=1&theme=dark&speed=400
+```
+
+| Param | Setting | Values |
+|-------|---------|--------|
+| `names` | Show device names | `1`/`0`, `true`/`false`, `yes`/`no`, `on`/`off` |
+| `ips` | Show IP addresses | (boolean, as above) |
+| `macs` | Show MAC addresses | (boolean, as above) |
+| `autodhcp` | Auto-DHCP on boot | (boolean) |
+| `apipa` | APIPA fallback | (boolean) |
+| `theme` | Colour theme | `warm-light` (or `light`), `dark`, `blueprint` |
+| `speed` | Animation ms/hop | a number, clamped to 200–3000 |
+
+Param keys and boolean values are case-insensitive. Adding a setting is a one-row change in `settings-url.ts`.
 
 ## Command reference
 

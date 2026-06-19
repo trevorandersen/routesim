@@ -9,6 +9,7 @@ import { syncScenarioPanel } from "./scenario-ui";
 import { setupUI, setTool, setTheme, syncCoordReadout } from "./ui";
 import { loadDefaultConfig } from "./config";
 import { runConsoleCommand, runConsoleScript, exportTopologyScript } from "./commands";
+import { parseSettingsFromUrl, buildSettingsQuery } from "./settings-url";
 import * as io from "./io";
 
 // Register the callback bridge so any module can trigger render/syncPanel/etc.
@@ -44,16 +45,27 @@ setupUI();
   exportScenarios: io.exportScenarios, importScenario: io.importScenario,
   exportScript: io.exportScript, importScript: io.importScript,
   exportLog: io.exportLog, importLog: io.importLog,
+  // URL settings plumbing: inspect what the current query string would apply,
+  // and build a shareable query string from the live settings.
+  urlSettings: () => parseSettingsFromUrl(window.location.search),
+  settingsQuery: () => buildSettingsQuery(),
 };
 
 // Initialise the application (no network requests — defaults are built in).
 function initialiseApp(): void {
+  // Settings supplied via the URL query string override the built-in defaults
+  // before any UI sync, so the controls render in their requested state.
+  const urlSettings = parseSettingsFromUrl(window.location.search);
+  Object.assign(state.options, urlSettings.options);
+  if (urlSettings.speed != null) state.simulation.speed = urlSettings.speed;
+
   resizeCanvas();
   setInspectorWidth(state.inspectorWidth);
   state.pan = { x: dom.canvas.getBoundingClientRect().width / 2, y: dom.canvas.getBoundingClientRect().height / 2 };
   syncZoomLevel();
-  setTheme(DEFAULT_THEME);
+  setTheme(urlSettings.theme ?? DEFAULT_THEME);
   syncOptionControls();
+  dom.simSpeed.value = String(state.simulation.speed);
   syncNetworkPanel();
   syncTerminal();
   syncConsole();

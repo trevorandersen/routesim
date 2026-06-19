@@ -93,6 +93,7 @@ describe("setSwitchPortVlan", () => {
 | `tests/simulation.test.ts` | `l2Reachable`, `getVlanForDevice`, `buildPing/DhcpEvents` |
 | `tests/scenarios.test.ts` | Scenario loading/goal checks + positive-coordinate invariants |
 | `tests/io.test.ts` | JSON import/export round-trips |
+| `tests/settings-url.test.ts` | URL query-string settings: `parseSettingsFromUrl` (bool spellings, theme/speed validation + clamping, ignored params) and the `buildSettingsQuery` inverse (diff-only emit + round-trip) |
 | `tests/frame.test.ts` | Frame factories, `frameLabel`/`frameColor` |
 | `tests/normalise.test.ts` | All normalisers, `ensureConfig`, `defaultDeviceConfig`, `deviceSize` |
 | `tests/devices.test.ts` | CRUD, hit-testing, lookup indexes + invalidation |

@@ -226,14 +226,16 @@ export function unconfiguredBootableHosts(): Device[] {
   return state.devices.filter(hostNeedsBoot);
 }
 
-// Kick off the animated boot of every unconfigured cabled host. Returns false
-// (nothing to do) if none qualify, auto-DHCP is off, or a run is already in
-// flight — setting an explanatory status hint in each case.
+// Kick off the boot of every unconfigured cabled host. Returns false (nothing to
+// do) if none qualify, both auto-DHCP and APIPA are off, or a run is already in
+// flight — setting an explanatory status hint in each case. The two toggles are
+// independent: auto-DHCP on → animated DHCP (APIPA on failure if enabled);
+// auto-DHCP off but APIPA on → the host self-assigns link-local directly.
 export function startNetworkBoot(): boolean {
   const sim = state.simulation;
   if (sim.status === "running" || sim.status === "paused") return false;
-  if (!state.options.autoDhcp) {
-    dom.modeLabel.textContent = "Auto-DHCP is off — hosts won't acquire automatically (set a static IP, or run dhcp).";
+  if (!state.options.autoDhcp && !state.options.apipaFallback) {
+    dom.modeLabel.textContent = "Auto-DHCP and APIPA fallback are both off — hosts won't self-configure (set a static IP, or run dhcp).";
     return false;
   }
   bootQueue = unconfiguredBootableHosts().map(d => d.id);
@@ -244,17 +246,30 @@ export function startNetworkBoot(): boolean {
   return bootNextHost();
 }
 
-// Boot the next queued host (animated DHCP); finishSimulation chains to the one
-// after it, so the hosts boot one at a time.
+// Boot the next queued host. With auto-DHCP on, run its animated DHCP exchange
+// (finishSimulation chains to the next one). With auto-DHCP off but APIPA on, no
+// DHCP frames are sent — each host self-assigns a link-local address instantly,
+// so the whole queue drains in this single call.
 function bootNextHost(): boolean {
+  let apipaCount = 0;
   while (bootQueue.length) {
     const device = getDevice(bootQueue.shift()!);
     if (!hostNeedsBoot(device)) continue; // skip any already addressed by a prior boot
-    const setup = buildDhcpEvents(device!);
-    if (typeof setup === "string") continue;
-    dom.modeLabel.textContent = `Booting ${device!.name} via DHCP...`;
-    startSimulation(setup, device!.id, "", "dhcp");
-    return true;
+    if (state.options.autoDhcp) {
+      const setup = buildDhcpEvents(device!);
+      if (typeof setup === "string") continue;
+      dom.modeLabel.textContent = `Booting ${device!.name} via DHCP...`;
+      startSimulation(setup, device!.id, "", "dhcp");
+      return true;
+    }
+    // Auto-DHCP off, APIPA on (the only way we reach here): self-assign directly.
+    assignApipa(device!);
+    apipaCount++;
+  }
+  if (apipaCount) {
+    dom.modeLabel.textContent = `Auto-DHCP off — ${apipaCount} host${apipaCount > 1 ? "s" : ""} self-assigned a link-local (APIPA) address.`;
+    sync().render();
+    sync().syncPanel();
   }
   return false;
 }
@@ -1341,6 +1356,20 @@ function generateApipaAddress(): string {
   return `169.254.${second}.${fourth}`;
 }
 
+// Self-assign a link-local 169.254.0.0/16 address (no DHCP, no gateway). Used
+// both as the DHCP-failure fallback and as the direct boot path when auto-DHCP
+// is off but APIPA is on. Returns the assigned address.
+function assignApipa(device: Device): string {
+  const apipaIp = generateApipaAddress();
+  if (device.config) {
+    device.config.ipv4Address = apipaIp;
+    device.config.ipSource = "apipa";
+    device.config.prefixLength = 16;
+    device.config.gatewayIpv4Address = "";
+  }
+  return apipaIp;
+}
+
 function allocateDhcpIp(iface: any, router: Device): string | null {
   if (!iface.ipv4Address || !isValidIpv4(iface.ipv4Address)) return null;
   const ifPrefix = prefixOf(iface);
@@ -1509,14 +1538,8 @@ function finishSimulation(): void {
       if (!sim.headless) out("", `DHCP configured:\n  IP address: ${sim.dhcpAssignedIp}\n  Default gateway: ${sim.dhcpAssignedGateway}`);
     } else if (state.options.apipaFallback) {
       // APIPA fallback — link-local 169.254.0.0/16
-      const apipaIp = generateApipaAddress();
       const origin = getDevice(sim.originDeviceId);
-      if (origin?.config) {
-        origin.config.ipv4Address = apipaIp;
-        origin.config.ipSource = "apipa";
-        origin.config.prefixLength = 16;
-        origin.config.gatewayIpv4Address = "";
-      }
+      const apipaIp = origin ? assignApipa(origin) : generateApipaAddress();
       sim.dhcpAssignedIp = apipaIp;
       if (!sim.headless) out("error", `DHCP: no response from server.\nAPIPA: assigned link-local ${apipaIp}`);
     } else {

@@ -147,21 +147,33 @@ describe("network boot — which hosts qualify", () => {
 });
 
 describe("network boot — the global Auto-DHCP / APIPA toggles", () => {
-  it("Auto-DHCP off: Play boots nothing — the host stays unassigned", () => {
+  it("both off: Play boots nothing — the host stays unassigned", () => {
     runConsoleScript(`add computer PC1 at 0 0\nadd switch SW at 200 0\nlink PC1 SW`);
     state.options.autoDhcp = false;
+    state.options.apipaFallback = false;
     expect(startNetworkBoot()).toBe(false);
     expect(pc("PC1").config.ipv4Address || "").toBe("");
   });
 
-  it("APIPA off: a failed DHCP leaves the host with no address (no link-local)", () => {
+  it("Auto-DHCP off but APIPA on: the host self-assigns link-local directly (no DHCP)", () => {
+    runConsoleScript(`add computer PC1 at 0 0\nadd switch SW at 200 0\nlink PC1 SW`);
+    state.options.autoDhcp = false; // APIPA stays on (beforeEach)
+    // No DHCP frames are sent, so the boot is instant — startNetworkBoot itself
+    // assigns the address rather than queuing an animated run.
+    expect(startNetworkBoot()).toBe(false); // nothing left running
+    expect(pc("PC1").config.ipv4Address).toMatch(/^169\.254\.\d+\.\d+$/);
+    expect(pc("PC1").config.ipSource).toBe("apipa");
+    expect(pc("PC1").config.prefixLength).toBe(16);
+  });
+
+  it("APIPA off (Auto-DHCP on): a failed DHCP leaves the host with no address", () => {
     runConsoleScript(`add computer PC1 at 0 0\nadd switch SW at 200 0\nlink PC1 SW`);
     state.options.apipaFallback = false;
     runBoot(); // animated DHCP runs, finds no server
     expect(pc("PC1").config.ipv4Address || "").toBe(""); // unassigned — APIPA suppressed
   });
 
-  it("APIPA on (default) still self-assigns when DHCP fails", () => {
+  it("both on (default here): a failed DHCP self-assigns APIPA", () => {
     runConsoleScript(`add computer PC1 at 0 0\nadd switch SW at 200 0\nlink PC1 SW`);
     runBoot();
     expect(pc("PC1").config.ipv4Address).toMatch(/^169\.254\./);

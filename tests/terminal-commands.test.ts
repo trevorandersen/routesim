@@ -11,7 +11,7 @@
 import { describe, it, expect, beforeAll, beforeEach } from "bun:test";
 import { state } from "../src/state";
 import {
-  runRouterTerminalCommand, runSwitchTerminalCommand, runTerminalCommand,
+  runRouterTerminalCommand, runSwitchTerminalCommand, runTerminalCommand, runDeviceCommand,
 } from "../src/terminal";
 import { registerNoopCallbacks, resetState } from "./helpers";
 import { basicTopology, routedTopology, vlanTopology } from "./fixtures";
@@ -321,5 +321,61 @@ describe("runTerminalCommand — dispatch by device type", () => {
     state.terminal.deviceId = null;
     runTerminalCommand("ip addr show");
     expect(state.terminal.lines.some(l => l.text.includes("No device"))).toBe(true);
+  });
+});
+
+describe("host CLI — the inspector-set commands", () => {
+  beforeEach(() => resetState());
+  function pc() {
+    const topo = basicTopology();
+    state.devices = topo.devices as any;
+    state.links = topo.links as any;
+    state.terminal.deviceId = "pc1";
+    return state.devices.find(d => d.id === "pc1")!;
+  }
+
+  it("ip link set sets the MAC; an invalid one errors and doesn't apply", () => {
+    const d = pc();
+    runTerminalCommand("ip link set dev eth0 address 02:00:00:00:00:AB");
+    expect(d.config.macAddress).toBe("02:00:00:00:00:AB");
+    const before = d.config.macAddress;
+    runTerminalCommand("ip link set dev eth0 address not-a-mac");
+    expect(d.config.macAddress).toBe(before); // unchanged
+    expect(state.terminal.lines.some(l => l.kind === "error" && /Invalid MAC/.test(l.text))).toBe(true);
+  });
+
+  it("ip route del default clears the gateway; rm /etc/resolv.conf clears DNS", () => {
+    const d = pc();
+    d.config.gatewayIpv4Address = "10.0.0.1";
+    d.config.dnsServerIp = "10.0.0.53";
+    runTerminalCommand("ip route del default");
+    runTerminalCommand("rm /etc/resolv.conf");
+    expect(d.config.gatewayIpv4Address).toBe("");
+    expect(d.config.dnsServerIp).toBeUndefined();
+  });
+
+  it("an invalid `ip addr add` surfaces the error instead of silently applying", () => {
+    const d = pc();
+    runTerminalCommand("ip addr add 192.168.1.999/24 dev eth0");
+    expect(d.config.ipv4Address || "").not.toBe("192.168.1.999");
+    expect(state.terminal.lines.some(l => l.kind === "error" && /Invalid/.test(l.text))).toBe(true);
+  });
+});
+
+describe("runDeviceCommand — simulator-issued (injected) commands", () => {
+  beforeEach(() => resetState());
+
+  it("runs the command on the device and flags the echo + output as injected", () => {
+    const topo = basicTopology();
+    state.devices = topo.devices as any;
+    state.links = topo.links as any;
+    const pc = state.devices.find(d => d.id === "pc1")!;
+    runDeviceCommand(pc, "ip addr add 10.1.2.3/24 dev eth0");
+    expect(pc.config.ipv4Address).toBe("10.1.2.3");      // the command applied
+    const session = state.terminalSessions.find(s => s.deviceId === pc.id)!;
+    // The echoed command and its output line are both flagged injected.
+    expect(session.lines.length).toBeGreaterThanOrEqual(2);
+    expect(session.lines.every(l => l.injected)).toBe(true);
+    expect(session.lines[0].text).toContain("ip addr add 10.1.2.3/24 dev eth0");
   });
 });

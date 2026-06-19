@@ -74,7 +74,9 @@ export const state: AppState = {
     showIpAddresses: true,
     showMacAddresses: true,
     displayOptionsOpen: false,
-    networkPanelOpen: false
+    networkPanelOpen: false,
+    autoDhcp: false,
+    apipaFallback: false
   },
   nameCounters: freshNameCounters(),
   configStore: { version: 1, configs: {} },

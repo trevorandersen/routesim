@@ -5,7 +5,7 @@
 import type { Device } from "../types";
 import { state, sync, pushUndo } from "../state";
 import { dom } from "../dom";
-import { isValidIpv4, parseIpv4Token, prefixOf, clampPrefixLength } from "../utils";
+import { isValidIpv4, isValidMac, normaliseMacAddress, parseIpv4Token, prefixOf, clampPrefixLength } from "../utils";
 import { normaliseArpTable, ensureConfig } from "../normalise";
 import { buildPingEvents, buildDhcpEvents, buildConnectEvents, buildResolveEvents } from "../simulation";
 import { startSimulation, runTraceroute } from "../engine";
@@ -70,6 +70,36 @@ export function setHostGateway(device: Device, address: string): string {
   sync().syncPanel();
   sync().render();
   return `Default gateway set to ${parsed.address}.`;
+}
+
+export function clearHostGateway(device: Device): string {
+  if (!device.config?.gatewayIpv4Address) return "No default route configured.";
+  pushUndo();
+  ensureConfig(device);
+  device.config.gatewayIpv4Address = "";
+  sync().syncPanel();
+  sync().render();
+  return "Default route removed.";
+}
+
+export function setHostMac(device: Device, mac: string): string {
+  const normalised = normaliseMacAddress(mac);
+  if (!isValidMac(normalised)) return `Invalid MAC address: ${mac}`;
+  pushUndo();
+  ensureConfig(device);
+  device.config.macAddress = normalised;
+  sync().syncPanel();
+  sync().render();
+  return `eth0 link-layer address set to ${normalised}.`;
+}
+
+export function clearHostDns(device: Device): string {
+  if (!device.config?.dnsServerIp) return "/etc/resolv.conf is already empty.";
+  pushUndo();
+  ensureConfig(device);
+  delete device.config.dnsServerIp;
+  sync().syncPanel();
+  return "Cleared /etc/resolv.conf.";
 }
 
 // The resolver address (/etc/resolv.conf). Shared with the inspector GUI and
@@ -159,6 +189,23 @@ export function runHostTerminalCommand(host: Device, command: string): void {
     return;
   }
 
+  if (command.match(/^ip\s+route\s+(?:del|delete)\s+default(?:\s+dev\s+eth0)?$/i)) {
+    terminalLine("", clearHostGateway(host));
+    return;
+  }
+
+  const macSetMatch = command.match(/^ip\s+link\s+set\s+(?:dev\s+)?eth0\s+address\s+(\S+)$/i) || command.match(/^set\s+mac\s+(\S+)$/i);
+  if (macSetMatch) {
+    const result = setHostMac(host, macSetMatch[1]);
+    terminalLine(result.startsWith("Invalid") ? "error" : "", result);
+    return;
+  }
+
+  if (command.match(/^(?:rm\s+\/etc\/resolv\.conf|:\s*>\s*\/etc\/resolv\.conf|echo\s+-n\s*>\s*\/etc\/resolv\.conf)$/i)) {
+    terminalLine("", clearHostDns(host));
+    return;
+  }
+
   if (lower === "dhcp" || lower === "dhclient") {
     const result = buildDhcpEvents(host);
     if (typeof result === "string") {
@@ -226,9 +273,12 @@ export function hostHelpLines(): string[] {
     "  ip addr flush dev eth0",
     "  ip route show",
     "  ip route add default via <ipv4> dev eth0",
+    "  ip route del default",
+    "  ip link set dev eth0 address <mac>",
     "  arp -n",
     "  cat /etc/resolv.conf",
     "  echo nameserver <ipv4> > /etc/resolv.conf",
+    "  rm /etc/resolv.conf",
     "  ping <name|ipv4>",
     "  traceroute <name|ipv4>",
     "  nslookup <name>               (DNS lookup)",

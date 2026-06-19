@@ -161,6 +161,21 @@ describe("capture — frames recorded per wire traversal", () => {
     }
   });
 
+  it("a 100% packet-loss link drops every frame across it (animated)", () => {
+    const pc1 = lanTopology();
+    const sw = state.devices.find(d => d.name === "SW")!;
+    const pc2 = state.devices.find(d => d.name === "PC2")!;
+    const lossyLink = state.links.find(l =>
+      (l.from === pc2.id && l.to === sw.id) || (l.from === sw.id && l.to === pc2.id))!;
+    lossyLink.loss = 100; // always drops
+    runAnimated(pc1, "192.168.1.20");
+    expect(state.simulation.pingSuccess).toBe(false);
+    // Nothing ever reached PC2 — every frame the switch sent its way was lost.
+    expect(state.simulation.capture.some(c => c.toDeviceId === pc2.id)).toBe(false);
+    // Headless reachability ignores loss (deterministic): the path still exists.
+    expect(exec("run ping PC1 192.168.1.20").ok).toBe(true);
+  });
+
   it("headless runs do not capture", () => {
     const pc1 = lanTopology();
     const r = exec("run ping PC1 192.168.1.20");

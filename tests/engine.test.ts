@@ -1,6 +1,6 @@
 import { describe, it, expect, beforeAll, beforeEach } from "bun:test";
 import { state } from "../src/state";
-import { processAtSwitch, processAtRouter, processAtComputer, processAtHub, runSimulationHeadless, runTraceroute } from "../src/engine";
+import { processAtSwitch, processAtRouter, processAtComputer, processAtHub, runSimulationHeadless, runTraceroute, linkLatencyFactor } from "../src/engine";
 import { buildPingEvents } from "../src/simulation";
 import { createArpRequest, createArpReply, createIcmpEchoRequest, createIcmpEchoReply, createDhcpOffer, createDhcpAck, BROADCAST_MAC } from "../src/frame";
 import { runConsoleScript } from "../src/commands";
@@ -9,6 +9,19 @@ import { basicTopology, routedTopology, vlanTopology, trunkTopology } from "./fi
 
 beforeAll(() => {
   registerNoopCallbacks();
+});
+
+// ── link latency factor ──────────────────────────────────────────────────────
+
+describe("linkLatencyFactor", () => {
+  it("maps latency (ms) to a clamped transit multiplier", () => {
+    expect(linkLatencyFactor(undefined)).toBe(1);     // no latency → normal
+    expect(linkLatencyFactor({})).toBe(1);
+    expect(linkLatencyFactor({ latency: 10 })).toBe(1); // 10 ms baseline = 1×
+    expect(linkLatencyFactor({ latency: 100 })).toBe(10);
+    expect(linkLatencyFactor({ latency: 1 })).toBe(0.25);   // clamped fast floor
+    expect(linkLatencyFactor({ latency: 9999 })).toBe(20);  // clamped slow ceiling
+  });
 });
 
 // ── processAtHub ─────────────────────────────────────────────────────────────

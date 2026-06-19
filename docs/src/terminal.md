@@ -37,6 +37,7 @@ The bottom **dock** (`core.ts`) hosts three pane kinds behind one tab strip: the
 - **`syncTerminal()`** — render the active session into the terminal pane (a session whose device vanished is closed automatically).
 - **`submitTerminalCommand()` / `handleTerminalKeydown()`** — handle Enter and up/down history navigation (per-session history).
 - **`terminalLine(kind, text)`** — push a line to the active session; **`terminalLineFor(session, …)`** targets a specific one (simulation results go to the *origin device's* session even if another tab is active when the run finishes); **`terminalPromptText(device)`** — the prompt string.
+- **`runDeviceCommand(device, command)`** — run a CLI command on a device's terminal **as if the simulator typed it**: surfaces the device's session, echoes the command, dispatches it, and flags the echo + output `injected` (`TerminalLine.injected` → a dark-grey band, distinct from user-typed lines). The inspector uses this so a host's GUI static-config edits (IP/gateway/DNS/MAC) become real, visible Linux commands (`ip addr add …`, `ip route add default via …`, etc.) rather than silent config writes — invalid input fails in the terminal like a real shell.
 
 ## How it fits
 

@@ -10,17 +10,19 @@ import {
   deleteSelection, deleteLink, collapseLan, expandLan, configureDevice
 } from "./devices";
 import {
-  openTerminalFor, syncTerminal,
+  openTerminalFor, syncTerminal, runDeviceCommand,
   addSwitchVlan, removeSwitchVlan, setSwitchPortVlan, setSwitchPortMode, setSwitchTrunkNative
 } from "./terminal";
 import { resizeCanvas } from "./canvas";
 import { frameLabel } from "./frame";
-import { syncSimLog, bootHostAutoconf } from "./engine";
+import { syncSimLog } from "./engine";
 
 export function syncOptionControls(): void {
   dom.showDeviceNames.checked = state.options.showDeviceNames;
   dom.showIpAddresses.checked = state.options.showIpAddresses;
   dom.showMacAddresses.checked = state.options.showMacAddresses;
+  dom.optAutoDhcp.checked = state.options.autoDhcp;
+  dom.optApipa.checked = state.options.apipaFallback;
 }
 
 // The address-source pill shown beside a host's IP field: how the current
@@ -420,6 +422,21 @@ function renderLinkPanel(link: Link): void {
       <input id="selectedLinkShutdown" type="checkbox" ${link.shutdown ? "checked" : ""}>
       <p class="field-note">A shut link stays in the topology but carries no traffic.</p>
     </div>
+    <div class="field-row">
+      <div class="field">
+        <label for="selectedLinkBandwidth">Bandwidth (Mbps)</label>
+        <input id="selectedLinkBandwidth" type="number" min="0" step="1" value="${escapeHtml(link.bandwidth ?? "")}" placeholder="—" inputmode="decimal">
+      </div>
+      <div class="field">
+        <label for="selectedLinkLatency">Latency (ms)</label>
+        <input id="selectedLinkLatency" type="number" min="0" step="1" value="${escapeHtml(link.latency ?? "")}" placeholder="—" inputmode="decimal">
+      </div>
+    </div>
+    <div class="field">
+      <label for="selectedLinkLoss">Packet loss (%)</label>
+      <input id="selectedLinkLoss" type="number" min="0" max="100" step="1" value="${escapeHtml(link.loss ?? "")}" placeholder="0" inputmode="decimal">
+      <p class="field-note">Latency slows this wire's animation; loss randomly drops frames (watch a ping fail). Bandwidth feeds the streams sim.</p>
+    </div>
     <div class="pill-row">
       <span class="pill">${escapeHtml(fromDev?.name || link.from)}</span>
       <span class="pill">${escapeHtml(toDev?.name || link.to)}</span>
@@ -486,6 +503,22 @@ function renderLinkPanel(link: Link): void {
       sync().render(); // redraw the link's down/up styling
     });
   }
+  // Bandwidth / latency / loss: a positive number sets the property; blank or
+  // ≤0 clears it (back to default). They take effect on the next simulation.
+  const linkNumberField = (id: string, key: "bandwidth" | "latency" | "loss", max?: number) => {
+    const input = document.getElementById(id) as HTMLInputElement | null;
+    if (!input) return;
+    captureUndoOnFocus(input);
+    input.addEventListener("input", (event: any) => {
+      let value = Number(event.target.value);
+      if (max != null && value > max) value = max;
+      if (Number.isFinite(value) && value > 0) (link as any)[key] = value;
+      else delete (link as any)[key];
+    });
+  };
+  linkNumberField("selectedLinkBandwidth", "bandwidth");
+  linkNumberField("selectedLinkLatency", "latency");
+  linkNumberField("selectedLinkLoss", "loss", 100);
 }
 
 // Click-a-packet inspector: a full field breakdown of one captured frame.
@@ -748,130 +781,34 @@ export function syncPanel(): void {
       syncTerminal();
       sync().render();
     });
-    const ipv4Input = document.getElementById("selectedIpv4") as HTMLInputElement;
-    const subnetNote = document.getElementById("hostSubnet");
-    const refreshSubnetNote = () => {
-      if (!subnetNote) return;
-      const c = selected.config || {};
-      subnetNote.textContent = c.ipv4Address ? `Subnet: ${networkOf(c.ipv4Address, prefixOf(c))}` : "";
+    // Static assignments drive the host's CLI: each committed field (on blur /
+    // Enter) runs the matching command in the device's terminal, flagged as
+    // simulator-issued. No client-side clipping — an invalid value runs the
+    // real command and shows its failure; the panel then re-renders to the
+    // device's actual config. (Commands themselves push undo + re-sync.)
+    const commitField = (id: string, toCommand: (value: string) => string | null) => {
+      const input = document.getElementById(id) as HTMLInputElement | null;
+      if (!input) return;
+      input.addEventListener("change", () => {
+        const command = toCommand(input.value.trim());
+        if (command) runDeviceCommand(selected, command);
+      });
+      input.addEventListener("keydown", (event: any) => { if (event.key === "Enter") input.blur(); });
     };
-    // Update the source pill in place (the panel isn't re-rendered per keystroke).
-    const refreshIpSourceBadge = () => {
-      const badge = document.getElementById("ipSourceBadge");
-      if (!badge) return;
-      const info = ipSourceInfo(selected.config || {});
-      badge.className = `ip-source ip-source-${info.cls}`;
-      badge.textContent = info.text;
+    commitField("selectedIpv4", v => v ? `ip addr add ${v} dev eth0` : "ip addr flush dev eth0");
+    commitField("selectedGateway", v => v ? `ip route add default via ${v}` : "ip route del default");
+    commitField("selectedDns", v => v ? `echo nameserver ${v} > /etc/resolv.conf` : "rm /etc/resolv.conf");
+    commitField("selectedMac", v => v ? `ip link set dev eth0 address ${v}` : null);
+
+    // The clear (×) and random-MAC buttons run their commands too.
+    const runOnClick = (id: string, command: string | (() => string)) => {
+      const btn = document.getElementById(id);
+      if (btn) btn.addEventListener("click", () => runDeviceCommand(selected, typeof command === "function" ? command() : command));
     };
-    if (ipv4Input) {
-      captureUndoOnFocus(ipv4Input);
-      ipv4Input.addEventListener("input", (event: any) => {
-        const value = event.target.value.trim();
-        const parsed = value === "" ? null : parseIpv4Token(value);
-        if (value !== "" && !parsed) {
-          event.target.setCustomValidity("Enter a valid IPv4 address (optionally with /prefix).");
-        } else {
-          event.target.setCustomValidity("");
-          selected.config = selected.config || {};
-          selected.config.ipv4Address = parsed ? parsed.address : "";
-          if (parsed) selected.config.ipSource = "static"; else delete selected.config.ipSource;
-          if (parsed?.prefixLength != null) selected.config.prefixLength = parsed.prefixLength;
-          refreshSubnetNote();
-          refreshIpSourceBadge();
-          sync().render();
-        }
-      });
-    }
-    const gatewayInput = document.getElementById("selectedGateway") as HTMLInputElement;
-    if (gatewayInput) {
-      captureUndoOnFocus(gatewayInput);
-      gatewayInput.addEventListener("input", (event: any) => {
-        const value = event.target.value.trim();
-        if (!isValidIpv4(value) && value !== "") {
-          event.target.setCustomValidity("Enter a valid IPv4 address.");
-        } else {
-          event.target.setCustomValidity("");
-          ensureConfig(selected);
-          selected.config.gatewayIpv4Address = value;
-        }
-      });
-    }
-    const clearIpv4Btn = document.getElementById("clearIpv4");
-    if (clearIpv4Btn && ipv4Input) {
-      clearIpv4Btn.addEventListener("click", () => {
-        pushUndo();
-        selected.config = selected.config || {};
-        selected.config.ipv4Address = "";
-        delete selected.config.ipSource;
-        ipv4Input.value = "";
-        ipv4Input.setCustomValidity("");
-        refreshSubnetNote();
-        refreshIpSourceBadge();
-        sync().render();
-      });
-    }
-    const clearGatewayBtn = document.getElementById("clearGateway");
-    if (clearGatewayBtn && gatewayInput) {
-      clearGatewayBtn.addEventListener("click", () => {
-        pushUndo();
-        ensureConfig(selected);
-        selected.config.gatewayIpv4Address = "";
-        gatewayInput.value = "";
-        gatewayInput.setCustomValidity("");
-      });
-    }
-    const macInput = document.getElementById("selectedMac") as HTMLInputElement;
-    if (macInput) {
-      captureUndoOnFocus(macInput);
-      macInput.addEventListener("input", (event: any) => {
-        const value = normaliseMacAddress(event.target.value);
-        if (!isValidMac(value) && value !== "") {
-          event.target.setCustomValidity("Enter a valid MAC address.");
-        } else {
-          event.target.setCustomValidity("");
-          selected.config = selected.config || {};
-          selected.config.macAddress = value;
-          event.target.value = value;
-          sync().render();
-        }
-      });
-    }
-    const randomMacButton = document.getElementById("randomMac");
-    if (randomMacButton && macInput) {
-      randomMacButton.addEventListener("click", () => {
-        pushUndo();
-        const mac = randomMac();
-        selected.config = selected.config || {};
-        selected.config.macAddress = mac;
-        macInput.value = mac;
-        macInput.setCustomValidity("");
-        sync().render();
-      });
-    }
-    const dnsInput = document.getElementById("selectedDns") as HTMLInputElement;
-    if (dnsInput) {
-      captureUndoOnFocus(dnsInput);
-      dnsInput.addEventListener("input", (event: any) => {
-        const value = event.target.value.trim();
-        if (!isValidIpv4(value) && value !== "") {
-          event.target.setCustomValidity("Enter a valid IPv4 address.");
-        } else {
-          event.target.setCustomValidity("");
-          ensureConfig(selected);
-          selected.config.dnsServerIp = value;
-        }
-      });
-    }
-    const clearDnsBtn = document.getElementById("clearDns");
-    if (clearDnsBtn && dnsInput) {
-      clearDnsBtn.addEventListener("click", () => {
-        pushUndo();
-        ensureConfig(selected);
-        selected.config.dnsServerIp = "";
-        dnsInput.value = "";
-        dnsInput.setCustomValidity("");
-      });
-    }
+    runOnClick("clearIpv4", "ip addr flush dev eth0");
+    runOnClick("clearGateway", "ip route del default");
+    runOnClick("clearDns", "rm /etc/resolv.conf");
+    runOnClick("randomMac", () => `ip link set dev eth0 address ${randomMac()}`);
     bindDnsmasqControls(selected);
     const managedInput = document.getElementById("selectedManaged") as HTMLInputElement;
     if (managedInput) {
@@ -975,8 +912,8 @@ export function syncPanel(): void {
     if (powerButton) powerButton.addEventListener("click", () => {
       pushUndo();
       selected.poweredOff = !selected.poweredOff;
-      // Powering on an unconfigured, cabled host is a first boot: DHCP → APIPA.
-      if (!selected.poweredOff) bootHostAutoconf(selected);
+      // Power state only — an unconfigured host stays "unassigned" until the
+      // simulation is started (Play boots it via animated DHCP).
       syncPanel();
       sync().render();
     });

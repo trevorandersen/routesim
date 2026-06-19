@@ -20,15 +20,37 @@ import { runRouterTerminalCommand } from "./router";
 import { runSwitchTerminalCommand } from "./switch";
 import { runFirewallTerminalCommand } from "./firewall";
 
+// While true, lines pushed are flagged `injected` — the simulator typed them
+// (a GUI inspector edit driving the device CLI), not the user. See runDeviceCommand.
+let injectedMode = false;
+
 // Write a line into a specific session (sim results target the session of the
 // device that started the run, even if another tab is active by then).
 export function terminalLineFor(session: TerminalSession, kind: string, text: string): void {
-  session.lines.push({ kind, text });
+  session.lines.push(injectedMode ? { kind, text, injected: true } : { kind, text });
   if (session.lines.length > 120) session.lines.splice(0, session.lines.length - 120);
 }
 
 export function terminalLine(kind: string, text: string): void {
   terminalLineFor(state.terminal, kind, text);
+}
+
+// Run a CLI command on a device's terminal as if the simulator typed it — the
+// GUI inspector uses this so every static assignment is a real, visible CLI
+// command. Surfaces the device's terminal, echoes the command, runs it, and
+// flags the command + its output `injected` (distinct styling). Synchronous
+// (config commands don't animate); not for ping/dhcp/etc.
+export function runDeviceCommand(device: Device, command: string): void {
+  const run = CLI_DISPATCH[device.type];
+  const trimmed = command.trim();
+  if (!run || !trimmed) return;
+  state.terminal = ensureSession(device);
+  openDock("terminal");
+  injectedMode = true;
+  terminalLine("command", `${terminalPromptText(device)} ${trimmed}`);
+  run(device, trimmed);
+  injectedMode = false;
+  sync().syncTerminal();
 }
 
 // ── Sessions ─────────────────────────────────────────────────────────────────
@@ -271,7 +293,7 @@ export function syncTerminal(): void {
   dom.terminalInput.placeholder = activeHost ? (activeHost.type === "router" ? "?" : "help") : "Select a device";
   dom.terminalOutput.innerHTML = state.terminal.lines.length
     ? state.terminal.lines.map(line => (
-        `<p class="terminal-line ${escapeHtml(line.kind || "")}">${escapeHtml(line.text)}</p>`
+        `<p class="terminal-line ${escapeHtml(line.kind || "")}${line.injected ? " injected" : ""}">${escapeHtml(line.text)}</p>`
       )).join("")
     : `<p class="terminal-line muted">No device terminal attached — select a device and open its terminal, or use the device list.</p>`;
   dom.terminalOutput.scrollTop = dom.terminalOutput.scrollHeight;

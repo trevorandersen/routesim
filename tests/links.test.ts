@@ -180,3 +180,20 @@ describe("links — admin status (shutdown)", () => {
     expect(toggleLinkShutdown("no-such-link")).toBeNull();
   });
 });
+
+describe("links — bandwidth / latency / loss", () => {
+  beforeEach(() => resetState());
+
+  it("round-trip through config; non-positive values are dropped", () => {
+    const link = pairTopology();
+    link.bandwidth = 100; link.latency = 20; link.loss = 5;
+    const parsed = parseConfig(JSON.stringify(buildConfigPayload())).links[0];
+    expect(parsed).toMatchObject({ bandwidth: 100, latency: 20, loss: 5 });
+    // loss is capped at 100; zero/blank values are omitted entirely.
+    link.loss = 250; link.bandwidth = 0; delete link.latency;
+    const p2 = parseConfig(JSON.stringify(buildConfigPayload())).links[0];
+    expect(p2.loss).toBe(100);
+    expect(p2.bandwidth).toBeUndefined();
+    expect(p2.latency).toBeUndefined();
+  });
+});

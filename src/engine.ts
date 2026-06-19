@@ -40,7 +40,8 @@ export function startSimulation(setup: PingSetup, originDeviceId: string, target
   const seedNow = performance.now();
   for (const ev of setup.events) {
     if (ev.linkId && ev.fromDeviceId && ev.fromDeviceId !== ev.deviceId) {
-      sim.transits.push({ frame: ev.frame, linkId: ev.linkId, fromDeviceId: ev.fromDeviceId, toDeviceId: ev.deviceId, progress: 0, startTime: seedNow });
+      const seedLink = state.links.find(l => l.id === ev.linkId);
+      sim.transits.push({ frame: ev.frame, linkId: ev.linkId, fromDeviceId: ev.fromDeviceId, toDeviceId: ev.deviceId, progress: 0, startTime: seedNow, latencyFactor: linkLatencyFactor(seedLink) });
       seeded = true;
     } else {
       sim.events.push(ev);
@@ -207,32 +208,55 @@ export function runSimulationHeadless(
 
 // ─── First boot (link-up / power-on autoconf) ────────────────────────────────
 
-// A new cable came up: any unconfigured host on either end boots its network
-// config, as a real machine does on carrier detect. Wired to addLink via the
-// device-callback registry (app.ts).
-export function autoBootLinkedHosts(aId: string, bId: string): void {
-  bootHostAutoconf(getDevice(aId));
-  bootHostAutoconf(getDevice(bId));
+// Network boot. Adding/cabling a host no longer auto-configures it — it stays
+// "unassigned" until the user starts the simulation. Then every unconfigured,
+// cabled, powered-on host boots in turn with an *animated* DHCP exchange
+// (Discover → Offer → Request → ACK on the canvas), self-assigning APIPA
+// 169.254.x.y/16 only after the simulated DHCP times out — just like a real
+// machine on carrier detect, but visible. Wired to the Play button (when idle).
+let bootQueue: string[] = [];
+
+function hostNeedsBoot(device: Device | undefined): boolean {
+  return !!device && (device.type === "computer" || device.type === "server")
+    && !device.poweredOff && !device.config?.ipv4Address
+    && state.links.some(l => !l.hidden && !l.shutdown && (l.from === device.id || l.to === device.id));
 }
 
-// First boot of an unconfigured host: a real DHCP exchange (Discover → Offer →
-// Request → ACK), run headlessly — it's background boot chatter, not a lesson
-// the user asked to watch. No answer self-assigns APIPA 169.254.x.y/16,
-// exactly like a real machine with link but no DHCP server. No-op for
-// configured/powered-off/unlinked devices, and never clobbers an active run.
-export function bootHostAutoconf(device: Device | undefined): void {
+export function unconfiguredBootableHosts(): Device[] {
+  return state.devices.filter(hostNeedsBoot);
+}
+
+// Kick off the animated boot of every unconfigured cabled host. Returns false
+// (nothing to do) if none qualify, auto-DHCP is off, or a run is already in
+// flight — setting an explanatory status hint in each case.
+export function startNetworkBoot(): boolean {
   const sim = state.simulation;
-  if (sim.status === "running" || sim.status === "paused") return;
-  if (!device || (device.type !== "computer" && device.type !== "server")) return;
-  if (device.poweredOff || device.config?.ipv4Address) return;
-  const setup = buildDhcpEvents(device);
-  if (typeof setup === "string") return; // no MAC / no link — nothing a real NIC could do either
-  const result = runSimulationHeadless(setup, device.id, "", "dhcp");
-  dom.modeLabel.textContent = result.success
-    ? `${device.name} booted: obtained ${result.assignedIp} via DHCP.`
-    : `${device.name} booted: self-assigned ${device.config?.ipv4Address}/16 (APIPA — no DHCP server answered).`;
-  sync().syncPanel();
-  sync().render();
+  if (sim.status === "running" || sim.status === "paused") return false;
+  if (!state.options.autoDhcp) {
+    dom.modeLabel.textContent = "Auto-DHCP is off — hosts won't acquire automatically (set a static IP, or run dhcp).";
+    return false;
+  }
+  bootQueue = unconfiguredBootableHosts().map(d => d.id);
+  if (!bootQueue.length) {
+    dom.modeLabel.textContent = "Nothing to boot — every host already has an address.";
+    return false;
+  }
+  return bootNextHost();
+}
+
+// Boot the next queued host (animated DHCP); finishSimulation chains to the one
+// after it, so the hosts boot one at a time.
+function bootNextHost(): boolean {
+  while (bootQueue.length) {
+    const device = getDevice(bootQueue.shift()!);
+    if (!hostNeedsBoot(device)) continue; // skip any already addressed by a prior boot
+    const setup = buildDhcpEvents(device!);
+    if (typeof setup === "string") continue;
+    dom.modeLabel.textContent = `Booting ${device!.name} via DHCP...`;
+    startSimulation(setup, device!.id, "", "dhcp");
+    return true;
+  }
+  return false;
 }
 
 export interface TracerouteHop { ttl: number; ip: string | null; reached: boolean }
@@ -297,9 +321,9 @@ function stopAnimationLoop(): void {
 function animationTick(now: number): void {
   const sim = state.simulation;
 
-  // Update transit progress
+  // Update transit progress (per-link latency stretches a dot's crossing time)
   for (const t of sim.transits) {
-    t.progress = Math.min(1, (now - t.startTime) / sim.speed);
+    t.progress = Math.min(1, (now - t.startTime) / (sim.speed * (t.latencyFactor ?? 1)));
   }
 
   sync().render();
@@ -391,13 +415,20 @@ function processNextStep(): void {
       logStep(device, "sim-drop", `${linkName(link)} is administratively down — frame dropped`);
       continue;
     }
+    // Per-link packet loss — a probabilistic drop, only in animated runs so
+    // headless reachability checks (scenarios, `run`) stay deterministic.
+    if (!sim.headless && Number(link.loss) > 0 && Math.random() * 100 < link.loss) {
+      logStep(device, "sim-drop", `${linkName(link)} dropped ${frameLabel(out.frame)} (${link.loss}% loss)`);
+      continue;
+    }
     sim.transits.push({
       frame: out.frame,
       linkId: link.id,
       fromDeviceId: event.deviceId,
       toDeviceId: out.toDeviceId,
       progress: 0,
-      startTime: now
+      startTime: now,
+      latencyFactor: linkLatencyFactor(link)
     });
   }
 
@@ -1455,6 +1486,15 @@ function findLinkBetween(a: string, b: string): any | null {
   ) || null;
 }
 
+// Maps a link's latency (ms) to a transit-time multiplier for the animation.
+// 10 ms is the "normal" LAN baseline (1×); the result is clamped so the dot
+// stays watchable (a far/satellite link crawls but never stalls forever).
+export function linkLatencyFactor(link: any): number {
+  const ms = Number(link?.latency);
+  if (!(ms > 0)) return 1;
+  return Math.min(20, Math.max(0.25, ms / 10));
+}
+
 function finishSimulation(): void {
   const sim = state.simulation;
 
@@ -1467,7 +1507,7 @@ function finishSimulation(): void {
   if (sim.mode === "dhcp") {
     if (sim.dhcpSuccess) {
       if (!sim.headless) out("", `DHCP configured:\n  IP address: ${sim.dhcpAssignedIp}\n  Default gateway: ${sim.dhcpAssignedGateway}`);
-    } else {
+    } else if (state.options.apipaFallback) {
       // APIPA fallback — link-local 169.254.0.0/16
       const apipaIp = generateApipaAddress();
       const origin = getDevice(sim.originDeviceId);
@@ -1479,6 +1519,9 @@ function finishSimulation(): void {
       }
       sim.dhcpAssignedIp = apipaIp;
       if (!sim.headless) out("error", `DHCP: no response from server.\nAPIPA: assigned link-local ${apipaIp}`);
+    } else {
+      // APIPA disabled (pedagogical) — no DHCP, no fallback: the host has no address.
+      if (!sim.headless) out("error", "DHCP: no response from server.\nAPIPA disabled — no address assigned.");
     }
   } else if (sim.mode === "dns") {
     if (!sim.headless) {
@@ -1533,6 +1576,8 @@ function finishSimulation(): void {
   sync().syncPanel();
   updateSimControls();
   stopAnimationLoop();
+  // Mid network-boot sequence: animate the next unconfigured host's DHCP.
+  if (bootQueue.length) bootNextHost();
 }
 
 function updateSimControls(): void {

@@ -102,13 +102,16 @@
           <button class="ribbon-btn danger" data-action="clear" type="button"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M19 20h-10.5l-4.21 -4.3a1 1 0 0 1 0 -1.41l10 -10a1 1 0 0 1 1.41 0l5 5a1 1 0 0 1 0 1.41l-9.2 9.3"></path><path d="M18 13.3l-6.3 -6.3"></path></svg><span>Clear</span></button>
         </div><span class="ribbon-label">Edit</span></div>
         <div class="ribbon-group"><div class="ribbon-items">
-          <button class="ribbon-btn" id="simPlayPause" type="button">▶ Play</button>
-          <button class="ribbon-btn" id="simStep" type="button">⏭ Step</button>
-          <button class="ribbon-btn" id="simStop" type="button">⏹ Stop</button>
+          <button class="ribbon-btn" id="simPlayPause" type="button"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M7 4v16l13 -8z"></path></svg><span>Play</span></button>
+          <button class="ribbon-btn" id="simStep" type="button"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 5v14l12 -7z"></path><path d="M20 5v14"></path></svg><span>Step</span></button>
+          <button class="ribbon-btn" id="simStop" type="button"><svg viewBox="0 0 24 24" aria-hidden="true"><rect x="6" y="6" width="12" height="12" rx="1"></rect></svg><span>Stop</span></button>
         </div><span class="ribbon-label">Run</span></div>
         <div class="ribbon-group"><div class="ribbon-items">
           <label class="ribbon-speed"><span>ms / hop</span><input id="simSpeed" type="range" min="200" max="3000" value="1000"></label>
         </div><span class="ribbon-label">Speed</span></div>
+        <div class="ribbon-group"><div class="ribbon-items">
+          <button class="ribbon-btn" data-action="open-settings" type="button"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M10.325 4.317c.426 -1.756 2.924 -1.756 3.35 0a1.724 1.724 0 0 0 2.573 1.066c1.543 -.94 3.31 .826 2.37 2.37a1.724 1.724 0 0 0 1.065 2.572c1.756 .426 1.756 2.924 0 3.35a1.724 1.724 0 0 0 -1.066 2.573c.94 1.543 -.826 3.31 -2.37 2.37a1.724 1.724 0 0 0 -2.572 1.065c-.426 1.756 -2.924 1.756 -3.35 0a1.724 1.724 0 0 0 -2.573 -1.066c-1.543 .94 -3.31 -.826 -2.37 -2.37a1.724 1.724 0 0 0 -1.065 -2.572c-1.756 -.426 -1.756 -2.924 0 -3.35a1.724 1.724 0 0 0 1.066 -2.573c-.94 -1.543 .826 -3.31 2.37 -2.37c1 .608 2.296 .07 2.572 -1.065z"></path><path d="M9 12a3 3 0 1 0 6 0a3 3 0 0 0 -6 0"></path></svg><span>Settings</span></button>
+        </div><span class="ribbon-label">Settings</span></div>
       </div>
 
       <div class="ribbon-panel" data-tab="view">
@@ -219,6 +222,35 @@
       </div>
     </div>
   </div>
+
+  <aside class="settings-pane" id="settingsPane" aria-label="Settings">
+    <div class="settings-pane-heading">
+      <h2>Settings</h2>
+      <button class="panel-toggle" id="settingsClose" type="button" title="Close settings" aria-label="Close settings">
+        <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M18 6 6 18"></path><path d="m6 6 12 12"></path></svg>
+      </button>
+    </div>
+    <div class="settings-pane-body">
+      <section class="settings-section">
+        <h3 class="settings-section-title">Network boot</h3>
+        <p class="settings-section-note">How unconfigured hosts behave when the simulation starts. Both are off by default, so addressing stays explicit until you opt in.</p>
+        <label class="settings-row">
+          <input id="optAutoDhcp" type="checkbox">
+          <span class="settings-row-text">
+            <span class="settings-row-title">Auto-DHCP on boot</span>
+            <span class="settings-row-desc">Unconfigured, cabled, powered-on hosts try DHCP when you press Play.</span>
+          </span>
+        </label>
+        <label class="settings-row">
+          <input id="optApipa" type="checkbox">
+          <span class="settings-row-text">
+            <span class="settings-row-title">APIPA fallback</span>
+            <span class="settings-row-desc">A host that gets no DHCP lease self-assigns a link-local 169.254.x.y/16 address.</span>
+          </span>
+        </label>
+      </section>
+    </div>
+  </aside>
 
   <div class="about-overlay" id="aboutOverlay">
     <div class="about-modal" id="aboutModal">

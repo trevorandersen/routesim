@@ -276,11 +276,11 @@
       flex-direction: column;
       align-items: center;
       gap: 4px;
-      padding: 2px 8px;
+      padding: 2px 4px;
       border-right: 1px solid var(--line);
     }
     .ribbon-group:last-child { border-right: 0; }
-    .ribbon-items { display: flex; align-items: flex-start; gap: 4px; flex: 1; }
+    .ribbon-items { display: flex; align-items: flex-start; gap: 1px; flex: 1; }
     .ribbon-items.ribbon-checks { flex-direction: column; align-items: flex-start; justify-content: center; }
     .ribbon-label { font-size: 10px; color: var(--muted); text-transform: uppercase; letter-spacing: 0.4px; }
 
@@ -294,8 +294,8 @@
       flex-direction: column;
       align-items: center;
       gap: 5px;
-      width: 66px;
-      padding: 7px 4px;
+      width: 58px;
+      padding: 7px 2px;
       border-radius: 8px;
       font-size: 11px;
       text-align: center;
@@ -329,7 +329,7 @@
     /* Split-button tool groups (Endpoint / Switch / Security): a face button +
        a caret that opens a variant menu. */
     .tool-split { position: relative; display: inline-flex; align-items: stretch; }
-    .tool-split .tool-face { width: 60px; }
+    .tool-split .tool-face { width: 58px; }
     .tool-caret {
       appearance: none;
       align-self: stretch;
@@ -387,7 +387,7 @@
     .tool-menu-item:hover { background: var(--panel-soft); border-color: var(--line); }
     .tool-menu-item.active { color: var(--accent); background: var(--accent-soft); border-color: rgba(20, 116, 111, 0.35); }
 
-    .ribbon-check { display: inline-flex; align-items: center; gap: 7px; font-size: 12px; color: var(--text); cursor: pointer; padding: 2px 0; }
+    .ribbon-check { display: inline-flex; align-items: center; gap: 7px; font-size: 12px; color: var(--text); cursor: pointer; padding: 2px 0; white-space: nowrap; }
     .ribbon-speed { display: flex; flex-direction: column; gap: 5px; font-size: 11px; color: var(--muted); justify-content: center; }
     .ribbon-speed input { width: 140px; }
 
@@ -638,6 +638,16 @@
 
     .terminal-line.muted {
       color: #95a4b3;
+    }
+
+    /* Lines the simulator issued (a GUI inspector edit), not the user — a dark
+       grey band with an accent rule so they read as "applied for you". */
+    .terminal-line.injected {
+      background: #2b323c;
+      border-left: 2px solid #5b6675;
+      margin-left: -10px;
+      padding: 1px 8px 1px 8px;
+      border-radius: 3px;
     }
 
     .terminal-input-row {
@@ -1819,6 +1829,95 @@
       overflow-x: auto;
     }
 
+    /* Settings: a right-docked pane mirroring the inspector (not a modal). It
+       shares the inspector's grid cell (column 2, row 2); opening it forces the
+       2-column layout even when the inspector itself is closed, and hides the
+       inspector underneath until it closes. */
+    .settings-pane {
+      grid-column: 2;
+      grid-row: 2;
+      min-width: 0;
+      display: none;
+      flex-direction: column;
+      background: var(--panel);
+      border-left: 1px solid var(--line);
+      overflow-y: auto;
+      overflow-x: hidden;
+    }
+    body.settings-open { grid-template-columns: minmax(0, 1fr) var(--inspector-width); }
+    body.settings-open .settings-pane { display: flex; }
+    body.settings-open .inspector { display: none; }
+    body.settings-open .dock { right: var(--inspector-width); }
+    .settings-pane-heading {
+      position: sticky;
+      top: 0;
+      z-index: 2;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 12px;
+      padding: 12px 16px;
+      background: var(--panel);
+      border-bottom: 1px solid var(--line);
+    }
+    .settings-pane-heading h2 {
+      margin: 0;
+      font-size: 13px;
+      color: var(--muted);
+      font-weight: 700;
+      letter-spacing: 0.04em;
+      text-transform: uppercase;
+    }
+    .settings-pane-body { padding: 18px; }
+    .settings-section + .settings-section {
+      margin-top: 18px;
+      padding-top: 18px;
+      border-top: 1px solid var(--border);
+    }
+    .settings-section-title {
+      margin: 0 0 4px;
+      font-size: 13px;
+      font-weight: 600;
+      color: var(--fg);
+    }
+    .settings-section-note {
+      margin: 0 0 12px;
+      font-size: 12px;
+      line-height: 1.5;
+      color: var(--muted);
+    }
+    .settings-row {
+      display: flex;
+      align-items: flex-start;
+      gap: 10px;
+      padding: 8px;
+      margin: 0 -8px;
+      border-radius: 8px;
+      cursor: pointer;
+    }
+    .settings-row:hover { background: var(--panel-soft); }
+    .settings-row input[type="checkbox"] { margin-top: 2px; flex: none; }
+    .settings-row-text { display: flex; flex-direction: column; gap: 2px; }
+    .settings-row-title { font-size: 13px; color: var(--fg); }
+    .settings-row-desc { font-size: 12px; line-height: 1.45; color: var(--muted); }
+
+    /* On narrow viewports the inspector is a fixed right-hand drawer; the
+       settings pane follows suit (placed after the desktop rule so it wins the
+       cascade when the query matches). */
+    @media (max-width: 1100px) {
+      body.settings-open { grid-template-columns: minmax(0, 1fr); }
+      body.settings-open .dock { right: 0; }
+      .settings-pane {
+        position: fixed;
+        top: 0;
+        right: 0;
+        z-index: 11;
+        width: min(var(--inspector-width), 100vw);
+        height: 100vh;
+        box-shadow: var(--shadow);
+      }
+    }
+
   </style>
 </head>
 <body class="inspector-closed dock-closed">
@@ -1913,13 +2012,16 @@
           <button class="ribbon-btn danger" data-action="clear" type="button"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M19 20h-10.5l-4.21 -4.3a1 1 0 0 1 0 -1.41l10 -10a1 1 0 0 1 1.41 0l5 5a1 1 0 0 1 0 1.41l-9.2 9.3"></path><path d="M18 13.3l-6.3 -6.3"></path></svg><span>Clear</span></button>
         </div><span class="ribbon-label">Edit</span></div>
         <div class="ribbon-group"><div class="ribbon-items">
-          <button class="ribbon-btn" id="simPlayPause" type="button">▶ Play</button>
-          <button class="ribbon-btn" id="simStep" type="button">⏭ Step</button>
-          <button class="ribbon-btn" id="simStop" type="button">⏹ Stop</button>
+          <button class="ribbon-btn" id="simPlayPause" type="button"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M7 4v16l13 -8z"></path></svg><span>Play</span></button>
+          <button class="ribbon-btn" id="simStep" type="button"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 5v14l12 -7z"></path><path d="M20 5v14"></path></svg><span>Step</span></button>
+          <button class="ribbon-btn" id="simStop" type="button"><svg viewBox="0 0 24 24" aria-hidden="true"><rect x="6" y="6" width="12" height="12" rx="1"></rect></svg><span>Stop</span></button>
         </div><span class="ribbon-label">Run</span></div>
         <div class="ribbon-group"><div class="ribbon-items">
           <label class="ribbon-speed"><span>ms / hop</span><input id="simSpeed" type="range" min="200" max="3000" value="1000"></label>
         </div><span class="ribbon-label">Speed</span></div>
+        <div class="ribbon-group"><div class="ribbon-items">
+          <button class="ribbon-btn" data-action="open-settings" type="button"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M10.325 4.317c.426 -1.756 2.924 -1.756 3.35 0a1.724 1.724 0 0 0 2.573 1.066c1.543 -.94 3.31 .826 2.37 2.37a1.724 1.724 0 0 0 1.065 2.572c1.756 .426 1.756 2.924 0 3.35a1.724 1.724 0 0 0 -1.066 2.573c.94 1.543 -.826 3.31 -2.37 2.37a1.724 1.724 0 0 0 -2.572 1.065c-.426 1.756 -2.924 1.756 -3.35 0a1.724 1.724 0 0 0 -2.573 -1.066c-1.543 .94 -3.31 -.826 -2.37 -2.37a1.724 1.724 0 0 0 -1.065 -2.572c-1.756 -.426 -1.756 -2.924 0 -3.35a1.724 1.724 0 0 0 1.066 -2.573c-.94 -1.543 .826 -3.31 2.37 -2.37c1 .608 2.296 .07 2.572 -1.065z"></path><path d="M9 12a3 3 0 1 0 6 0a3 3 0 0 0 -6 0"></path></svg><span>Settings</span></button>
+        </div><span class="ribbon-label">Settings</span></div>
       </div>
 
       <div class="ribbon-panel" data-tab="view">
@@ -2030,6 +2132,35 @@
       </div>
     </div>
   </div>
+
+  <aside class="settings-pane" id="settingsPane" aria-label="Settings">
+    <div class="settings-pane-heading">
+      <h2>Settings</h2>
+      <button class="panel-toggle" id="settingsClose" type="button" title="Close settings" aria-label="Close settings">
+        <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M18 6 6 18"></path><path d="m6 6 12 12"></path></svg>
+      </button>
+    </div>
+    <div class="settings-pane-body">
+      <section class="settings-section">
+        <h3 class="settings-section-title">Network boot</h3>
+        <p class="settings-section-note">How unconfigured hosts behave when the simulation starts. Both are off by default, so addressing stays explicit until you opt in.</p>
+        <label class="settings-row">
+          <input id="optAutoDhcp" type="checkbox">
+          <span class="settings-row-text">
+            <span class="settings-row-title">Auto-DHCP on boot</span>
+            <span class="settings-row-desc">Unconfigured, cabled, powered-on hosts try DHCP when you press Play.</span>
+          </span>
+        </label>
+        <label class="settings-row">
+          <input id="optApipa" type="checkbox">
+          <span class="settings-row-text">
+            <span class="settings-row-title">APIPA fallback</span>
+            <span class="settings-row-desc">A host that gets no DHCP lease self-assigns a link-local 169.254.x.y/16 address.</span>
+          </span>
+        </label>
+      </section>
+    </div>
+  </aside>
 
   <div class="about-overlay" id="aboutOverlay">
     <div class="about-modal" id="aboutModal">
@@ -2581,6 +2712,9 @@ Full legal text: https://creativecommons.org/publicdomain/zero/1.0/legalcode</pr
         to,
         ...link.name ? { name: String(link.name).trim() } : {},
         ...link.shutdown ? { shutdown: true } : {},
+        ...Number(link.bandwidth) > 0 ? { bandwidth: Number(link.bandwidth) } : {},
+        ...Number(link.latency) > 0 ? { latency: Number(link.latency) } : {},
+        ...Number(link.loss) > 0 ? { loss: Math.min(100, Number(link.loss)) } : {},
         ...link.fromPort != null ? { fromPort: Number(link.fromPort) } : {},
         ...link.toPort != null ? { toPort: Number(link.toPort) } : {},
         hidden: Boolean(link.hidden),
@@ -2674,7 +2808,9 @@ Full legal text: https://creativecommons.org/publicdomain/zero/1.0/legalcode</pr
       showIpAddresses: true,
       showMacAddresses: true,
       displayOptionsOpen: false,
-      networkPanelOpen: false
+      networkPanelOpen: false,
+      autoDhcp: false,
+      apipaFallback: false
     },
     nameCounters: freshNameCounters(),
     configStore: { version: 1, configs: {} },
@@ -3105,6 +3241,8 @@ Full legal text: https://creativecommons.org/publicdomain/zero/1.0/legalcode</pr
     showDeviceNames: document.getElementById("showDeviceNames"),
     showIpAddresses: document.getElementById("showIpAddresses"),
     showMacAddresses: document.getElementById("showMacAddresses"),
+    optAutoDhcp: document.getElementById("optAutoDhcp"),
+    optApipa: document.getElementById("optApipa"),
     detailsPanel: document.getElementById("detailsPanel"),
     deviceList: document.getElementById("deviceList"),
     zoomLevel: document.getElementById("zoomLevel"),
@@ -3148,7 +3286,9 @@ Full legal text: https://creativecommons.org/publicdomain/zero/1.0/legalcode</pr
     aboutOverlay: document.getElementById("aboutOverlay"),
     aboutModal: document.getElementById("aboutModal"),
     aboutHeader: document.getElementById("aboutHeader"),
-    aboutClose: document.getElementById("aboutClose")
+    aboutClose: document.getElementById("aboutClose"),
+    settingsPane: document.getElementById("settingsPane"),
+    settingsClose: document.getElementById("settingsClose")
   };
 
   // src/devices.ts
@@ -4802,7 +4942,8 @@ Full legal text: https://creativecommons.org/publicdomain/zero/1.0/legalcode</pr
     const seedNow = performance.now();
     for (const ev of setup.events) {
       if (ev.linkId && ev.fromDeviceId && ev.fromDeviceId !== ev.deviceId) {
-        sim.transits.push({ frame: ev.frame, linkId: ev.linkId, fromDeviceId: ev.fromDeviceId, toDeviceId: ev.deviceId, progress: 0, startTime: seedNow });
+        const seedLink = state.links.find((l) => l.id === ev.linkId);
+        sim.transits.push({ frame: ev.frame, linkId: ev.linkId, fromDeviceId: ev.fromDeviceId, toDeviceId: ev.deviceId, progress: 0, startTime: seedNow, latencyFactor: linkLatencyFactor(seedLink) });
         seeded = true;
       } else {
         sim.events.push(ev);
@@ -4922,21 +5063,38 @@ Full legal text: https://creativecommons.org/publicdomain/zero/1.0/legalcode</pr
       steps: sim.stepIndex
     };
   }
-  function autoBootLinkedHosts(aId, bId) {
-    bootHostAutoconf(getDevice(aId));
-    bootHostAutoconf(getDevice(bId));
+  var bootQueue = [];
+  function hostNeedsBoot(device) {
+    return !!device && (device.type === "computer" || device.type === "server") && !device.poweredOff && !device.config?.ipv4Address && state.links.some((l) => !l.hidden && !l.shutdown && (l.from === device.id || l.to === device.id));
   }
-  function bootHostAutoconf(device) {
+  function unconfiguredBootableHosts() {
+    return state.devices.filter(hostNeedsBoot);
+  }
+  function startNetworkBoot() {
     const sim = state.simulation;
-    if (sim.status === "running" || sim.status === "paused") return;
-    if (!device || device.type !== "computer" && device.type !== "server") return;
-    if (device.poweredOff || device.config?.ipv4Address) return;
-    const setup = buildDhcpEvents(device);
-    if (typeof setup === "string") return;
-    const result = runSimulationHeadless(setup, device.id, "", "dhcp");
-    dom.modeLabel.textContent = result.success ? `${device.name} booted: obtained ${result.assignedIp} via DHCP.` : `${device.name} booted: self-assigned ${device.config?.ipv4Address}/16 (APIPA \u2014 no DHCP server answered).`;
-    sync().syncPanel();
-    sync().render();
+    if (sim.status === "running" || sim.status === "paused") return false;
+    if (!state.options.autoDhcp) {
+      dom.modeLabel.textContent = "Auto-DHCP is off \u2014 hosts won't acquire automatically (set a static IP, or run dhcp).";
+      return false;
+    }
+    bootQueue = unconfiguredBootableHosts().map((d) => d.id);
+    if (!bootQueue.length) {
+      dom.modeLabel.textContent = "Nothing to boot \u2014 every host already has an address.";
+      return false;
+    }
+    return bootNextHost();
+  }
+  function bootNextHost() {
+    while (bootQueue.length) {
+      const device = getDevice(bootQueue.shift());
+      if (!hostNeedsBoot(device)) continue;
+      const setup = buildDhcpEvents(device);
+      if (typeof setup === "string") continue;
+      dom.modeLabel.textContent = `Booting ${device.name} via DHCP...`;
+      startSimulation(setup, device.id, "", "dhcp");
+      return true;
+    }
+    return false;
   }
   function runTraceroute(source, targetText, maxHops = 30) {
     const target = findPingTarget(targetText);
@@ -4979,7 +5137,7 @@ Full legal text: https://creativecommons.org/publicdomain/zero/1.0/legalcode</pr
   function animationTick(now) {
     const sim = state.simulation;
     for (const t of sim.transits) {
-      t.progress = Math.min(1, (now - t.startTime) / sim.speed);
+      t.progress = Math.min(1, (now - t.startTime) / (sim.speed * (t.latencyFactor ?? 1)));
     }
     sync().render();
     if (sim.transits.length > 0 && sim.transits.every((t) => t.progress >= 1)) {
@@ -5052,13 +5210,18 @@ Full legal text: https://creativecommons.org/publicdomain/zero/1.0/legalcode</pr
         logStep(device, "sim-drop", `${linkName(link)} is administratively down \u2014 frame dropped`);
         continue;
       }
+      if (!sim.headless && Number(link.loss) > 0 && Math.random() * 100 < link.loss) {
+        logStep(device, "sim-drop", `${linkName(link)} dropped ${frameLabel(out.frame)} (${link.loss}% loss)`);
+        continue;
+      }
       sim.transits.push({
         frame: out.frame,
         linkId: link.id,
         fromDeviceId: event.deviceId,
         toDeviceId: out.toDeviceId,
         progress: 0,
-        startTime: now
+        startTime: now,
+        latencyFactor: linkLatencyFactor(link)
       });
     }
     if (!sim.headless) {
@@ -5922,6 +6085,11 @@ Full legal text: https://creativecommons.org/publicdomain/zero/1.0/legalcode</pr
       (link) => !link.hidden && (link.from === a && link.to === b || link.from === b && link.to === a)
     ) || null;
   }
+  function linkLatencyFactor(link) {
+    const ms = Number(link?.latency);
+    if (!(ms > 0)) return 1;
+    return Math.min(20, Math.max(0.25, ms / 10));
+  }
   function finishSimulation() {
     const sim = state.simulation;
     const originSession = sessionFor(sim.originDeviceId);
@@ -5931,7 +6099,7 @@ Full legal text: https://creativecommons.org/publicdomain/zero/1.0/legalcode</pr
         if (!sim.headless) out("", `DHCP configured:
   IP address: ${sim.dhcpAssignedIp}
   Default gateway: ${sim.dhcpAssignedGateway}`);
-      } else {
+      } else if (state.options.apipaFallback) {
         const apipaIp = generateApipaAddress();
         const origin = getDevice(sim.originDeviceId);
         if (origin?.config) {
@@ -5943,6 +6111,8 @@ Full legal text: https://creativecommons.org/publicdomain/zero/1.0/legalcode</pr
         sim.dhcpAssignedIp = apipaIp;
         if (!sim.headless) out("error", `DHCP: no response from server.
 APIPA: assigned link-local ${apipaIp}`);
+      } else {
+        if (!sim.headless) out("error", "DHCP: no response from server.\nAPIPA disabled \u2014 no address assigned.");
       }
     } else if (sim.mode === "dns") {
       if (!sim.headless) {
@@ -6005,6 +6175,7 @@ Address: ${sim.dnsResolvedIp}`);
     sync().syncPanel();
     updateSimControls();
     stopAnimationLoop();
+    if (bootQueue.length) bootNextHost();
   }
   function updateSimControls() {
     const controls = document.getElementById("simControls");
@@ -6073,6 +6244,33 @@ Address: ${sim.dnsResolvedIp}`);
     sync().syncPanel();
     sync().render();
     return `Default gateway set to ${parsed.address}.`;
+  }
+  function clearHostGateway(device) {
+    if (!device.config?.gatewayIpv4Address) return "No default route configured.";
+    pushUndo();
+    ensureConfig(device);
+    device.config.gatewayIpv4Address = "";
+    sync().syncPanel();
+    sync().render();
+    return "Default route removed.";
+  }
+  function setHostMac(device, mac) {
+    const normalised = normaliseMacAddress(mac);
+    if (!isValidMac(normalised)) return `Invalid MAC address: ${mac}`;
+    pushUndo();
+    ensureConfig(device);
+    device.config.macAddress = normalised;
+    sync().syncPanel();
+    sync().render();
+    return `eth0 link-layer address set to ${normalised}.`;
+  }
+  function clearHostDns(device) {
+    if (!device.config?.dnsServerIp) return "/etc/resolv.conf is already empty.";
+    pushUndo();
+    ensureConfig(device);
+    delete device.config.dnsServerIp;
+    sync().syncPanel();
+    return "Cleared /etc/resolv.conf.";
   }
   function setHostDns(device, address) {
     const parsed = parseIpv4Token(address);
@@ -6147,6 +6345,20 @@ Address: ${sim.dnsResolvedIp}`);
       terminalLine(result.startsWith("Invalid") ? "error" : "", result);
       return;
     }
+    if (command.match(/^ip\s+route\s+(?:del|delete)\s+default(?:\s+dev\s+eth0)?$/i)) {
+      terminalLine("", clearHostGateway(host));
+      return;
+    }
+    const macSetMatch = command.match(/^ip\s+link\s+set\s+(?:dev\s+)?eth0\s+address\s+(\S+)$/i) || command.match(/^set\s+mac\s+(\S+)$/i);
+    if (macSetMatch) {
+      const result = setHostMac(host, macSetMatch[1]);
+      terminalLine(result.startsWith("Invalid") ? "error" : "", result);
+      return;
+    }
+    if (command.match(/^(?:rm\s+\/etc\/resolv\.conf|:\s*>\s*\/etc\/resolv\.conf|echo\s+-n\s*>\s*\/etc\/resolv\.conf)$/i)) {
+      terminalLine("", clearHostDns(host));
+      return;
+    }
     if (lower === "dhcp" || lower === "dhclient") {
       const result = buildDhcpEvents(host);
       if (typeof result === "string") {
@@ -6207,9 +6419,12 @@ Address: ${sim.dnsResolvedIp}`);
       "  ip addr flush dev eth0",
       "  ip route show",
       "  ip route add default via <ipv4> dev eth0",
+      "  ip route del default",
+      "  ip link set dev eth0 address <mac>",
       "  arp -n",
       "  cat /etc/resolv.conf",
       "  echo nameserver <ipv4> > /etc/resolv.conf",
+      "  rm /etc/resolv.conf",
       "  ping <name|ipv4>",
       "  traceroute <name|ipv4>",
       "  nslookup <name>               (DNS lookup)",
@@ -7484,12 +7699,25 @@ Address: ${sim.dnsResolvedIp}`);
   }
 
   // src/terminal/core.ts
+  var injectedMode = false;
   function terminalLineFor(session, kind, text) {
-    session.lines.push({ kind, text });
+    session.lines.push(injectedMode ? { kind, text, injected: true } : { kind, text });
     if (session.lines.length > 120) session.lines.splice(0, session.lines.length - 120);
   }
   function terminalLine(kind, text) {
     terminalLineFor(state.terminal, kind, text);
+  }
+  function runDeviceCommand(device, command) {
+    const run = CLI_DISPATCH[device.type];
+    const trimmed = command.trim();
+    if (!run || !trimmed) return;
+    state.terminal = ensureSession(device);
+    openDock("terminal");
+    injectedMode = true;
+    terminalLine("command", `${terminalPromptText(device)} ${trimmed}`);
+    run(device, trimmed);
+    injectedMode = false;
+    sync().syncTerminal();
   }
   function sessionFor(deviceId) {
     if (!deviceId) return void 0;
@@ -7678,7 +7906,7 @@ Address: ${sim.dnsResolvedIp}`);
     dom.terminalPrompt.textContent = activeHost ? terminalPromptText(activeHost) : "device$";
     dom.terminalInput.disabled = !activeHost;
     dom.terminalInput.placeholder = activeHost ? activeHost.type === "router" ? "?" : "help" : "Select a device";
-    dom.terminalOutput.innerHTML = state.terminal.lines.length ? state.terminal.lines.map((line) => `<p class="terminal-line ${escapeHtml(line.kind || "")}">${escapeHtml(line.text)}</p>`).join("") : `<p class="terminal-line muted">No device terminal attached \u2014 select a device and open its terminal, or use the device list.</p>`;
+    dom.terminalOutput.innerHTML = state.terminal.lines.length ? state.terminal.lines.map((line) => `<p class="terminal-line ${escapeHtml(line.kind || "")}${line.injected ? " injected" : ""}">${escapeHtml(line.text)}</p>`).join("") : `<p class="terminal-line muted">No device terminal attached \u2014 select a device and open its terminal, or use the device list.</p>`;
     dom.terminalOutput.scrollTop = dom.terminalOutput.scrollHeight;
     syncDock();
   }
@@ -7726,6 +7954,8 @@ Address: ${sim.dnsResolvedIp}`);
     dom.showDeviceNames.checked = state.options.showDeviceNames;
     dom.showIpAddresses.checked = state.options.showIpAddresses;
     dom.showMacAddresses.checked = state.options.showMacAddresses;
+    dom.optAutoDhcp.checked = state.options.autoDhcp;
+    dom.optApipa.checked = state.options.apipaFallback;
   }
   function ipSourceInfo(config) {
     if (!config?.ipv4Address) return { cls: "none", text: "unassigned" };
@@ -8086,6 +8316,21 @@ Address: ${sim.dnsResolvedIp}`);
       <input id="selectedLinkShutdown" type="checkbox" ${link.shutdown ? "checked" : ""}>
       <p class="field-note">A shut link stays in the topology but carries no traffic.</p>
     </div>
+    <div class="field-row">
+      <div class="field">
+        <label for="selectedLinkBandwidth">Bandwidth (Mbps)</label>
+        <input id="selectedLinkBandwidth" type="number" min="0" step="1" value="${escapeHtml(link.bandwidth ?? "")}" placeholder="\u2014" inputmode="decimal">
+      </div>
+      <div class="field">
+        <label for="selectedLinkLatency">Latency (ms)</label>
+        <input id="selectedLinkLatency" type="number" min="0" step="1" value="${escapeHtml(link.latency ?? "")}" placeholder="\u2014" inputmode="decimal">
+      </div>
+    </div>
+    <div class="field">
+      <label for="selectedLinkLoss">Packet loss (%)</label>
+      <input id="selectedLinkLoss" type="number" min="0" max="100" step="1" value="${escapeHtml(link.loss ?? "")}" placeholder="0" inputmode="decimal">
+      <p class="field-note">Latency slows this wire's animation; loss randomly drops frames (watch a ping fail). Bandwidth feeds the streams sim.</p>
+    </div>
     <div class="pill-row">
       <span class="pill">${escapeHtml(fromDev?.name || link.from)}</span>
       <span class="pill">${escapeHtml(toDev?.name || link.to)}</span>
@@ -8152,6 +8397,20 @@ Address: ${sim.dnsResolvedIp}`);
         sync().render();
       });
     }
+    const linkNumberField = (id, key, max) => {
+      const input = document.getElementById(id);
+      if (!input) return;
+      captureUndoOnFocus(input);
+      input.addEventListener("input", (event) => {
+        let value = Number(event.target.value);
+        if (max != null && value > max) value = max;
+        if (Number.isFinite(value) && value > 0) link[key] = value;
+        else delete link[key];
+      });
+    };
+    linkNumberField("selectedLinkBandwidth", "bandwidth");
+    linkNumberField("selectedLinkLatency", "latency");
+    linkNumberField("selectedLinkLoss", "loss", 100);
   }
   function renderFramePanel(frame) {
     const rows = [
@@ -8418,130 +8677,29 @@ Address: ${sim.dnsResolvedIp}`);
         syncTerminal();
         sync().render();
       });
-      const ipv4Input = document.getElementById("selectedIpv4");
-      const subnetNote = document.getElementById("hostSubnet");
-      const refreshSubnetNote = () => {
-        if (!subnetNote) return;
-        const c = selected.config || {};
-        subnetNote.textContent = c.ipv4Address ? `Subnet: ${networkOf(c.ipv4Address, prefixOf(c))}` : "";
+      const commitField = (id, toCommand) => {
+        const input = document.getElementById(id);
+        if (!input) return;
+        input.addEventListener("change", () => {
+          const command = toCommand(input.value.trim());
+          if (command) runDeviceCommand(selected, command);
+        });
+        input.addEventListener("keydown", (event) => {
+          if (event.key === "Enter") input.blur();
+        });
       };
-      const refreshIpSourceBadge = () => {
-        const badge = document.getElementById("ipSourceBadge");
-        if (!badge) return;
-        const info = ipSourceInfo(selected.config || {});
-        badge.className = `ip-source ip-source-${info.cls}`;
-        badge.textContent = info.text;
+      commitField("selectedIpv4", (v) => v ? `ip addr add ${v} dev eth0` : "ip addr flush dev eth0");
+      commitField("selectedGateway", (v) => v ? `ip route add default via ${v}` : "ip route del default");
+      commitField("selectedDns", (v) => v ? `echo nameserver ${v} > /etc/resolv.conf` : "rm /etc/resolv.conf");
+      commitField("selectedMac", (v) => v ? `ip link set dev eth0 address ${v}` : null);
+      const runOnClick = (id, command) => {
+        const btn = document.getElementById(id);
+        if (btn) btn.addEventListener("click", () => runDeviceCommand(selected, typeof command === "function" ? command() : command));
       };
-      if (ipv4Input) {
-        captureUndoOnFocus(ipv4Input);
-        ipv4Input.addEventListener("input", (event) => {
-          const value = event.target.value.trim();
-          const parsed = value === "" ? null : parseIpv4Token(value);
-          if (value !== "" && !parsed) {
-            event.target.setCustomValidity("Enter a valid IPv4 address (optionally with /prefix).");
-          } else {
-            event.target.setCustomValidity("");
-            selected.config = selected.config || {};
-            selected.config.ipv4Address = parsed ? parsed.address : "";
-            if (parsed) selected.config.ipSource = "static";
-            else delete selected.config.ipSource;
-            if (parsed?.prefixLength != null) selected.config.prefixLength = parsed.prefixLength;
-            refreshSubnetNote();
-            refreshIpSourceBadge();
-            sync().render();
-          }
-        });
-      }
-      const gatewayInput = document.getElementById("selectedGateway");
-      if (gatewayInput) {
-        captureUndoOnFocus(gatewayInput);
-        gatewayInput.addEventListener("input", (event) => {
-          const value = event.target.value.trim();
-          if (!isValidIpv4(value) && value !== "") {
-            event.target.setCustomValidity("Enter a valid IPv4 address.");
-          } else {
-            event.target.setCustomValidity("");
-            ensureConfig(selected);
-            selected.config.gatewayIpv4Address = value;
-          }
-        });
-      }
-      const clearIpv4Btn = document.getElementById("clearIpv4");
-      if (clearIpv4Btn && ipv4Input) {
-        clearIpv4Btn.addEventListener("click", () => {
-          pushUndo();
-          selected.config = selected.config || {};
-          selected.config.ipv4Address = "";
-          delete selected.config.ipSource;
-          ipv4Input.value = "";
-          ipv4Input.setCustomValidity("");
-          refreshSubnetNote();
-          refreshIpSourceBadge();
-          sync().render();
-        });
-      }
-      const clearGatewayBtn = document.getElementById("clearGateway");
-      if (clearGatewayBtn && gatewayInput) {
-        clearGatewayBtn.addEventListener("click", () => {
-          pushUndo();
-          ensureConfig(selected);
-          selected.config.gatewayIpv4Address = "";
-          gatewayInput.value = "";
-          gatewayInput.setCustomValidity("");
-        });
-      }
-      const macInput = document.getElementById("selectedMac");
-      if (macInput) {
-        captureUndoOnFocus(macInput);
-        macInput.addEventListener("input", (event) => {
-          const value = normaliseMacAddress(event.target.value);
-          if (!isValidMac(value) && value !== "") {
-            event.target.setCustomValidity("Enter a valid MAC address.");
-          } else {
-            event.target.setCustomValidity("");
-            selected.config = selected.config || {};
-            selected.config.macAddress = value;
-            event.target.value = value;
-            sync().render();
-          }
-        });
-      }
-      const randomMacButton = document.getElementById("randomMac");
-      if (randomMacButton && macInput) {
-        randomMacButton.addEventListener("click", () => {
-          pushUndo();
-          const mac = randomMac();
-          selected.config = selected.config || {};
-          selected.config.macAddress = mac;
-          macInput.value = mac;
-          macInput.setCustomValidity("");
-          sync().render();
-        });
-      }
-      const dnsInput = document.getElementById("selectedDns");
-      if (dnsInput) {
-        captureUndoOnFocus(dnsInput);
-        dnsInput.addEventListener("input", (event) => {
-          const value = event.target.value.trim();
-          if (!isValidIpv4(value) && value !== "") {
-            event.target.setCustomValidity("Enter a valid IPv4 address.");
-          } else {
-            event.target.setCustomValidity("");
-            ensureConfig(selected);
-            selected.config.dnsServerIp = value;
-          }
-        });
-      }
-      const clearDnsBtn = document.getElementById("clearDns");
-      if (clearDnsBtn && dnsInput) {
-        clearDnsBtn.addEventListener("click", () => {
-          pushUndo();
-          ensureConfig(selected);
-          selected.config.dnsServerIp = "";
-          dnsInput.value = "";
-          dnsInput.setCustomValidity("");
-        });
-      }
+      runOnClick("clearIpv4", "ip addr flush dev eth0");
+      runOnClick("clearGateway", "ip route del default");
+      runOnClick("clearDns", "rm /etc/resolv.conf");
+      runOnClick("randomMac", () => `ip link set dev eth0 address ${randomMac()}`);
       bindDnsmasqControls(selected);
       const managedInput = document.getElementById("selectedManaged");
       if (managedInput) {
@@ -8643,7 +8801,6 @@ Address: ${sim.dnsResolvedIp}`);
       if (powerButton) powerButton.addEventListener("click", () => {
         pushUndo();
         selected.poweredOff = !selected.poweredOff;
-        if (!selected.poweredOff) bootHostAutoconf(selected);
         syncPanel();
         sync().render();
       });
@@ -9475,6 +9632,14 @@ Address: ${sim.dnsResolvedIp}`);
   function closeAbout() {
     dom.aboutOverlay.classList.remove("open");
   }
+  function openSettings() {
+    document.body.classList.add("settings-open");
+    requestAnimationFrame(resizeCanvas);
+  }
+  function closeSettings() {
+    document.body.classList.remove("settings-open");
+    requestAnimationFrame(resizeCanvas);
+  }
   var aboutDrag = null;
   function startAboutDrag(event) {
     if (event.target?.closest("button")) return;
@@ -9519,6 +9684,10 @@ Address: ${sim.dnsResolvedIp}`);
     if (event.key === "Escape") {
       if (dom.aboutOverlay.classList.contains("open")) {
         closeAbout();
+        return;
+      }
+      if (document.body.classList.contains("settings-open")) {
+        closeSettings();
         return;
       }
       if (state.portSelection) {
@@ -9773,7 +9942,8 @@ Address: ${sim.dnsResolvedIp}`);
         consoleLine("output", "Shortcuts: V select \xB7 C computer \xB7 E server \xB7 S switch \xB7 R router \xB7 F firewall \xB7 L connect \xB7 W configure \xB7 Del delete \xB7 Esc cancel \xB7 Ctrl/Cmd+Z undo \xB7 scroll to zoom.");
       },
       "help-commands": () => openConsole(),
-      "help-about": openAbout
+      "help-about": openAbout,
+      "open-settings": openSettings
     };
     document.addEventListener("click", (event) => {
       const el = event.target?.closest?.("[data-action],[data-theme-id]");
@@ -9835,11 +10005,14 @@ Address: ${sim.dnsResolvedIp}`);
     bindOptionToggle(dom.showDeviceNames, "showDeviceNames");
     bindOptionToggle(dom.showIpAddresses, "showIpAddresses");
     bindOptionToggle(dom.showMacAddresses, "showMacAddresses");
+    bindOptionToggle(dom.optAutoDhcp, "autoDhcp");
+    bindOptionToggle(dom.optApipa, "apipaFallback");
     window.addEventListener("resize", resizeCanvas);
     dom.simPlayPause.addEventListener("click", () => {
       const sim = state.simulation;
       if (sim.status === "running") pauseSimulation();
       else if (sim.status === "paused") resumeSimulation();
+      else startNetworkBoot();
     });
     dom.simStep.addEventListener("click", stepOnce);
     dom.simStop.addEventListener("click", () => {
@@ -9858,6 +10031,7 @@ Address: ${sim.dnsResolvedIp}`);
     dom.aboutOverlay.addEventListener("click", (event) => {
       if (event.target === dom.aboutOverlay) closeAbout();
     });
+    dom.settingsClose.addEventListener("click", closeSettings);
     dom.aboutHeader.addEventListener("pointerdown", startAboutDrag);
     dom.aboutHeader.addEventListener("pointermove", moveAboutDrag);
     dom.aboutHeader.addEventListener("pointerup", endAboutDrag);
@@ -9931,11 +10105,14 @@ Address: ${sim.dnsResolvedIp}`);
           }
         } : {}
       })),
-      links: state.links.map(({ from, to, name, shutdown, fromPort, toPort, hidden, collapsedBy, proxy }) => ({
+      links: state.links.map(({ from, to, name, shutdown, bandwidth, latency, loss, fromPort, toPort, hidden, collapsedBy, proxy }) => ({
         from,
         to,
         ...name ? { name } : {},
         ...shutdown ? { shutdown: true } : {},
+        ...bandwidth > 0 ? { bandwidth } : {},
+        ...latency > 0 ? { latency } : {},
+        ...loss > 0 ? { loss } : {},
         ...fromPort != null ? { fromPort } : {},
         ...toPort != null ? { toPort } : {},
         ...hidden ? { hidden: true } : {},
@@ -10746,7 +10923,6 @@ Address: ${sim.dnsResolvedIp}`);
   registerDeviceCallbacks({
     setTool,
     setNetworkPanel,
-    linkUp: autoBootLinkedHosts,
     openTerminal: (device) => {
       if (canOpenTerminal(device)) openTerminalFor(device);
     }

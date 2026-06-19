@@ -1,36 +1,69 @@
 /**
- * First-boot autoconf: an unconfigured host whose cable comes up (or that is
- * powered on while cabled) behaves like a real machine — it tries DHCP, and
- * self-assigns APIPA 169.254.x.y/16 when no server answers. Wired through the
- * device-callback registry (addLink → linkUp → engine.autoBootLinkedHosts),
- * which this file registers for real, as app.ts does.
+ * Network boot. Adding/cabling/powering a host no longer auto-configures it —
+ * it stays "unassigned" until the user starts the simulation. Then Play
+ * (engine.startNetworkBoot) boots every unconfigured cabled host with an
+ * *animated* DHCP exchange, self-assigning APIPA only after the simulated DHCP
+ * times out. These tests drive the animated boot via the rAF-stub harness.
  */
-import { describe, it, expect, beforeAll, afterAll, beforeEach } from "bun:test";
+import { describe, it, expect, beforeAll, beforeEach, afterEach } from "bun:test";
 import { state } from "../src/state";
-import { registerDeviceCallbacks } from "../src/devices";
-import { autoBootLinkedHosts, bootHostAutoconf } from "../src/engine";
+import { startNetworkBoot, unconfiguredBootableHosts, stepOnce } from "../src/engine";
 import { runConsoleScript, runConsoleCommand as exec } from "../src/commands";
 import { registerNoopCallbacks, resetState } from "./helpers";
 
-beforeAll(() => {
-  registerNoopCallbacks();
-  registerDeviceCallbacks({ setTool: () => {}, setNetworkPanel: () => {}, linkUp: autoBootLinkedHosts });
-});
-
-// Don't leak the hook into other test files (bun shares module state).
-afterAll(() => registerDeviceCallbacks({ setTool: () => {}, setNetworkPanel: () => {} }));
+beforeAll(() => registerNoopCallbacks());
 
 const pc = (name: string) => state.devices.find(d => d.name === name)!;
 
-describe("first boot — link-up autoconf", () => {
-  beforeEach(() => resetState());
+// The preload's synchronous rAF would recurse through the animation loop, so
+// stub it to a no-op and pump the (possibly chained) boots via stepOnce.
+const realRaf = (globalThis as any).requestAnimationFrame;
+beforeEach(() => {
+  resetState();
+  state.options.autoDhcp = true;        // global toggles now default off; turn them on for the boot tests
+  state.options.apipaFallback = true;   // (resetState doesn't touch options)
+  (globalThis as any).requestAnimationFrame = () => 0;
+});
+afterEach(() => { (globalThis as any).requestAnimationFrame = realRaf; });
 
+function runBoot(): boolean {
+  const started = startNetworkBoot();
+  if (!started) return false;
+  let guard = 0;
+  while (state.simulation.status !== "done" && guard++ < 2000) stepOnce();
+  return true;
+}
+
+describe("network boot — adding/cabling no longer auto-configures", () => {
+  it("a freshly cabled host stays unassigned (no silent APIPA)", () => {
+    runConsoleScript(`
+      add computer PC1 at 0 0
+      add switch SW at 200 0
+      link PC1 SW
+    `);
+    expect(pc("PC1").config.ipv4Address || "").toBe("");
+  });
+
+  it("power-cycling a host doesn't boot it either", () => {
+    runConsoleScript(`
+      add computer PC1 at 0 0
+      add switch SW at 200 0
+      link PC1 SW
+    `);
+    pc("PC1").poweredOff = true;
+    pc("PC1").poweredOff = false;
+    expect(pc("PC1").config.ipv4Address || "").toBe("");
+  });
+});
+
+describe("network boot — Play (startNetworkBoot) boots unconfigured hosts", () => {
   it("self-assigns APIPA /16 when no DHCP server answers", () => {
     runConsoleScript(`
       add computer PC1 at 0 0
       add switch SW at 200 0
       link PC1 SW
     `);
+    expect(runBoot()).toBe(true);
     const c = pc("PC1").config;
     expect(c.ipv4Address).toMatch(/^169\.254\.\d+\.\d+$/);
     expect(c.prefixLength).toBe(16);
@@ -44,9 +77,10 @@ describe("first boot — link-up autoconf", () => {
       add switch SW at 200 0
       add router R1 at 400 0
       link SW R1
+      link PC1 SW
     `);
     exec("interface R1 SW ip 192.168.1.1");
-    exec("link PC1 SW");
+    runBoot();
     const c = pc("PC1").config;
     expect(c.ipv4Address).toBe("192.168.1.100");
     expect(c.gatewayIpv4Address).toBe("192.168.1.1");
@@ -63,66 +97,73 @@ describe("first boot — link-up autoconf", () => {
       add computer PC1 at 400 0
       link PC1 SW
     `);
+    runBoot();
     const c = pc("PC1").config;
     expect(c.ipv4Address).toBe("192.168.1.100");
     expect(c.dnsServerIp).toBe("192.168.1.53");
   });
 
-  it("never touches a host that already has an address", () => {
+  it("boots several unconfigured hosts in turn", () => {
     runConsoleScript(`
+      add router R1 at 600 0
+      add switch SW at 300 0
+      link SW R1
       add computer PC1 at 0 0
-      add switch SW at 200 0
-      ip PC1 10.0.0.5/8
+      add computer PC2 at 0 200
       link PC1 SW
+      link PC2 SW
     `);
-    expect(pc("PC1").config.ipv4Address).toBe("10.0.0.5");
-    expect(pc("PC1").config.prefixLength).toBe(8);
-  });
-
-  it("ignores powered-off hosts and non-host endpoints", () => {
-    runConsoleScript(`
-      add computer PC1 at 0 0
-      add switch SW1 at 200 0
-      add switch SW2 at 400 0
-    `);
-    pc("PC1").poweredOff = true;
-    exec("link PC1 SW1");
-    exec("link SW1 SW2");
-    expect(pc("PC1").config.ipv4Address || "").toBe("");
-  });
-
-  it("does not clobber an active simulation", () => {
-    runConsoleScript(`
-      add computer PC1 at 0 0
-      add switch SW at 200 0
-    `);
-    state.simulation.status = "running";
-    exec("link PC1 SW");
-    expect(pc("PC1").config.ipv4Address || "").toBe("");
-    state.simulation.status = "idle";
+    exec("interface R1 SW ip 192.168.1.1");
+    runBoot();
+    // Each got a distinct lease from the router's .100–.254 range.
+    expect(pc("PC1").config.ipv4Address).toMatch(/^192\.168\.1\.1\d\d$/);
+    expect(pc("PC2").config.ipv4Address).toMatch(/^192\.168\.1\.1\d\d$/);
+    expect(pc("PC1").config.ipv4Address).not.toBe(pc("PC2").config.ipv4Address);
   });
 });
 
-describe("first boot — power-on autoconf", () => {
-  beforeEach(() => resetState());
-
-  it("powering on an unconfigured, cabled host boots it (APIPA here)", () => {
+describe("network boot — which hosts qualify", () => {
+  it("excludes configured, powered-off, and uncabled hosts", () => {
     runConsoleScript(`
-      add computer PC1 at 0 0
-      add switch SW at 200 0
+      add computer CONFIGURED at 0 0
+      add computer OFF at 0 100
+      add computer LONELY at 0 200
+      add computer BOOTME at 0 300
+      add switch SW at 300 0
+      ip CONFIGURED 10.0.0.5/8
+      link CONFIGURED SW
+      link OFF SW
+      link BOOTME SW
     `);
-    pc("PC1").poweredOff = true;
-    exec("link PC1 SW");                 // powered off: nothing happens
-    expect(pc("PC1").config.ipv4Address || "").toBe("");
-    pc("PC1").poweredOff = false;        // the inspector's power button does this…
-    bootHostAutoconf(pc("PC1"));         // …then calls bootHostAutoconf
-    expect(pc("PC1").config.ipv4Address).toMatch(/^169\.254\./);
-    expect(pc("PC1").config.prefixLength).toBe(16);
+    pc("OFF").poweredOff = true;
+    const names = unconfiguredBootableHosts().map(d => d.name).sort();
+    expect(names).toEqual(["BOOTME"]); // not CONFIGURED (has IP), OFF (powered off), LONELY (no cable)
   });
 
-  it("a boot with no cable does nothing (no carrier, no address)", () => {
-    runConsoleScript(`add computer PC1 at 0 0`);
-    bootHostAutoconf(pc("PC1"));
+  it("startNetworkBoot returns false when there's nothing to boot", () => {
+    runConsoleScript(`add computer PC1 at 0 0`); // no cable
+    expect(startNetworkBoot()).toBe(false);
+  });
+});
+
+describe("network boot — the global Auto-DHCP / APIPA toggles", () => {
+  it("Auto-DHCP off: Play boots nothing — the host stays unassigned", () => {
+    runConsoleScript(`add computer PC1 at 0 0\nadd switch SW at 200 0\nlink PC1 SW`);
+    state.options.autoDhcp = false;
+    expect(startNetworkBoot()).toBe(false);
     expect(pc("PC1").config.ipv4Address || "").toBe("");
+  });
+
+  it("APIPA off: a failed DHCP leaves the host with no address (no link-local)", () => {
+    runConsoleScript(`add computer PC1 at 0 0\nadd switch SW at 200 0\nlink PC1 SW`);
+    state.options.apipaFallback = false;
+    runBoot(); // animated DHCP runs, finds no server
+    expect(pc("PC1").config.ipv4Address || "").toBe(""); // unassigned — APIPA suppressed
+  });
+
+  it("APIPA on (default) still self-assigns when DHCP fails", () => {
+    runConsoleScript(`add computer PC1 at 0 0\nadd switch SW at 200 0\nlink PC1 SW`);
+    runBoot();
+    expect(pc("PC1").config.ipv4Address).toMatch(/^169\.254\./);
   });
 });

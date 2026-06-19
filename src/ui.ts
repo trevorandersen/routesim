@@ -12,7 +12,7 @@ import { openConsole, consoleLine, submitConsoleCommand, handleConsoleKeydown } 
 import { loadScenario } from "./scenarios";
 import { runActiveScenarioCheck, dismissScenario } from "./scenario-ui";
 import { loadTopology } from "./config";
-import { pauseSimulation, resumeSimulation, stepOnce, stopSimulation, syncSimLog } from "./engine";
+import { pauseSimulation, resumeSimulation, stepOnce, stopSimulation, syncSimLog, startNetworkBoot } from "./engine";
 import { setupRibbon, renderScenarioOptions } from "./ribbon";
 import * as io from "./io";
 
@@ -114,6 +114,17 @@ export function openAbout(): void {
 }
 export function closeAbout(): void { dom.aboutOverlay.classList.remove("open"); }
 
+// Settings is a right-docked pane (like the device-config inspector), not a
+// modal: toggle a body class and reflow the canvas so the stage gives up width.
+export function openSettings(): void {
+  document.body.classList.add("settings-open");
+  requestAnimationFrame(resizeCanvas);
+}
+export function closeSettings(): void {
+  document.body.classList.remove("settings-open");
+  requestAnimationFrame(resizeCanvas);
+}
+
 let aboutDrag: { dx: number; dy: number } | null = null;
 
 function startAboutDrag(event: PointerEvent): void {
@@ -161,6 +172,10 @@ export function handleGlobalKeydown(event: KeyboardEvent): void {
   if (event.key === "Escape") {
     if (dom.aboutOverlay.classList.contains("open")) {
       closeAbout();
+      return;
+    }
+    if (document.body.classList.contains("settings-open")) {
+      closeSettings();
       return;
     }
     if (state.portSelection) {
@@ -431,6 +446,7 @@ export function setupUI(): void {
     "help-shortcuts": () => { openConsole(); consoleLine("output", "Shortcuts: V select · C computer · E server · S switch · R router · F firewall · L connect · W configure · Del delete · Esc cancel · Ctrl/Cmd+Z undo · scroll to zoom."); },
     "help-commands": () => openConsole(),
     "help-about": openAbout,
+    "open-settings": openSettings,
   };
   document.addEventListener("click", (event) => {
     const el = (event.target as HTMLElement)?.closest?.("[data-action],[data-theme-id]") as HTMLElement | null;
@@ -503,6 +519,8 @@ export function setupUI(): void {
   bindOptionToggle(dom.showDeviceNames, "showDeviceNames");
   bindOptionToggle(dom.showIpAddresses, "showIpAddresses");
   bindOptionToggle(dom.showMacAddresses, "showMacAddresses");
+  bindOptionToggle(dom.optAutoDhcp, "autoDhcp");
+  bindOptionToggle(dom.optApipa, "apipaFallback");
   window.addEventListener("resize", resizeCanvas);
 
   // Simulation controls
@@ -510,6 +528,9 @@ export function setupUI(): void {
     const sim = state.simulation;
     if (sim.status === "running") pauseSimulation();
     else if (sim.status === "paused") resumeSimulation();
+    // Idle: starting the sim boots any unconfigured cabled hosts (animated DHCP);
+    // startNetworkBoot sets the status hint (incl. when auto-DHCP is off).
+    else startNetworkBoot();
   });
   dom.simStep.addEventListener("click", stepOnce);
   dom.simStop.addEventListener("click", () => {
@@ -532,6 +553,7 @@ export function setupUI(): void {
   dom.aboutOverlay.addEventListener("click", (event) => {
     if (event.target === dom.aboutOverlay) closeAbout();
   });
+  dom.settingsClose.addEventListener("click", closeSettings);
   dom.aboutHeader.addEventListener("pointerdown", startAboutDrag);
   dom.aboutHeader.addEventListener("pointermove", moveAboutDrag);
   dom.aboutHeader.addEventListener("pointerup", endAboutDrag);

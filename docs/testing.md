@@ -43,7 +43,7 @@ The app reads `document.getElementById` at module load (`dom.ts`) and draws to a
 
 ### `resetState()` and `registerNoopCallbacks()`
 
-Call `registerNoopCallbacks()` once in a top-level `beforeAll` (so `sync().render()` etc. are no-ops), and `resetState()` in `beforeEach` for isolation. `resetState` clears devices/links/selection/undo and resets the `simulation`, terminal session/dock, and `console` sub-states to baselines. Tests that register **device** callbacks for real (e.g. `linkUp`/`openTerminal` in `firstboot.test.ts`/`dock.test.ts`) must clear them in `afterAll` — bun shares module state across test files.
+Call `registerNoopCallbacks()` once in a top-level `beforeAll` (so `sync().render()` etc. are no-ops), and `resetState()` in `beforeEach` for isolation. `resetState` clears devices/links/selection/undo and resets the `simulation`, terminal session/dock, and `console` sub-states to baselines. Tests that register **device** callbacks for real (e.g. `openTerminal` in `dock.test.ts`) must clear them in `afterAll` — bun shares module state across test files.
 
 ## Testing style
 
@@ -85,10 +85,10 @@ describe("setSwitchPortVlan", () => {
 | `tests/prefix.test.ts` | Real subnet prefixes: longest-prefix behaviour and the display/export surfaces |
 | `tests/capture.test.ts` | The packet list: `packetColumns` mapping + per-wire capture recording (cap, headless preservation) |
 | `tests/dock.test.ts` | The bottom dock: terminal sessions/tabs, console `cli` session sharing, configure-opens-terminal |
-| `tests/links.test.ts` | Link naming (derived default + override), link deletion, the single-NIC host guard, admin status (shut blocks traffic; `shut`/`noshut`; round-trip) |
-| `tests/firstboot.test.ts` | First-boot autoconf: DHCP on link-up/power-on with APIPA fallback |
+| `tests/links.test.ts` | Link naming (derived default + override), link deletion, the single-NIC host guard, admin status (shut blocks traffic; `shut`/`noshut`; round-trip), bandwidth/latency/loss round-trip |
+| `tests/firstboot.test.ts` | Network boot: cabling/power no longer auto-configures; Play (`startNetworkBoot`) boots unconfigured hosts via animated DHCP → APIPA (rAF-stub harness); the global Auto-DHCP / APIPA toggles |
 | `tests/terminal.test.ts` | Terminal display + mutator helpers (host/router/switch, VLAN, trunk) |
-| `tests/terminal-commands.test.ts` | The command **dispatchers**, router mode machine, abbreviation + `?` |
+| `tests/terminal-commands.test.ts` | The command **dispatchers**, router mode machine, abbreviation + `?`, the host inspector-set commands (`ip link set`/`ip route del`/`rm resolv.conf`), and `runDeviceCommand` (injected) |
 | `tests/commands.test.ts` | The console command engine (verbs, headless runs, script round-trip) |
 | `tests/simulation.test.ts` | `l2Reachable`, `getVlanForDevice`, `buildPing/DhcpEvents` |
 | `tests/scenarios.test.ts` | Scenario loading/goal checks + positive-coordinate invariants |

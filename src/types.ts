@@ -9,6 +9,7 @@ export interface Point {
 export interface TerminalLine {
   kind: string;
   text: string;
+  injected?: boolean;  // issued by the simulator (a GUI inspector edit), not typed by the user
 }
 
 // One terminal session per device: its own scrollback, command history, and
@@ -49,6 +50,10 @@ export interface DisplayOptions {
   showMacAddresses: boolean;
   displayOptionsOpen: boolean;
   networkPanelOpen: boolean;
+  // Simulation-behaviour toggles (pedagogical): whether booting hosts attempt
+  // DHCP, and whether a failed DHCP falls back to link-local APIPA.
+  autoDhcp: boolean;
+  apipaFallback: boolean;
 }
 
 export interface ArpEntry {
@@ -270,6 +275,9 @@ export interface Link {
   to: string;
   name?: string;       // user-given name; unnamed links derive "A ↔ B" (linkName in devices.ts)
   shutdown?: boolean;  // administratively down — present in the topology but carries no traffic
+  bandwidth?: number;  // capacity in Mbps (the streams sim's input; metadata in packet mode)
+  latency?: number;    // ms — slows this link's transit animation (a far/WAN link crawls)
+  loss?: number;       // % drop probability applied per forwarded traversal (animated runs only)
   fromPort?: number;   // 1-based port number on the "from" device
   toPort?: number;     // 1-based port number on the "to" device
   hidden?: boolean;
@@ -367,6 +375,7 @@ export interface ActiveTransit {
   toDeviceId: string;
   progress: number;
   startTime: number;
+  latencyFactor?: number;  // multiplies this dot's crossing time (per-link latency); 1 = normal
 }
 
 export interface SimLogEntry {

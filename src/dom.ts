@@ -8,6 +8,8 @@ export const dom = {
   showDeviceNames: document.getElementById("showDeviceNames") as HTMLInputElement,
   showIpAddresses: document.getElementById("showIpAddresses") as HTMLInputElement,
   showMacAddresses: document.getElementById("showMacAddresses") as HTMLInputElement,
+  optAutoDhcp: document.getElementById("optAutoDhcp") as HTMLInputElement,
+  optApipa: document.getElementById("optApipa") as HTMLInputElement,
   detailsPanel: document.getElementById("detailsPanel")!,
   deviceList: document.getElementById("deviceList")!,
   zoomLevel: document.getElementById("zoomLevel")!,
@@ -52,4 +54,6 @@ export const dom = {
   aboutModal: document.getElementById("aboutModal")!,
   aboutHeader: document.getElementById("aboutHeader")!,
   aboutClose: document.getElementById("aboutClose")!,
+  settingsPane: document.getElementById("settingsPane")!,
+  settingsClose: document.getElementById("settingsClose")!,
 };

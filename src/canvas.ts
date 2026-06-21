@@ -62,7 +62,7 @@ export function syncZoomLevel(): void {
   dom.zoomLevel.textContent = `${Math.round(state.scale * 100)}%`;
 }
 
-const HOST_TYPES = new Set(["computer", "server"]);
+const HOST_TYPES = new Set(["computer", "laptop", "server"]);
 
 export function linkColorFor(from: any, to: any): string {
   if (from.type === "router" && to.type === "router") return cssColor("--link-router");
@@ -105,6 +105,7 @@ export function drawLink(link: any): void {
   // inspected-frame transit dot), so the row and the canvas point at each other.
   const captureLink = state.inspectedCapture?.linkId === link.id;
   const shut = !!link.shutdown;
+  const wireless = !!link.wireless;
   const linkColor = captureLink ? colors.selected : active ? cssColor("--link-active") : shut ? cssColor("--danger") : linkColorFor(from, to);
   const dimmed = from.poweredOff || to.poweredOff;
   const trunk = isTrunkLink(from, to);
@@ -112,10 +113,12 @@ export function drawLink(link: any): void {
   ctx.save();
   if (dimmed) ctx.globalAlpha = 0.3;
   else if (shut) ctx.globalAlpha = 0.6; // administratively down — drawn faint + dashed
+  else if (wireless) ctx.globalAlpha = 0.85;
   if (captureLink) { ctx.shadowColor = colors.selected; ctx.shadowBlur = 12; }
   ctx.strokeStyle = linkColor;
   ctx.lineWidth = captureLink ? 4 : active ? 3 : 2;
   if (shut) ctx.setLineDash([6, 5]);
+  else if (wireless) ctx.setLineDash([2, 6]); // a WiFi association — dotted, not a cable
 
   if (trunk) {
     // Double line for trunk links

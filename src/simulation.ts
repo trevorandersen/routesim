@@ -88,7 +88,7 @@ export function getVlanForDevice(deviceId: string): number {
 export function findPingTarget(value: string): any {
   const target = String(value || "").trim().toLowerCase();
   return state.devices.find(device =>
-    (device.type === "computer" || device.type === "server") && (
+    (device.type === "computer" || device.type === "laptop" || device.type === "server") && (
       String(device.config?.ipv4Address || "").toLowerCase() === target ||
       device.name.toLowerCase() === target
     )

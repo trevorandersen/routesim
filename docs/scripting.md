@@ -46,7 +46,7 @@ Param keys and boolean values are case-insensitive. Adding a setting is a one-ro
 ### Topology
 | Command | Effect |
 |---------|--------|
-| `add <computer\|server\|switch\|router\|firewall\|hub> [name] [at <x> <y>]` | Create a device (computers/servers get a random MAC). |
+| `add <computer\|laptop\|server\|switch\|router\|firewall\|hub\|access-point> [name] [at <x> <y>]` | Create a device (hosts get a random MAC). A `laptop` is a WiFi-only host; an `access-point` bridges laptops onto the wired LAN. |
 | `remove <ref>` / `delete <ref>` | Delete a device and its links. |
 | `link <a> <b> [portA portB]` | Connect two devices (optional explicit ports). |
 | `linkset <a> <b> <name\|bandwidth\|latency\|loss> <value>` | Set a link attribute (`0` clears a numeric one). |

@@ -1890,6 +1890,7 @@
             <div class="tool-menu" hidden>
               <button class="tool-menu-item active" data-tool="computer" type="button"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M3 5a1 1 0 0 1 1 -1h16a1 1 0 0 1 1 1v10a1 1 0 0 1 -1 1h-16a1 1 0 0 1 -1 -1v-10"></path><path d="M7 20h10"></path><path d="M9 16v4"></path><path d="M15 16v4"></path></svg><span>Client PC</span></button>
               <button class="tool-menu-item" data-tool="server" type="button"><svg viewBox="0 0 24 24" aria-hidden="true"><rect x="3" y="4" width="18" height="8" rx="3"></rect><rect x="3" y="12" width="18" height="8" rx="3"></rect><path d="M7 8l0 .01"></path><path d="M7 16l0 .01"></path></svg><span>Server</span></button>
+              <button class="tool-menu-item" data-tool="laptop" type="button"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M3 19l18 0"></path><path d="M5 5h14a1 1 0 0 1 1 1v9a1 1 0 0 1 -1 1h-14a1 1 0 0 1 -1 -1v-9a1 1 0 0 1 1 -1z"></path></svg><span>Laptop</span></button>
             </div>
           </div>
 
@@ -1901,6 +1902,8 @@
               <button class="tool-menu-item" data-tool="managed-switch" type="button"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M16 3l4 4l-4 4"></path><path d="M10 7l10 0"></path><path d="M8 13l-4 4l4 4"></path><path d="M4 17l9 0"></path></svg><span>Managed switch</span></button>
             </div>
           </div>
+
+          <button class="ribbon-btn tool-button" data-tool="access-point" type="button"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 12l0 .01"></path><path d="M14.828 9.172a4 4 0 0 1 0 5.656"></path><path d="M17.657 6.343a8 8 0 0 1 0 11.314"></path><path d="M9.172 14.828a4 4 0 0 1 0 -5.656"></path><path d="M6.343 17.657a8 8 0 0 1 0 -11.314"></path></svg><span>Access Pt</span></button>
 
           <button class="ribbon-btn tool-button" data-tool="router" type="button"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 12m-9 0a9 9 0 1 0 18 0a9 9 0 1 0 -18 0"></path><path d="M6 12h5"></path><path d="M8 10l3 2l-3 2"></path><path d="M18 12h-5"></path><path d="M16 10l-3 2l3 2"></path></svg><span>Router</span></button>
 
@@ -2250,6 +2253,22 @@ Full legal text: https://creativecommons.org/publicdomain/zero/1.0/legalcode</pr
       // dhcp-range is configured (exactly like the real daemon).
       defaultConfig: () => ({ ipv4Address: "", gatewayIpv4Address: "", macAddress: "", arpTable: [], dnsmasqRunning: true, dnsRecords: [] })
     },
+    laptop: {
+      label: "Laptop",
+      namePrefix: "LT",
+      width: 92,
+      height: 64,
+      paletteVar: "pc",
+      iconRadius: 10,
+      userAddable: true,
+      iconPaths: [
+        "M3 19l18 0",
+        "M5 5h14a1 1 0 0 1 1 1v9a1 1 0 0 1 -1 1h-14a1 1 0 0 1 -1 -1v-9a1 1 0 0 1 1 -1z"
+      ],
+      // A WiFi-only host: same config as a computer, but it associates to an AP
+      // instead of taking a cable (see the connect-tool guard in devices.ts).
+      defaultConfig: () => ({ ipv4Address: "", gatewayIpv4Address: "", macAddress: "", arpTable: [] })
+    },
     switch: {
       label: "Switch",
       namePrefix: "SW",
@@ -2322,6 +2341,25 @@ Full legal text: https://creativecommons.org/publicdomain/zero/1.0/legalcode</pr
         "M13.5 13.5l4 3"
       ],
       defaultConfig: () => ({ ethernetPorts: 4 })
+    },
+    "access-point": {
+      label: "Access Point",
+      namePrefix: "AP",
+      width: 88,
+      height: 58,
+      paletteVar: "switch",
+      iconRadius: 8,
+      userAddable: true,
+      iconPaths: [
+        "M12 12l0 .01",
+        "M14.828 9.172a4 4 0 0 1 0 5.656",
+        "M17.657 6.343a8 8 0 0 1 0 11.314",
+        "M9.172 14.828a4 4 0 0 1 0 -5.656",
+        "M6.343 17.657a8 8 0 0 1 0 -11.314"
+      ],
+      // A transparent L2 bridge (unmanaged-switch semantics) between its wired
+      // uplink and associated wireless clients — engine routes it via processAtSwitch.
+      defaultConfig: () => ({ managed: false, ethernetPorts: 8, macTable: [] })
     },
     lan: {
       label: "LAN",
@@ -2617,7 +2655,14 @@ Full legal text: https://creativecommons.org/publicdomain/zero/1.0/legalcode</pr
         dhcpLeases: normaliseDhcpLeases(device.config?.dhcpLeases || [])
       };
     }
-    if (device.type !== "computer") return {};
+    if (device.type === "access-point") {
+      return {
+        managed: false,
+        ethernetPorts: clampPortCount(device.config?.ethernetPorts ?? device.ethernetPorts ?? 8),
+        macTable: normaliseMacTable(device.config?.macTable || device.macTable || [])
+      };
+    }
+    if (device.type !== "computer" && device.type !== "laptop") return {};
     return normaliseHostFields(device);
   }
   function normaliseConfig(parsed) {
@@ -2626,8 +2671,8 @@ Full legal text: https://creativecommons.org/publicdomain/zero/1.0/legalcode</pr
     }
     const seenIds = /* @__PURE__ */ new Set();
     const devices = parsed.devices.map((device, index) => {
-      if (!device || !["computer", "server", "switch", "router", "firewall", "lan"].includes(device.type)) {
-        throw new Error(`Device ${index + 1} needs type computer, server, switch, router, firewall, or lan.`);
+      if (!device || !DEVICE_TYPES.includes(device.type)) {
+        throw new Error(`Device ${index + 1} has an unknown type "${device?.type}".`);
       }
       const id = String(device.id || `device-${index + 1}`);
       if (seenIds.has(id)) throw new Error(`Duplicate device id: ${id}`);
@@ -2668,6 +2713,7 @@ Full legal text: https://creativecommons.org/publicdomain/zero/1.0/legalcode</pr
         from,
         to,
         ...link.name ? { name: String(link.name).trim() } : {},
+        ...link.wireless ? { wireless: true } : {},
         ...link.shutdown ? { shutdown: true } : {},
         ...Number(link.bandwidth) > 0 ? { bandwidth: Number(link.bandwidth) } : {},
         ...Number(link.latency) > 0 ? { latency: Number(link.latency) } : {},
@@ -2830,6 +2876,7 @@ Full legal text: https://creativecommons.org/publicdomain/zero/1.0/legalcode</pr
   var toolCopy = {
     select: ["Select and move devices", "Drag devices to arrange the network."],
     computer: ["Add client PC", "Click the canvas to place a client PC."],
+    laptop: ["Add laptop", "Click the canvas to place a WiFi laptop (associate it to an access point)."],
     server: ["Add server", "Click the canvas to place a server (DNS/DHCP via dnsmasq)."],
     switch: ["Add switch", "Click the canvas to place a switch."],
     "managed-switch": ["Add managed switch", "Click the canvas to place a managed switch."],
@@ -2837,6 +2884,7 @@ Full legal text: https://creativecommons.org/publicdomain/zero/1.0/legalcode</pr
     router: ["Add router", "Click the canvas to place a router."],
     firewall: ["Add firewall", "Click the canvas to place a firewall."],
     hub: ["Add hub", "Click the canvas to place a hub (a layer-1 repeater)."],
+    "access-point": ["Add access point", "Click the canvas to place a WiFi access point (bridges associated laptops to the wired LAN)."],
     configure: ["Configure device", "Click a device to edit its static configuration."]
   };
   var colors = {
@@ -3260,14 +3308,14 @@ Full legal text: https://creativecommons.org/publicdomain/zero/1.0/legalcode</pr
       height: deviceSize(type).height,
       config: defaultDeviceConfig(type)
     };
-    if (type === "computer" || type === "server") device.config.macAddress = randomMac();
+    if (type === "computer" || type === "laptop" || type === "server") device.config.macAddress = randomMac();
     state.devices.push(device);
     state.selectedId = device.id;
     sync().syncPanel();
     sync().render();
     return device;
   }
-  var PLACEMENT_TOOLS = /* @__PURE__ */ new Set(["computer", "server", "switch", "managed-switch", "router", "firewall", "hub"]);
+  var PLACEMENT_TOOLS = /* @__PURE__ */ new Set(["computer", "laptop", "server", "switch", "managed-switch", "router", "firewall", "hub", "access-point"]);
   function placeToolDevice(tool, x, y) {
     if (tool === "managed-switch") {
       const device = addDevice("switch", x, y);
@@ -3281,9 +3329,29 @@ Full legal text: https://creativecommons.org/publicdomain/zero/1.0/legalcode</pr
   }
   function hostNicTaken(deviceId) {
     const device = getDevice(deviceId);
-    if (!device || device.type !== "computer" && device.type !== "server") return null;
+    if (!device || !["computer", "laptop", "server"].includes(device.type)) return null;
     const cabled = state.links.some((l) => l.from === deviceId || l.to === deviceId);
     return cabled ? device.name : null;
+  }
+  function classifyLink(fromId, toId) {
+    const a = getDevice(fromId), b = getDevice(toId);
+    if (!a || !b) return { reject: null, wireless: false };
+    const aLap = a.type === "laptop", bLap = b.type === "laptop";
+    const aAp = a.type === "access-point", bAp = b.type === "access-point";
+    if (aLap && bLap) return { reject: "A laptop associates to an access point, not directly to another laptop.", wireless: false };
+    if (aLap && !bAp) return { reject: `${a.name} is wireless \u2014 associate it to an access point.`, wireless: false };
+    if (bLap && !aAp) return { reject: `${b.name} is wireless \u2014 associate it to an access point.`, wireless: false };
+    return { reject: null, wireless: aLap && bAp || bLap && aAp };
+  }
+  function linkBlockReason(fromId, toId) {
+    if (fromId === toId) return "Cannot link a device to itself.";
+    const exists = state.links.some((link) => link.from === fromId && link.to === toId || link.from === toId && link.to === fromId);
+    if (exists) return null;
+    const { reject } = classifyLink(fromId, toId);
+    if (reject) return reject;
+    const taken = hostNicTaken(fromId) || hostNicTaken(toId);
+    if (taken) return `${taken} has a single NIC and is already connected.`;
+    return null;
   }
   function addLink(fromId, toId, fromPort, toPort) {
     if (fromId === toId) return;
@@ -3291,13 +3359,14 @@ Full legal text: https://creativecommons.org/publicdomain/zero/1.0/legalcode</pr
       (link) => link.from === fromId && link.to === toId || link.from === toId && link.to === fromId
     );
     if (!exists) {
-      const taken = hostNicTaken(fromId) || hostNicTaken(toId);
-      if (taken) {
+      const reason = linkBlockReason(fromId, toId);
+      if (reason) {
         state.linkStartId = null;
-        dom.modeLabel.textContent = `${taken} has a single NIC (eth0) and is already connected.`;
+        dom.modeLabel.textContent = reason;
         sync().render();
         return;
       }
+      const { wireless } = classifyLink(fromId, toId);
       pushUndo();
       const resolvedFromPort = resolvePort(fromId, fromPort);
       const resolvedToPort = resolvePort(toId, toPort);
@@ -3306,7 +3375,8 @@ Full legal text: https://creativecommons.org/publicdomain/zero/1.0/legalcode</pr
         from: fromId,
         to: toId,
         fromPort: resolvedFromPort,
-        toPort: resolvedToPort
+        toPort: resolvedToPort,
+        ...wireless ? { wireless: true } : {}
       });
       if (_linkUp) _linkUp(fromId, toId);
     }
@@ -3770,7 +3840,7 @@ Full legal text: https://creativecommons.org/publicdomain/zero/1.0/legalcode</pr
   function buildPortList(deviceId) {
     const device = getDevice(deviceId);
     if (!device) return [];
-    if (device.type === "computer" || device.type === "server") {
+    if (device.type === "computer" || device.type === "laptop" || device.type === "server") {
       const linked = linkedPortsFor(deviceId);
       const occupied = linked.length > 0;
       return [{
@@ -3780,7 +3850,7 @@ Full legal text: https://creativecommons.org/publicdomain/zero/1.0/legalcode</pr
         connectedTo: occupied ? linked[0]?.peer?.name || null : null
       }];
     }
-    if (device.type === "switch" || device.type === "hub") {
+    if (device.type === "switch" || device.type === "hub" || device.type === "access-point") {
       const ifaces = switchInterfacesWithNames(device);
       return ifaces.map((iface) => ({
         name: iface.name,
@@ -3804,8 +3874,13 @@ Full legal text: https://creativecommons.org/publicdomain/zero/1.0/legalcode</pr
     const fromDevice = getDevice(fromId);
     const toDevice = getDevice(toId);
     if (!fromDevice || !toDevice) return;
-    const showFromPicker = fromDevice.type !== "computer" && fromDevice.type !== "server";
-    const showToPicker = toDevice.type !== "computer" && toDevice.type !== "server";
+    const { reject, wireless } = classifyLink(fromId, toId);
+    if (reject || wireless) {
+      addLink(fromId, toId);
+      return;
+    }
+    const showFromPicker = !["computer", "laptop", "server"].includes(fromDevice.type);
+    const showToPicker = !["computer", "laptop", "server"].includes(toDevice.type);
     if (!showFromPicker && !showToPicker) {
       addLink(fromId, toId, 1, 1);
       return;
@@ -4105,7 +4180,7 @@ Full legal text: https://creativecommons.org/publicdomain/zero/1.0/legalcode</pr
   function findPingTarget(value) {
     const target = String(value || "").trim().toLowerCase();
     return state.devices.find(
-      (device) => (device.type === "computer" || device.type === "server") && (String(device.config?.ipv4Address || "").toLowerCase() === target || device.name.toLowerCase() === target)
+      (device) => (device.type === "computer" || device.type === "laptop" || device.type === "server") && (String(device.config?.ipv4Address || "").toLowerCase() === target || device.name.toLowerCase() === target)
     );
   }
   function buildPingEvents(source, targetText, options = {}) {
@@ -4354,7 +4429,7 @@ Full legal text: https://creativecommons.org/publicdomain/zero/1.0/legalcode</pr
   function syncZoomLevel() {
     dom.zoomLevel.textContent = `${Math.round(state.scale * 100)}%`;
   }
-  var HOST_TYPES = /* @__PURE__ */ new Set(["computer", "server"]);
+  var HOST_TYPES = /* @__PURE__ */ new Set(["computer", "laptop", "server"]);
   function linkColorFor(from, to) {
     if (from.type === "router" && to.type === "router") return cssColor("--link-router");
     if (from.type === "switch" || to.type === "switch") {
@@ -4390,12 +4465,14 @@ Full legal text: https://creativecommons.org/publicdomain/zero/1.0/legalcode</pr
     const active = linkSelected || state.selectedId === from.id || state.selectedId === to.id || state.linkStartId === from.id || state.linkStartId === to.id;
     const captureLink = state.inspectedCapture?.linkId === link.id;
     const shut = !!link.shutdown;
+    const wireless = !!link.wireless;
     const linkColor = captureLink ? colors.selected : active ? cssColor("--link-active") : shut ? cssColor("--danger") : linkColorFor(from, to);
     const dimmed = from.poweredOff || to.poweredOff;
     const trunk = isTrunkLink(from, to);
     ctx.save();
     if (dimmed) ctx.globalAlpha = 0.3;
     else if (shut) ctx.globalAlpha = 0.6;
+    else if (wireless) ctx.globalAlpha = 0.85;
     if (captureLink) {
       ctx.shadowColor = colors.selected;
       ctx.shadowBlur = 12;
@@ -4403,6 +4480,7 @@ Full legal text: https://creativecommons.org/publicdomain/zero/1.0/legalcode</pr
     ctx.strokeStyle = linkColor;
     ctx.lineWidth = captureLink ? 4 : active ? 3 : 2;
     if (shut) ctx.setLineDash([6, 5]);
+    else if (wireless) ctx.setLineDash([2, 6]);
     if (trunk) {
       const dx = to.x - from.x;
       const dy = to.y - from.y;
@@ -5049,7 +5127,7 @@ Full legal text: https://creativecommons.org/publicdomain/zero/1.0/legalcode</pr
   }
   var bootQueue = [];
   function hostNeedsBoot(device) {
-    return !!device && (device.type === "computer" || device.type === "server") && !device.poweredOff && !device.config?.ipv4Address && state.links.some((l) => !l.hidden && !l.shutdown && (l.from === device.id || l.to === device.id));
+    return !!device && (device.type === "computer" || device.type === "laptop" || device.type === "server") && !device.poweredOff && !device.config?.ipv4Address && state.links.some((l) => !l.hidden && !l.shutdown && (l.from === device.id || l.to === device.id));
   }
   function unconfiguredBootableHosts() {
     return state.devices.filter(hostNeedsBoot);
@@ -5232,8 +5310,12 @@ Full legal text: https://creativecommons.org/publicdomain/zero/1.0/legalcode</pr
   }
   var PROCESSORS = {
     computer: processAtComputer,
+    laptop: processAtComputer,
+    // a laptop is a WiFi-only host
     server: processAtServer,
     switch: processAtSwitch,
+    "access-point": processAtSwitch,
+    // an AP bridges like an unmanaged switch
     router: processAtRouter,
     firewall: processAtFirewall,
     hub: processAtHub
@@ -7852,7 +7934,7 @@ Address: ${sim.dnsResolvedIp}`);
     requestAnimationFrame(() => sync().resizeCanvas());
   }
   function terminalPromptText(device) {
-    if (device.type === "computer") return `${device.name}$`;
+    if (device.type === "computer" || device.type === "laptop") return `${device.name}$`;
     if (device.type === "server") return `root@${device.name}:~#`;
     if (device.type === "switch") return `${device.name}#`;
     if (device.type === "firewall") return `root@${device.name}#`;
@@ -7864,6 +7946,7 @@ Address: ${sim.dnsResolvedIp}`);
   }
   var CLI_DISPATCH = {
     computer: runHostTerminalCommand,
+    laptop: runHostTerminalCommand,
     server: runServerTerminalCommand,
     router: runRouterTerminalCommand,
     switch: runSwitchTerminalCommand,
@@ -8510,7 +8593,7 @@ Address: ${sim.dnsResolvedIp}`);
     } else {
       const neighbors = connectedIds(selected.id).map((id) => getDevice(id)).filter(isVisibleDevice);
       const selectedType = DEVICE_SPECS[selected.type]?.label ?? "Device";
-      const isHost = selected.type === "computer" || selected.type === "server";
+      const isHost = selected.type === "computer" || selected.type === "laptop" || selected.type === "server";
       const pcConfigFields = isHost ? `
       <div class="field">
         <label class="label-with-badge" for="selectedIpv4">IPv4 address / prefix ${ipSourceBadge(selected.config)}</label>
@@ -10075,8 +10158,15 @@ Address: ${sim.dnsResolvedIp}`);
         ...hidden ? { hidden: true } : {},
         ...poweredOff ? { poweredOff: true } : {},
         ...collapsedBy ? { collapsedBy } : {},
-        ...type === "computer" ? {
+        ...type === "computer" || type === "laptop" ? {
           config: hostConfigForPayload(config)
+        } : {},
+        ...type === "access-point" ? {
+          config: {
+            managed: false,
+            ethernetPorts: clampPortCount(config?.ethernetPorts ?? 8),
+            macTable: normaliseMacTable(config?.macTable || [])
+          }
         } : {},
         ...type === "server" ? {
           config: {
@@ -10129,10 +10219,11 @@ Address: ${sim.dnsResolvedIp}`);
           }
         } : {}
       })),
-      links: state.links.map(({ from, to, name, shutdown, bandwidth, latency, loss, fromPort, toPort, hidden, collapsedBy, proxy }) => ({
+      links: state.links.map(({ from, to, name, wireless, shutdown, bandwidth, latency, loss, fromPort, toPort, hidden, collapsedBy, proxy }) => ({
         from,
         to,
         ...name ? { name } : {},
+        ...wireless ? { wireless: true } : {},
         ...shutdown ? { shutdown: true } : {},
         ...bandwidth > 0 ? { bandwidth } : {},
         ...latency > 0 ? { latency } : {},
@@ -10345,6 +10436,8 @@ Address: ${sim.dnsResolvedIp}`);
     const toPort = args[3] ? Number(args[3]) : void 0;
     const badPort = (p) => p !== void 0 && !(Number.isInteger(p) && p >= 1);
     if (badPort(fromPort) || badPort(toPort)) return err("link: ports must be positive whole numbers.");
+    const reason = linkBlockReason(a.id, b.id);
+    if (reason) return err(reason);
     addLink(a.id, b.id, fromPort, toPort);
     return ok(`Linked ${a.name} \u2194 ${b.name}.`);
   }
@@ -10714,7 +10807,7 @@ Address: ${sim.dnsResolvedIp}`);
     if (typeof device === "string") return err(device);
     const c = device.config || {};
     const lines = [`${device.name} (${device.type})`];
-    if (device.type === "computer" || device.type === "server") {
+    if (device.type === "computer" || device.type === "laptop" || device.type === "server") {
       lines.push(
         `  ip: ${c.ipv4Address ? `${c.ipv4Address}/${prefixOf(c)} (subnet ${networkOf(c.ipv4Address, prefixOf(c))})` : "(unset)"}`,
         `  gateway: ${c.gatewayIpv4Address || "(unset)"}`,
@@ -10872,7 +10965,7 @@ Address: ${sim.dnsResolvedIp}`);
     help: cmdHelp
   };
   var HELP = {
-    add: "add <computer|server|switch|router|firewall|hub> [name] [at <x> <y>]",
+    add: "add <computer|laptop|server|switch|router|firewall|hub|access-point> [name] [at <x> <y>]",
     remove: "remove <device>",
     link: "link <a> <b> [portA portB]",
     unlink: "unlink <a> <b>",
@@ -10948,7 +11041,7 @@ Address: ${sim.dnsResolvedIp}`);
     }
     for (const d of payload.devices) {
       const c = d.config || {};
-      if (d.type === "computer" || d.type === "server") {
+      if (d.type === "computer" || d.type === "laptop" || d.type === "server") {
         if (c.ipv4Address) lines.push(`ip ${d.name} ${c.ipv4Address}/${prefixOf(c)}`);
         if (c.gatewayIpv4Address) lines.push(`gateway ${d.name} ${c.gatewayIpv4Address}`);
         if (c.macAddress) lines.push(`mac ${d.name} ${c.macAddress}`);

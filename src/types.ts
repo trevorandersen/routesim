@@ -1,4 +1,4 @@
-export type DeviceType = "computer" | "server" | "switch" | "router" | "firewall" | "hub" | "lan";
+export type DeviceType = "computer" | "laptop" | "server" | "switch" | "router" | "firewall" | "hub" | "access-point" | "lan";
 export type PortMode = "access" | "trunk";
 
 export interface Point {
@@ -285,6 +285,7 @@ export interface Link {
   from: string;
   to: string;
   name?: string;       // user-given name; unnamed links derive "A ↔ B" (linkName in devices.ts)
+  wireless?: boolean;  // a WiFi association (laptop ↔ access point) rather than a cable
   shutdown?: boolean;  // administratively down — present in the topology but carries no traffic
   bandwidth?: number;  // capacity in Mbps (the streams sim's input; metadata in packet mode)
   latency?: number;    // ms — slows this link's transit animation (a far/WAN link crawls)

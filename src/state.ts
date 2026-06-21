@@ -149,6 +149,7 @@ export function dropTerminalSessions(deviceIds: string[] | null = null): void {
 export const toolCopy: Record<string, [string, string]> = {
   select: ["Select and move devices", "Drag devices to arrange the network."],
   computer: ["Add client PC", "Click the canvas to place a client PC."],
+  laptop: ["Add laptop", "Click the canvas to place a WiFi laptop (associate it to an access point)."],
   server: ["Add server", "Click the canvas to place a server (DNS/DHCP via dnsmasq)."],
   switch: ["Add switch", "Click the canvas to place a switch."],
   "managed-switch": ["Add managed switch", "Click the canvas to place a managed switch."],
@@ -156,6 +157,7 @@ export const toolCopy: Record<string, [string, string]> = {
   router: ["Add router", "Click the canvas to place a router."],
   firewall: ["Add firewall", "Click the canvas to place a firewall."],
   hub: ["Add hub", "Click the canvas to place a hub (a layer-1 repeater)."],
+  "access-point": ["Add access point", "Click the canvas to place a WiFi access point (bridges associated laptops to the wired LAN)."],
   configure: ["Configure device", "Click a device to edit its static configuration."]
 };
 

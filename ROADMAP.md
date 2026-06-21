@@ -92,17 +92,16 @@ multi-homed hosts and dual-NIC servers. Effort: moderate (host config grows an
 interfaces array; the engine's per-host handlers pick the ingress NIC).
 
 ### WiFi — access points & wireless clients
-A wireless **access point** that bridges associated clients onto the wired LAN
-(like a switch, but the "cable" is an association), and workstations that
-**connect over the air** instead of a port. Minimum viable: an AP with an SSID,
-clients that associate to an in-range AP (a wireless "link" — drawn, or
-auto-forming by range), and frames bridged AP↔wired exactly as a switch does,
-so ARP/DHCP/IP all work unchanged once associated. Richer later: signal
-range/strength, channels, multiple SSIDs mapped to VLANs, association/auth as a
-visible step. Effort: moderate–high (a new device + a wireless link type; the
-forwarding reuses the switch path). Pairs with the **physical** simulation mode
-(range/signal is a layer-1 story) and **Configurable links** (a wireless link
-is just a link with loss/bandwidth).
+**MVP shipped (2026-06):** a WiFi-only **laptop** that associates to an **access
+point** (a transparent L2 bridge reusing `processAtSwitch`), drawn over a dotted
+**wireless link** (`Link.wireless`); the Connect tool only lets a laptop
+associate to one AP, and ARP/DHCP/IP work through the AP onto the wired LAN
+exactly as a switch would. **Still to do:** an SSID on the AP, signal
+range/strength (clients auto-associating to an in-range AP — pairs with the
+**physical** mode), channels/interference, multiple SSIDs mapped to VLANs, and
+association/auth shown as a visible step. The wireless link already carries
+loss/bandwidth (it's a normal link), so per-link signal degradation is cheap to
+layer on.
 
 ### Router roles — border vs internal
 Give routers a **role** that sets sensible defaults and teaches placement, the

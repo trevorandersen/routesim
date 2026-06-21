@@ -3,7 +3,7 @@ import type {
   RipConfig, StaticRoute, DeviceConfig, DeviceType, Device, Link, FirewallRule, DnsRecord
 } from "./types";
 import { normaliseMacAddress, isValidMac, isValidIpv4, clampPortCount, clampRouterPortCount, clampPrefixLength, normaliseVlanId } from "./utils";
-import { DEVICE_SPECS } from "./device-registry";
+import { DEVICE_SPECS, DEVICE_TYPES } from "./device-registry";
 
 // Each element is coerced to an object before use: imported JSON may carry a
 // null / primitive in a table array, and dereferencing it raw threw a TypeError
@@ -325,8 +325,16 @@ export function normaliseDeviceConfig(device: any): DeviceConfig {
       dhcpLeases: normaliseDhcpLeases(device.config?.dhcpLeases || []),
     };
   }
-  if (device.type !== "computer") return {};
-  return normaliseHostFields(device);
+  if (device.type === "access-point") {
+    // A transparent L2 bridge — same unmanaged-switch shape (port count + MAC table).
+    return {
+      managed: false,
+      ethernetPorts: clampPortCount(device.config?.ethernetPorts ?? device.ethernetPorts ?? 8),
+      macTable: normaliseMacTable(device.config?.macTable || device.macTable || []),
+    };
+  }
+  if (device.type !== "computer" && device.type !== "laptop") return {};
+  return normaliseHostFields(device); // computer + laptop share the host config shape
 }
 
 export function normaliseConfig(parsed: any): { devices: Device[]; links: Link[] } {
@@ -336,8 +344,8 @@ export function normaliseConfig(parsed: any): { devices: Device[]; links: Link[]
 
   const seenIds = new Set<string>();
   const devices = parsed.devices.map((device: any, index: number) => {
-    if (!device || !["computer", "server", "switch", "router", "firewall", "lan"].includes(device.type)) {
-      throw new Error(`Device ${index + 1} needs type computer, server, switch, router, firewall, or lan.`);
+    if (!device || !DEVICE_TYPES.includes(device.type)) {
+      throw new Error(`Device ${index + 1} has an unknown type "${device?.type}".`);
     }
 
     const id = String(device.id || `device-${index + 1}`);
@@ -382,6 +390,7 @@ export function normaliseConfig(parsed: any): { devices: Device[]; links: Link[]
       from,
       to,
       ...(link.name ? { name: String(link.name).trim() } : {}),
+      ...(link.wireless ? { wireless: true } : {}),
       ...(link.shutdown ? { shutdown: true } : {}),
       ...(Number(link.bandwidth) > 0 ? { bandwidth: Number(link.bandwidth) } : {}),
       ...(Number(link.latency) > 0 ? { latency: Number(link.latency) } : {}),

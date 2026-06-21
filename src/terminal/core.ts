@@ -214,7 +214,7 @@ export function stopDockResize(): void {
 }
 
 export function terminalPromptText(device: Device): string {
-  if (device.type === "computer") return `${device.name}$`;
+  if (device.type === "computer" || device.type === "laptop") return `${device.name}$`;
   if (device.type === "server") return `root@${device.name}:~#`;
   if (device.type === "switch") return `${device.name}#`;
   if (device.type === "firewall") return `root@${device.name}#`;
@@ -227,6 +227,7 @@ export function terminalPromptText(device: Device): string {
 // One CLI per device type; a type absent here has no terminal.
 const CLI_DISPATCH: Partial<Record<DeviceType, (device: Device, command: string) => void>> = {
   computer: runHostTerminalCommand,
+  laptop: runHostTerminalCommand,
   server: runServerTerminalCommand,
   router: runRouterTerminalCommand,
   switch: runSwitchTerminalCommand,

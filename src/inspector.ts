@@ -602,7 +602,7 @@ export function syncPanel(): void {
   } else {
     const neighbors = connectedIds(selected.id).map((id: string) => getDevice(id)).filter(isVisibleDevice);
     const selectedType = DEVICE_SPECS[selected.type]?.label ?? "Device";
-    const isHost = selected.type === "computer" || selected.type === "server";
+    const isHost = selected.type === "computer" || selected.type === "laptop" || selected.type === "server";
     const pcConfigFields = isHost ? `
       <div class="field">
         <label class="label-with-badge" for="selectedIpv4">IPv4 address / prefix ${ipSourceBadge(selected.config)}</label>

@@ -217,7 +217,7 @@ export function runSimulationHeadless(
 let bootQueue: string[] = [];
 
 function hostNeedsBoot(device: Device | undefined): boolean {
-  return !!device && (device.type === "computer" || device.type === "server")
+  return !!device && (device.type === "computer" || device.type === "laptop" || device.type === "server")
     && !device.poweredOff && !device.config?.ipv4Address
     && state.links.some(l => !l.hidden && !l.shutdown && (l.from === device.id || l.to === device.id));
 }
@@ -475,8 +475,10 @@ export interface OutgoingFrame {
 // Frame processing per device type; a type absent here (e.g. lan) ignores frames.
 const PROCESSORS: Partial<Record<DeviceType, (device: Device, frame: EthernetFrame, fromDeviceId: string | null) => OutgoingFrame[]>> = {
   computer: processAtComputer,
+  laptop: processAtComputer,            // a laptop is a WiFi-only host
   server: processAtServer,
   switch: processAtSwitch,
+  "access-point": processAtSwitch,      // an AP bridges like an unmanaged switch
   router: processAtRouter,
   firewall: processAtFirewall,
   hub: processAtHub,

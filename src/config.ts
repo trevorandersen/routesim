@@ -29,8 +29,15 @@ export function buildConfigPayload(): SerialisedTopology {
       ...(hidden ? { hidden: true } : {}),
       ...(poweredOff ? { poweredOff: true } : {}),
       ...(collapsedBy ? { collapsedBy } : {}),
-      ...(type === "computer" ? {
+      ...(type === "computer" || type === "laptop" ? {
         config: hostConfigForPayload(config)
+      } : {}),
+      ...(type === "access-point" ? {
+        config: {
+          managed: false,
+          ethernetPorts: clampPortCount(config?.ethernetPorts ?? 8),
+          macTable: normaliseMacTable(config?.macTable || []),
+        }
       } : {}),
       ...(type === "server" ? {
         config: {
@@ -84,10 +91,11 @@ export function buildConfigPayload(): SerialisedTopology {
         }
       } : {})
     })),
-    links: state.links.map(({ from, to, name, shutdown, bandwidth, latency, loss, fromPort, toPort, hidden, collapsedBy, proxy }: any) => ({
+    links: state.links.map(({ from, to, name, wireless, shutdown, bandwidth, latency, loss, fromPort, toPort, hidden, collapsedBy, proxy }: any) => ({
       from,
       to,
       ...(name ? { name } : {}),
+      ...(wireless ? { wireless: true } : {}),
       ...(shutdown ? { shutdown: true } : {}),
       ...(bandwidth > 0 ? { bandwidth } : {}),
       ...(latency > 0 ? { latency } : {}),

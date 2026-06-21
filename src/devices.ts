@@ -17,8 +17,8 @@ export function addDevice(type: DeviceType, x: number, y: number, name?: string)
     height: deviceSize(type).height,
     config: defaultDeviceConfig(type)
   };
-  // A new computer/server gets a NIC MAC so it can communicate immediately (GUI + scripts).
-  if (type === "computer" || type === "server") (device.config as any).macAddress = randomMac();
+  // A new host (computer/laptop/server) gets a NIC MAC so it can communicate immediately.
+  if (type === "computer" || type === "laptop" || type === "server") (device.config as any).macAddress = randomMac();
   state.devices.push(device as any);
   state.selectedId = device.id;
   sync().syncPanel();
@@ -28,7 +28,7 @@ export function addDevice(type: DeviceType, x: number, y: number, name?: string)
 
 // Tools that place a device on a canvas click. "managed-switch" is a UI variant
 // of the switch tool (the Switch tool group), not a distinct device type.
-export const PLACEMENT_TOOLS = new Set(["computer", "server", "switch", "managed-switch", "router", "firewall", "hub"]);
+export const PLACEMENT_TOOLS = new Set(["computer", "laptop", "server", "switch", "managed-switch", "router", "firewall", "hub", "access-point"]);
 
 // Place the device for a placement tool, resolving UI variants to real types:
 // "managed-switch" is a switch with management turned on.
@@ -49,12 +49,40 @@ export function placeToolDevice(tool: string, x: number, y: number): Device {
 // (Multi-NIC hosts are a future option — see ROADMAP.)
 function hostNicTaken(deviceId: string): string | null {
   const device = getDevice(deviceId);
-  if (!device || (device.type !== "computer" && device.type !== "server")) return null;
+  if (!device || !["computer", "laptop", "server"].includes(device.type)) return null;
   // Count ANY link, including a hidden one: a host collapsed into a LAN still
   // holds its single cable, so it must not be linkable again (the console `link`
   // command resolves by name regardless of collapse state).
   const cabled = state.links.some(l => l.from === deviceId || l.to === deviceId);
   return cabled ? device.name : null;
+}
+
+// A laptop has a single wireless NIC and may ONLY associate to an access point;
+// that association is a `wireless` link. Returns a rejection reason to show the
+// user (or null) plus whether the pair forms a wireless association.
+export function classifyLink(fromId: string, toId: string): { reject: string | null; wireless: boolean } {
+  const a = getDevice(fromId), b = getDevice(toId);
+  if (!a || !b) return { reject: null, wireless: false };
+  const aLap = a.type === "laptop", bLap = b.type === "laptop";
+  const aAp = a.type === "access-point", bAp = b.type === "access-point";
+  if (aLap && bLap) return { reject: "A laptop associates to an access point, not directly to another laptop.", wireless: false };
+  if (aLap && !bAp) return { reject: `${a.name} is wireless — associate it to an access point.`, wireless: false };
+  if (bLap && !aAp) return { reject: `${b.name} is wireless — associate it to an access point.`, wireless: false };
+  return { reject: null, wireless: (aLap && bAp) || (bLap && aAp) };
+}
+
+// Why a link from→to can't be created (null = allowed). Shared by addLink and
+// the `link` console command so both reject — and explain — the same cases.
+export function linkBlockReason(fromId: string, toId: string): string | null {
+  if (fromId === toId) return "Cannot link a device to itself.";
+  const exists = state.links.some(link =>
+    (link.from === fromId && link.to === toId) || (link.from === toId && link.to === fromId));
+  if (exists) return null; // re-linking is an idempotent no-op, not an error
+  const { reject } = classifyLink(fromId, toId);
+  if (reject) return reject;
+  const taken = hostNicTaken(fromId) || hostNicTaken(toId);
+  if (taken) return `${taken} has a single NIC and is already connected.`;
+  return null;
 }
 
 export function addLink(fromId: string, toId: string, fromPort?: number, toPort?: number): void {
@@ -63,14 +91,14 @@ export function addLink(fromId: string, toId: string, fromPort?: number, toPort?
     (link.from === fromId && link.to === toId) || (link.from === toId && link.to === fromId)
   );
   if (!exists) {
-    // Single-NIC guard: a host already holding a cable can't take another.
-    const taken = hostNicTaken(fromId) || hostNicTaken(toId);
-    if (taken) {
+    const reason = linkBlockReason(fromId, toId);
+    if (reason) {
       state.linkStartId = null;
-      dom.modeLabel.textContent = `${taken} has a single NIC (eth0) and is already connected.`;
+      dom.modeLabel.textContent = reason;
       sync().render();
       return;
     }
+    const { wireless } = classifyLink(fromId, toId);
     pushUndo();
     const resolvedFromPort = resolvePort(fromId, fromPort);
     const resolvedToPort = resolvePort(toId, toPort);
@@ -79,7 +107,8 @@ export function addLink(fromId: string, toId: string, fromPort?: number, toPort?
       from: fromId,
       to: toId,
       fromPort: resolvedFromPort,
-      toPort: resolvedToPort
+      toPort: resolvedToPort,
+      ...(wireless ? { wireless: true } : {})
     } as any);
     // The cable just came up: unconfigured hosts on either end boot their
     // network config (DHCP, then APIPA) — wired to the engine in app.ts.
@@ -642,7 +671,7 @@ function buildPortList(deviceId: string): PortOption[] {
   const device = getDevice(deviceId);
   if (!device) return [];
 
-  if (device.type === "computer" || device.type === "server") {
+  if (device.type === "computer" || device.type === "laptop" || device.type === "server") {
     // Hosts have a single port — auto-select it
     const linked = linkedPortsFor(deviceId);
     const occupied = linked.length > 0;
@@ -654,8 +683,8 @@ function buildPortList(deviceId: string): PortOption[] {
     }];
   }
 
-  if (device.type === "switch" || device.type === "hub") {
-    // A hub enumerates ports the same way (it just has ethernetPorts).
+  if (device.type === "switch" || device.type === "hub" || device.type === "access-point") {
+    // A hub / access point enumerates ports the same way (just an ethernetPorts count).
     const ifaces = switchInterfacesWithNames(device);
     return ifaces.map((iface: any) => ({
       name: iface.name,
@@ -685,8 +714,13 @@ export function openPortSelectionModal(fromId: string, toId: string): void {
   const toDevice = getDevice(toId);
   if (!fromDevice || !toDevice) return;
 
-  const showFromPicker = fromDevice.type !== "computer" && fromDevice.type !== "server";
-  const showToPicker = toDevice.type !== "computer" && toDevice.type !== "server";
+  // A wireless association (laptop ↔ AP) auto-links with no port picker; an
+  // invalid laptop pairing is rejected here (addLink surfaces the reason).
+  const { reject, wireless } = classifyLink(fromId, toId);
+  if (reject || wireless) { addLink(fromId, toId); return; }
+
+  const showFromPicker = !["computer", "laptop", "server"].includes(fromDevice.type);
+  const showToPicker = !["computer", "laptop", "server"].includes(toDevice.type);
 
   // If both are single-port hosts, skip modal entirely
   if (!showFromPicker && !showToPicker) {

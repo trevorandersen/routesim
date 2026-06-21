@@ -11,7 +11,7 @@ import { state, undo, redo, sync, pushUndo, THEMES } from "./state";
 import { USER_ADDABLE_TYPES } from "./device-registry";
 import { dom } from "./dom";
 import {
-  addDevice, addLink, deleteSelection, clearNetwork, collapseLan, expandLan,
+  addDevice, addLink, linkBlockReason, deleteSelection, clearNetwork, collapseLan, expandLan,
   getDevice, moveDevice, linkName,
 } from "./devices";
 import {
@@ -107,6 +107,8 @@ function cmdLink(args: string[]): CommandResult {
   const toPort = args[3] ? Number(args[3]) : undefined;
   const badPort = (p: number | undefined) => p !== undefined && !(Number.isInteger(p) && p >= 1);
   if (badPort(fromPort) || badPort(toPort)) return err("link: ports must be positive whole numbers.");
+  const reason = linkBlockReason(a.id, b.id);
+  if (reason) return err(reason);
   addLink(a.id, b.id, fromPort, toPort);
   return ok(`Linked ${a.name} ↔ ${b.name}.`);
 }
@@ -473,7 +475,7 @@ function cmdShow(args: string[]): CommandResult {
   if (typeof device === "string") return err(device);
   const c: any = device.config || {};
   const lines = [`${device.name} (${device.type})`];
-  if (device.type === "computer" || device.type === "server") {
+  if (device.type === "computer" || device.type === "laptop" || device.type === "server") {
     lines.push(
       `  ip: ${c.ipv4Address ? `${c.ipv4Address}/${prefixOf(c)} (subnet ${networkOf(c.ipv4Address, prefixOf(c))})` : "(unset)"}`,
       `  gateway: ${c.gatewayIpv4Address || "(unset)"}`,
@@ -609,7 +611,7 @@ const COMMANDS: Record<string, Handler> = {
 };
 
 const HELP: Record<string, string> = {
-  add: "add <computer|server|switch|router|firewall|hub> [name] [at <x> <y>]",
+  add: "add <computer|laptop|server|switch|router|firewall|hub|access-point> [name] [at <x> <y>]",
   remove: "remove <device>", link: "link <a> <b> [portA portB]", unlink: "unlink <a> <b>",
   linkset: "linkset <a> <b> name|bandwidth|latency|loss <value> (0 clears a number)",
   shut: "shut <a> <b> (administratively down the link)", noshut: "noshut <a> <b> (bring the link up)",
@@ -674,7 +676,7 @@ export function exportTopologyScript(): string {
 
   for (const d of payload.devices) {
     const c = d.config || {};
-    if (d.type === "computer" || d.type === "server") {
+    if (d.type === "computer" || d.type === "laptop" || d.type === "server") {
       if (c.ipv4Address) lines.push(`ip ${d.name} ${c.ipv4Address}/${prefixOf(c)}`);
       if (c.gatewayIpv4Address) lines.push(`gateway ${d.name} ${c.gatewayIpv4Address}`);
       if (c.macAddress) lines.push(`mac ${d.name} ${c.macAddress}`);

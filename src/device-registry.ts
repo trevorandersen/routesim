@@ -50,6 +50,17 @@ export const DEVICE_SPECS: Record<DeviceType, DeviceSpec> = {
     // dhcp-range is configured (exactly like the real daemon).
     defaultConfig: () => ({ ipv4Address: "", gatewayIpv4Address: "", macAddress: "", arpTable: [], dnsmasqRunning: true, dnsRecords: [] })
   },
+  laptop: {
+    label: "Laptop", namePrefix: "LT", width: 92, height: 64,
+    paletteVar: "pc", iconRadius: 10, userAddable: true,
+    iconPaths: [
+      "M3 19l18 0",
+      "M5 5h14a1 1 0 0 1 1 1v9a1 1 0 0 1 -1 1h-14a1 1 0 0 1 -1 -1v-9a1 1 0 0 1 1 -1z"
+    ],
+    // A WiFi-only host: same config as a computer, but it associates to an AP
+    // instead of taking a cable (see the connect-tool guard in devices.ts).
+    defaultConfig: () => ({ ipv4Address: "", gatewayIpv4Address: "", macAddress: "", arpTable: [] })
+  },
   switch: {
     label: "Switch", namePrefix: "SW", width: 104, height: 58,
     paletteVar: "switch", iconRadius: 8, userAddable: true,
@@ -101,6 +112,20 @@ export const DEVICE_SPECS: Record<DeviceType, DeviceSpec> = {
       "M13.5 13.5l4 3"
     ],
     defaultConfig: () => ({ ethernetPorts: 4 })
+  },
+  "access-point": {
+    label: "Access Point", namePrefix: "AP", width: 88, height: 58,
+    paletteVar: "switch", iconRadius: 8, userAddable: true,
+    iconPaths: [
+      "M12 12l0 .01",
+      "M14.828 9.172a4 4 0 0 1 0 5.656",
+      "M17.657 6.343a8 8 0 0 1 0 11.314",
+      "M9.172 14.828a4 4 0 0 1 0 -5.656",
+      "M6.343 17.657a8 8 0 0 1 0 -11.314"
+    ],
+    // A transparent L2 bridge (unmanaged-switch semantics) between its wired
+    // uplink and associated wireless clients — engine routes it via processAtSwitch.
+    defaultConfig: () => ({ managed: false, ethernetPorts: 8, macTable: [] })
   },
   lan: {
     label: "LAN", namePrefix: "LAN", width: 112, height: 72,

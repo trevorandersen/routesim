@@ -12,6 +12,11 @@
  */
 import type { DeviceType, DeviceConfig } from "./types";
 
+// The WiFi network name a fresh access point broadcasts and a fresh laptop is
+// configured to join. Sharing one default means a new laptop + new AP associate
+// out of the box; change either SSID to teach a mismatch (or set a password).
+export const DEFAULT_SSID = "RouteSim";
+
 export interface DeviceSpec {
   label: string;             // Human label ("Computer", "Firewall", ...)
   namePrefix: string;        // Auto-name prefix (PC-1, FW-2, ...)
@@ -58,8 +63,9 @@ export const DEVICE_SPECS: Record<DeviceType, DeviceSpec> = {
       "M5 5h14a1 1 0 0 1 1 1v9a1 1 0 0 1 -1 1h-14a1 1 0 0 1 -1 -1v-9a1 1 0 0 1 1 -1z"
     ],
     // A WiFi-only host: same config as a computer, but it associates to an AP
-    // instead of taking a cable (see the connect-tool guard in devices.ts).
-    defaultConfig: () => ({ ipv4Address: "", gatewayIpv4Address: "", macAddress: "", arpTable: [] })
+    // instead of taking a cable (see the connect-tool guard in devices.ts), and
+    // it carries the SSID (+ optional password) of the network it wants to join.
+    defaultConfig: () => ({ ipv4Address: "", gatewayIpv4Address: "", macAddress: "", arpTable: [], ssid: DEFAULT_SSID })
   },
   switch: {
     label: "Switch", namePrefix: "SW", width: 104, height: 58,
@@ -123,9 +129,12 @@ export const DEVICE_SPECS: Record<DeviceType, DeviceSpec> = {
       "M9.172 14.828a4 4 0 0 1 0 -5.656",
       "M6.343 17.657a8 8 0 0 1 0 -11.314"
     ],
-    // A transparent L2 bridge (unmanaged-switch semantics) between its wired
-    // uplink and associated wireless clients — engine routes it via processAtSwitch.
-    defaultConfig: () => ({ managed: false, ethernetPorts: 8, macTable: [] })
+    // A transparent L2 bridge (unmanaged-switch semantics) between a single
+    // wired uplink and associated wireless clients — engine routes it via
+    // processAtSwitch. Wireless associations are not ethernet ports, so the
+    // port count is just the one LAN uplink. It broadcasts an SSID (a laptop may
+    // only associate if its SSID — and password, if set — match).
+    defaultConfig: () => ({ managed: false, ethernetPorts: 1, macTable: [], ssid: DEFAULT_SSID })
   },
   lan: {
     label: "LAN", namePrefix: "LAN", width: 112, height: 72,

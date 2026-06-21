@@ -4,7 +4,7 @@
  */
 import { describe, it, expect, beforeAll, beforeEach } from "bun:test";
 import { state } from "../src/state";
-import { addLink, classifyLink, linkBlockReason } from "../src/devices";
+import { addLink, classifyLink, linkBlockReason, switchInterfacesWithNames } from "../src/devices";
 import { runSimulationHeadless } from "../src/engine";
 import { buildPingEvents } from "../src/simulation";
 import { runConsoleScript, runConsoleCommand as exec, exportTopologyScript } from "../src/commands";
@@ -26,12 +26,32 @@ describe("wifi — device types", () => {
     expect(lt.config.ipv4Address).toBe("10.0.0.5");
   });
 
-  it("an access point normalises to an unmanaged-switch config", () => {
+  it("an access point normalises to an unmanaged bridge with a single wired uplink", () => {
     runConsoleScript("add access-point AP1 at 0 0");
     const ap = byName("AP1");
     expect(ap.type).toBe("access-point");
     expect(ap.config.managed).toBe(false);
-    expect(ap.config.ethernetPorts).toBeGreaterThan(0);
+    expect(ap.config.ethernetPorts).toBe(1); // one LAN uplink, not a port bank
+    expect(switchInterfacesWithNames(ap).map((p: any) => p.name)).toEqual(["Ethernet1"]);
+  });
+
+  it("a wireless association is not an ethernet port (does not consume the uplink)", () => {
+    runConsoleScript(`
+      add access-point AP1 at 0 0
+      add laptop LT1 at 0 100
+      add switch SW at 100 0
+      link AP1 LT1
+    `);
+    const ap = byName("AP1");
+    // The wireless client is associated, yet the wired uplink is still free.
+    let ports = switchInterfacesWithNames(ap);
+    expect(ports.length).toBe(1);
+    expect(ports[0].peer).toBeNull();
+    // Wiring the uplink fills exactly that one port.
+    addLink(byName("SW").id, ap.id);
+    ports = switchInterfacesWithNames(ap);
+    expect(ports.length).toBe(1);
+    expect(ports[0].peer?.name).toBe("SW");
   });
 });
 
@@ -69,6 +89,60 @@ describe("wifi — wireless association link", () => {
     addLink(lt.id, ap.id);
     runConsoleScript("add access-point AP2 at 100 100");
     expect(linkBlockReason(lt.id, byName("AP2").id)).toMatch(/single NIC/i);
+  });
+});
+
+describe("wifi — SSID and password", () => {
+  beforeEach(() => resetState());
+
+  it("a fresh laptop and AP share the default SSID, so they associate", () => {
+    runConsoleScript("add laptop LT1 at 0 0\nadd access-point AP1 at 100 0");
+    const { lt, ap } = { lt: byName("LT1"), ap: byName("AP1") };
+    expect(lt.config.ssid).toBe(ap.config.ssid); // same out-of-box default
+    expect(classifyLink(lt.id, ap.id).reject).toBeNull();
+  });
+
+  it("a mismatched SSID is refused, naming both networks", () => {
+    runConsoleScript(`
+      add laptop LT1 at 0 0
+      add access-point AP1 at 100 0
+      ssid AP1 OfficeNet
+      ssid LT1 HomeNet
+    `);
+    const reason = linkBlockReason(byName("LT1").id, byName("AP1").id);
+    expect(reason).toContain("HomeNet");
+    expect(reason).toContain("OfficeNet");
+  });
+
+  it("a secured AP needs the matching password", () => {
+    runConsoleScript(`
+      add laptop LT1 at 0 0
+      add access-point AP1 at 100 0
+      ssid AP1 Secure hunter2
+    `);
+    const lt = byName("LT1"), ap = byName("AP1");
+    expect(ap.config.wifiPassword).toBe("hunter2");
+    // SSID matches but no/old password → wrong password
+    runConsoleScript("ssid LT1 Secure");
+    expect(linkBlockReason(lt.id, ap.id)).toMatch(/wrong password/i);
+    // correct password → associates
+    runConsoleScript("ssid LT1 Secure hunter2");
+    expect(linkBlockReason(lt.id, ap.id)).toBeNull();
+    expect(classifyLink(lt.id, ap.id).wireless).toBe(true);
+  });
+
+  it("the ssid command rejects a non-WiFi device", () => {
+    runConsoleScript("add computer PC1 at 0 0");
+    const res = exec("ssid PC1 Net");
+    expect(res.ok).toBe(false);
+    expect(res.output.join(" ")).toMatch(/not a WiFi device/i);
+  });
+
+  it("omitting the password opens the network (and clears any existing one)", () => {
+    runConsoleScript("add access-point AP1 at 0 0\nssid AP1 Net secret");
+    expect(byName("AP1").config.wifiPassword).toBe("secret");
+    runConsoleScript("ssid AP1 Net");
+    expect(byName("AP1").config.wifiPassword).toBe("");
   });
 });
 
@@ -129,6 +203,22 @@ describe("wifi — serialisation round-trips", () => {
     expect(state.links[0].wireless).toBe(true);
   });
 
+  it("SSID + password survive JSON export → import on both ends", () => {
+    runConsoleScript(`
+      add laptop LT1 at 0 0
+      add access-point AP1 at 100 0
+      ssid AP1 OfficeNet s3cret
+      ssid LT1 OfficeNet s3cret
+    `);
+    const json = JSON.stringify(buildConfigPayload());
+    resetState();
+    applyConfig(parseConfig(json));
+    expect(byName("AP1").config.ssid).toBe("OfficeNet");
+    expect(byName("AP1").config.wifiPassword).toBe("s3cret");
+    expect(byName("LT1").config.ssid).toBe("OfficeNet");
+    expect(byName("LT1").config.wifiPassword).toBe("s3cret");
+  });
+
   it("a topology script re-derives the wireless association on replay", () => {
     runConsoleScript("add laptop LT1 at 0 0\nadd access-point AP1 at 100 0\nlink LT1 AP1");
     const script = exportTopologyScript();
@@ -137,5 +227,23 @@ describe("wifi — serialisation round-trips", () => {
     resetState();
     runConsoleScript(script);
     expect(state.links[0].wireless).toBe(true); // classifyLink re-marks it on the replayed `link`
+  });
+
+  it("a script round-trips a renamed, secured SSID and the association still forms", () => {
+    runConsoleScript(`
+      add laptop LT1 at 0 0
+      add access-point AP1 at 100 0
+      ssid AP1 Lab guestpass
+      ssid LT1 Lab guestpass
+      link LT1 AP1
+    `);
+    const script = exportTopologyScript();
+    expect(script).toContain("ssid AP1 Lab guestpass");
+    expect(script).toContain("ssid LT1 Lab guestpass");
+    resetState();
+    runConsoleScript(script);
+    expect(byName("AP1").config.ssid).toBe("Lab");
+    expect(byName("AP1").config.wifiPassword).toBe("guestpass");
+    expect(state.links[0].wireless).toBe(true);
   });
 });

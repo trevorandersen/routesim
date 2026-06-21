@@ -2,7 +2,7 @@ import type { PortOption, Device, Link, DeviceType, NamedRouterIface } from "./t
 import { state, sync, pushUndo, networkSnapshot, dropTerminalSessions } from "./state";
 import { dom } from "./dom";
 import { deviceSize, defaultDeviceConfig, ensureConfig, normaliseRouterInterfaces, normalisePortVlans, normalisePortModes } from "./normalise";
-import { clampPortCount, clampRouterPortCount, escapeHtml, randomMac } from "./utils";
+import { clampPortCount, clampApPortCount, clampRouterPortCount, escapeHtml, randomMac } from "./utils";
 import { DEVICE_SPECS, freshNameCounters } from "./device-registry";
 
 export function addDevice(type: DeviceType, x: number, y: number, name?: string): Device {
@@ -68,7 +68,30 @@ export function classifyLink(fromId: string, toId: string): { reject: string | n
   if (aLap && bLap) return { reject: "A laptop associates to an access point, not directly to another laptop.", wireless: false };
   if (aLap && !bAp) return { reject: `${a.name} is wireless — associate it to an access point.`, wireless: false };
   if (bLap && !aAp) return { reject: `${b.name} is wireless — associate it to an access point.`, wireless: false };
-  return { reject: null, wireless: (aLap && bAp) || (bLap && aAp) };
+  // A laptop ↔ access-point pair: a wireless join, gated on a matching SSID and
+  // (if the AP is secured) password — the same checks a real client makes.
+  if ((aLap && bAp) || (bLap && aAp)) {
+    const laptop = aLap ? a : b;
+    const ap = aAp ? a : b;
+    return { reject: wifiJoinReason(laptop, ap), wireless: true };
+  }
+  return { reject: null, wireless: false };
+}
+
+// Why a laptop can't join an access point (null = the SSID, and password if the
+// network is secured, both match). Case-sensitive, like real 802.11.
+function wifiJoinReason(laptop: any, ap: any): string | null {
+  const apSsid = (ap.config?.ssid || "").trim();
+  const lapSsid = (laptop.config?.ssid || "").trim();
+  if (!apSsid) return `${ap.name} has no SSID set — give it a network name first.`;
+  if (lapSsid !== apSsid) {
+    return `${laptop.name} is set to join "${lapSsid || "(none)"}", but ${ap.name} broadcasts "${apSsid}".`;
+  }
+  const apPassword = ap.config?.wifiPassword || "";
+  if (apPassword && (laptop.config?.wifiPassword || "") !== apPassword) {
+    return `${laptop.name} has the wrong password for "${apSsid}".`;
+  }
+  return null;
 }
 
 // Why a link from→to can't be created (null = allowed). Shared by addLink and
@@ -641,8 +664,13 @@ export function routerInterfaceByName(router: any, name: string): any {
 }
 
 export function switchInterfacesWithNames(device: any): any[] {
-  const portCount = clampPortCount(device.config?.ethernetPorts ?? 8);
-  const ports = linkedPortsFor(device.id);
+  const portCount = device.type === "access-point"
+    ? clampApPortCount(device.config?.ethernetPorts ?? 1)
+    : clampPortCount(device.config?.ethernetPorts ?? 8);
+  // A wireless association (laptop ↔ access point) is not an ethernet port, so
+  // it never occupies a wired-port slot in the inspector / port picker. The
+  // engine still floods over every link (it uses linkedPortsFor directly).
+  const ports = linkedPortsFor(device.id).filter((p: any) => !p.link?.wireless);
   const portVlans = normalisePortVlans(device.config?.portVlans || {});
   const portModes = normalisePortModes(device.config?.portModes || {});
   const trunkNativeVlans = normalisePortVlans(device.config?.trunkNativeVlans || {});

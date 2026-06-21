@@ -3,7 +3,7 @@ import {
   isValidIpv4, ipv4ToInt, intToIpv4,
   sameSubnet, networkOf, cidrContains, prefixLengthOfCidr, clampPrefixLength, prefixOf,
   normaliseMacAddress, isValidMac,
-  clampPortCount, clampRouterPortCount,
+  clampPortCount, clampRouterPortCount, clampApPortCount,
   parseIpv4Token, normaliseVlanId,
   escapeHtml,
 } from "../src/utils";
@@ -150,6 +150,19 @@ describe("clampRouterPortCount", () => {
 
   it("clamps above maximum to 12", () => {
     expect(clampRouterPortCount(20)).toBe(12);
+  });
+});
+
+describe("clampApPortCount", () => {
+  it("defaults a single wired uplink (1), clamping below 1 up", () => {
+    expect(clampApPortCount(undefined)).toBe(1);
+    expect(clampApPortCount(0)).toBe(1);
+    expect(clampApPortCount(1)).toBe(1);
+  });
+
+  it("allows up to 4 LAN ports and clamps above", () => {
+    expect(clampApPortCount(4)).toBe(4);
+    expect(clampApPortCount(8)).toBe(4);
   });
 });
 

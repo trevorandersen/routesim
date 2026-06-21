@@ -233,11 +233,19 @@ export interface HubConfig {
   ethernetPorts: number;
 }
 
+// WiFi association fields. On an access point, `ssid` is the network it
+// broadcasts; on a laptop, the network it is configured to join. `wifiPassword`
+// is the optional WPA2 PSK — empty/undefined means an open network.
+export interface WifiConfig {
+  ssid?: string;
+  wifiPassword?: string;
+}
+
 // Permissive superset (every field optional) so existing `device.config?.x`
 // access sites compile unchanged, while typos and wrong field types are caught.
 // The strict per-type interfaces above type the normalise layer and the
 // asComputer/asSwitch/asRouter/asLan accessors.
-export type DeviceConfig = Partial<ComputerConfig & ServerConfig & SwitchConfig & RouterConfig & FirewallConfig & HubConfig & LanConfig>;
+export type DeviceConfig = Partial<ComputerConfig & ServerConfig & SwitchConfig & RouterConfig & FirewallConfig & HubConfig & WifiConfig & LanConfig>;
 
 export interface DragState {
   id: string;

@@ -95,6 +95,26 @@ export function clampRouterPortCount(value: any): number {
   return Math.min(12, Math.max(0, portCount));
 }
 
+// An access point has a single wired uplink (some carry a couple of LAN ports);
+// its wireless clients are associations, not ports. Allow 1–4, default 1.
+export function clampApPortCount(value: any): number {
+  const portCount = Number(value);
+  if (!Number.isInteger(portCount)) return 1;
+  return Math.min(4, Math.max(1, portCount));
+}
+
+// A WiFi network name: a single trimmed token, capped at the 802.11 limit of 32
+// octets. SSIDs are case-sensitive; whitespace-only collapses to "" (no SSID).
+export function normaliseSsid(value: any): string {
+  return String(value ?? "").trim().slice(0, 32);
+}
+
+// A WPA2 pre-shared key is 8–63 printable characters; we only cap the length and
+// trim — an empty result means an open network (no password).
+export function normaliseWifiPassword(value: any): string {
+  return String(value ?? "").trim().slice(0, 63);
+}
+
 export function parseIpv4Token(value: any): { address: string; prefixLength: number | null } | null {
   const match = String(value || "").trim().match(/^([^/]+)(?:\/(\d{1,2}))?$/);
   if (!match) return null;

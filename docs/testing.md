@@ -94,7 +94,7 @@ describe("setSwitchPortVlan", () => {
 | `tests/scenarios.test.ts` | Scenario loading/goal checks + positive-coordinate invariants |
 | `tests/io.test.ts` | JSON import/export round-trips |
 | `tests/settings-url.test.ts` | URL query-string settings: `parseSettingsFromUrl` (bool spellings, theme/speed validation + clamping, ignored params) and the `buildSettingsQuery` inverse (diff-only emit + round-trip) |
-| `tests/wifi.test.ts` | WiFi: the laptop (WiFi-only host) + access point (L2 bridge) device types, the wireless association (`classifyLink`/`linkBlockReason` — laptop↔AP only, single NIC), forwarding through an AP onto the wired LAN, and serialisation round-trips |
+| `tests/wifi.test.ts` | WiFi: the laptop (WiFi-only host) + access point (single-uplink L2 bridge) device types, the wireless association (`classifyLink`/`linkBlockReason` — laptop↔AP only, single NIC, SSID + password matching), forwarding through an AP onto the wired LAN, and SSID/password serialisation round-trips |
 | `tests/frame.test.ts` | Frame factories, `frameLabel`/`frameColor` |
 | `tests/normalise.test.ts` | All normalisers, `ensureConfig`, `defaultDeviceConfig`, `deviceSize` |
 | `tests/devices.test.ts` | CRUD, hit-testing, lookup indexes + invalidation |

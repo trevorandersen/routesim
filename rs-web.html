@@ -2183,6 +2183,17 @@ Full legal text: https://creativecommons.org/publicdomain/zero/1.0/legalcode</pr
     if (!Number.isInteger(portCount)) return 4;
     return Math.min(12, Math.max(0, portCount));
   }
+  function clampApPortCount(value) {
+    const portCount = Number(value);
+    if (!Number.isInteger(portCount)) return 1;
+    return Math.min(4, Math.max(1, portCount));
+  }
+  function normaliseSsid(value) {
+    return String(value ?? "").trim().slice(0, 32);
+  }
+  function normaliseWifiPassword(value) {
+    return String(value ?? "").trim().slice(0, 63);
+  }
   function parseIpv4Token(value) {
     const match = String(value || "").trim().match(/^([^/]+)(?:\/(\d{1,2}))?$/);
     if (!match) return null;
@@ -2218,6 +2229,7 @@ Full legal text: https://creativecommons.org/publicdomain/zero/1.0/legalcode</pr
   }
 
   // src/device-registry.ts
+  var DEFAULT_SSID = "RouteSim";
   var DEVICE_SPECS = {
     computer: {
       label: "Client PC",
@@ -2266,8 +2278,9 @@ Full legal text: https://creativecommons.org/publicdomain/zero/1.0/legalcode</pr
         "M5 5h14a1 1 0 0 1 1 1v9a1 1 0 0 1 -1 1h-14a1 1 0 0 1 -1 -1v-9a1 1 0 0 1 1 -1z"
       ],
       // A WiFi-only host: same config as a computer, but it associates to an AP
-      // instead of taking a cable (see the connect-tool guard in devices.ts).
-      defaultConfig: () => ({ ipv4Address: "", gatewayIpv4Address: "", macAddress: "", arpTable: [] })
+      // instead of taking a cable (see the connect-tool guard in devices.ts), and
+      // it carries the SSID (+ optional password) of the network it wants to join.
+      defaultConfig: () => ({ ipv4Address: "", gatewayIpv4Address: "", macAddress: "", arpTable: [], ssid: DEFAULT_SSID })
     },
     switch: {
       label: "Switch",
@@ -2357,9 +2370,12 @@ Full legal text: https://creativecommons.org/publicdomain/zero/1.0/legalcode</pr
         "M9.172 14.828a4 4 0 0 1 0 -5.656",
         "M6.343 17.657a8 8 0 0 1 0 -11.314"
       ],
-      // A transparent L2 bridge (unmanaged-switch semantics) between its wired
-      // uplink and associated wireless clients — engine routes it via processAtSwitch.
-      defaultConfig: () => ({ managed: false, ethernetPorts: 8, macTable: [] })
+      // A transparent L2 bridge (unmanaged-switch semantics) between a single
+      // wired uplink and associated wireless clients — engine routes it via
+      // processAtSwitch. Wireless associations are not ethernet ports, so the
+      // port count is just the one LAN uplink. It broadcasts an SSID (a laptop may
+      // only associate if its SSID — and password, if set — match).
+      defaultConfig: () => ({ managed: false, ethernetPorts: 1, macTable: [], ssid: DEFAULT_SSID })
     },
     lan: {
       label: "LAN",
@@ -2658,12 +2674,21 @@ Full legal text: https://creativecommons.org/publicdomain/zero/1.0/legalcode</pr
     if (device.type === "access-point") {
       return {
         managed: false,
-        ethernetPorts: clampPortCount(device.config?.ethernetPorts ?? device.ethernetPorts ?? 8),
-        macTable: normaliseMacTable(device.config?.macTable || device.macTable || [])
+        ethernetPorts: clampApPortCount(device.config?.ethernetPorts ?? device.ethernetPorts ?? 1),
+        macTable: normaliseMacTable(device.config?.macTable || device.macTable || []),
+        ...normaliseWifiFields(device)
       };
     }
-    if (device.type !== "computer" && device.type !== "laptop") return {};
+    if (device.type === "laptop") {
+      return { ...normaliseHostFields(device), ...normaliseWifiFields(device) };
+    }
+    if (device.type !== "computer") return {};
     return normaliseHostFields(device);
+  }
+  function normaliseWifiFields(device) {
+    const ssid = normaliseSsid(device.config?.ssid ?? device.ssid ?? DEFAULT_SSID);
+    const wifiPassword = normaliseWifiPassword(device.config?.wifiPassword ?? device.wifiPassword ?? "");
+    return { ssid, ...wifiPassword ? { wifiPassword } : {} };
   }
   function normaliseConfig(parsed) {
     if (!parsed || !Array.isArray(parsed.devices) || !Array.isArray(parsed.links)) {
@@ -3341,7 +3366,25 @@ Full legal text: https://creativecommons.org/publicdomain/zero/1.0/legalcode</pr
     if (aLap && bLap) return { reject: "A laptop associates to an access point, not directly to another laptop.", wireless: false };
     if (aLap && !bAp) return { reject: `${a.name} is wireless \u2014 associate it to an access point.`, wireless: false };
     if (bLap && !aAp) return { reject: `${b.name} is wireless \u2014 associate it to an access point.`, wireless: false };
-    return { reject: null, wireless: aLap && bAp || bLap && aAp };
+    if (aLap && bAp || bLap && aAp) {
+      const laptop = aLap ? a : b;
+      const ap = aAp ? a : b;
+      return { reject: wifiJoinReason(laptop, ap), wireless: true };
+    }
+    return { reject: null, wireless: false };
+  }
+  function wifiJoinReason(laptop, ap) {
+    const apSsid = (ap.config?.ssid || "").trim();
+    const lapSsid = (laptop.config?.ssid || "").trim();
+    if (!apSsid) return `${ap.name} has no SSID set \u2014 give it a network name first.`;
+    if (lapSsid !== apSsid) {
+      return `${laptop.name} is set to join "${lapSsid || "(none)"}", but ${ap.name} broadcasts "${apSsid}".`;
+    }
+    const apPassword = ap.config?.wifiPassword || "";
+    if (apPassword && (laptop.config?.wifiPassword || "") !== apPassword) {
+      return `${laptop.name} has the wrong password for "${apSsid}".`;
+    }
+    return null;
   }
   function linkBlockReason(fromId, toId) {
     if (fromId === toId) return "Cannot link a device to itself.";
@@ -3816,8 +3859,8 @@ Full legal text: https://creativecommons.org/publicdomain/zero/1.0/legalcode</pr
     return routerInterfacesWithNames(router).find((iface) => iface.name.toLowerCase() === lower);
   }
   function switchInterfacesWithNames(device) {
-    const portCount = clampPortCount(device.config?.ethernetPorts ?? 8);
-    const ports = linkedPortsFor(device.id);
+    const portCount = device.type === "access-point" ? clampApPortCount(device.config?.ethernetPorts ?? 1) : clampPortCount(device.config?.ethernetPorts ?? 8);
+    const ports = linkedPortsFor(device.id).filter((p) => !p.link?.wireless);
     const portVlans = normalisePortVlans(device.config?.portVlans || {});
     const portModes = normalisePortModes(device.config?.portModes || {});
     const trunkNativeVlans = normalisePortVlans(device.config?.trunkNativeVlans || {});
@@ -4676,6 +4719,12 @@ Full legal text: https://creativecommons.org/publicdomain/zero/1.0/legalcode</pr
         }
         labelY += 14;
       }
+    }
+    if (device.type === "access-point" && state.options.showDeviceNames && device.config?.ssid) {
+      ctx.fillStyle = cssColor("--label-ip");
+      ctx.font = FONT_SECONDARY;
+      ctx.fillText(device.config.ssid, device.x, labelY);
+      labelY += 15;
     }
     if (device.type === "router" && (state.options.showIpAddresses || state.options.showMacAddresses)) {
       const ifaces = routerInterfacesWithNames(device);
@@ -8115,6 +8164,21 @@ Address: ${sim.dnsResolvedIp}`);
     </div>
   `;
   }
+  function renderWifiFields(config, hint) {
+    return `
+      <div class="field">
+        <label for="selectedSsid">SSID (network name)</label>
+        <input id="selectedSsid" value="${escapeHtml(config?.ssid || "")}" placeholder="RouteSim" maxlength="32" autocomplete="off">
+        <p class="field-note">${hint}</p>
+      </div>
+      <div class="field">
+        <label for="selectedWifiPassword">Password (optional)</label>
+        <div class="input-with-button">
+          <input id="selectedWifiPassword" value="${escapeHtml(config?.wifiPassword || "")}" placeholder="(open network)" maxlength="63" autocomplete="off">
+          <button class="inline-button" id="clearWifiPassword" type="button" title="Clear password (open network)">&times;</button>
+        </div>
+      </div>`;
+  }
   function renderSwitchPorts(device) {
     const interfaces = switchInterfacesWithNames(device);
     const isManaged = Boolean(device.config?.managed);
@@ -8624,11 +8688,17 @@ Address: ${sim.dnsResolvedIp}`);
           <button class="inline-button" id="randomMac" type="button" title="Generate random MAC">Random</button>
         </div>
       </div>
+      ${selected.type === "laptop" ? renderWifiFields(selected.config, "The WiFi network this laptop associates to (must match an access point).") : ""}
       ${selected.type === "server" ? renderDnsmasqSection(selected) : ""}
       <div class="field">
         <label>ARP table</label>
         ${renderArpTable(selected)}
       </div>
+    ` : "";
+      const apConfigFields = selected.type === "access-point" ? `
+      <p class="field-note">A transparent bridge: it joins its wireless clients to the wired uplink (no MAC learning shown \u2014 it forwards like an unmanaged switch).</p>
+      <div style="height: 10px"></div>
+      ${renderWifiFields(selected.config, "The network this access point broadcasts. A laptop joins only if its SSID \u2014 and password, if set \u2014 match.")}
     ` : "";
       const switchConfigFields = selected.type === "switch" ? `
       <div class="field">
@@ -8755,6 +8825,7 @@ Address: ${sim.dnsResolvedIp}`);
         <div style="height: 14px"></div>
       ` : ""}
       ${pcConfigFields}
+      ${apConfigFields}
       ${switchConfigFields}
       ${routerConfigFields}
       ${firewallConfigFields}
@@ -8796,6 +8867,29 @@ Address: ${sim.dnsResolvedIp}`);
       runOnClick("clearDns", "rm /etc/resolv.conf");
       runOnClick("randomMac", () => `ip link set dev eth0 address ${randomMac()}`);
       bindDnsmasqControls(selected);
+      const bindWifiField = (id, field, normalise) => {
+        const input = document.getElementById(id);
+        if (!input) return;
+        captureUndoOnFocus(input);
+        input.addEventListener("change", (event) => {
+          ensureConfig(selected);
+          selected.config[field] = normalise(event.target.value);
+          syncPanel();
+          sync().render();
+        });
+        input.addEventListener("keydown", (event) => {
+          if (event.key === "Enter") input.blur();
+        });
+      };
+      bindWifiField("selectedSsid", "ssid", normaliseSsid);
+      bindWifiField("selectedWifiPassword", "wifiPassword", normaliseWifiPassword);
+      document.getElementById("clearWifiPassword")?.addEventListener("click", () => {
+        pushUndo();
+        ensureConfig(selected);
+        selected.config.wifiPassword = "";
+        syncPanel();
+        sync().render();
+      });
       const managedInput = document.getElementById("selectedManaged");
       if (managedInput) {
         managedInput.addEventListener("change", (event) => {
@@ -10158,14 +10252,18 @@ Address: ${sim.dnsResolvedIp}`);
         ...hidden ? { hidden: true } : {},
         ...poweredOff ? { poweredOff: true } : {},
         ...collapsedBy ? { collapsedBy } : {},
-        ...type === "computer" || type === "laptop" ? {
+        ...type === "computer" ? {
           config: hostConfigForPayload(config)
+        } : {},
+        ...type === "laptop" ? {
+          config: { ...hostConfigForPayload(config), ...wifiConfigForPayload(config) }
         } : {},
         ...type === "access-point" ? {
           config: {
             managed: false,
-            ethernetPorts: clampPortCount(config?.ethernetPorts ?? 8),
-            macTable: normaliseMacTable(config?.macTable || [])
+            ethernetPorts: clampApPortCount(config?.ethernetPorts ?? 1),
+            macTable: normaliseMacTable(config?.macTable || []),
+            ...wifiConfigForPayload(config)
           }
         } : {},
         ...type === "server" ? {
@@ -10234,6 +10332,13 @@ Address: ${sim.dnsResolvedIp}`);
         ...collapsedBy ? { collapsedBy } : {},
         ...proxy ? { proxy: true } : {}
       }))
+    };
+  }
+  function wifiConfigForPayload(config) {
+    const wifiPassword = normaliseWifiPassword(config?.wifiPassword);
+    return {
+      ssid: normaliseSsid(config?.ssid ?? DEFAULT_SSID),
+      ...wifiPassword ? { wifiPassword } : {}
     };
   }
   function hostConfigForPayload(config) {
@@ -10563,6 +10668,22 @@ Address: ${sim.dnsResolvedIp}`);
     sync().render();
     return ok(`Set ${device.name} MAC to ${mac}.`);
   }
+  function cmdSsid(args) {
+    const device = resolveDevice(args[0]);
+    if (typeof device === "string") return err(device);
+    if (device.type !== "laptop" && device.type !== "access-point") {
+      return err(`${device.name} is not a WiFi device \u2014 set an SSID on a laptop or access point.`);
+    }
+    const ssid = normaliseSsid(args[1] || "");
+    if (!ssid) return err("Usage: ssid <laptop|access-point> <name> [password]");
+    ensureConfig(device);
+    device.config.ssid = ssid;
+    const password = normaliseWifiPassword(args[2] ?? "");
+    device.config.wifiPassword = password;
+    sync().render();
+    const role = device.type === "access-point" ? "broadcasts" : "joins";
+    return ok(`${device.name} ${role} SSID "${ssid}"${password ? " (password set)" : ""}.`);
+  }
   function cmdInterface(args) {
     const router = resolveDevice(args[0]);
     if (typeof router === "string") return err(router);
@@ -10814,12 +10935,15 @@ Address: ${sim.dnsResolvedIp}`);
         `  mac: ${c.macAddress || "(unset)"}`
       );
       if (c.dnsServerIp) lines.push(`  nameserver: ${c.dnsServerIp}`);
+      if (device.type === "laptop") lines.push(`  ssid: ${c.ssid || "(none)"}${c.wifiPassword ? " (secured)" : ""}`);
       if (device.type === "server") {
         lines.push(`  dnsmasq: ${c.dnsmasqRunning !== false ? "running" : "stopped"}`);
         for (const r of c.dnsRecords || []) lines.push(`  dns: ${r.name} \u2192 ${r.ip}`);
         if (c.dhcpRangeStart && c.dhcpRangeEnd) lines.push(`  dhcp-range: ${c.dhcpRangeStart} \u2013 ${c.dhcpRangeEnd}`);
         if (c.dhcpRouterIp) lines.push(`  dhcp router option: ${c.dhcpRouterIp}`);
       }
+    } else if (device.type === "access-point") {
+      lines.push(`  ssid: ${c.ssid || "(none)"}${c.wifiPassword ? " (secured)" : " (open)"}`, `  uplink ports: ${c.ethernetPorts ?? 1}`);
     } else if (device.type === "switch") {
       lines.push(`  managed: ${Boolean(c.managed)}`, `  ports: ${c.ethernetPorts ?? 8}`);
       if (c.managed && c.vlans?.length) lines.push(`  vlans: ${c.vlans.map((v) => v.id).join(", ")}`);
@@ -10930,6 +11054,7 @@ Address: ${sim.dnsResolvedIp}`);
     gateway: cmdGateway,
     nameserver: cmdNameserver,
     mac: cmdMac,
+    ssid: cmdSsid,
     interface: cmdInterface,
     route: cmdRoute,
     vlan: cmdVlan,
@@ -10981,6 +11106,7 @@ Address: ${sim.dnsResolvedIp}`);
     gateway: "gateway <host> <ip>",
     nameserver: "nameserver <host> <ip>",
     mac: "mac <host> <addr>",
+    ssid: "ssid <laptop|access-point> <name> [password] (omit password = open)",
     interface: "interface <router> <peer> ip <addr> [vlan <tag>]",
     route: "route <router> <net/prefix> <nextHop>",
     vlan: "vlan <switch> add|del <id>",
@@ -11046,6 +11172,7 @@ Address: ${sim.dnsResolvedIp}`);
         if (c.gatewayIpv4Address) lines.push(`gateway ${d.name} ${c.gatewayIpv4Address}`);
         if (c.macAddress) lines.push(`mac ${d.name} ${c.macAddress}`);
         if (c.dnsServerIp) lines.push(`nameserver ${d.name} ${c.dnsServerIp}`);
+        if (d.type === "laptop" && c.ssid) lines.push(`ssid ${d.name} ${c.ssid}${c.wifiPassword ? ` ${c.wifiPassword}` : ""}`);
         for (const r of c.dnsRecords || []) lines.push(`cli ${d.name} echo address=/${r.name}/${r.ip} >> /etc/dnsmasq.conf`);
         if (c.dhcpRangeStart && c.dhcpRangeEnd) lines.push(`cli ${d.name} echo dhcp-range=${c.dhcpRangeStart},${c.dhcpRangeEnd} >> /etc/dnsmasq.conf`);
         if (c.dhcpRouterIp) lines.push(`cli ${d.name} echo dhcp-option=option:router,${c.dhcpRouterIp} >> /etc/dnsmasq.conf`);
@@ -11066,6 +11193,8 @@ Address: ${sim.dnsResolvedIp}`);
           }
         }
         for (const r of c.staticRoutes || []) lines.push(`route ${d.name} ${r.network} ${r.nextHop}`);
+      } else if (d.type === "access-point" && c.ssid) {
+        lines.push(`ssid ${d.name} ${c.ssid}${c.wifiPassword ? ` ${c.wifiPassword}` : ""}`);
       }
     }
     for (const l of payload.links) {

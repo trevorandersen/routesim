@@ -92,16 +92,19 @@ multi-homed hosts and dual-NIC servers. Effort: moderate (host config grows an
 interfaces array; the engine's per-host handlers pick the ingress NIC).
 
 ### WiFi — access points & wireless clients
-**MVP shipped (2026-06):** a WiFi-only **laptop** that associates to an **access
-point** (a transparent L2 bridge reusing `processAtSwitch`), drawn over a dotted
-**wireless link** (`Link.wireless`); the Connect tool only lets a laptop
-associate to one AP, and ARP/DHCP/IP work through the AP onto the wired LAN
-exactly as a switch would. **Still to do:** an SSID on the AP, signal
-range/strength (clients auto-associating to an in-range AP — pairs with the
-**physical** mode), channels/interference, multiple SSIDs mapped to VLANs, and
-association/auth shown as a visible step. The wireless link already carries
-loss/bandwidth (it's a normal link), so per-link signal degradation is cheap to
-layer on.
+**Shipped (2026-06):** a WiFi-only **laptop** that associates to an **access
+point** (a transparent L2 bridge reusing `processAtSwitch`, with a single wired
+uplink), drawn over a dotted **wireless link** (`Link.wireless`); the Connect
+tool only lets a laptop associate to one AP, and ARP/DHCP/IP work through the AP
+onto the wired LAN exactly as a switch would. Both the AP (broadcast) and the
+laptop (join) carry an **SSID** plus an optional **password**, and a laptop only
+associates when its SSID — and password, if the AP is secured — match (set via
+the inspector or the `ssid` command; shown on the canvas). **Still to do:**
+signal range/strength (clients auto-associating to an in-range AP — pairs with
+the **physical** mode), channels/interference, multiple SSIDs mapped to VLANs,
+and association/auth shown as a visible per-step exchange. The wireless link
+already carries loss/bandwidth (it's a normal link), so per-link signal
+degradation is cheap to layer on.
 
 ### Router roles — border vs internal
 Give routers a **role** that sets sensible defaults and teaches placement, the

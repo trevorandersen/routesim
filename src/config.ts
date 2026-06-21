@@ -3,7 +3,8 @@ import { dom } from "./dom";
 import type { SerialisedTopology, Device, Link } from "./types";
 
 type NormalisedConfig = { devices: Device[]; links: Link[] };
-import { clampPortCount, clampRouterPortCount } from "./utils";
+import { clampPortCount, clampApPortCount, clampRouterPortCount, normaliseSsid, normaliseWifiPassword } from "./utils";
+import { DEFAULT_SSID } from "./device-registry";
 import {
   normaliseArpTable, normaliseMacTable, normaliseVlans, normalisePortVlans,
   normalisePortModes, normaliseTrunkAllowedVlans, normaliseDnsRecords, normaliseDhcpLeases,
@@ -29,14 +30,18 @@ export function buildConfigPayload(): SerialisedTopology {
       ...(hidden ? { hidden: true } : {}),
       ...(poweredOff ? { poweredOff: true } : {}),
       ...(collapsedBy ? { collapsedBy } : {}),
-      ...(type === "computer" || type === "laptop" ? {
+      ...(type === "computer" ? {
         config: hostConfigForPayload(config)
+      } : {}),
+      ...(type === "laptop" ? {
+        config: { ...hostConfigForPayload(config), ...wifiConfigForPayload(config) }
       } : {}),
       ...(type === "access-point" ? {
         config: {
           managed: false,
-          ethernetPorts: clampPortCount(config?.ethernetPorts ?? 8),
+          ethernetPorts: clampApPortCount(config?.ethernetPorts ?? 1),
           macTable: normaliseMacTable(config?.macTable || []),
+          ...wifiConfigForPayload(config),
         }
       } : {}),
       ...(type === "server" ? {
@@ -106,6 +111,16 @@ export function buildConfigPayload(): SerialisedTopology {
       ...(collapsedBy ? { collapsedBy } : {}),
       ...(proxy ? { proxy: true } : {})
     }))
+  };
+}
+
+// WiFi association fields (laptop + access point) for the config payload: the
+// SSID always serialises (default-filled), the password only when set.
+function wifiConfigForPayload(config: any): any {
+  const wifiPassword = normaliseWifiPassword(config?.wifiPassword);
+  return {
+    ssid: normaliseSsid(config?.ssid ?? DEFAULT_SSID),
+    ...(wifiPassword ? { wifiPassword } : {})
   };
 }
 

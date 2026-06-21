@@ -2,7 +2,7 @@ import type { Link, DeviceType } from "./types";
 import { state, sync, pushUndo, captureUndoOnFocus } from "./state";
 import { DEVICE_SPECS } from "./device-registry";
 import { dom } from "./dom";
-import { escapeHtml, isValidIpv4, isValidMac, normaliseMacAddress, randomMac, parseIpv4Token, prefixOf, networkOf } from "./utils";
+import { escapeHtml, isValidIpv4, isValidMac, normaliseMacAddress, randomMac, parseIpv4Token, prefixOf, networkOf, normaliseSsid, normaliseWifiPassword } from "./utils";
 import { ensureConfig, normaliseVlans, normaliseDnsRecords, normaliseDhcpLeases } from "./normalise";
 import {
   getDevice, isVisibleDevice, connectedIds, linkedPortsFor, linksFor,
@@ -103,6 +103,24 @@ export function renderSwitchVlans(device: any): string {
       </span>
     </div>
   `;
+}
+
+// The SSID + optional-password fields, shared by the laptop and access-point
+// inspector sections. `hint` tailors the help note to the device's role.
+function renderWifiFields(config: any, hint: string): string {
+  return `
+      <div class="field">
+        <label for="selectedSsid">SSID (network name)</label>
+        <input id="selectedSsid" value="${escapeHtml(config?.ssid || "")}" placeholder="RouteSim" maxlength="32" autocomplete="off">
+        <p class="field-note">${hint}</p>
+      </div>
+      <div class="field">
+        <label for="selectedWifiPassword">Password (optional)</label>
+        <div class="input-with-button">
+          <input id="selectedWifiPassword" value="${escapeHtml(config?.wifiPassword || "")}" placeholder="(open network)" maxlength="63" autocomplete="off">
+          <button class="inline-button" id="clearWifiPassword" type="button" title="Clear password (open network)">&times;</button>
+        </div>
+      </div>`;
 }
 
 export function renderSwitchPorts(device: any): string {
@@ -633,11 +651,17 @@ export function syncPanel(): void {
           <button class="inline-button" id="randomMac" type="button" title="Generate random MAC">Random</button>
         </div>
       </div>
+      ${selected.type === "laptop" ? renderWifiFields(selected.config, "The WiFi network this laptop associates to (must match an access point).") : ""}
       ${selected.type === "server" ? renderDnsmasqSection(selected) : ""}
       <div class="field">
         <label>ARP table</label>
         ${renderArpTable(selected)}
       </div>
+    ` : "";
+    const apConfigFields = selected.type === "access-point" ? `
+      <p class="field-note">A transparent bridge: it joins its wireless clients to the wired uplink (no MAC learning shown — it forwards like an unmanaged switch).</p>
+      <div style="height: 10px"></div>
+      ${renderWifiFields(selected.config, "The network this access point broadcasts. A laptop joins only if its SSID — and password, if set — match.")}
     ` : "";
     const switchConfigFields = selected.type === "switch" ? `
       <div class="field">
@@ -764,6 +788,7 @@ export function syncPanel(): void {
         <div style="height: 14px"></div>
       ` : ""}
       ${pcConfigFields}
+      ${apConfigFields}
       ${switchConfigFields}
       ${routerConfigFields}
       ${firewallConfigFields}
@@ -811,6 +836,30 @@ export function syncPanel(): void {
     runOnClick("clearDns", "rm /etc/resolv.conf");
     runOnClick("randomMac", () => `ip link set dev eth0 address ${randomMac()}`);
     bindDnsmasqControls(selected);
+    // WiFi SSID / password (laptop joins, access point broadcasts). Set directly
+    // on the config — these aren't terminal-driven — committing on change so the
+    // normalised value (and any association the canvas draws) re-renders.
+    const bindWifiField = (id: string, field: "ssid" | "wifiPassword", normalise: (v: string) => string) => {
+      const input = document.getElementById(id) as HTMLInputElement | null;
+      if (!input) return;
+      captureUndoOnFocus(input);
+      input.addEventListener("change", (event: any) => {
+        ensureConfig(selected);
+        selected.config[field] = normalise(event.target.value);
+        syncPanel();
+        sync().render();
+      });
+      input.addEventListener("keydown", (event: any) => { if (event.key === "Enter") input.blur(); });
+    };
+    bindWifiField("selectedSsid", "ssid", normaliseSsid);
+    bindWifiField("selectedWifiPassword", "wifiPassword", normaliseWifiPassword);
+    document.getElementById("clearWifiPassword")?.addEventListener("click", () => {
+      pushUndo();
+      ensureConfig(selected);
+      selected.config.wifiPassword = "";
+      syncPanel();
+      sync().render();
+    });
     const managedInput = document.getElementById("selectedManaged") as HTMLInputElement;
     if (managedInput) {
       managedInput.addEventListener("change", (event: any) => {

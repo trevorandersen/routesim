@@ -65,6 +65,7 @@ Param keys and boolean values are case-insensitive. Adding a setting is a one-ro
 | `gateway <host> <ip>` | Set a host default gateway. |
 | `nameserver <host> <ip>` | Set a host DNS server (`/etc/resolv.conf`). |
 | `mac <host> <addr>` | Set a host MAC. |
+| `ssid <laptop\|access-point> <name> [password]` | Set the WiFi network a laptop joins or an access point broadcasts. Omitting the password opens the network (and clears any existing one). A laptop only associates if its SSID — and password, if set — match the AP's. |
 | `interface <router> <peer> ip <addr> [vlan <tag>]` | Set a router interface IP (by connected peer; optional sub-interface VLAN). |
 | `route <router> <net/prefix> <nextHop>` | Add a static route. |
 | `vlan <switch> add\|del <id>` | Add/remove a VLAN on a managed switch. |

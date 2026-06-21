@@ -2,8 +2,8 @@ import type {
   PortMode, ArpEntry, DhcpLease, MacTableEntry, Vlan, RouterInterface,
   RipConfig, StaticRoute, DeviceConfig, DeviceType, Device, Link, FirewallRule, DnsRecord
 } from "./types";
-import { normaliseMacAddress, isValidMac, isValidIpv4, clampPortCount, clampRouterPortCount, clampPrefixLength, normaliseVlanId } from "./utils";
-import { DEVICE_SPECS, DEVICE_TYPES } from "./device-registry";
+import { normaliseMacAddress, isValidMac, isValidIpv4, clampPortCount, clampApPortCount, clampRouterPortCount, clampPrefixLength, normaliseVlanId, normaliseSsid, normaliseWifiPassword } from "./utils";
+import { DEVICE_SPECS, DEVICE_TYPES, DEFAULT_SSID } from "./device-registry";
 
 // Each element is coerced to an object before use: imported JSON may carry a
 // null / primitive in a table array, and dereferencing it raw threw a TypeError
@@ -326,15 +326,30 @@ export function normaliseDeviceConfig(device: any): DeviceConfig {
     };
   }
   if (device.type === "access-point") {
-    // A transparent L2 bridge — same unmanaged-switch shape (port count + MAC table).
+    // A transparent L2 bridge — unmanaged-switch shape plus the WiFi network it
+    // broadcasts (SSID + optional password).
     return {
       managed: false,
-      ethernetPorts: clampPortCount(device.config?.ethernetPorts ?? device.ethernetPorts ?? 8),
+      ethernetPorts: clampApPortCount(device.config?.ethernetPorts ?? device.ethernetPorts ?? 1),
       macTable: normaliseMacTable(device.config?.macTable || device.macTable || []),
+      ...normaliseWifiFields(device),
     };
   }
-  if (device.type !== "computer" && device.type !== "laptop") return {};
-  return normaliseHostFields(device); // computer + laptop share the host config shape
+  if (device.type === "laptop") {
+    // A WiFi-only host: host fields plus the SSID (+ optional password) it joins.
+    return { ...normaliseHostFields(device), ...normaliseWifiFields(device) };
+  }
+  if (device.type !== "computer") return {};
+  return normaliseHostFields(device);
+}
+
+// SSID (+ optional password) for WiFi devices (access points and laptops). A
+// missing SSID falls back to the shared default so imported topologies that
+// predate WiFi still associate; an empty password means an open network.
+function normaliseWifiFields(device: any): { ssid: string; wifiPassword?: string } {
+  const ssid = normaliseSsid(device.config?.ssid ?? device.ssid ?? DEFAULT_SSID);
+  const wifiPassword = normaliseWifiPassword(device.config?.wifiPassword ?? device.wifiPassword ?? "");
+  return { ssid, ...(wifiPassword ? { wifiPassword } : {}) };
 }
 
 export function normaliseConfig(parsed: any): { devices: Device[]; links: Link[] } {

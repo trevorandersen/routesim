@@ -28,7 +28,7 @@ import { buildConfigPayload, applyConfig, loadTopology } from "./config";
 import { normaliseConfig, normaliseStaticRoutes, ensureConfig } from "./normalise";
 import { setTool, setTheme } from "./ui";
 import { setZoom, fitNetwork } from "./canvas";
-import { isValidMac, normaliseMacAddress, prefixOf, networkOf } from "./utils";
+import { isValidMac, normaliseMacAddress, prefixOf, networkOf, normaliseSsid, normaliseWifiPassword } from "./utils";
 import { SCENARIOS, getScenario, loadScenario, checkScenario } from "./scenarios";
 import { SPEED_MIN, SPEED_MAX } from "./settings-url";
 
@@ -229,6 +229,26 @@ function cmdMac(args: string[]): CommandResult {
   device.config.macAddress = mac;
   sync().render();
   return ok(`Set ${device.name} MAC to ${mac}.`);
+}
+
+// ssid <laptop|access-point> <name> [password] — set the WiFi network a laptop
+// joins or an access point broadcasts. An omitted password means open (and
+// clears any existing one), so the export round-trip is faithful.
+function cmdSsid(args: string[]): CommandResult {
+  const device = resolveDevice(args[0]);
+  if (typeof device === "string") return err(device);
+  if (device.type !== "laptop" && device.type !== "access-point") {
+    return err(`${device.name} is not a WiFi device — set an SSID on a laptop or access point.`);
+  }
+  const ssid = normaliseSsid(args[1] || "");
+  if (!ssid) return err("Usage: ssid <laptop|access-point> <name> [password]");
+  ensureConfig(device);
+  device.config.ssid = ssid;
+  const password = normaliseWifiPassword(args[2] ?? "");
+  device.config.wifiPassword = password;
+  sync().render();
+  const role = device.type === "access-point" ? "broadcasts" : "joins";
+  return ok(`${device.name} ${role} SSID "${ssid}"${password ? " (password set)" : ""}.`);
 }
 
 function cmdInterface(args: string[]): CommandResult {
@@ -482,12 +502,15 @@ function cmdShow(args: string[]): CommandResult {
       `  mac: ${c.macAddress || "(unset)"}`
     );
     if (c.dnsServerIp) lines.push(`  nameserver: ${c.dnsServerIp}`);
+    if (device.type === "laptop") lines.push(`  ssid: ${c.ssid || "(none)"}${c.wifiPassword ? " (secured)" : ""}`);
     if (device.type === "server") {
       lines.push(`  dnsmasq: ${c.dnsmasqRunning !== false ? "running" : "stopped"}`);
       for (const r of (c.dnsRecords || [])) lines.push(`  dns: ${r.name} → ${r.ip}`);
       if (c.dhcpRangeStart && c.dhcpRangeEnd) lines.push(`  dhcp-range: ${c.dhcpRangeStart} – ${c.dhcpRangeEnd}`);
       if (c.dhcpRouterIp) lines.push(`  dhcp router option: ${c.dhcpRouterIp}`);
     }
+  } else if (device.type === "access-point") {
+    lines.push(`  ssid: ${c.ssid || "(none)"}${c.wifiPassword ? " (secured)" : " (open)"}`, `  uplink ports: ${c.ethernetPorts ?? 1}`);
   } else if (device.type === "switch") {
     lines.push(`  managed: ${Boolean(c.managed)}`, `  ports: ${c.ethernetPorts ?? 8}`);
     if (c.managed && c.vlans?.length) lines.push(`  vlans: ${c.vlans.map((v: any) => v.id).join(", ")}`);
@@ -598,7 +621,7 @@ const COMMANDS: Record<string, Handler> = {
   add: cmdAdd, remove: cmdRemove, delete: cmdRemove, link: cmdLink, unlink: cmdUnlink, linkset: cmdLinkSet,
   shut: cmdShut, noshut: cmdNoShut,
   move: cmdMove, rename: cmdRename, clear: cmdClear, collapse: cmdCollapse, expand: cmdExpand,
-  ip: cmdIp, gateway: cmdGateway, nameserver: cmdNameserver, mac: cmdMac, interface: cmdInterface, route: cmdRoute,
+  ip: cmdIp, gateway: cmdGateway, nameserver: cmdNameserver, mac: cmdMac, ssid: cmdSsid, interface: cmdInterface, route: cmdRoute,
   vlan: cmdVlan, port: cmdPort, cli: cmdCli,
   ping: cmdPing, dhcp: cmdDhcp, connect: cmdConnect, run: cmdRun, traceroute: cmdTraceroute, tracert: cmdTraceroute,
   play: cmdPlay, pause: cmdPause, step: cmdStep,
@@ -618,6 +641,7 @@ const HELP: Record<string, string> = {
   move: "move <device> <x> <y>", rename: "rename <device> <name>", clear: "remove all devices",
   collapse: "collapse <switch> into a LAN", expand: "expand <lan>",
   ip: "ip <host> <addr/prefix>", gateway: "gateway <host> <ip>", nameserver: "nameserver <host> <ip>", mac: "mac <host> <addr>",
+  ssid: "ssid <laptop|access-point> <name> [password] (omit password = open)",
   interface: "interface <router> <peer> ip <addr> [vlan <tag>]", route: "route <router> <net/prefix> <nextHop>",
   vlan: "vlan <switch> add|del <id>", port: "port <switch> <EthN> vlan|mode|native|allowed ...",
   cli: "cli <device> <raw CLI command>",
@@ -681,6 +705,7 @@ export function exportTopologyScript(): string {
       if (c.gatewayIpv4Address) lines.push(`gateway ${d.name} ${c.gatewayIpv4Address}`);
       if (c.macAddress) lines.push(`mac ${d.name} ${c.macAddress}`);
       if (c.dnsServerIp) lines.push(`nameserver ${d.name} ${c.dnsServerIp}`);
+      if (d.type === "laptop" && c.ssid) lines.push(`ssid ${d.name} ${c.ssid}${c.wifiPassword ? ` ${c.wifiPassword}` : ""}`);
       // dnsmasq state replays through the server terminal (same as a human would type).
       for (const r of (c.dnsRecords || [])) lines.push(`cli ${d.name} echo address=/${r.name}/${r.ip} >> /etc/dnsmasq.conf`);
       if (c.dhcpRangeStart && c.dhcpRangeEnd) lines.push(`cli ${d.name} echo dhcp-range=${c.dhcpRangeStart},${c.dhcpRangeEnd} >> /etc/dnsmasq.conf`);
@@ -702,6 +727,8 @@ export function exportTopologyScript(): string {
         }
       }
       for (const r of (c.staticRoutes || [])) lines.push(`route ${d.name} ${r.network} ${r.nextHop}`);
+    } else if (d.type === "access-point" && c.ssid) {
+      lines.push(`ssid ${d.name} ${c.ssid}${c.wifiPassword ? ` ${c.wifiPassword}` : ""}`);
     }
   }
 

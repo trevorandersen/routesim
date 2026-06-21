@@ -334,6 +334,14 @@ export function drawDevice(device: any): void {
       labelY += 14;
     }
   }
+  // The SSID an access point broadcasts — its defining property — shown with the
+  // device name. Whether it is secured lives in the inspector / `show` output.
+  if (device.type === "access-point" && state.options.showDeviceNames && device.config?.ssid) {
+    ctx.fillStyle = cssColor("--label-ip");
+    ctx.font = FONT_SECONDARY;
+    ctx.fillText(device.config.ssid, device.x, labelY);
+    labelY += 15;
+  }
   // Only build the (allocation-heavy) interface list when a label toggle that
   // would actually render it is on — otherwise the result is discarded.
   if (device.type === "router" && (state.options.showIpAddresses || state.options.showMacAddresses)) {

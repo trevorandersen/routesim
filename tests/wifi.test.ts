@@ -2,11 +2,12 @@
  * WiFi — the laptop (WiFi-only host) and access point (L2 bridge) devices, the
  * wireless association link, and forwarding through an AP onto the wired LAN.
  */
-import { describe, it, expect, beforeAll, beforeEach } from "bun:test";
+import { describe, it, expect, beforeAll, beforeEach, afterEach } from "bun:test";
 import { state } from "../src/state";
 import { addLink, classifyLink, linkBlockReason, switchInterfacesWithNames } from "../src/devices";
-import { runSimulationHeadless } from "../src/engine";
-import { buildPingEvents } from "../src/simulation";
+import { runSimulationHeadless, startSimulation, stepOnce } from "../src/engine";
+import { buildPingEvents, buildAssociationEvents } from "../src/simulation";
+import { packetColumns } from "../src/frame";
 import { runConsoleScript, runConsoleCommand as exec, exportTopologyScript } from "../src/commands";
 import { buildConfigPayload, parseConfig, applyConfig } from "../src/config";
 import { registerNoopCallbacks, resetState } from "./helpers";
@@ -245,5 +246,101 @@ describe("wifi — serialisation round-trips", () => {
     expect(byName("AP1").config.ssid).toBe("Lab");
     expect(byName("AP1").config.wifiPassword).toBe("guestpass");
     expect(state.links[0].wireless).toBe(true);
+  });
+});
+
+describe("wifi — 802.11 association handshake", () => {
+  const realRaf = (globalThis as any).requestAnimationFrame;
+  beforeEach(() => { resetState(); (globalThis as any).requestAnimationFrame = () => 0; });
+  afterEach(() => {
+    (globalThis as any).requestAnimationFrame = realRaf;
+    state.options.silentWifi = false; // resetState() does not touch options
+  });
+
+  function associate(scriptExtra = "") {
+    runConsoleScript(`add laptop LT1 at 0 0\nadd access-point AP1 at 100 0${scriptExtra}\nlink LT1 AP1`);
+    const lt = byName("LT1");
+    const setup = buildAssociationEvents(lt);
+    expect(typeof setup).not.toBe("string");
+    state.simulation.autoPlay = true;
+    startSimulation(setup as any, lt.id, "", "associate");
+    let g = 0; while (state.simulation.status !== "done" && g++ < 200) stepOnce();
+    return state.simulation.capture.map(c => packetColumns(c.frame).info);
+  }
+
+  it("an open network does probe → auth → association (no WPA2)", () => {
+    const seq = associate();
+    expect(state.simulation.wifiAssociated).toBe(true);
+    expect(seq.some(s => s.startsWith("Probe Request"))).toBe(true);
+    expect(seq.some(s => s.includes("Authentication, Open System (seq 1)"))).toBe(true);
+    expect(seq.some(s => s.startsWith("Association Response"))).toBe(true);
+    expect(seq.some(s => s.includes("Message 1 of 4"))).toBe(false);
+  });
+
+  it("a secured network adds the WPA2 4-way handshake (M1–M4)", () => {
+    const seq = associate("\nssid AP1 Secure pass1234\nssid LT1 Secure pass1234");
+    expect(state.simulation.wifiAssociated).toBe(true);
+    for (const m of [1, 2, 3, 4]) expect(seq.some(s => s.includes(`Message ${m} of 4`))).toBe(true);
+  });
+
+  it("the management frames are EAPOL/802.11, not Ethernet data", () => {
+    associate();
+    const protocols = new Set(state.simulation.capture.map(c => packetColumns(c.frame).protocol));
+    expect(protocols.has("802.11")).toBe(true);
+    expect(protocols.has("ICMP")).toBe(false);
+  });
+
+  it("`run associate` is headless and reports success; an unlinked laptop errors", () => {
+    runConsoleScript("add laptop LT1 at 0 0\nadd access-point AP1 at 100 0\nlink LT1 AP1");
+    expect(runConsoleScript("run associate LT1")[0].ok).toBe(true);
+    runConsoleScript("add laptop LT9 at 0 200"); // no AP link
+    const r = runConsoleScript("run associate LT9")[0];
+    expect(r.ok).toBe(false);
+    expect(r.output.join(" ")).toMatch(/not associated/i);
+  });
+
+  it("Silent WiFi association resolves but keeps the frames out of the packet list", () => {
+    state.options.silentWifi = true;
+    const seq = associate();
+    expect(state.simulation.wifiAssociated).toBe(true); // still handled
+    expect(seq.length).toBe(0);                          // …just not shown
+  });
+});
+
+describe("wifi — staff/guest VLAN built-in topology", () => {
+  beforeEach(() => resetState());
+
+  const ping = (src: string, ip: string) => runConsoleScript(`run ping ${src} ${ip}`)[0].ok;
+
+  it("intra-VLAN traffic and the per-VLAN gateways are reachable", () => {
+    runConsoleScript("topology wifi-vlan");
+    expect(ping("Staff-LT1", "10.0.10.1")).toBe(true);   // staff → its gateway
+    expect(ping("Staff-LT1", "10.0.10.12")).toBe(true);  // staff ↔ staff (same SSID/VLAN, via the AP)
+    expect(ping("Guest-LT", "10.0.20.1")).toBe(true);    // guest → its gateway
+  });
+
+  it("guests are isolated from the staff subnet (FORWARD drop on the gateway)", () => {
+    runConsoleScript("topology wifi-vlan");
+    expect(ping("Guest-LT", "10.0.10.11")).toBe(false);  // guest → staff is dropped by the router
+  });
+
+  it("the shared server (VLAN 30) is reachable from every VLAN", () => {
+    runConsoleScript("topology wifi-vlan");
+    expect(ping("Staff-LT1", "10.0.30.10")).toBe(true);  // staff → server
+    expect(ping("Guest-LT", "10.0.30.10")).toBe(true);   // guest → server (isolation is only guest→staff)
+    // …and both VLANs resolve names via that server
+    expect(runConsoleScript("run resolve Staff-LT1 server.lan")[0].ok).toBe(true);
+    expect(runConsoleScript("run resolve Guest-LT server.lan")[0].ok).toBe(true);
+  });
+
+  it("the two SSIDs live on different VLANs", () => {
+    runConsoleScript("topology wifi-vlan");
+    expect(byName("Staff-AP").config.ssid).toBe("Staff");
+    expect(byName("Staff-AP").config.wifiPassword).toBe("staff1234"); // secured
+    expect(byName("Guest-AP").config.ssid).toBe("Guest");
+    expect(byName("Guest-AP").config.wifiPassword).toBeFalsy();        // open
+    const core = byName("Core-SW");
+    expect(core.config.portVlans!.Ethernet2).toBe(10); // staff AP uplink
+    expect(core.config.portVlans!.Ethernet3).toBe(20); // guest AP uplink
   });
 });

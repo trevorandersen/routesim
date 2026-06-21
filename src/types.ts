@@ -53,6 +53,13 @@ export interface DisplayOptions {
   // DHCP, and whether a failed DHCP falls back to link-local APIPA.
   autoDhcp: boolean;
   apipaFallback: boolean;
+  // "Silent" toggles: resolve these instantly with no animated frames or packet
+  // rows — the engine still runs the exchange, it just isn't shown. Handy once a
+  // learner understands the mechanism and wants the higher-layer flow uncluttered.
+  silentArp: boolean;
+  silentDhcp: boolean;
+  silentDns: boolean;
+  silentWifi: boolean;   // suppress the 802.11 association/auth frame animation
 }
 
 export interface ArpEntry {
@@ -404,13 +411,28 @@ export interface Ipv4Payload {
   payload: IcmpPayload | DhcpPayload | TcpPayload | DnsPayload;
 }
 
+// An 802.11 management / EAPOL frame exchanged between a laptop and its access
+// point when it joins: discovery (probe), open-system authentication, the
+// association, and — on a secured network — the WPA2 4-way key handshake.
+export type Dot11Subtype =
+  | "probe-req" | "probe-resp"
+  | "auth-req" | "auth-resp"
+  | "assoc-req" | "assoc-resp"
+  | "eapol-start" | "eapol-m1" | "eapol-m2" | "eapol-m3" | "eapol-m4";
+
+export interface Dot11Payload {
+  type: "dot11";
+  subtype: Dot11Subtype;
+  ssid: string;
+}
+
 export interface EthernetFrame {
   id: string;
   srcMac: string;
   dstMac: string;
-  etherType: 0x0806 | 0x0800;   // ARP or IPv4
+  etherType: 0x0806 | 0x0800 | 0x888e;   // ARP, IPv4, or 802.11 mgmt / EAPOL
   vlanTag: number | null;
-  payload: ArpPayload | Ipv4Payload;
+  payload: ArpPayload | Ipv4Payload | Dot11Payload;
 }
 
 export interface SimEvent {
@@ -429,6 +451,7 @@ export interface ActiveTransit {
   progress: number;
   startTime: number;
   latencyFactor?: number;  // multiplies this dot's crossing time (per-link latency); 1 = normal
+  silent?: boolean;        // a "silent" ARP/DHCP/DNS frame: delivered instantly, not drawn or captured
 }
 
 export interface SimLogEntry {
@@ -453,7 +476,7 @@ export interface CaptureEntry {
 
 export interface SimulationState {
   status: "idle" | "running" | "paused" | "done";
-  mode: "ping" | "dhcp" | "tcp" | "dns";
+  mode: "ping" | "dhcp" | "tcp" | "dns" | "associate";
   events: SimEvent[];
   log: SimLogEntry[];
   capture: CaptureEntry[];   // packet list (animated runs only; capped)
@@ -479,6 +502,7 @@ export interface SimulationState {
   dhcpSuccess: boolean;
   dhcpAssignedIp: string | null;
   dhcpAssignedGateway: string | null;
+  wifiAssociated: boolean;           // the 802.11 association handshake completed (mode "associate")
 }
 
 export interface PortOption {

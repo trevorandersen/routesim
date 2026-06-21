@@ -18,7 +18,7 @@ import {
   startSimulation, stopSimulation, pauseSimulation, resumeSimulation, stepOnce,
   runSimulationHeadless, runTraceroute,
 } from "./engine";
-import { buildPingEvents, buildDhcpEvents, buildConnectEvents, buildResolveEvents, findPingTarget } from "./simulation";
+import { buildPingEvents, buildDhcpEvents, buildConnectEvents, buildResolveEvents, buildAssociationEvents, associatedAp, findPingTarget } from "./simulation";
 import {
   setHostIp, setHostGateway, setHostDns, setRouterInterfaceIp, addSwitchVlan, removeSwitchVlan,
   setSwitchPortVlan, setSwitchPortMode, setSwitchTrunkNative, modifySwitchTrunkAllowed,
@@ -369,8 +369,27 @@ function cmdDhcp(args: string[]): CommandResult {
   return ok(`DHCP on ${host.name} started.`);
 }
 
+function cmdAssociate(args: string[]): CommandResult {
+  const laptop = resolveDevice(args[0]);
+  if (typeof laptop === "string") return err(laptop);
+  const setup = buildAssociationEvents(laptop);
+  if (typeof setup === "string") return err(setup);
+  const ssid = associatedAp(laptop)?.ap.config?.ssid || "";
+  startSimulation(setup, laptop.id, ssid, "associate");
+  return ok(`Associating ${laptop.name} to "${ssid}"...`);
+}
+
 function cmdRun(args: string[]): CommandResult {
   const mode = (args[0] || "").toLowerCase();
+  if (mode === "associate") {
+    const laptop = resolveDevice(args[1]);
+    if (typeof laptop === "string") return err(laptop);
+    const setup = buildAssociationEvents(laptop);
+    if (typeof setup === "string") return err(setup);
+    const r = runSimulationHeadless(setup, laptop.id, "", "associate");
+    return { ok: r.success, data: r,
+      output: [r.success ? `associate: ${laptop.name} joined the WiFi (${r.steps} frames)` : "associate: handshake did not complete"] };
+  }
   if (mode === "ping") {
     const src = resolveDevice(args[1]);
     if (typeof src === "string") return err(src);
@@ -448,8 +467,8 @@ function cmdSpeed(args: string[]): CommandResult {
 
 function cmdTopology(args: string[]): CommandResult {
   const name = (args[0] || "").toLowerCase();
-  if (!["basic", "vlan-roas", "router-mesh"].includes(name)) {
-    return err(`topology: expected basic|vlan-roas|router-mesh.`);
+  if (!["basic", "vlan-roas", "router-mesh", "wifi-vlan"].includes(name)) {
+    return err(`topology: expected basic|vlan-roas|router-mesh|wifi-vlan.`);
   }
   loadTopology(name);
   return ok(`Loaded topology "${name}".`);
@@ -623,7 +642,7 @@ const COMMANDS: Record<string, Handler> = {
   move: cmdMove, rename: cmdRename, clear: cmdClear, collapse: cmdCollapse, expand: cmdExpand,
   ip: cmdIp, gateway: cmdGateway, nameserver: cmdNameserver, mac: cmdMac, ssid: cmdSsid, interface: cmdInterface, route: cmdRoute,
   vlan: cmdVlan, port: cmdPort, cli: cmdCli,
-  ping: cmdPing, dhcp: cmdDhcp, connect: cmdConnect, run: cmdRun, traceroute: cmdTraceroute, tracert: cmdTraceroute,
+  ping: cmdPing, dhcp: cmdDhcp, connect: cmdConnect, associate: cmdAssociate, run: cmdRun, traceroute: cmdTraceroute, tracert: cmdTraceroute,
   play: cmdPlay, pause: cmdPause, step: cmdStep,
   stop: cmdStop, speed: cmdSpeed,
   topology: cmdTopology, save: cmdSave, load: cmdLoad, undo: cmdUndo, redo: cmdRedo, export: cmdExport,
@@ -646,10 +665,11 @@ const HELP: Record<string, string> = {
   vlan: "vlan <switch> add|del <id>", port: "port <switch> <EthN> vlan|mode|native|allowed ...",
   cli: "cli <device> <raw CLI command>",
   ping: "ping <src> <dst> (animated)", dhcp: "dhcp <host> (animated)", connect: "connect <src> <dst> <port> (animated TCP handshake)",
-  run: "run ping <src> <dst> | run connect <src> <dst> <port> | run resolve <src> <name> | run dhcp <host> (headless, returns result)",
+  associate: "associate <laptop> (animate the 802.11 join: probe/auth/assoc + WPA2 if secured)",
+  run: "run ping <src> <dst> | run connect <src> <dst> <port> | run resolve <src> <name> | run dhcp <host> | run associate <laptop> (headless, returns result)",
   traceroute: "traceroute <src> <dst> (hop-by-hop via TTL)",
   play: "resume", pause: "pause", step: "advance one hop", stop: "stop", speed: "speed <ms-per-hop>",
-  topology: "topology basic|vlan-roas|router-mesh", save: "save <name>", load: "load <name>",
+  topology: "topology basic|vlan-roas|router-mesh|wifi-vlan", save: "save <name>", load: "load <name>",
   undo: "undo", redo: "redo", export: "export topology as a reproducible script",
   list: "list [links]", show: "show <device>", status: "simulation status + last result", log: "hop-by-hop log",
   select: "select <device>", tool: "tool <name>", theme: "theme warm-light|dark|blueprint", zoom: "zoom <scale>", fit: "fit to view",

@@ -36,6 +36,10 @@ rs-web.html?names=0&ips=1&macs=0&autodhcp=on&apipa=1&theme=dark&speed=400
 | `macs` | Show MAC addresses | (boolean, as above) |
 | `autodhcp` | Auto-DHCP on boot | (boolean) |
 | `apipa` | APIPA fallback | (boolean) |
+| `silentarp` | Silent ARP (resolve instantly, no animation) | (boolean) |
+| `silentdhcp` | Silent DHCP (instant lease) | (boolean) |
+| `silentdns` | Silent DNS (instant resolve) | (boolean) |
+| `silentwifi` | Silent WiFi association (instant join) | (boolean) |
 | `theme` | Colour theme | `warm-light` (or `light`), `dark`, `blueprint` |
 | `speed` | Animation ms/hop | a number, clamped to 200–3000 |
 
@@ -81,10 +85,12 @@ Param keys and boolean values are case-insensitive. Adding a setting is a one-ro
 | `ping <src> <dst>` | Start an **animated** ping (watch it on the canvas). |
 | `dhcp <host>` | Start an **animated** DHCP request. |
 | `connect <src> <dst> <port>` | Start an **animated** TCP three-way handshake. |
+| `associate <laptop>` | Animate the **802.11 join** to the laptop's access point: probe / open-system auth / association, plus the WPA2 4-way key handshake when the AP is secured. |
 | `run ping <src> <dst>` | **Headless** ping → returns reachable/unreachable + TTL + step count. |
 | `run dhcp <host>` | **Headless** DHCP → returns the assigned lease (or no response). |
 | `run resolve <src> <name>` | **Headless** DNS lookup → returns the resolved IP (or NXDOMAIN). Alias: `run dns`. |
 | `run connect <src> <dst> <port>` | **Headless** TCP connect → open / refused (RST) / timed out. |
+| `run associate <laptop>` | **Headless** 802.11 association → joined / did-not-complete + frame count. |
 | `traceroute <src> <dst>` | **Headless** hop-by-hop path discovery via increasing TTL; `data` is `{ targetIp, hops, reached }`. Also `tracert`. |
 | `play` / `pause` / `step` / `stop` | Drive an animated run. |
 | `speed <ms>` | Milliseconds per hop. |
@@ -92,7 +98,7 @@ Param keys and boolean values are case-insensitive. Adding a setting is a one-ro
 ### Management
 | Command | Effect |
 |---------|--------|
-| `topology <basic\|vlan-roas\|router-mesh>` | Load a built-in topology. |
+| `topology <basic\|vlan-roas\|router-mesh\|wifi-vlan>` | Load a built-in topology. `wifi-vlan` is a campus WiFi with staff (secured SSID, VLAN 10) and guest (open SSID, VLAN 20) separated by VLAN, plus a shared server on a Servers VLAN (30) reachable by all VLANs, routed by a gateway that isolates guests from the staff subnet. |
 | `save <name>` / `load <name>` | Save/load to the in-memory config store. |
 | `undo` / `redo` | Undo / redo the last change. |
 | `export` | Print the current topology as a reproducible command script. |

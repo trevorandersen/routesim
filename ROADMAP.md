@@ -99,12 +99,21 @@ tool only lets a laptop associate to one AP, and ARP/DHCP/IP work through the AP
 onto the wired LAN exactly as a switch would. Both the AP (broadcast) and the
 laptop (join) carry an **SSID** plus an optional **password**, and a laptop only
 associates when its SSID — and password, if the AP is secured — match (set via
-the inspector or the `ssid` command; shown on the canvas). **Still to do:**
-signal range/strength (clients auto-associating to an in-range AP — pairs with
-the **physical** mode), channels/interference, multiple SSIDs mapped to VLANs,
-and association/auth shown as a visible per-step exchange. The wireless link
-already carries loss/bandwidth (it's a normal link), so per-link signal
-degradation is cheap to layer on.
+the inspector or the `ssid` command; shown on the canvas). A built-in
+**`wifi-vlan`** topology ships this as a worked example: a secured staff SSID on
+VLAN 10 and an open guest SSID on VLAN 20, one access point each, a shared server
+on a Servers VLAN (30) reachable by every VLAN, a router-on-a-stick gateway, and
+a FORWARD rule isolating guests from staff. The **802.11 management frames** are
+now simulated: `associate <laptop>` animates the real join — Probe / open-system
+Authentication / Association, plus the WPA2 4-way (EAPOL M1–M4) key handshake on a
+secured AP — as `dot11` frames in the packet list (a `handleDot11` reactive state
+machine across the laptop and AP; a Silent WiFi toggle suppresses them like the
+other silent protocols). **Still to do:** signal range/strength (clients
+auto-associating to an in-range AP — pairs with the **physical** mode),
+channels/interference, multiple SSIDs mapped to VLANs, a **failed** association
+(wrong-password auth/EAPOL failure — currently impossible since a mismatched link
+can't form), and beacons/roaming. The wireless link already carries loss/bandwidth
+(it's a normal link), so per-link signal degradation is cheap to layer on.
 
 ### Router roles — border vs internal
 Give routers a **role** that sets sensible defaults and teaches placement, the

@@ -83,7 +83,7 @@ describe("setSwitchPortVlan", () => {
 | `tests/tcp.test.ts` | The TCP three-way handshake, the `openPorts` listener model, RST refusal, port filtering |
 | `tests/dns.test.ts` | DNS + the server device: A-records, resolv/dnsmasq conf handling, resolve-then-act flows, server DHCP |
 | `tests/prefix.test.ts` | Real subnet prefixes: longest-prefix behaviour and the display/export surfaces |
-| `tests/capture.test.ts` | The packet list: `packetColumns` mapping + per-wire capture recording (cap, headless preservation) |
+| `tests/capture.test.ts` | The packet list: `packetColumns` mapping (incl. 802.11/EAPOL) + per-wire capture recording (cap, headless preservation), and the silent-protocol toggles (an ARP/DHCP/DNS frame resolves but is kept out of the capture) |
 | `tests/dock.test.ts` | The bottom dock: terminal sessions/tabs, console `cli` session sharing, configure-opens-terminal |
 | `tests/links.test.ts` | Link naming (derived default + override), link deletion, the single-NIC host guard, admin status (shut blocks traffic; `shut`/`noshut`; round-trip), bandwidth/latency/loss round-trip |
 | `tests/firstboot.test.ts` | Network boot: cabling/power no longer auto-configures; Play (`startNetworkBoot`) boots unconfigured hosts via animated DHCP → APIPA (rAF-stub harness); the global Auto-DHCP / APIPA toggles |
@@ -93,8 +93,8 @@ describe("setSwitchPortVlan", () => {
 | `tests/simulation.test.ts` | `l2Reachable`, `getVlanForDevice`, `buildPing/DhcpEvents` |
 | `tests/scenarios.test.ts` | Scenario loading/goal checks + positive-coordinate invariants |
 | `tests/io.test.ts` | JSON import/export round-trips |
-| `tests/settings-url.test.ts` | URL query-string settings: `parseSettingsFromUrl` (bool spellings, theme/speed validation + clamping, ignored params) and the `buildSettingsQuery` inverse (diff-only emit + round-trip) |
-| `tests/wifi.test.ts` | WiFi: the laptop (WiFi-only host) + access point (single-uplink L2 bridge) device types, the wireless association (`classifyLink`/`linkBlockReason` — laptop↔AP only, single NIC, SSID + password matching), forwarding through an AP onto the wired LAN, and SSID/password serialisation round-trips |
+| `tests/settings-url.test.ts` | URL query-string settings: `parseSettingsFromUrl` (bool spellings incl. the silent-protocol params, theme/speed validation + clamping, ignored params) and the `buildSettingsQuery` inverse (diff-only emit + round-trip) |
+| `tests/wifi.test.ts` | WiFi: the laptop (WiFi-only host) + access point (single-uplink L2 bridge) device types, the wireless association (`classifyLink`/`linkBlockReason` — laptop↔AP only, single NIC, SSID + password matching), forwarding through an AP onto the wired LAN, SSID/password serialisation round-trips, and the **802.11 association handshake** (probe/auth/assoc + WPA2 4-way for a secured AP, `run associate`, the Silent WiFi toggle) |
 | `tests/frame.test.ts` | Frame factories, `frameLabel`/`frameColor` |
 | `tests/normalise.test.ts` | All normalisers, `ensureConfig`, `defaultDeviceConfig`, `deviceSize` |
 | `tests/devices.test.ts` | CRUD, hit-testing, lookup indexes + invalidation |

@@ -1,10 +1,10 @@
-import type { EthernetFrame, ArpPayload, Ipv4Payload, DhcpPayload, TcpPayload, DnsPayload, NatEntry, SimEvent, SimLogEntry, ActiveTransit, FrameHistoryEntry, RouteEntry, Device, DeviceType, FirewallRule, FirewallTarget } from "./types";
+import type { EthernetFrame, ArpPayload, Ipv4Payload, DhcpPayload, TcpPayload, DnsPayload, Dot11Payload, NatEntry, SimEvent, SimLogEntry, ActiveTransit, FrameHistoryEntry, RouteEntry, Device, DeviceType, FirewallRule, FirewallTarget } from "./types";
 import { state, pushUndo, sync } from "./state";
 import { dom } from "./dom";
 import { getDevice, linkedPortsFor, routerInterfacesWithNames, linkName, linkById, linksFor } from "./devices";
 import { normalisePortVlans, normalisePortModes, normaliseTrunkAllowedVlans, normaliseArpTable, normaliseMacTable, normaliseDhcpLeases, normaliseStaticRoutes, ensureConfig } from "./normalise";
 import { sameSubnet, prefixOf, isValidIpv4, escapeHtml, ipv4ToInt, intToIpv4, normaliseMacAddress } from "./utils";
-import { createArpRequest, createArpReply, createIcmpEchoRequest, createIcmpEchoReply, createIcmpTimeExceeded, createDhcpOffer, createDhcpRequest, createDhcpAck, createTcpSegment, createDnsResponse, BROADCAST_MAC, frameLabel, packetColumns } from "./frame";
+import { createArpRequest, createArpReply, createIcmpEchoRequest, createIcmpEchoReply, createIcmpTimeExceeded, createDhcpOffer, createDhcpRequest, createDhcpAck, createTcpSegment, createDnsResponse, createDot11Frame, BROADCAST_MAC, frameLabel, packetColumns } from "./frame";
 import { terminalLine, terminalLineFor, sessionFor, syncTerminal, openDock, syncSimLogBadge } from "./terminal";
 import { buildPingEvents, buildResolveEvents, buildDhcpEvents, findPingTarget } from "./simulation";
 import type { PingSetup } from "./simulation";
@@ -15,7 +15,7 @@ export { buildRoutingTable, routingLookup, runRipConvergence } from "./routing";
 
 // ─── Public API ──────────────────────────────────────────────────────────────
 
-export function startSimulation(setup: PingSetup, originDeviceId: string, targetIp: string, mode: "ping" | "dhcp" | "tcp" | "dns" = "ping", targetPort: number | null = null): void {
+export function startSimulation(setup: PingSetup, originDeviceId: string, targetIp: string, mode: "ping" | "dhcp" | "tcp" | "dns" | "associate" = "ping", targetPort: number | null = null): void {
   // Run RIP convergence before simulation to populate learned routes
   runRipConvergence();
   pushUndo();
@@ -41,7 +41,7 @@ export function startSimulation(setup: PingSetup, originDeviceId: string, target
   for (const ev of setup.events) {
     if (ev.linkId && ev.fromDeviceId && ev.fromDeviceId !== ev.deviceId) {
       const seedLink = linkById(ev.linkId);
-      sim.transits.push({ frame: ev.frame, linkId: ev.linkId, fromDeviceId: ev.fromDeviceId, toDeviceId: ev.deviceId, progress: 0, startTime: seedNow, latencyFactor: linkLatencyFactor(seedLink) });
+      sim.transits.push({ frame: ev.frame, linkId: ev.linkId, fromDeviceId: ev.fromDeviceId, toDeviceId: ev.deviceId, progress: 0, startTime: seedNow, latencyFactor: linkLatencyFactor(seedLink), silent: isSilentFrame(ev.frame) });
       seeded = true;
     } else {
       sim.events.push(ev);
@@ -64,10 +64,12 @@ export function startSimulation(setup: PingSetup, originDeviceId: string, target
   sim.dhcpSuccess = false;
   sim.dhcpAssignedIp = null;
   sim.dhcpAssignedGateway = null;
+  sim.wifiAssociated = false;
   const target = setup.dns ? setup.dns.name : targetIp;
   const label = mode === "dhcp" ? "Requesting DHCP lease..."
     : mode === "tcp" ? `Opening TCP connection to ${target}:${sim.tcpTargetPort ?? "?"}...`
     : mode === "dns" ? `Resolving ${target}...`
+    : mode === "associate" ? `Associating to ${target || "WiFi"}...`
     : `Simulating ping to ${target}...`;
   state.terminal.lines.push({ kind: "sim", text: label });
   // Surface the hop-by-hop log: open the dock on the Sim Log pane if nothing
@@ -143,7 +145,7 @@ export interface SimResult {
 // and returns the result plus the hop-by-hop log. Reuses the same process handlers as
 // the animated path; powers the console `run` command, window.routesim, and tests.
 export function runSimulationHeadless(
-  setup: PingSetup, originDeviceId: string, targetIp: string, mode: "ping" | "dhcp" | "tcp" | "dns" = "ping", targetPort: number | null = null
+  setup: PingSetup, originDeviceId: string, targetIp: string, mode: "ping" | "dhcp" | "tcp" | "dns" | "associate" = "ping", targetPort: number | null = null
 ): SimResult {
   runRipConvergence();
   const sim = state.simulation;
@@ -173,6 +175,7 @@ export function runSimulationHeadless(
   sim.dhcpSuccess = false;
   sim.dhcpAssignedIp = null;
   sim.dhcpAssignedGateway = null;
+  sim.wifiAssociated = false;
 
   // Drain the event queue, completing each batch of transits instantly. processNextStep
   // recurses internally while status === "running" and events have no transits, and calls
@@ -193,6 +196,7 @@ export function runSimulationHeadless(
     success: mode === "dhcp" ? sim.dhcpSuccess
       : mode === "tcp" ? sim.tcpSuccess
       : mode === "dns" ? sim.dnsResolvedIp != null
+      : mode === "associate" ? sim.wifiAssociated
       : sim.pingSuccess,
     refused: sim.tcpRefused,
     ttl: sim.pingTtl,
@@ -333,12 +337,29 @@ function stopAnimationLoop(): void {
   }
 }
 
+// A frame the user has chosen to resolve silently (ARP/DHCP/DNS settings): the
+// engine still processes it, but it is delivered instantly and neither drawn nor
+// added to the packet list, so the higher-layer flow stays uncluttered.
+export function isSilentFrame(frame: EthernetFrame): boolean {
+  const opt = state.options;
+  const payload = frame.payload;
+  if (payload.type === "arp") return opt.silentArp;
+  if (payload.type === "dot11") return opt.silentWifi;
+  if (payload.type === "ipv4") {
+    const inner = (payload as Ipv4Payload).payload;
+    if (inner.type === "dhcp") return opt.silentDhcp;
+    if (inner.type === "dns") return opt.silentDns;
+  }
+  return false;
+}
+
 function animationTick(now: number): void {
   const sim = state.simulation;
 
-  // Update transit progress (per-link latency stretches a dot's crossing time)
+  // Update transit progress (per-link latency stretches a dot's crossing time).
+  // Silent frames jump straight to delivered — no visible crossing.
   for (const t of sim.transits) {
-    t.progress = Math.min(1, (now - t.startTime) / (sim.speed * (t.latencyFactor ?? 1)));
+    t.progress = t.silent ? 1 : Math.min(1, (now - t.startTime) / (sim.speed * (t.latencyFactor ?? 1)));
   }
 
   sync().render();
@@ -370,8 +391,9 @@ function deliverCompletedTransits(): void {
   sim.transits = sim.transits.filter(t => t.progress < 1);
   for (const t of completed) {
     // Packet list: one capture entry per wire traversal (animated runs only —
-    // headless probes like traceroute/scenario checks stay invisible).
-    if (!sim.headless) {
+    // headless probes like traceroute/scenario checks stay invisible). Silent
+    // frames (ARP/DHCP/DNS, per the settings) are delivered but never listed.
+    if (!sim.headless && !t.silent) {
       sim.capture.push({
         no: sim.capture.length + 1,
         step: sim.stepIndex,
@@ -443,7 +465,8 @@ function processNextStep(): void {
       toDeviceId: out.toDeviceId,
       progress: 0,
       startTime: now,
-      latencyFactor: linkLatencyFactor(link)
+      latencyFactor: linkLatencyFactor(link),
+      silent: isSilentFrame(out.frame)
     });
   }
 
@@ -484,6 +507,51 @@ const PROCESSORS: Partial<Record<DeviceType, (device: Device, frame: EthernetFra
   hub: processAtHub,
 };
 
+// ─── 802.11 association handshake ────────────────────────────────────────────
+
+// The reactive association state machine, shared by the laptop (client) and the
+// access point. Each device, on receiving one management frame, emits the next:
+// Probe → open-system Auth → Association, then on a secured network the WPA2
+// 4-way key handshake (EAPOL M1–M4). A response just swaps src/dst (the air is a
+// single link), so it always goes back to the sender.
+function handleDot11(device: Device, frame: EthernetFrame, fromDeviceId: string | null): OutgoingFrame[] {
+  const payload = frame.payload as Dot11Payload;
+  const ssid = payload.ssid;
+  const next = (subtype: Dot11Payload["subtype"]) =>
+    fromDeviceId ? [{ frame: createDot11Frame(frame.dstMac, frame.srcMac, subtype, ssid), toDeviceId: fromDeviceId }] : [];
+  const done = (): OutgoingFrame[] => {
+    state.simulation.wifiAssociated = true;
+    logStep(device, "sim-wifi", `Associated to "${ssid}"`);
+    return [];
+  };
+
+  if (device.type === "access-point") {
+    const secured = !!device.config?.wifiPassword;
+    switch (payload.subtype) {
+      case "probe-req": logStep(device, "sim-wifi", `Probe Request for "${ssid}" — sending Probe Response`); return next("probe-resp");
+      case "auth-req": logStep(device, "sim-wifi", `Open-system Authentication — sending success`); return next("auth-resp");
+      case "assoc-req": logStep(device, "sim-wifi", `Association Request — sending Association Response${secured ? " (WPA2 follows)" : ""}`); return next("assoc-resp");
+      case "eapol-start": logStep(device, "sim-wifi", `WPA2 4-way handshake — sending Message 1`); return next("eapol-m1");
+      case "eapol-m2": return next("eapol-m3");
+      case "eapol-m4": return done(); // client confirmed the keys
+    }
+    return [];
+  }
+  // The laptop (client) side.
+  const ap = getDevice(fromDeviceId || "");
+  const secured = !!ap?.config?.wifiPassword;
+  switch (payload.subtype) {
+    case "probe-resp": logStep(device, "sim-wifi", `Found "${ssid}" — authenticating`); return next("auth-req");
+    case "auth-resp": return next("assoc-req");
+    case "assoc-resp":
+      if (secured) { logStep(device, "sim-wifi", `Associated — beginning WPA2 key exchange`); return next("eapol-start"); }
+      return done(); // open network: associated once the response lands
+    case "eapol-m1": return next("eapol-m2");
+    case "eapol-m3": return next("eapol-m4");
+  }
+  return [];
+}
+
 // ─── Computer processing ─────────────────────────────────────────────────────
 
 export function processAtComputer(device: Device, frame: EthernetFrame, fromDeviceId: string | null): OutgoingFrame[] {
@@ -492,6 +560,8 @@ export function processAtComputer(device: Device, frame: EthernetFrame, fromDevi
   if (device.poweredOff) return outgoing;
   const config = device.config;
   if (!config) return outgoing;
+  // A laptop drives the client side of the 802.11 association handshake.
+  if (frame.payload.type === "dot11") return handleDot11(device, frame, fromDeviceId);
 
   frame = { ...frame, srcMac: normaliseMacAddress(frame.srcMac), dstMac: normaliseMacAddress(frame.dstMac) };
 
@@ -794,6 +864,9 @@ export function processAtSwitch(device: Device, frame: EthernetFrame, fromDevice
   if (device.poweredOff) return outgoing;
   const config = device.config;
   if (!config) return outgoing;
+  // An access point answers the 802.11 association handshake (it does not bridge
+  // these management frames onward — they live only on the air between AP/client).
+  if (device.type === "access-point" && frame.payload.type === "dot11") return handleDot11(device, frame, fromDeviceId);
 
   frame = { ...frame, srcMac: normaliseMacAddress(frame.srcMac), dstMac: normaliseMacAddress(frame.dstMac) };
 

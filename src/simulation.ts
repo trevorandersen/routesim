@@ -2,8 +2,8 @@ import type { SimEvent, EthernetFrame } from "./types";
 import { state } from "./state";
 import { getDevice, linkedPortsFor, linksFor } from "./devices";
 import { normalisePortVlans, normalisePortModes, normaliseTrunkAllowedVlans, memoPortVlans } from "./normalise";
-import { isValidIpv4, sameSubnet, prefixOf } from "./utils";
-import { createArpRequest, createIcmpEchoRequest, createDhcpDiscover, createTcpSegment, createDnsQuery } from "./frame";
+import { isValidIpv4, sameSubnet, prefixOf, deriveMac } from "./utils";
+import { createArpRequest, createIcmpEchoRequest, createDhcpDiscover, createTcpSegment, createDnsQuery, createDot11Frame } from "./frame";
 
 export interface PingSetup {
   events: SimEvent[];
@@ -332,6 +332,36 @@ export function buildDhcpEvents(source: any): PingSetup | string {
       fromDeviceId: source.id,
       linkId: firstHop.linkId
     }],
+    pendingArp: {}
+  };
+}
+
+// The access point a laptop is associated with (its wireless link peer), or null.
+export function associatedAp(laptop: any): { ap: any; linkId: string } | null {
+  for (const link of state.links) {
+    if (!link.wireless || link.hidden || link.shutdown) continue;
+    if (link.from !== laptop.id && link.to !== laptop.id) continue;
+    const ap = getDevice(link.from === laptop.id ? link.to : link.from);
+    if (ap && ap.type === "access-point" && !ap.poweredOff) return { ap, linkId: link.id };
+  }
+  return null;
+}
+
+// Seed the 802.11 association handshake: a laptop probes the access point it is
+// linked to. The reactive chain in the engine (handleDot11) plays out the rest.
+export function buildAssociationEvents(laptop: any): PingSetup | string {
+  if (laptop.type !== "laptop") return `${laptop.name} is not a wireless client.`;
+  const srcMac = laptop.config?.macAddress;
+  if (!srcMac) return `${laptop.name}: the WiFi NIC has no MAC address.`;
+  const assoc = associatedAp(laptop);
+  if (!assoc) return `${laptop.name} is not associated to an access point.`;
+  const { ap, linkId } = assoc;
+  const ssid = ap.config?.ssid || "";
+  if (!ssid) return `${ap.name} has no SSID set.`;
+  const bssid = ap.config?.macAddress || deriveMac(ap.id);
+  const probe = createDot11Frame(srcMac, bssid, "probe-req", ssid);
+  return {
+    events: [{ type: "frame_arrive" as const, frame: probe, deviceId: ap.id, fromDeviceId: laptop.id, linkId }],
     pendingArp: {}
   };
 }

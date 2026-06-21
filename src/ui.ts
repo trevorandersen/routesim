@@ -529,6 +529,10 @@ export function setupUI(): void {
   bindOptionToggle(dom.showMacAddresses, "showMacAddresses");
   bindOptionToggle(dom.optAutoDhcp, "autoDhcp");
   bindOptionToggle(dom.optApipa, "apipaFallback");
+  bindOptionToggle(dom.optSilentArp, "silentArp");
+  bindOptionToggle(dom.optSilentDhcp, "silentDhcp");
+  bindOptionToggle(dom.optSilentDns, "silentDns");
+  bindOptionToggle(dom.optSilentWifi, "silentWifi");
   window.addEventListener("resize", resizeCanvas);
 
   // Simulation controls

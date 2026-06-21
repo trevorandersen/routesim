@@ -15,7 +15,8 @@ import {
 } from "./terminal";
 import { resizeCanvas } from "./canvas";
 import { frameLabel } from "./frame";
-import { syncSimLog } from "./engine";
+import { syncSimLog, startSimulation } from "./engine";
+import { buildAssociationEvents } from "./simulation";
 
 export function syncOptionControls(): void {
   dom.showDeviceNames.checked = state.options.showDeviceNames;
@@ -23,6 +24,10 @@ export function syncOptionControls(): void {
   dom.showMacAddresses.checked = state.options.showMacAddresses;
   dom.optAutoDhcp.checked = state.options.autoDhcp;
   dom.optApipa.checked = state.options.apipaFallback;
+  dom.optSilentArp.checked = state.options.silentArp;
+  dom.optSilentDhcp.checked = state.options.silentDhcp;
+  dom.optSilentDns.checked = state.options.silentDns;
+  dom.optSilentWifi.checked = state.options.silentWifi;
 }
 
 // The address-source pill shown beside a host's IP field: how the current
@@ -196,7 +201,7 @@ function panelHeading(title: string): string {
 export function renderFirewallRules(device: any): string {
   const rules = (device.config?.rules || []);
   if (!rules.length) return `<p class="empty-state">No rules — the default policy applies to all traffic.</p>`;
-  return `<ol class="fw-rule-list">${rules.map((r: any) => {
+  return `<ol class="fw-rule-list">${rules.map((r: any, index: number) => {
     const match = [
       r.protocol ? `-p ${escapeHtml(r.protocol)}` : "",
       r.src ? `-s ${escapeHtml(r.src)}` : "",
@@ -204,8 +209,44 @@ export function renderFirewallRules(device: any): string {
       r.icmpType ? `--icmp-type ${escapeHtml(r.icmpType)}` : "",
       r.dport ? `--dport ${escapeHtml(String(r.dport))}` : "",
     ].filter(Boolean).join(" ");
-    return `<li><span class="fw-target fw-${escapeHtml(r.target)}">${escapeHtml(String(r.target).toUpperCase())}</span> ${escapeHtml(String(r.chain || "forward").toUpperCase())} ${match || "(any)"}</li>`;
+    return `<li><span class="fw-target fw-${escapeHtml(r.target)}">${escapeHtml(String(r.target).toUpperCase())}</span> ${escapeHtml(String(r.chain || "forward").toUpperCase())} ${match || "(any)"}<button class="inline-button fw-rule-del" type="button" data-fw-del="${index}" title="Delete this rule" aria-label="Delete rule">&times;</button></li>`;
   }).join("")}</ol>`;
+}
+
+// The editable netfilter panel shown under Configure for routers (INPUT +
+// FORWARD) and the transparent firewall (FORWARD only): the rule list (each row
+// deletable), a per-chain default-policy select, and an add-rule form. It writes
+// the same `config.rules`/`config.policy` the iptables CLI does.
+export function renderFirewallControls(device: any, chains: string[]): string {
+  const policy = device.config?.policy || {};
+  const policyRows = chains.map(chain => `
+      <div class="field-row fw-policy-row">
+        <label for="fwPolicy-${chain}">${escapeHtml(chain.toUpperCase())} policy</label>
+        <select id="fwPolicy-${chain}" class="fw-select" data-fw-policy="${chain}">
+          ${["accept", "drop"].map(p => `<option value="${p}"${(policy[chain] || "accept") === p ? " selected" : ""}>${p.toUpperCase()}</option>`).join("")}
+        </select>
+      </div>`).join("");
+  const chainField = chains.length > 1 ? `
+        <select id="fwAddChain" class="fw-select" title="Chain">
+          ${chains.map(c => `<option value="${c}">${escapeHtml(c.toUpperCase())}</option>`).join("")}
+        </select>` : "";
+  return `
+      ${policyRows}
+      <label>Rules</label>
+      ${renderFirewallRules(device)}
+      <div class="fw-add-form">
+        <select id="fwAddTarget" class="fw-select" title="Target">
+          ${["accept", "drop", "reject"].map(t => `<option value="${t}">${t.toUpperCase()}</option>`).join("")}
+        </select>${chainField}
+        <select id="fwAddProto" class="fw-select" title="Protocol">
+          ${[["", "any proto"], ["icmp", "icmp"], ["tcp", "tcp"], ["udp", "udp"]].map(([v, l]) => `<option value="${v}">${l}</option>`).join("")}
+        </select>
+        <input id="fwAddSrc" placeholder="source (any)" autocomplete="off" inputmode="decimal">
+        <input id="fwAddDst" placeholder="dest (any)" autocomplete="off" inputmode="decimal">
+        <input id="fwAddDport" placeholder="dport" autocomplete="off" inputmode="numeric">
+        <button class="inline-button" id="fwAddRule" type="button">Add rule</button>
+      </div>
+      <p class="field-note" id="fwAddError"></p>`;
 }
 
 // The dnsmasq service panel on a server: daemon state, DNS A-records (with
@@ -417,6 +458,62 @@ export function bindSwitchPortControls(device: any): void {
     el.addEventListener("click", (event: any) => {
       removeSwitchVlan(device, event.target.dataset.vlan);
     });
+  });
+}
+
+// Wires the editable netfilter panel (renderFirewallControls): per-chain policy
+// selects, per-rule delete buttons, and the add-rule form. Mutates the same
+// config.rules / config.policy as the iptables CLI, with the same validation
+// (a --dport needs -p tcp; src/dst must be a valid IPv4 or CIDR).
+export function bindFirewallControls(device: any, chains: string[]): void {
+  document.querySelectorAll("[data-fw-policy]").forEach(el => {
+    el.addEventListener("change", (event: any) => {
+      pushUndo();
+      ensureConfig(device);
+      device.config.policy = device.config.policy || {};
+      device.config.policy[event.target.dataset.fwPolicy] = event.target.value;
+      syncPanel();
+    });
+  });
+  document.querySelectorAll("[data-fw-del]").forEach(el => {
+    el.addEventListener("click", (event: any) => {
+      const index = Number(event.currentTarget.dataset.fwDel);
+      if (!Array.isArray(device.config?.rules) || !device.config.rules[index]) return;
+      pushUndo();
+      device.config.rules.splice(index, 1);
+      syncPanel();
+    });
+  });
+  const addBtn = document.getElementById("fwAddRule");
+  if (!addBtn) return;
+  addBtn.addEventListener("click", () => {
+    const val = (id: string) => (document.getElementById(id) as HTMLInputElement | null)?.value.trim() || "";
+    const errEl = document.getElementById("fwAddError");
+    const fail = (msg: string) => { if (errEl) errEl.textContent = msg; };
+    const target = val("fwAddTarget") || "accept";
+    const chain = (document.getElementById("fwAddChain") as HTMLSelectElement | null)?.value || chains[0];
+    const protocol = val("fwAddProto");
+    const src = val("fwAddSrc"), dst = val("fwAddDst"), dportRaw = val("fwAddDport");
+    if (src && !parseIpv4Token(src)) return fail("Source must be a valid IPv4 address or CIDR.");
+    if (dst && !parseIpv4Token(dst)) return fail("Destination must be a valid IPv4 address or CIDR.");
+    let dport: number | undefined;
+    if (dportRaw) {
+      const n = Number(dportRaw);
+      if (!Number.isInteger(n) || n < 1 || n > 65535) return fail("Port must be 1–65535.");
+      if (protocol !== "tcp") return fail("A destination port needs protocol tcp.");
+      dport = n;
+    }
+    pushUndo();
+    ensureConfig(device);
+    device.config.rules = device.config.rules || [];
+    device.config.rules.push({
+      chain, target,
+      ...(protocol ? { protocol } : {}),
+      ...(src ? { src } : {}),
+      ...(dst ? { dst } : {}),
+      ...(dport != null ? { dport } : {}),
+    });
+    syncPanel();
   });
 }
 
@@ -651,7 +748,8 @@ export function syncPanel(): void {
           <button class="inline-button" id="randomMac" type="button" title="Generate random MAC">Random</button>
         </div>
       </div>
-      ${selected.type === "laptop" ? renderWifiFields(selected.config, "The WiFi network this laptop associates to (must match an access point).") : ""}
+      ${selected.type === "laptop" ? renderWifiFields(selected.config, "The WiFi network this laptop associates to (must match an access point).") + `
+      <div class="field"><button class="wide-button" id="associateLaptop" type="button">Show association handshake</button></div>` : ""}
       ${selected.type === "server" ? renderDnsmasqSection(selected) : ""}
       <div class="field">
         <label>ARP table</label>
@@ -708,11 +806,10 @@ export function syncPanel(): void {
         ${renderRouterInterfaces(selected)}
         </div>
       </div>
-      ${(selected.config?.rules?.length) ? `
       <div class="field">
-        <label>Firewall rules (edit via iptables in the terminal)</label>
-        ${renderFirewallRules(selected)}
-      </div>` : ""}
+        <label>Netfilter (iptables INPUT + FORWARD)</label>
+        ${renderFirewallControls(selected, ["forward", "input"])}
+      </div>
       ${(selected.config?.natTranslations?.length) ? `
       <div class="field">
         <label>NAT translations</label>
@@ -725,12 +822,8 @@ export function syncPanel(): void {
         <input id="selectedFwPorts" type="number" min="2" max="8" step="1" value="${escapeHtml(selected.config?.ethernetPorts ?? 2)}">
       </div>
       <div class="field">
-        <label>FORWARD policy</label>
-        <span class="pill">${escapeHtml(((selected.config?.policy || {}).forward || "accept").toUpperCase())}</span>
-      </div>
-      <div class="field">
-        <label>Rules (edit via the iptables terminal)</label>
-        ${renderFirewallRules(selected)}
+        <label>Netfilter (iptables FORWARD)</label>
+        ${renderFirewallControls(selected, ["forward"])}
       </div>
     ` : "";
     const hubConfigFields = selected.type === "hub" ? `
@@ -853,6 +946,11 @@ export function syncPanel(): void {
     };
     bindWifiField("selectedSsid", "ssid", normaliseSsid);
     bindWifiField("selectedWifiPassword", "wifiPassword", normaliseWifiPassword);
+    document.getElementById("associateLaptop")?.addEventListener("click", () => {
+      const setup = buildAssociationEvents(selected);
+      if (typeof setup === "string") { dom.modeLabel.textContent = setup; return; }
+      startSimulation(setup, selected.id, selected.config?.ssid || "", "associate");
+    });
     document.getElementById("clearWifiPassword")?.addEventListener("click", () => {
       pushUndo();
       ensureConfig(selected);
@@ -956,6 +1054,8 @@ export function syncPanel(): void {
     });
     bindPortRemoveButtons();
     bindSwitchPortControls(selected);
+    if (selected.type === "router") bindFirewallControls(selected, ["forward", "input"]);
+    if (selected.type === "firewall") bindFirewallControls(selected, ["forward"]);
     const terminalButton = document.getElementById("openSelectedTerminal");
     if (terminalButton) terminalButton.addEventListener("click", () => openTerminalFor(selected));
     const powerButton = document.getElementById("togglePower");

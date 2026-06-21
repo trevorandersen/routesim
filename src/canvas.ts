@@ -443,6 +443,7 @@ function drawFrameTransits(): void {
   if (!transits || transits.length === 0) return;
 
   for (const transit of transits) {
+    if (transit.silent) continue; // resolved silently — delivered without a visible dot
     const fromDevice = getDevice(transit.fromDeviceId);
     const toDevice = getDevice(transit.toDeviceId);
     if (!fromDevice || !toDevice) continue;

@@ -1208,6 +1208,38 @@
     .fw-accept { background: rgba(34, 197, 94, 0.18); color: #16a34a; }
     .fw-drop { background: rgba(239, 68, 68, 0.18); color: var(--danger); }
     .fw-reject { background: rgba(245, 158, 11, 0.2); color: #d97706; }
+    .fw-rule-list li { display: flex; align-items: center; gap: 6px; }
+    .fw-rule-del { flex: 0 0 auto; margin-left: auto; }
+    .fw-policy-row { align-items: center; gap: 8px; margin-bottom: 6px; }
+    .fw-policy-row label { font-size: 11px; color: var(--muted); font-weight: 600; }
+    .fw-add-form {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 6px;
+      margin-top: 8px;
+    }
+    .fw-select {
+      height: 26px;
+      border-radius: 6px;
+      border: 1px solid var(--line);
+      background: var(--panel);
+      color: var(--text);
+      font-size: 11px;
+      padding: 0 4px;
+      cursor: pointer;
+    }
+    .fw-add-form input {
+      flex: 1 1 70px;
+      min-width: 60px;
+      height: 26px;
+      border-radius: 6px;
+      border: 1px solid var(--line);
+      background: var(--panel);
+      color: var(--text);
+      font-size: 11px;
+      padding: 0 6px;
+    }
+    .fw-select:focus, .fw-add-form input:focus { border-color: var(--accent); outline: none; }
 
     .wide-button {
       width: 100%;
@@ -1521,6 +1553,7 @@
     .pkt-tcp        td { color: #fb923c; }
     .pkt-dns        td { color: #22d3ee; }
     .pkt-dhcp       td { color: #a78bfa; }
+    .pkt-dot11      td { color: #2dd4bf; }
     .pkt-bad        td { color: #f87171; }
     .pkt-row td.pkt-num,
     .pkt-row td.pkt-link { color: #95a4b3; }

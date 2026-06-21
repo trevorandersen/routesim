@@ -75,7 +75,11 @@ export const state: AppState = {
     showMacAddresses: true,
     networkPanelOpen: false,
     autoDhcp: false,
-    apipaFallback: false
+    apipaFallback: false,
+    silentArp: false,
+    silentDhcp: false,
+    silentDns: false,
+    silentWifi: false
   },
   nameCounters: freshNameCounters(),
   configStore: { version: 1, configs: {} },
@@ -111,7 +115,8 @@ export const state: AppState = {
     dhcpOfferTaken: false,
     dhcpSuccess: false,
     dhcpAssignedIp: null,
-    dhcpAssignedGateway: null
+    dhcpAssignedGateway: null,
+    wifiAssociated: false
   },
   portSelection: null
 };
@@ -412,8 +417,66 @@ export const routerMeshConfig = {
   ]
 };
 
+// Campus WiFi: two SSIDs separated by VLAN. A staff SSID (secured) lives on
+// VLAN 10 and a guest SSID (open) on VLAN 20, each broadcast by its own access
+// point whose wired uplink is an access port in that VLAN. A managed core switch
+// trunks every VLAN to a router-on-a-stick gateway, which routes between them
+// (and hands out DHCP per VLAN). A shared DNS/file server sits on its own
+// Servers VLAN 30 and is reachable from both staff and guest. A FORWARD rule on
+// the gateway gives the classic guest isolation: guest clients can reach the
+// gateway and the server, but not the staff subnet.
+export const wifiVlanConfig = {
+  version: 1,
+  devices: [
+    // Gateway — router-on-a-stick: a sub-interface per VLAN, plus guest isolation.
+    { id: "wifi-rtr", type: "router", name: "Gateway", x: 60, y: -340, config: {
+      ethernetPorts: 4, serialPorts: 2,
+      interfaces: [
+        { peerId: "wifi-core", type: "ethernet", ipv4Address: "10.0.10.1", vlanTag: 10 },
+        { peerId: "wifi-core", type: "ethernet", ipv4Address: "10.0.20.1", vlanTag: 20 },
+        { peerId: "wifi-core", type: "ethernet", ipv4Address: "10.0.30.1", vlanTag: 30 }
+      ],
+      // Guests may reach the gateway, the internet and the server — but not the
+      // staff subnet. The server VLAN is deliberately left open to everyone.
+      rules: [{ chain: "forward", target: "drop", src: "10.0.20.0/24", dst: "10.0.10.0/24" }]
+    }},
+    // Core switch — trunk to the gateway, an access port per AP and the server.
+    { id: "wifi-core", type: "switch", name: "Core-SW", x: 60, y: -180, config: {
+      managed: true, ethernetPorts: 8,
+      vlans: [{ id: 1, name: "default" }, { id: 10, name: "Staff" }, { id: 20, name: "Guest" }, { id: 30, name: "Servers" }],
+      portVlans: { Ethernet2: 10, Ethernet3: 20, Ethernet4: 30 },
+      portModes: { Ethernet1: "trunk" },
+      trunkNativeVlans: {},
+      trunkAllowedVlans: {}
+    }},
+    // Shared server — VLAN 30, reachable from every VLAN via the gateway. Runs
+    // dnsmasq with an A-record so all clients can resolve "server.lan".
+    { id: "wifi-srv", type: "server", name: "Server", x: 360, y: -300, config: { ipv4Address: "10.0.30.10", gatewayIpv4Address: "10.0.30.1", macAddress: "02:00:0A:1E:00:0A", dnsmasqRunning: true, dnsRecords: [{ name: "server.lan", ip: "10.0.30.10" }] } },
+    // Access points — one SSID each, uplinked into its VLAN's access port.
+    { id: "ap-staff", type: "access-point", name: "Staff-AP", x: -180, y: 10, config: { managed: false, ethernetPorts: 1, ssid: "Staff", wifiPassword: "staff1234", macTable: [] } },
+    { id: "ap-guest", type: "access-point", name: "Guest-AP", x: 300, y: 10, config: { managed: false, ethernetPorts: 1, ssid: "Guest", macTable: [] } },
+    // Staff laptops — VLAN 10, joined to the secured "Staff" SSID; resolve via the server.
+    { id: "lt-staff1", type: "laptop", name: "Staff-LT1", x: -280, y: 200, config: { ipv4Address: "10.0.10.11", gatewayIpv4Address: "10.0.10.1", macAddress: "02:00:0A:0A:00:11", dnsServerIp: "10.0.30.10", ssid: "Staff", wifiPassword: "staff1234" } },
+    { id: "lt-staff2", type: "laptop", name: "Staff-LT2", x: -100, y: 200, config: { ipv4Address: "10.0.10.12", gatewayIpv4Address: "10.0.10.1", macAddress: "02:00:0A:0A:00:12", dnsServerIp: "10.0.30.10", ssid: "Staff", wifiPassword: "staff1234" } },
+    // Guest laptop — VLAN 20, joined to the open "Guest" SSID; resolves via the server too.
+    { id: "lt-guest", type: "laptop", name: "Guest-LT", x: 300, y: 200, config: { ipv4Address: "10.0.20.11", gatewayIpv4Address: "10.0.20.1", macAddress: "02:00:0A:14:00:11", dnsServerIp: "10.0.30.10", ssid: "Guest" } }
+  ],
+  links: [
+    // Core-SW links first, in port order: Ethernet1 trunk → gateway, Ethernet2 (VLAN 10)
+    // → Staff-AP, Ethernet3 (VLAN 20) → Guest-AP, Ethernet4 (VLAN 30) → Server.
+    { from: "wifi-core", to: "wifi-rtr" },
+    { from: "wifi-core", to: "ap-staff" },
+    { from: "wifi-core", to: "ap-guest" },
+    { from: "wifi-core", to: "wifi-srv" },
+    // Wireless associations (laptop ↔ AP).
+    { from: "ap-staff", to: "lt-staff1", wireless: true },
+    { from: "ap-staff", to: "lt-staff2", wireless: true },
+    { from: "ap-guest", to: "lt-guest", wireless: true }
+  ]
+};
+
 // Keep all built-in topologies in positive coordinate space.
-[defaultConfig, vlanRoasConfig, routerMeshConfig].forEach(c => shiftToPositive(c));
+[defaultConfig, vlanRoasConfig, routerMeshConfig, wifiVlanConfig].forEach(c => shiftToPositive(c));
 
 // --- Undo system ---
 

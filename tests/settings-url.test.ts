@@ -29,6 +29,12 @@ describe("parseSettingsFromUrl", () => {
     expect(r.applied.sort()).toEqual(["apipa", "autodhcp", "ips", "macs", "names"]);
   });
 
+  it("maps the silent-protocol params to their DisplayOptions keys", () => {
+    const r = parseSettingsFromUrl("silentarp=1&silentdhcp=on&silentdns=true&silentwifi=yes");
+    expect(r.options).toEqual({ silentArp: true, silentDhcp: true, silentDns: true, silentWifi: true });
+    expect(r.applied.sort()).toEqual(["silentarp", "silentdhcp", "silentdns", "silentwifi"]);
+  });
+
   it("accepts the usual truthy/falsy spellings, case-insensitively", () => {
     expect(parseSettingsFromUrl("names=true").options.showDeviceNames).toBe(true);
     expect(parseSettingsFromUrl("names=YES").options.showDeviceNames).toBe(true);
@@ -84,6 +90,10 @@ describe("buildSettingsQuery", () => {
     state.options.showMacAddresses = true;
     state.options.autoDhcp = false;
     state.options.apipaFallback = false;
+    state.options.silentArp = false;
+    state.options.silentDhcp = false;
+    state.options.silentDns = false;
+    state.options.silentWifi = false;
     state.theme = DEFAULT_THEME;
     state.simulation.speed = 1000;
   });
@@ -117,11 +127,13 @@ describe("buildSettingsQuery", () => {
   it("round-trips through the parser", () => {
     state.options.showIpAddresses = false;
     state.options.apipaFallback = true;
+    state.options.silentDns = true;
     state.theme = "dark";
     state.simulation.speed = 250;
     const parsed = parseSettingsFromUrl(buildSettingsQuery());
     expect(parsed.options.showIpAddresses).toBe(false);
     expect(parsed.options.apipaFallback).toBe(true);
+    expect(parsed.options.silentDns).toBe(true);
     expect(parsed.theme).toBe("dark");
     expect(parsed.speed).toBe(250);
   });

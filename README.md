@@ -122,11 +122,13 @@ sync().render();
 - **Subnet-aware ping** — same-subnet uses L2 BFS; cross-subnet routes through a gateway router
 - **VLAN enforcement** — managed switches enforce VLAN membership on L2 paths
 - **ARP/MAC learning** — ping populates ARP tables on hosts and routers, MAC tables on switches
+- **Firewall editing** — add/delete iptables rules and set the chain policy from the Configure pane (routers: INPUT + FORWARD; firewall: FORWARD), or via the terminal
+- **Silent protocols** — optionally resolve ARP/DHCP/DNS instantly with no animation or packet-list rows, to keep the higher-layer flow uncluttered
 - **Scenarios** — a 16-entry guided curriculum with goal checking, every entry solvable (tested)
 - **Undo/redo** — snapshot-based history for topology and config changes
 - **Persistence** — import/export configs, scenarios, scripts, and logs as JSON files
-- **WiFi** — a WiFi-only **laptop** that associates to an **access point** (a transparent L2 bridge) over a matching **SSID** (with an optional password); the wireless link is drawn dotted, and ARP/DHCP/IP work through the AP onto the wired LAN
-- **URL settings** — share a pre-configured link, e.g. `?theme=dark&names=0&autodhcp=on&speed=400` (see [docs/scripting.md](docs/scripting.md#url-settings))
+- **WiFi** — a WiFi-only **laptop** that associates to an **access point** (a transparent L2 bridge) over a matching **SSID** (with an optional password); the wireless link is drawn dotted, and ARP/DHCP/IP work through the AP onto the wired LAN. `associate <laptop>` animates the real **802.11 join** — probe / authentication / association, plus the WPA2 4-way (EAPOL) key handshake on a secured network
+- **URL settings** — share a pre-configured link, e.g. `?theme=dark&names=0&autodhcp=on&silentarp=1&speed=400` (see [docs/scripting.md](docs/scripting.md#url-settings))
 - **Dark/light theme** — toggle via toolbar, implemented with CSS custom properties
 - **LAN grouping** — collapse multiple devices into a LAN cloud
 

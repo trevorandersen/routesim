@@ -9,7 +9,7 @@ import { buildPingEvents } from "../src/simulation";
 import {
   packetColumns, createArpRequest, createArpReply, createIcmpEchoRequest,
   createIcmpEchoReply, createIcmpTimeExceeded, createTcpSegment,
-  createDnsQuery, createDnsResponse, createDhcpDiscover,
+  createDnsQuery, createDnsResponse, createDhcpDiscover, createDot11Frame,
 } from "../src/frame";
 import { runConsoleScript, runConsoleCommand as exec } from "../src/commands";
 import { registerNoopCallbacks, resetState } from "./helpers";
@@ -66,6 +66,15 @@ describe("packetColumns — Wireshark column mapping", () => {
     const c = packetColumns(createDhcpDiscover("02:00:00:00:00:0A", "dhcp-test-1234"));
     expect(c).toMatchObject({ src: "0.0.0.0", dst: "255.255.255.255", protocol: "DHCP", tone: "dhcp" });
     expect(c.info).toContain("DHCP Discover");
+  });
+
+  it("802.11 management vs EAPOL frames", () => {
+    const probe = packetColumns(createDot11Frame("02:0A", "02:BS", "probe-req", "CorpWiFi"));
+    expect(probe).toMatchObject({ protocol: "802.11", tone: "dot11" });
+    expect(probe.info).toBe('Probe Request, SSID="CorpWiFi"');
+    const m1 = packetColumns(createDot11Frame("02:BS", "02:0A", "eapol-m1", "CorpWiFi"));
+    expect(m1.protocol).toBe("EAPOL");
+    expect(m1.info).toBe("Key (Message 1 of 4)");
   });
 });
 
@@ -202,5 +211,19 @@ describe("capture — frames recorded per wire traversal", () => {
     const r = exec("run ping PC1 192.168.1.20");
     expect(r.ok).toBe(true);
     expect(state.simulation.capture.length).toBe(count); // packet list survives
+  });
+
+  it("silent ARP resolves the ping but keeps ARP out of the packet list", () => {
+    state.options.silentArp = true;
+    try {
+      const pc1 = lanTopology();
+      runAnimated(pc1, "192.168.1.20");
+      expect(state.simulation.pingSuccess).toBe(true); // engine still ran the ARP
+      const protocols = state.simulation.capture.map(c => packetColumns(c.frame).protocol);
+      expect(protocols).not.toContain("ARP");  // …it just isn't shown
+      expect(protocols).toContain("ICMP");      // the ping itself still animates + captures
+    } finally {
+      state.options.silentArp = false; // resetState() does not touch options
+    }
   });
 });

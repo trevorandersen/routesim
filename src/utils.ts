@@ -103,6 +103,17 @@ export function clampApPortCount(value: any): number {
   return Math.min(4, Math.max(1, portCount));
 }
 
+// A stable, locally-administered unicast MAC derived from a seed string (e.g. a
+// device id) — used as an access point's BSSID for the 802.11 management frames
+// when it has no explicit MAC. Deterministic, so it survives reloads and tests.
+export function deriveMac(seed: string): string {
+  let h = 2166136261 >>> 0; // FNV-1a
+  for (let i = 0; i < seed.length; i++) { h ^= seed.charCodeAt(i); h = Math.imul(h, 16777619) >>> 0; }
+  const bytes = [0, 0, 0, 0, 0, 0].map((_, i) => { h = Math.imul(h ^ (i + 1), 2654435761) >>> 0; return (h >>> 16) & 0xff; });
+  bytes[0] = (bytes[0] & 0xfe) | 0x02; // locally administered, unicast
+  return bytes.map(b => b.toString(16).padStart(2, "0").toUpperCase()).join(":");
+}
+
 // A WiFi network name: a single trimmed token, capped at the 802.11 limit of 32
 // octets. SSIDs are case-sensitive; whitespace-only collapses to "" (no SSID).
 export function normaliseSsid(value: any): string {

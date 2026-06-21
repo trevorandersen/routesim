@@ -31,6 +31,7 @@
             <option value="basic">Basic Network</option>
             <option value="vlan-roas">VLAN Router-on-a-Stick</option>
             <option value="router-mesh">5-Router Mesh</option>
+            <option value="wifi-vlan">WiFi Staff/Guest VLANs</option>
           </select>
         </div><span class="ribbon-label">Topologies</span></div>
         <div class="ribbon-group"><div class="ribbon-items">
@@ -249,6 +250,38 @@
           <span class="settings-row-text">
             <span class="settings-row-title">APIPA fallback</span>
             <span class="settings-row-desc">A host that gets no DHCP lease self-assigns a link-local 169.254.x.y/16 address.</span>
+          </span>
+        </label>
+      </section>
+      <section class="settings-section">
+        <h3 class="settings-section-title">Silent protocols</h3>
+        <p class="settings-section-note">Resolve these instantly with no animated frames or packet-list rows. The exchange still happens — it just isn't shown — so the higher-layer flow stays uncluttered once you understand it.</p>
+        <label class="settings-row">
+          <input id="optSilentArp" type="checkbox">
+          <span class="settings-row-text">
+            <span class="settings-row-title">Silent ARP</span>
+            <span class="settings-row-desc">Skip the ARP request/reply animation; MAC addresses resolve instantly.</span>
+          </span>
+        </label>
+        <label class="settings-row">
+          <input id="optSilentDhcp" type="checkbox">
+          <span class="settings-row-text">
+            <span class="settings-row-title">Silent DHCP</span>
+            <span class="settings-row-desc">Skip the DORA animation; a host takes its lease instantly.</span>
+          </span>
+        </label>
+        <label class="settings-row">
+          <input id="optSilentDns" type="checkbox">
+          <span class="settings-row-text">
+            <span class="settings-row-title">Silent DNS</span>
+            <span class="settings-row-desc">Skip the query/response animation; names resolve instantly before the ping or connection.</span>
+          </span>
+        </label>
+        <label class="settings-row">
+          <input id="optSilentWifi" type="checkbox">
+          <span class="settings-row-text">
+            <span class="settings-row-title">Silent WiFi association</span>
+            <span class="settings-row-desc">Skip the 802.11 probe/auth/association (and WPA2) frames when a laptop joins an access point.</span>
           </span>
         </label>
       </section>

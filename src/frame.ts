@@ -1,4 +1,4 @@
-import type { EthernetFrame, ArpPayload, Ipv4Payload, IcmpPayload, DhcpPayload, TcpPayload, TcpFlags, DnsPayload } from "./types";
+import type { EthernetFrame, ArpPayload, Ipv4Payload, IcmpPayload, DhcpPayload, TcpPayload, TcpFlags, DnsPayload, Dot11Payload, Dot11Subtype } from "./types";
 
 let frameCounter = 0;
 function nextFrameId(): string {
@@ -179,6 +179,14 @@ export function createDhcpAck(serverMac: string, serverIp: string, clientMac: st
   return { id: nextFrameId(), srcMac: serverMac, dstMac: BROADCAST_MAC, etherType: 0x0800, vlanTag, payload: ipv4 };
 }
 
+// An 802.11 management / EAPOL frame (the join handshake between a laptop and
+// its access point). etherType 0x888e is EAPOL's real value; the management
+// subtypes reuse it as a single "this is a WiFi control frame" marker.
+export function createDot11Frame(srcMac: string, dstMac: string, subtype: Dot11Subtype, ssid: string): EthernetFrame {
+  const payload: Dot11Payload = { type: "dot11", subtype, ssid };
+  return { id: nextFrameId(), srcMac, dstMac, etherType: 0x888e, vlanTag: null, payload };
+}
+
 // ── Packet-list columns (the Wireshark-style sim log) ────────────────────────
 
 export interface PacketColumns {
@@ -186,7 +194,36 @@ export interface PacketColumns {
   dst: string;
   protocol: string;
   info: string;
-  tone: string;   // row colour class suffix: arp/icmp/icmp-reply/tcp/dns/dhcp/bad
+  tone: string;   // row colour class suffix: arp/icmp/icmp-reply/tcp/dns/dhcp/dot11/bad
+}
+
+// Wireshark-style Info text for an 802.11 management / EAPOL frame.
+function dot11Info(subtype: Dot11Subtype, ssid: string): string {
+  switch (subtype) {
+    case "probe-req": return `Probe Request, SSID="${ssid}"`;
+    case "probe-resp": return `Probe Response, SSID="${ssid}"`;
+    case "auth-req": return "Authentication, Open System (seq 1)";
+    case "auth-resp": return "Authentication, Open System (seq 2, Successful)";
+    case "assoc-req": return `Association Request, SSID="${ssid}"`;
+    case "assoc-resp": return "Association Response, Successful (AID 1)";
+    case "eapol-start": return "Key (EAPOL Start)";
+    case "eapol-m1": return "Key (Message 1 of 4)";
+    case "eapol-m2": return "Key (Message 2 of 4)";
+    case "eapol-m3": return "Key (Message 3 of 4)";
+    case "eapol-m4": return "Key (Message 4 of 4)";
+  }
+}
+
+// Short label for the canvas transit dot.
+export function dot11Label(subtype: Dot11Subtype): string {
+  const labels: Record<Dot11Subtype, string> = {
+    "probe-req": "Probe Req", "probe-resp": "Probe Resp",
+    "auth-req": "Auth", "auth-resp": "Auth OK",
+    "assoc-req": "Assoc Req", "assoc-resp": "Assoc OK",
+    "eapol-start": "EAPOL Start", "eapol-m1": "EAPOL M1", "eapol-m2": "EAPOL M2",
+    "eapol-m3": "EAPOL M3", "eapol-m4": "EAPOL M4",
+  };
+  return labels[subtype];
 }
 
 // Wireshark-conventional Source/Destination/Protocol/Info for one frame.
@@ -199,7 +236,12 @@ export function packetColumns(frame: EthernetFrame): PacketColumns {
       ? { src: frame.srcMac, dst: "Broadcast", protocol: "ARP", info: `Who has ${arp.targetIp}? Tell ${arp.senderIp}`, tone: "arp" }
       : { src: frame.srcMac, dst: frame.dstMac, protocol: "ARP", info: `${arp.senderIp} is at ${arp.senderMac}`, tone: "arp" };
   }
-  const ipv4 = frame.payload; // narrowed to Ipv4Payload after the arp branch returns
+  if (frame.payload.type === "dot11") {
+    const d = frame.payload;
+    const eapol = d.subtype.startsWith("eapol");
+    return { src: frame.srcMac, dst: frame.dstMac, protocol: eapol ? "EAPOL" : "802.11", info: dot11Info(d.subtype, d.ssid), tone: "dot11" };
+  }
+  const ipv4 = frame.payload; // narrowed to Ipv4Payload after the arp/dot11 branches return
   const src = ipv4.srcIp;
   const dst = ipv4.dstIp;
   const p = ipv4.payload;
@@ -230,6 +272,8 @@ export function frameLabel(frame: EthernetFrame): string {
   let label: string;
   if (frame.payload.type === "arp") {
     label = frame.payload.operation === "request" ? "ARP Req" : "ARP Reply";
+  } else if (frame.payload.type === "dot11") {
+    label = dot11Label(frame.payload.subtype);
   } else {
     const ipv4 = frame.payload; // narrowed to Ipv4Payload after the arp branch returns
     if (ipv4.payload.type === "dhcp") {
@@ -256,7 +300,8 @@ export function frameLabel(frame: EthernetFrame): string {
 
 export function frameColor(frame: EthernetFrame): string {
   if (frame.payload.type === "arp") return "#f59e0b";    // amber
-  const ipv4 = frame.payload; // narrowed to Ipv4Payload after the arp branch returns
+  if (frame.payload.type === "dot11") return "#14b8a6";  // teal (802.11 management)
+  const ipv4 = frame.payload; // narrowed to Ipv4Payload after the arp/dot11 branches return
   if (ipv4.payload.type === "dhcp") return "#a78bfa";    // violet
   if (ipv4.payload.type === "dns") return ipv4.payload.op === "response" && !ipv4.payload.address ? "#ef4444" : "#22d3ee"; // cyan (NXDOMAIN red)
   if (ipv4.payload.type === "tcp") return ipv4.payload.flags === "rst" ? "#ef4444" : "#fb923c"; // orange (RST red)

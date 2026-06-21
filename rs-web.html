@@ -1217,6 +1217,38 @@
     .fw-accept { background: rgba(34, 197, 94, 0.18); color: #16a34a; }
     .fw-drop { background: rgba(239, 68, 68, 0.18); color: var(--danger); }
     .fw-reject { background: rgba(245, 158, 11, 0.2); color: #d97706; }
+    .fw-rule-list li { display: flex; align-items: center; gap: 6px; }
+    .fw-rule-del { flex: 0 0 auto; margin-left: auto; }
+    .fw-policy-row { align-items: center; gap: 8px; margin-bottom: 6px; }
+    .fw-policy-row label { font-size: 11px; color: var(--muted); font-weight: 600; }
+    .fw-add-form {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 6px;
+      margin-top: 8px;
+    }
+    .fw-select {
+      height: 26px;
+      border-radius: 6px;
+      border: 1px solid var(--line);
+      background: var(--panel);
+      color: var(--text);
+      font-size: 11px;
+      padding: 0 4px;
+      cursor: pointer;
+    }
+    .fw-add-form input {
+      flex: 1 1 70px;
+      min-width: 60px;
+      height: 26px;
+      border-radius: 6px;
+      border: 1px solid var(--line);
+      background: var(--panel);
+      color: var(--text);
+      font-size: 11px;
+      padding: 0 6px;
+    }
+    .fw-select:focus, .fw-add-form input:focus { border-color: var(--accent); outline: none; }
 
     .wide-button {
       width: 100%;
@@ -1530,6 +1562,7 @@
     .pkt-tcp        td { color: #fb923c; }
     .pkt-dns        td { color: #22d3ee; }
     .pkt-dhcp       td { color: #a78bfa; }
+    .pkt-dot11      td { color: #2dd4bf; }
     .pkt-bad        td { color: #f87171; }
     .pkt-row td.pkt-num,
     .pkt-row td.pkt-link { color: #95a4b3; }
@@ -1859,6 +1892,7 @@
             <option value="basic">Basic Network</option>
             <option value="vlan-roas">VLAN Router-on-a-Stick</option>
             <option value="router-mesh">5-Router Mesh</option>
+            <option value="wifi-vlan">WiFi Staff/Guest VLANs</option>
           </select>
         </div><span class="ribbon-label">Topologies</span></div>
         <div class="ribbon-group"><div class="ribbon-items">
@@ -2080,6 +2114,38 @@
           </span>
         </label>
       </section>
+      <section class="settings-section">
+        <h3 class="settings-section-title">Silent protocols</h3>
+        <p class="settings-section-note">Resolve these instantly with no animated frames or packet-list rows. The exchange still happens — it just isn't shown — so the higher-layer flow stays uncluttered once you understand it.</p>
+        <label class="settings-row">
+          <input id="optSilentArp" type="checkbox">
+          <span class="settings-row-text">
+            <span class="settings-row-title">Silent ARP</span>
+            <span class="settings-row-desc">Skip the ARP request/reply animation; MAC addresses resolve instantly.</span>
+          </span>
+        </label>
+        <label class="settings-row">
+          <input id="optSilentDhcp" type="checkbox">
+          <span class="settings-row-text">
+            <span class="settings-row-title">Silent DHCP</span>
+            <span class="settings-row-desc">Skip the DORA animation; a host takes its lease instantly.</span>
+          </span>
+        </label>
+        <label class="settings-row">
+          <input id="optSilentDns" type="checkbox">
+          <span class="settings-row-text">
+            <span class="settings-row-title">Silent DNS</span>
+            <span class="settings-row-desc">Skip the query/response animation; names resolve instantly before the ping or connection.</span>
+          </span>
+        </label>
+        <label class="settings-row">
+          <input id="optSilentWifi" type="checkbox">
+          <span class="settings-row-text">
+            <span class="settings-row-title">Silent WiFi association</span>
+            <span class="settings-row-desc">Skip the 802.11 probe/auth/association (and WPA2) frames when a laptop joins an access point.</span>
+          </span>
+        </label>
+      </section>
     </div>
   </aside>
 
@@ -2187,6 +2253,19 @@ Full legal text: https://creativecommons.org/publicdomain/zero/1.0/legalcode</pr
     const portCount = Number(value);
     if (!Number.isInteger(portCount)) return 1;
     return Math.min(4, Math.max(1, portCount));
+  }
+  function deriveMac(seed) {
+    let h = 2166136261 >>> 0;
+    for (let i = 0; i < seed.length; i++) {
+      h ^= seed.charCodeAt(i);
+      h = Math.imul(h, 16777619) >>> 0;
+    }
+    const bytes = [0, 0, 0, 0, 0, 0].map((_, i) => {
+      h = Math.imul(h ^ i + 1, 2654435761) >>> 0;
+      return h >>> 16 & 255;
+    });
+    bytes[0] = bytes[0] & 254 | 2;
+    return bytes.map((b) => b.toString(16).padStart(2, "0").toUpperCase()).join(":");
   }
   function normaliseSsid(value) {
     return String(value ?? "").trim().slice(0, 32);
@@ -2837,7 +2916,11 @@ Full legal text: https://creativecommons.org/publicdomain/zero/1.0/legalcode</pr
       showMacAddresses: true,
       networkPanelOpen: false,
       autoDhcp: false,
-      apipaFallback: false
+      apipaFallback: false,
+      silentArp: false,
+      silentDhcp: false,
+      silentDns: false,
+      silentWifi: false
     },
     nameCounters: freshNameCounters(),
     configStore: { version: 1, configs: {} },
@@ -2873,7 +2956,8 @@ Full legal text: https://creativecommons.org/publicdomain/zero/1.0/legalcode</pr
       dhcpOfferTaken: false,
       dhcpSuccess: false,
       dhcpAssignedIp: null,
-      dhcpAssignedGateway: null
+      dhcpAssignedGateway: null,
+      wifiAssociated: false
     },
     portSelection: null
   };
@@ -3170,7 +3254,58 @@ Full legal text: https://creativecommons.org/publicdomain/zero/1.0/legalcode</pr
       { from: "r4", to: "r5" }
     ]
   };
-  [defaultConfig, vlanRoasConfig, routerMeshConfig].forEach((c) => shiftToPositive(c));
+  var wifiVlanConfig = {
+    version: 1,
+    devices: [
+      // Gateway — router-on-a-stick: a sub-interface per VLAN, plus guest isolation.
+      { id: "wifi-rtr", type: "router", name: "Gateway", x: 60, y: -340, config: {
+        ethernetPorts: 4,
+        serialPorts: 2,
+        interfaces: [
+          { peerId: "wifi-core", type: "ethernet", ipv4Address: "10.0.10.1", vlanTag: 10 },
+          { peerId: "wifi-core", type: "ethernet", ipv4Address: "10.0.20.1", vlanTag: 20 },
+          { peerId: "wifi-core", type: "ethernet", ipv4Address: "10.0.30.1", vlanTag: 30 }
+        ],
+        // Guests may reach the gateway, the internet and the server — but not the
+        // staff subnet. The server VLAN is deliberately left open to everyone.
+        rules: [{ chain: "forward", target: "drop", src: "10.0.20.0/24", dst: "10.0.10.0/24" }]
+      } },
+      // Core switch — trunk to the gateway, an access port per AP and the server.
+      { id: "wifi-core", type: "switch", name: "Core-SW", x: 60, y: -180, config: {
+        managed: true,
+        ethernetPorts: 8,
+        vlans: [{ id: 1, name: "default" }, { id: 10, name: "Staff" }, { id: 20, name: "Guest" }, { id: 30, name: "Servers" }],
+        portVlans: { Ethernet2: 10, Ethernet3: 20, Ethernet4: 30 },
+        portModes: { Ethernet1: "trunk" },
+        trunkNativeVlans: {},
+        trunkAllowedVlans: {}
+      } },
+      // Shared server — VLAN 30, reachable from every VLAN via the gateway. Runs
+      // dnsmasq with an A-record so all clients can resolve "server.lan".
+      { id: "wifi-srv", type: "server", name: "Server", x: 360, y: -300, config: { ipv4Address: "10.0.30.10", gatewayIpv4Address: "10.0.30.1", macAddress: "02:00:0A:1E:00:0A", dnsmasqRunning: true, dnsRecords: [{ name: "server.lan", ip: "10.0.30.10" }] } },
+      // Access points — one SSID each, uplinked into its VLAN's access port.
+      { id: "ap-staff", type: "access-point", name: "Staff-AP", x: -180, y: 10, config: { managed: false, ethernetPorts: 1, ssid: "Staff", wifiPassword: "staff1234", macTable: [] } },
+      { id: "ap-guest", type: "access-point", name: "Guest-AP", x: 300, y: 10, config: { managed: false, ethernetPorts: 1, ssid: "Guest", macTable: [] } },
+      // Staff laptops — VLAN 10, joined to the secured "Staff" SSID; resolve via the server.
+      { id: "lt-staff1", type: "laptop", name: "Staff-LT1", x: -280, y: 200, config: { ipv4Address: "10.0.10.11", gatewayIpv4Address: "10.0.10.1", macAddress: "02:00:0A:0A:00:11", dnsServerIp: "10.0.30.10", ssid: "Staff", wifiPassword: "staff1234" } },
+      { id: "lt-staff2", type: "laptop", name: "Staff-LT2", x: -100, y: 200, config: { ipv4Address: "10.0.10.12", gatewayIpv4Address: "10.0.10.1", macAddress: "02:00:0A:0A:00:12", dnsServerIp: "10.0.30.10", ssid: "Staff", wifiPassword: "staff1234" } },
+      // Guest laptop — VLAN 20, joined to the open "Guest" SSID; resolves via the server too.
+      { id: "lt-guest", type: "laptop", name: "Guest-LT", x: 300, y: 200, config: { ipv4Address: "10.0.20.11", gatewayIpv4Address: "10.0.20.1", macAddress: "02:00:0A:14:00:11", dnsServerIp: "10.0.30.10", ssid: "Guest" } }
+    ],
+    links: [
+      // Core-SW links first, in port order: Ethernet1 trunk → gateway, Ethernet2 (VLAN 10)
+      // → Staff-AP, Ethernet3 (VLAN 20) → Guest-AP, Ethernet4 (VLAN 30) → Server.
+      { from: "wifi-core", to: "wifi-rtr" },
+      { from: "wifi-core", to: "ap-staff" },
+      { from: "wifi-core", to: "ap-guest" },
+      { from: "wifi-core", to: "wifi-srv" },
+      // Wireless associations (laptop ↔ AP).
+      { from: "ap-staff", to: "lt-staff1", wireless: true },
+      { from: "ap-staff", to: "lt-staff2", wireless: true },
+      { from: "ap-guest", to: "lt-guest", wireless: true }
+    ]
+  };
+  [defaultConfig, vlanRoasConfig, routerMeshConfig, wifiVlanConfig].forEach((c) => shiftToPositive(c));
   function networkSnapshot() {
     return JSON.stringify({
       devices: state.devices,
@@ -3272,6 +3407,10 @@ Full legal text: https://creativecommons.org/publicdomain/zero/1.0/legalcode</pr
     showMacAddresses: document.getElementById("showMacAddresses"),
     optAutoDhcp: document.getElementById("optAutoDhcp"),
     optApipa: document.getElementById("optApipa"),
+    optSilentArp: document.getElementById("optSilentArp"),
+    optSilentDhcp: document.getElementById("optSilentDhcp"),
+    optSilentDns: document.getElementById("optSilentDns"),
+    optSilentWifi: document.getElementById("optSilentWifi"),
     detailsPanel: document.getElementById("detailsPanel"),
     deviceList: document.getElementById("deviceList"),
     zoomLevel: document.getElementById("zoomLevel"),
@@ -4139,10 +4278,61 @@ Full legal text: https://creativecommons.org/publicdomain/zero/1.0/legalcode</pr
     const ipv4 = { type: "ipv4", srcIp: serverIp, dstIp: "255.255.255.255", ttl: 64, protocol: 17, payload: dhcp };
     return { id: nextFrameId(), srcMac: serverMac, dstMac: BROADCAST_MAC, etherType: 2048, vlanTag, payload: ipv4 };
   }
+  function createDot11Frame(srcMac, dstMac, subtype, ssid) {
+    const payload = { type: "dot11", subtype, ssid };
+    return { id: nextFrameId(), srcMac, dstMac, etherType: 34958, vlanTag: null, payload };
+  }
+  function dot11Info(subtype, ssid) {
+    switch (subtype) {
+      case "probe-req":
+        return `Probe Request, SSID="${ssid}"`;
+      case "probe-resp":
+        return `Probe Response, SSID="${ssid}"`;
+      case "auth-req":
+        return "Authentication, Open System (seq 1)";
+      case "auth-resp":
+        return "Authentication, Open System (seq 2, Successful)";
+      case "assoc-req":
+        return `Association Request, SSID="${ssid}"`;
+      case "assoc-resp":
+        return "Association Response, Successful (AID 1)";
+      case "eapol-start":
+        return "Key (EAPOL Start)";
+      case "eapol-m1":
+        return "Key (Message 1 of 4)";
+      case "eapol-m2":
+        return "Key (Message 2 of 4)";
+      case "eapol-m3":
+        return "Key (Message 3 of 4)";
+      case "eapol-m4":
+        return "Key (Message 4 of 4)";
+    }
+  }
+  function dot11Label(subtype) {
+    const labels = {
+      "probe-req": "Probe Req",
+      "probe-resp": "Probe Resp",
+      "auth-req": "Auth",
+      "auth-resp": "Auth OK",
+      "assoc-req": "Assoc Req",
+      "assoc-resp": "Assoc OK",
+      "eapol-start": "EAPOL Start",
+      "eapol-m1": "EAPOL M1",
+      "eapol-m2": "EAPOL M2",
+      "eapol-m3": "EAPOL M3",
+      "eapol-m4": "EAPOL M4"
+    };
+    return labels[subtype];
+  }
   function packetColumns(frame) {
     if (frame.payload.type === "arp") {
       const arp = frame.payload;
       return arp.operation === "request" ? { src: frame.srcMac, dst: "Broadcast", protocol: "ARP", info: `Who has ${arp.targetIp}? Tell ${arp.senderIp}`, tone: "arp" } : { src: frame.srcMac, dst: frame.dstMac, protocol: "ARP", info: `${arp.senderIp} is at ${arp.senderMac}`, tone: "arp" };
+    }
+    if (frame.payload.type === "dot11") {
+      const d = frame.payload;
+      const eapol = d.subtype.startsWith("eapol");
+      return { src: frame.srcMac, dst: frame.dstMac, protocol: eapol ? "EAPOL" : "802.11", info: dot11Info(d.subtype, d.ssid), tone: "dot11" };
     }
     const ipv4 = frame.payload;
     const src = ipv4.srcIp;
@@ -4172,6 +4362,8 @@ Full legal text: https://creativecommons.org/publicdomain/zero/1.0/legalcode</pr
     let label;
     if (frame.payload.type === "arp") {
       label = frame.payload.operation === "request" ? "ARP Req" : "ARP Reply";
+    } else if (frame.payload.type === "dot11") {
+      label = dot11Label(frame.payload.subtype);
     } else {
       const ipv4 = frame.payload;
       if (ipv4.payload.type === "dhcp") {
@@ -4194,6 +4386,7 @@ Full legal text: https://creativecommons.org/publicdomain/zero/1.0/legalcode</pr
   }
   function frameColor(frame) {
     if (frame.payload.type === "arp") return "#f59e0b";
+    if (frame.payload.type === "dot11") return "#14b8a6";
     const ipv4 = frame.payload;
     if (ipv4.payload.type === "dhcp") return "#a78bfa";
     if (ipv4.payload.type === "dns") return ipv4.payload.op === "response" && !ipv4.payload.address ? "#ef4444" : "#22d3ee";
@@ -4406,6 +4599,31 @@ Full legal text: https://creativecommons.org/publicdomain/zero/1.0/legalcode</pr
         fromDeviceId: source.id,
         linkId: firstHop.linkId
       }],
+      pendingArp: {}
+    };
+  }
+  function associatedAp(laptop) {
+    for (const link of state.links) {
+      if (!link.wireless || link.hidden || link.shutdown) continue;
+      if (link.from !== laptop.id && link.to !== laptop.id) continue;
+      const ap = getDevice(link.from === laptop.id ? link.to : link.from);
+      if (ap && ap.type === "access-point" && !ap.poweredOff) return { ap, linkId: link.id };
+    }
+    return null;
+  }
+  function buildAssociationEvents(laptop) {
+    if (laptop.type !== "laptop") return `${laptop.name} is not a wireless client.`;
+    const srcMac = laptop.config?.macAddress;
+    if (!srcMac) return `${laptop.name}: the WiFi NIC has no MAC address.`;
+    const assoc = associatedAp(laptop);
+    if (!assoc) return `${laptop.name} is not associated to an access point.`;
+    const { ap, linkId } = assoc;
+    const ssid = ap.config?.ssid || "";
+    if (!ssid) return `${ap.name} has no SSID set.`;
+    const bssid = ap.config?.macAddress || deriveMac(ap.id);
+    const probe = createDot11Frame(srcMac, bssid, "probe-req", ssid);
+    return {
+      events: [{ type: "frame_arrive", frame: probe, deviceId: ap.id, fromDeviceId: laptop.id, linkId }],
       pendingArp: {}
     };
   }
@@ -4814,6 +5032,7 @@ Full legal text: https://creativecommons.org/publicdomain/zero/1.0/legalcode</pr
     const transits = state.simulation.transits;
     if (!transits || transits.length === 0) return;
     for (const transit of transits) {
+      if (transit.silent) continue;
       const fromDevice = getDevice(transit.fromDeviceId);
       const toDevice = getDevice(transit.toDeviceId);
       if (!fromDevice || !toDevice) continue;
@@ -5054,7 +5273,7 @@ Full legal text: https://creativecommons.org/publicdomain/zero/1.0/legalcode</pr
     for (const ev of setup.events) {
       if (ev.linkId && ev.fromDeviceId && ev.fromDeviceId !== ev.deviceId) {
         const seedLink = linkById(ev.linkId);
-        sim.transits.push({ frame: ev.frame, linkId: ev.linkId, fromDeviceId: ev.fromDeviceId, toDeviceId: ev.deviceId, progress: 0, startTime: seedNow, latencyFactor: linkLatencyFactor(seedLink) });
+        sim.transits.push({ frame: ev.frame, linkId: ev.linkId, fromDeviceId: ev.fromDeviceId, toDeviceId: ev.deviceId, progress: 0, startTime: seedNow, latencyFactor: linkLatencyFactor(seedLink), silent: isSilentFrame(ev.frame) });
         seeded = true;
       } else {
         sim.events.push(ev);
@@ -5077,8 +5296,9 @@ Full legal text: https://creativecommons.org/publicdomain/zero/1.0/legalcode</pr
     sim.dhcpSuccess = false;
     sim.dhcpAssignedIp = null;
     sim.dhcpAssignedGateway = null;
+    sim.wifiAssociated = false;
     const target = setup.dns ? setup.dns.name : targetIp;
-    const label = mode === "dhcp" ? "Requesting DHCP lease..." : mode === "tcp" ? `Opening TCP connection to ${target}:${sim.tcpTargetPort ?? "?"}...` : mode === "dns" ? `Resolving ${target}...` : `Simulating ping to ${target}...`;
+    const label = mode === "dhcp" ? "Requesting DHCP lease..." : mode === "tcp" ? `Opening TCP connection to ${target}:${sim.tcpTargetPort ?? "?"}...` : mode === "dns" ? `Resolving ${target}...` : mode === "associate" ? `Associating to ${target || "WiFi"}...` : `Simulating ping to ${target}...`;
     state.terminal.lines.push({ kind: "sim", text: label });
     if (!state.dock.open) openDock("simlog");
     syncTerminal();
@@ -5152,6 +5372,7 @@ Full legal text: https://creativecommons.org/publicdomain/zero/1.0/legalcode</pr
     sim.dhcpSuccess = false;
     sim.dhcpAssignedIp = null;
     sim.dhcpAssignedGateway = null;
+    sim.wifiAssociated = false;
     const MAX_STEPS = 1e4;
     let guard = 0;
     processNextStep();
@@ -5162,7 +5383,7 @@ Full legal text: https://creativecommons.org/publicdomain/zero/1.0/legalcode</pr
     }
     if (sim.status !== "done") finishSimulation();
     return {
-      success: mode === "dhcp" ? sim.dhcpSuccess : mode === "tcp" ? sim.tcpSuccess : mode === "dns" ? sim.dnsResolvedIp != null : sim.pingSuccess,
+      success: mode === "dhcp" ? sim.dhcpSuccess : mode === "tcp" ? sim.tcpSuccess : mode === "dns" ? sim.dnsResolvedIp != null : mode === "associate" ? sim.wifiAssociated : sim.pingSuccess,
       refused: sim.tcpRefused,
       ttl: sim.pingTtl,
       responderIp: sim.pingResponderIp,
@@ -5255,10 +5476,22 @@ Full legal text: https://creativecommons.org/publicdomain/zero/1.0/legalcode</pr
       animFrameId = null;
     }
   }
+  function isSilentFrame(frame) {
+    const opt = state.options;
+    const payload = frame.payload;
+    if (payload.type === "arp") return opt.silentArp;
+    if (payload.type === "dot11") return opt.silentWifi;
+    if (payload.type === "ipv4") {
+      const inner = payload.payload;
+      if (inner.type === "dhcp") return opt.silentDhcp;
+      if (inner.type === "dns") return opt.silentDns;
+    }
+    return false;
+  }
   function animationTick(now) {
     const sim = state.simulation;
     for (const t of sim.transits) {
-      t.progress = Math.min(1, (now - t.startTime) / (sim.speed * (t.latencyFactor ?? 1)));
+      t.progress = t.silent ? 1 : Math.min(1, (now - t.startTime) / (sim.speed * (t.latencyFactor ?? 1)));
     }
     sync().render();
     if (sim.transits.length > 0 && sim.transits.every((t) => t.progress >= 1)) {
@@ -5280,7 +5513,7 @@ Full legal text: https://creativecommons.org/publicdomain/zero/1.0/legalcode</pr
     const completed = sim.transits.filter((t) => t.progress >= 1);
     sim.transits = sim.transits.filter((t) => t.progress < 1);
     for (const t of completed) {
-      if (!sim.headless) {
+      if (!sim.headless && !t.silent) {
         sim.capture.push({
           no: sim.capture.length + 1,
           step: sim.stepIndex,
@@ -5342,7 +5575,8 @@ Full legal text: https://creativecommons.org/publicdomain/zero/1.0/legalcode</pr
         toDeviceId: out.toDeviceId,
         progress: 0,
         startTime: now,
-        latencyFactor: linkLatencyFactor(link)
+        latencyFactor: linkLatencyFactor(link),
+        silent: isSilentFrame(out.frame)
       });
     }
     if (!sim.headless) {
@@ -5369,12 +5603,66 @@ Full legal text: https://creativecommons.org/publicdomain/zero/1.0/legalcode</pr
     firewall: processAtFirewall,
     hub: processAtHub
   };
+  function handleDot11(device, frame, fromDeviceId) {
+    const payload = frame.payload;
+    const ssid = payload.ssid;
+    const next = (subtype) => fromDeviceId ? [{ frame: createDot11Frame(frame.dstMac, frame.srcMac, subtype, ssid), toDeviceId: fromDeviceId }] : [];
+    const done = () => {
+      state.simulation.wifiAssociated = true;
+      logStep(device, "sim-wifi", `Associated to "${ssid}"`);
+      return [];
+    };
+    if (device.type === "access-point") {
+      const secured2 = !!device.config?.wifiPassword;
+      switch (payload.subtype) {
+        case "probe-req":
+          logStep(device, "sim-wifi", `Probe Request for "${ssid}" \u2014 sending Probe Response`);
+          return next("probe-resp");
+        case "auth-req":
+          logStep(device, "sim-wifi", `Open-system Authentication \u2014 sending success`);
+          return next("auth-resp");
+        case "assoc-req":
+          logStep(device, "sim-wifi", `Association Request \u2014 sending Association Response${secured2 ? " (WPA2 follows)" : ""}`);
+          return next("assoc-resp");
+        case "eapol-start":
+          logStep(device, "sim-wifi", `WPA2 4-way handshake \u2014 sending Message 1`);
+          return next("eapol-m1");
+        case "eapol-m2":
+          return next("eapol-m3");
+        case "eapol-m4":
+          return done();
+      }
+      return [];
+    }
+    const ap = getDevice(fromDeviceId || "");
+    const secured = !!ap?.config?.wifiPassword;
+    switch (payload.subtype) {
+      case "probe-resp":
+        logStep(device, "sim-wifi", `Found "${ssid}" \u2014 authenticating`);
+        return next("auth-req");
+      case "auth-resp":
+        return next("assoc-req");
+      case "assoc-resp":
+        if (secured) {
+          logStep(device, "sim-wifi", `Associated \u2014 beginning WPA2 key exchange`);
+          return next("eapol-start");
+        }
+        return done();
+      // open network: associated once the response lands
+      case "eapol-m1":
+        return next("eapol-m2");
+      case "eapol-m3":
+        return next("eapol-m4");
+    }
+    return [];
+  }
   function processAtComputer(device, frame, fromDeviceId) {
     const sim = state.simulation;
     const outgoing = [];
     if (device.poweredOff) return outgoing;
     const config = device.config;
     if (!config) return outgoing;
+    if (frame.payload.type === "dot11") return handleDot11(device, frame, fromDeviceId);
     frame = { ...frame, srcMac: normaliseMacAddress(frame.srcMac), dstMac: normaliseMacAddress(frame.dstMac) };
     if (frame.payload.type === "arp") {
       const arp = frame.payload;
@@ -5650,6 +5938,7 @@ Full legal text: https://creativecommons.org/publicdomain/zero/1.0/legalcode</pr
     if (device.poweredOff) return outgoing;
     const config = device.config;
     if (!config) return outgoing;
+    if (device.type === "access-point" && frame.payload.type === "dot11") return handleDot11(device, frame, fromDeviceId);
     frame = { ...frame, srcMac: normaliseMacAddress(frame.srcMac), dstMac: normaliseMacAddress(frame.dstMac) };
     const ports = linkedPortsFor(device.id);
     const ingressIdx = fromDeviceId ? ports.findIndex((p) => p.peer.id === fromDeviceId) : -1;
@@ -8099,6 +8388,10 @@ Address: ${sim.dnsResolvedIp}`);
     dom.showMacAddresses.checked = state.options.showMacAddresses;
     dom.optAutoDhcp.checked = state.options.autoDhcp;
     dom.optApipa.checked = state.options.apipaFallback;
+    dom.optSilentArp.checked = state.options.silentArp;
+    dom.optSilentDhcp.checked = state.options.silentDhcp;
+    dom.optSilentDns.checked = state.options.silentDns;
+    dom.optSilentWifi.checked = state.options.silentWifi;
   }
   function ipSourceInfo(config) {
     if (!config?.ipv4Address) return { cls: "none", text: "unassigned" };
@@ -8242,7 +8535,7 @@ Address: ${sim.dnsResolvedIp}`);
   function renderFirewallRules(device) {
     const rules = device.config?.rules || [];
     if (!rules.length) return `<p class="empty-state">No rules \u2014 the default policy applies to all traffic.</p>`;
-    return `<ol class="fw-rule-list">${rules.map((r) => {
+    return `<ol class="fw-rule-list">${rules.map((r, index) => {
       const match = [
         r.protocol ? `-p ${escapeHtml(r.protocol)}` : "",
         r.src ? `-s ${escapeHtml(r.src)}` : "",
@@ -8250,8 +8543,39 @@ Address: ${sim.dnsResolvedIp}`);
         r.icmpType ? `--icmp-type ${escapeHtml(r.icmpType)}` : "",
         r.dport ? `--dport ${escapeHtml(String(r.dport))}` : ""
       ].filter(Boolean).join(" ");
-      return `<li><span class="fw-target fw-${escapeHtml(r.target)}">${escapeHtml(String(r.target).toUpperCase())}</span> ${escapeHtml(String(r.chain || "forward").toUpperCase())} ${match || "(any)"}</li>`;
+      return `<li><span class="fw-target fw-${escapeHtml(r.target)}">${escapeHtml(String(r.target).toUpperCase())}</span> ${escapeHtml(String(r.chain || "forward").toUpperCase())} ${match || "(any)"}<button class="inline-button fw-rule-del" type="button" data-fw-del="${index}" title="Delete this rule" aria-label="Delete rule">&times;</button></li>`;
     }).join("")}</ol>`;
+  }
+  function renderFirewallControls(device, chains) {
+    const policy = device.config?.policy || {};
+    const policyRows = chains.map((chain) => `
+      <div class="field-row fw-policy-row">
+        <label for="fwPolicy-${chain}">${escapeHtml(chain.toUpperCase())} policy</label>
+        <select id="fwPolicy-${chain}" class="fw-select" data-fw-policy="${chain}">
+          ${["accept", "drop"].map((p) => `<option value="${p}"${(policy[chain] || "accept") === p ? " selected" : ""}>${p.toUpperCase()}</option>`).join("")}
+        </select>
+      </div>`).join("");
+    const chainField = chains.length > 1 ? `
+        <select id="fwAddChain" class="fw-select" title="Chain">
+          ${chains.map((c) => `<option value="${c}">${escapeHtml(c.toUpperCase())}</option>`).join("")}
+        </select>` : "";
+    return `
+      ${policyRows}
+      <label>Rules</label>
+      ${renderFirewallRules(device)}
+      <div class="fw-add-form">
+        <select id="fwAddTarget" class="fw-select" title="Target">
+          ${["accept", "drop", "reject"].map((t) => `<option value="${t}">${t.toUpperCase()}</option>`).join("")}
+        </select>${chainField}
+        <select id="fwAddProto" class="fw-select" title="Protocol">
+          ${[["", "any proto"], ["icmp", "icmp"], ["tcp", "tcp"], ["udp", "udp"]].map(([v, l]) => `<option value="${v}">${l}</option>`).join("")}
+        </select>
+        <input id="fwAddSrc" placeholder="source (any)" autocomplete="off" inputmode="decimal">
+        <input id="fwAddDst" placeholder="dest (any)" autocomplete="off" inputmode="decimal">
+        <input id="fwAddDport" placeholder="dport" autocomplete="off" inputmode="numeric">
+        <button class="inline-button" id="fwAddRule" type="button">Add rule</button>
+      </div>
+      <p class="field-note" id="fwAddError"></p>`;
   }
   function renderDnsmasqSection(device) {
     const config = device.config || {};
@@ -8453,6 +8777,60 @@ Address: ${sim.dnsResolvedIp}`);
       el.addEventListener("click", (event) => {
         removeSwitchVlan(device, event.target.dataset.vlan);
       });
+    });
+  }
+  function bindFirewallControls(device, chains) {
+    document.querySelectorAll("[data-fw-policy]").forEach((el) => {
+      el.addEventListener("change", (event) => {
+        pushUndo();
+        ensureConfig(device);
+        device.config.policy = device.config.policy || {};
+        device.config.policy[event.target.dataset.fwPolicy] = event.target.value;
+        syncPanel();
+      });
+    });
+    document.querySelectorAll("[data-fw-del]").forEach((el) => {
+      el.addEventListener("click", (event) => {
+        const index = Number(event.currentTarget.dataset.fwDel);
+        if (!Array.isArray(device.config?.rules) || !device.config.rules[index]) return;
+        pushUndo();
+        device.config.rules.splice(index, 1);
+        syncPanel();
+      });
+    });
+    const addBtn = document.getElementById("fwAddRule");
+    if (!addBtn) return;
+    addBtn.addEventListener("click", () => {
+      const val = (id) => document.getElementById(id)?.value.trim() || "";
+      const errEl = document.getElementById("fwAddError");
+      const fail = (msg) => {
+        if (errEl) errEl.textContent = msg;
+      };
+      const target = val("fwAddTarget") || "accept";
+      const chain = document.getElementById("fwAddChain")?.value || chains[0];
+      const protocol = val("fwAddProto");
+      const src = val("fwAddSrc"), dst = val("fwAddDst"), dportRaw = val("fwAddDport");
+      if (src && !parseIpv4Token(src)) return fail("Source must be a valid IPv4 address or CIDR.");
+      if (dst && !parseIpv4Token(dst)) return fail("Destination must be a valid IPv4 address or CIDR.");
+      let dport;
+      if (dportRaw) {
+        const n = Number(dportRaw);
+        if (!Number.isInteger(n) || n < 1 || n > 65535) return fail("Port must be 1\u201365535.");
+        if (protocol !== "tcp") return fail("A destination port needs protocol tcp.");
+        dport = n;
+      }
+      pushUndo();
+      ensureConfig(device);
+      device.config.rules = device.config.rules || [];
+      device.config.rules.push({
+        chain,
+        target,
+        ...protocol ? { protocol } : {},
+        ...src ? { src } : {},
+        ...dst ? { dst } : {},
+        ...dport != null ? { dport } : {}
+      });
+      syncPanel();
     });
   }
   function renderLinkPanel(link) {
@@ -8688,7 +9066,8 @@ Address: ${sim.dnsResolvedIp}`);
           <button class="inline-button" id="randomMac" type="button" title="Generate random MAC">Random</button>
         </div>
       </div>
-      ${selected.type === "laptop" ? renderWifiFields(selected.config, "The WiFi network this laptop associates to (must match an access point).") : ""}
+      ${selected.type === "laptop" ? renderWifiFields(selected.config, "The WiFi network this laptop associates to (must match an access point).") + `
+      <div class="field"><button class="wide-button" id="associateLaptop" type="button">Show association handshake</button></div>` : ""}
       ${selected.type === "server" ? renderDnsmasqSection(selected) : ""}
       <div class="field">
         <label>ARP table</label>
@@ -8745,11 +9124,10 @@ Address: ${sim.dnsResolvedIp}`);
         ${renderRouterInterfaces(selected)}
         </div>
       </div>
-      ${selected.config?.rules?.length ? `
       <div class="field">
-        <label>Firewall rules (edit via iptables in the terminal)</label>
-        ${renderFirewallRules(selected)}
-      </div>` : ""}
+        <label>Netfilter (iptables INPUT + FORWARD)</label>
+        ${renderFirewallControls(selected, ["forward", "input"])}
+      </div>
       ${selected.config?.natTranslations?.length ? `
       <div class="field">
         <label>NAT translations</label>
@@ -8762,12 +9140,8 @@ Address: ${sim.dnsResolvedIp}`);
         <input id="selectedFwPorts" type="number" min="2" max="8" step="1" value="${escapeHtml(selected.config?.ethernetPorts ?? 2)}">
       </div>
       <div class="field">
-        <label>FORWARD policy</label>
-        <span class="pill">${escapeHtml(((selected.config?.policy || {}).forward || "accept").toUpperCase())}</span>
-      </div>
-      <div class="field">
-        <label>Rules (edit via the iptables terminal)</label>
-        ${renderFirewallRules(selected)}
+        <label>Netfilter (iptables FORWARD)</label>
+        ${renderFirewallControls(selected, ["forward"])}
       </div>
     ` : "";
       const hubConfigFields = selected.type === "hub" ? `
@@ -8883,6 +9257,14 @@ Address: ${sim.dnsResolvedIp}`);
       };
       bindWifiField("selectedSsid", "ssid", normaliseSsid);
       bindWifiField("selectedWifiPassword", "wifiPassword", normaliseWifiPassword);
+      document.getElementById("associateLaptop")?.addEventListener("click", () => {
+        const setup = buildAssociationEvents(selected);
+        if (typeof setup === "string") {
+          dom.modeLabel.textContent = setup;
+          return;
+        }
+        startSimulation(setup, selected.id, selected.config?.ssid || "", "associate");
+      });
       document.getElementById("clearWifiPassword")?.addEventListener("click", () => {
         pushUndo();
         ensureConfig(selected);
@@ -8984,6 +9366,8 @@ Address: ${sim.dnsResolvedIp}`);
       });
       bindPortRemoveButtons();
       bindSwitchPortControls(selected);
+      if (selected.type === "router") bindFirewallControls(selected, ["forward", "input"]);
+      if (selected.type === "firewall") bindFirewallControls(selected, ["forward"]);
       const terminalButton = document.getElementById("openSelectedTerminal");
       if (terminalButton) terminalButton.addEventListener("click", () => openTerminalFor(selected));
       const powerButton = document.getElementById("togglePower");
@@ -10208,6 +10592,10 @@ Address: ${sim.dnsResolvedIp}`);
     bindOptionToggle(dom.showMacAddresses, "showMacAddresses");
     bindOptionToggle(dom.optAutoDhcp, "autoDhcp");
     bindOptionToggle(dom.optApipa, "apipaFallback");
+    bindOptionToggle(dom.optSilentArp, "silentArp");
+    bindOptionToggle(dom.optSilentDhcp, "silentDhcp");
+    bindOptionToggle(dom.optSilentDns, "silentDns");
+    bindOptionToggle(dom.optSilentWifi, "silentWifi");
     window.addEventListener("resize", resizeCanvas);
     dom.simPlayPause.addEventListener("click", () => {
       const sim = state.simulation;
@@ -10397,6 +10785,9 @@ Address: ${sim.dnsResolvedIp}`);
       } else if (name === "router-mesh") {
         applyConfig(normaliseConfig(routerMeshConfig));
         dom.modeLabel.textContent = "Loaded 5-Router Partial Mesh topology.";
+      } else if (name === "wifi-vlan") {
+        applyConfig(normaliseConfig(wifiVlanConfig));
+        dom.modeLabel.textContent = "Loaded WiFi Staff/Guest VLAN topology.";
       } else {
         applyConfig(normaliseConfig(defaultConfig));
         dom.modeLabel.textContent = "Loaded Basic Network topology.";
@@ -10419,7 +10810,11 @@ Address: ${sim.dnsResolvedIp}`);
     { param: "ips", key: "showIpAddresses", def: true },
     { param: "macs", key: "showMacAddresses", def: true },
     { param: "autodhcp", key: "autoDhcp", def: false },
-    { param: "apipa", key: "apipaFallback", def: false }
+    { param: "apipa", key: "apipaFallback", def: false },
+    { param: "silentarp", key: "silentArp", def: false },
+    { param: "silentdhcp", key: "silentDhcp", def: false },
+    { param: "silentdns", key: "silentDns", def: false },
+    { param: "silentwifi", key: "silentWifi", def: false }
   ];
   function parseBool(raw) {
     const v = raw.trim().toLowerCase();
@@ -10786,8 +11181,29 @@ Address: ${sim.dnsResolvedIp}`);
     startSimulation(setup, host.id, "", "dhcp");
     return ok(`DHCP on ${host.name} started.`);
   }
+  function cmdAssociate(args) {
+    const laptop = resolveDevice(args[0]);
+    if (typeof laptop === "string") return err(laptop);
+    const setup = buildAssociationEvents(laptop);
+    if (typeof setup === "string") return err(setup);
+    const ssid = associatedAp(laptop)?.ap.config?.ssid || "";
+    startSimulation(setup, laptop.id, ssid, "associate");
+    return ok(`Associating ${laptop.name} to "${ssid}"...`);
+  }
   function cmdRun(args) {
     const mode = (args[0] || "").toLowerCase();
+    if (mode === "associate") {
+      const laptop = resolveDevice(args[1]);
+      if (typeof laptop === "string") return err(laptop);
+      const setup = buildAssociationEvents(laptop);
+      if (typeof setup === "string") return err(setup);
+      const r = runSimulationHeadless(setup, laptop.id, "", "associate");
+      return {
+        ok: r.success,
+        data: r,
+        output: [r.success ? `associate: ${laptop.name} joined the WiFi (${r.steps} frames)` : "associate: handshake did not complete"]
+      };
+    }
     if (mode === "ping") {
       const src = resolveDevice(args[1]);
       if (typeof src === "string") return err(src);
@@ -10883,8 +11299,8 @@ Address: ${sim.dnsResolvedIp}`);
   }
   function cmdTopology(args) {
     const name = (args[0] || "").toLowerCase();
-    if (!["basic", "vlan-roas", "router-mesh"].includes(name)) {
-      return err(`topology: expected basic|vlan-roas|router-mesh.`);
+    if (!["basic", "vlan-roas", "router-mesh", "wifi-vlan"].includes(name)) {
+      return err(`topology: expected basic|vlan-roas|router-mesh|wifi-vlan.`);
     }
     loadTopology(name);
     return ok(`Loaded topology "${name}".`);
@@ -11063,6 +11479,7 @@ Address: ${sim.dnsResolvedIp}`);
     ping: cmdPing,
     dhcp: cmdDhcp,
     connect: cmdConnect,
+    associate: cmdAssociate,
     run: cmdRun,
     traceroute: cmdTraceroute,
     tracert: cmdTraceroute,
@@ -11115,14 +11532,15 @@ Address: ${sim.dnsResolvedIp}`);
     ping: "ping <src> <dst> (animated)",
     dhcp: "dhcp <host> (animated)",
     connect: "connect <src> <dst> <port> (animated TCP handshake)",
-    run: "run ping <src> <dst> | run connect <src> <dst> <port> | run resolve <src> <name> | run dhcp <host> (headless, returns result)",
+    associate: "associate <laptop> (animate the 802.11 join: probe/auth/assoc + WPA2 if secured)",
+    run: "run ping <src> <dst> | run connect <src> <dst> <port> | run resolve <src> <name> | run dhcp <host> | run associate <laptop> (headless, returns result)",
     traceroute: "traceroute <src> <dst> (hop-by-hop via TTL)",
     play: "resume",
     pause: "pause",
     step: "advance one hop",
     stop: "stop",
     speed: "speed <ms-per-hop>",
-    topology: "topology basic|vlan-roas|router-mesh",
+    topology: "topology basic|vlan-roas|router-mesh|wifi-vlan",
     save: "save <name>",
     load: "load <name>",
     undo: "undo",

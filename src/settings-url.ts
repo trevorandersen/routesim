@@ -23,6 +23,10 @@ const BOOL_PARAMS: { param: string; key: keyof DisplayOptions; def: boolean }[] 
   { param: "macs", key: "showMacAddresses", def: true },
   { param: "autodhcp", key: "autoDhcp", def: false },
   { param: "apipa", key: "apipaFallback", def: false },
+  { param: "silentarp", key: "silentArp", def: false },
+  { param: "silentdhcp", key: "silentDhcp", def: false },
+  { param: "silentdns", key: "silentDns", def: false },
+  { param: "silentwifi", key: "silentWifi", def: false },
 ];
 
 export interface ParsedSettings {

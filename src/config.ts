@@ -16,7 +16,7 @@ import { render, fitNetwork } from "./canvas";
 import { syncPanel } from "./inspector";
 import { syncTerminal } from "./terminal";
 import { setTool } from "./ui";
-import { defaultConfig, vlanRoasConfig, routerMeshConfig } from "./state";
+import { defaultConfig, vlanRoasConfig, routerMeshConfig, wifiVlanConfig } from "./state";
 
 export function buildConfigPayload(): SerialisedTopology {
   return {
@@ -193,6 +193,9 @@ export function loadTopology(name: string): void {
     } else if (name === "router-mesh") {
       applyConfig(normaliseConfig(routerMeshConfig));
       dom.modeLabel.textContent = "Loaded 5-Router Partial Mesh topology.";
+    } else if (name === "wifi-vlan") {
+      applyConfig(normaliseConfig(wifiVlanConfig));
+      dom.modeLabel.textContent = "Loaded WiFi Staff/Guest VLAN topology.";
     } else {
       applyConfig(normaliseConfig(defaultConfig));
       dom.modeLabel.textContent = "Loaded Basic Network topology.";

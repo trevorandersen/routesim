@@ -206,6 +206,10 @@ export function applyConfigWithoutUndo(config: NormalisedConfig): void {
 }
 
 export function loadTopology(name: string): void {
+  // Topologies default to instant name resolution (a convenience hosts file);
+  // scenarios flip it off for realistic DNS. Set before applyConfig drops state.
+  state.options.instantDns = true;
+  sync().syncOptionControls();
   try {
     if (name === "vlan-roas") {
       applyConfig(normaliseConfig(vlanRoasConfig));

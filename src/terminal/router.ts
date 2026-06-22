@@ -7,7 +7,7 @@ import type { Device } from "../types";
 import { state, sync, pushUndo } from "../state";
 import { isValidIpv4, parseIpv4Token, normaliseVlanId, prefixOf, clampPrefixLength, networkOf } from "../utils";
 import { normaliseArpTable, normaliseDhcpLeases, normaliseStaticRoutes, normaliseRipConfig } from "../normalise";
-import { routerInterfacesWithNames, routerInterfaceFor, routerInterfaceByName } from "../devices";
+import { routerInterfacesWithNames, routerInterfaceFor, routerInterfaceByName, applyHostname } from "../devices";
 import { buildRoutingTable, runRipConvergence } from "../engine";
 import { terminalLine, closeSession } from "./core";
 import { runIptablesCommand } from "./iptables";
@@ -183,6 +183,7 @@ const ROUTER_COMMANDS: RouterCmdSpec[] = [
   { tokens: ["write", "memory"], modes: ["privileged"] },
   { tokens: ["clear", "ip", "rip", "database"], modes: ["privileged", "config", "rip"] },
   { tokens: ["do"], args: true, modes: ["config", "interface", "rip"] },
+  { tokens: ["hostname"], args: true, modes: ["config"] },
   { tokens: ["interface"], args: true, modes: ["config"] },
   { tokens: ["ip", "address"], args: true, modes: ["interface"] },
   { tokens: ["no", "ip", "address"], modes: ["interface"] },
@@ -335,6 +336,15 @@ export function runRouterTerminalCommand(router: Device, rawCommand: string): vo
       return;
     }
     runIptablesCommand(router, command, ["input", "forward"]);
+    return;
+  }
+  // `hostname <name>` (config mode) renames the router — its prompt, canvas
+  // label and resolvable name are all the hostname (FRR/IOS global command).
+  const hostnameMatch = command.match(/^hostname\s+(\S+)$/i);
+  if (hostnameMatch) {
+    if (mode !== "config") { terminalLine("error", "% Configuration mode required (configure terminal)."); return; }
+    const error = applyHostname(router, hostnameMatch[1]);
+    if (error) terminalLine("error", `% ${error}`);
     return;
   }
   if (routerNatCommand(router, lower)) return;

@@ -82,6 +82,10 @@ export function loadScenario(id: string): boolean {
   if (!scenario) return false;
   applyConfig(normaliseConfig(scenario.topology));
   state.activeScenarioId = id;
+  // Scenarios default to realistic resolution: a device name needs DNS (goal
+  // checks resolve by IP themselves, so this only shapes the learner's terminal).
+  state.options.instantDns = false;
+  sync().syncOptionControls();
   sync().syncScenarioPanel();
   return true;
 }

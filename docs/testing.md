@@ -81,14 +81,14 @@ describe("setSwitchPortVlan", () => {
 | `tests/firewall.test.ts` | Firewall rule matching/evaluation, the iptables CLI, filtering in the sim |
 | `tests/nat.test.ts` | NAT/PAT: translation table, return-path restore, router netfilter INPUT/FORWARD chains |
 | `tests/tcp.test.ts` | The TCP three-way handshake, the `openPorts` listener model, RST refusal, port filtering |
-| `tests/dns.test.ts` | DNS + the server device: A-records, resolv/dnsmasq conf handling, resolve-then-act flows, server DHCP |
+| `tests/dns.test.ts` | DNS + the server device: A-records, resolv/dnsmasq conf handling, resolve-then-act flows, server DHCP, the **device-hostname auto-zone** (a server resolves any device name with no manual record) and the **Instant DNS setting** (instant name→IP match vs. requiring a real query; on for topologies, off for scenarios) |
 | `tests/prefix.test.ts` | Real subnet prefixes: longest-prefix behaviour and the display/export surfaces |
 | `tests/capture.test.ts` | The packet list: `packetColumns` mapping (incl. 802.11/EAPOL) + per-wire capture recording (cap, headless preservation), and the silent-protocol toggles (an ARP/DHCP/DNS frame resolves but is kept out of the capture) |
 | `tests/dock.test.ts` | The bottom dock: terminal sessions/tabs, console `cli` session sharing, configure-opens-terminal |
 | `tests/links.test.ts` | Link naming (derived default + override), link deletion, the single-NIC host guard, admin status (shut blocks traffic; `shut`/`noshut`; round-trip), bandwidth/latency/loss round-trip |
 | `tests/firstboot.test.ts` | Network boot: cabling/power no longer auto-configures; Play (`startNetworkBoot`) boots unconfigured hosts via animated DHCP → APIPA (rAF-stub harness); the global Auto-DHCP / APIPA toggles |
 | `tests/terminal.test.ts` | Terminal display + mutator helpers (host/router/switch, VLAN, trunk) |
-| `tests/terminal-commands.test.ts` | The command **dispatchers**, router mode machine, abbreviation + `?`, the host inspector-set commands (`ip link set`/`ip route del`/`rm resolv.conf`), and `runDeviceCommand` (injected) |
+| `tests/terminal-commands.test.ts` | The command **dispatchers**, router mode machine, abbreviation + `?`, the host inspector-set commands (`ip link set`/`ip route del`/`rm resolv.conf`), `runDeviceCommand` (injected), and the **hostname** commands (host `hostname`/`hostnamectl`/`/etc/hostname`, router `hostname` in config mode, switch `config hostname` — each renames the device, with RFC-1123 validation) |
 | `tests/commands.test.ts` | The console command engine (verbs, headless runs, script round-trip) |
 | `tests/simulation.test.ts` | `l2Reachable`, `getVlanForDevice`, `buildPing/DhcpEvents` |
 | `tests/scenarios.test.ts` | Scenario loading/goal checks + positive-coordinate invariants |

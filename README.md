@@ -114,11 +114,12 @@ sync().render();
 
 - **Canvas editor** — pan, zoom, drag devices, auto-grid snapping
 - **Device types** — computers, servers (dnsmasq: DNS + DHCP), switches (managed/unmanaged), routers, firewalls (transparent inline iptables filter), hubs (layer-1 repeater)
-- **PC terminal** — `ip addr`, `ip route`, `ping`, `traceroute`, `nslookup`, `nc -z`, `arp -n`, `/etc/resolv.conf`
+- **PC terminal** — `ip addr`, `ip route`, `ping`, `traceroute`, `nslookup`, `nc -z`, `arp -n`, `/etc/resolv.conf`, `hostname` / `hostnamectl set-hostname`
+- **Hostname = canvas name** — a CLI device's name on the canvas *is* its hostname (also its prompt and the name it resolves as). Set it the real way — `hostname <name>` / `hostnamectl set-hostname <name>` / `echo <name> > /etc/hostname` on a host, `hostname <name>` (config mode) on a router, `config hostname <name>` on a managed switch — or just edit the **Hostname** field in the inspector
 - **Server terminal** — Linux shell + dnsmasq (`/etc/dnsmasq.conf` directives, `systemctl`)
-- **Router terminal** — FRRouting (vtysh): interfaces, static routes, RIP, NAT/PAT, iptables INPUT/FORWARD
-- **Switch terminal** — SONiC: VLANs, port membership, MAC tables
-- **DNS** — hosts resolve names via real UDP/53 frames before they ping/connect; NXDOMAIN, option 6 via DHCP
+- **Router terminal** — FRRouting (vtysh): `hostname`, interfaces, static routes, RIP, NAT/PAT, iptables INPUT/FORWARD
+- **Switch terminal** — SONiC: `config hostname`, VLANs, port membership, MAC tables
+- **DNS** — hosts resolve names via real UDP/53 frames before they ping/connect; NXDOMAIN, option 6 via DHCP. A DNS server **auto-resolves every device's hostname** (an automatic zone) on top of any manual `address=` records, so `ping PC-A1` / `nslookup PC-A1` issue a real, watchable query. The **Instant DNS** setting (on by default in topologies, off in scenarios) instead resolves a device name straight to its IP with no query — a built-in hosts file; turn it off to require real DNS, like the real world
 - **Subnet-aware ping** — same-subnet uses L2 BFS; cross-subnet routes through a gateway router
 - **VLAN enforcement** — managed switches enforce VLAN membership on L2 paths
 - **ARP/MAC learning** — ping populates ARP tables on hosts and routers, MAC tables on switches

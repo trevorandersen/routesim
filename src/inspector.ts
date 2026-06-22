@@ -7,7 +7,7 @@ import { ensureConfig, normaliseVlans, normaliseDnsRecords, normaliseDhcpLeases 
 import {
   getDevice, isVisibleDevice, connectedIds, linkedPortsFor, linksFor, wifiLinkAuthenticated,
   routerInterfacesWithNames, routerInterfaceFor, routerInterfaceForName, switchInterfacesWithNames,
-  deleteSelection, deleteLink, collapseLan, expandLan, configureDevice
+  deleteSelection, deleteLink, collapseLan, expandLan, configureDevice, hasHostname
 } from "./devices";
 import {
   openTerminalFor, syncTerminal, runDeviceCommand,
@@ -28,6 +28,7 @@ export function syncOptionControls(): void {
   dom.optSilentDhcp.checked = state.options.silentDhcp;
   dom.optSilentDns.checked = state.options.silentDns;
   dom.optSilentWifi.checked = state.options.silentWifi;
+  dom.optInstantDns.checked = state.options.instantDns;
 }
 
 // The address-source pill shown beside a host's IP field: how the current
@@ -846,7 +847,7 @@ export function syncPanel(): void {
     dom.detailsPanel.innerHTML = `
       ${panelHeading(isConfiguring ? "Configure" : "Selection")}
       <div class="field">
-        <label for="selectedName">Name</label>
+        <label for="selectedName">${hasHostname(selected) ? "Hostname" : "Name"}</label>
         <input id="selectedName" value="${escapeHtml(selected.name)}" autocomplete="off">
       </div>
       ${selected.type === "switch" ? `

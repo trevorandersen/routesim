@@ -254,6 +254,17 @@
         </label>
       </section>
       <section class="settings-section">
+        <h3 class="settings-section-title">Name resolution</h3>
+        <p class="settings-section-note">How a device <em>name</em> used as a target (e.g. <code>ping PC-A1</code>) becomes an IP. A DNS server always auto-resolves device hostnames; this controls whether names also resolve without one.</p>
+        <label class="settings-row">
+          <input id="optInstantDns" type="checkbox">
+          <span class="settings-row-text">
+            <span class="settings-row-title">Instant DNS</span>
+            <span class="settings-row-desc">Resolve a device name straight to its IP with no DNS query — a built-in hosts file. Off: a name needs a reachable nameserver, like the real world. On by default in topologies, off when a scenario is loaded.</span>
+          </span>
+        </label>
+      </section>
+      <section class="settings-section">
         <h3 class="settings-section-title">Silent protocols</h3>
         <p class="settings-section-note">Resolve these instantly with no animated frames or packet-list rows. The exchange still happens — it just isn't shown — so the higher-layer flow stays uncluttered once you understand it.</p>
         <label class="settings-row">

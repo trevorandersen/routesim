@@ -15,6 +15,7 @@ export function registerNoopCallbacks(): void {
     resizeCanvas: () => {},
     syncScenarioPanel: () => {},
     syncCoordReadout: () => {},
+    syncOptionControls: () => {},
   });
 }
 
@@ -62,4 +63,8 @@ export function resetState(): void {
   state.dock = { open: false, activeTab: "terminal", height: 280, logView: "packets" };
   state.console = { lines: [], history: [], historyIndex: -1 };
   state.activeScenarioId = null;
+  // resetState leaves display options alone (tests save/restore them), but
+  // instantDns is special: it defaults on yet loadScenario flips it off, so a
+  // scenario test would silently pollute later suites. Restore its default here.
+  state.options.instantDns = true;
 }

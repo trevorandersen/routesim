@@ -14,6 +14,7 @@ import { runSimulationHeadless } from "../src/engine";
 import { buildPingEvents, buildConnectEvents, buildResolveEvents, buildDhcpEvents } from "../src/simulation";
 import { buildConfigPayload, parseConfig } from "../src/config";
 import { runConsoleScript, runConsoleCommand as exec } from "../src/commands";
+import { SCENARIOS, loadScenario } from "../src/scenarios";
 import { registerNoopCallbacks, resetState } from "./helpers";
 
 beforeAll(() => registerNoopCallbacks());
@@ -252,6 +253,50 @@ describe("dns — resolve-then-act (ping/nc by name)", () => {
     const r = runSimulationHeadless(buildPingEvents(pc1, "web.corp") as any, pc1.id, "web.corp", "ping");
     expect(r.success).toBe(true);
     expect(r.responderIp).toBe("192.168.2.80");
+  });
+});
+
+describe("dns — device hostname auto-zone + Instant DNS setting", () => {
+  beforeEach(() => resetState());
+
+  it("a DNS server resolves a device's hostname with no manual A-record (the auto-zone)", () => {
+    const { pc1 } = withRecord();   // SRV only has a manual record for web.corp
+    const r = runSimulationHeadless(buildResolveEvents(pc1, "WEB", null, null) as any, pc1.id, "WEB", "dns");
+    expect(r.resolvedIp).toBe("192.168.1.80");   // WEB is resolved purely from the device table
+  });
+
+  it("with Instant DNS off, a device name resolves through a real DNS query (auto-zone), not instantly", () => {
+    const { pc1 } = withRecord();
+    state.options.instantDns = false;
+    const setup = buildPingEvents(pc1, "WEB");   // device name, not in dnsmasq.conf
+    expect(typeof setup).not.toBe("string");
+    expect((setup as any).dns?.name).toBe("WEB"); // a query was emitted, not an instant match
+    const r = runSimulationHeadless(setup as any, pc1.id, "WEB", "ping");
+    expect(r.success).toBe(true);
+    expect(r.resolvedIp).toBe("192.168.1.80");
+  });
+
+  it("with Instant DNS off and no nameserver, a device name can't resolve (realistic)", () => {
+    const { pc1 } = flatTopology();   // no /etc/resolv.conf
+    state.options.instantDns = false;
+    expect(typeof buildPingEvents(pc1, "WEB")).toBe("string"); // ping: cannot resolve WEB
+  });
+
+  it("with Instant DNS on (default), a device name resolves instantly with no DNS server", () => {
+    const { pc1 } = flatTopology();   // no nameserver, no records
+    expect(state.options.instantDns).toBe(true);
+    const setup = buildPingEvents(pc1, "WEB");
+    expect(typeof setup).not.toBe("string");
+    expect((setup as any).dns).toBeUndefined(); // resolved straight to the IP — no query
+    expect(exec("run ping PC1 WEB").ok).toBe(true);
+  });
+
+  it("Instant DNS defaults on for topologies and off for scenarios", () => {
+    state.options.instantDns = false;
+    exec("topology basic");
+    expect(state.options.instantDns).toBe(true);
+    loadScenario(SCENARIOS[0].id);
+    expect(state.options.instantDns).toBe(false);
   });
 });
 

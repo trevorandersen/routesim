@@ -5,8 +5,23 @@ import {
   normaliseMacAddress, isValidMac,
   clampPortCount, clampRouterPortCount, clampApPortCount,
   parseIpv4Token, normaliseVlanId,
-  escapeHtml,
+  escapeHtml, isValidHostname,
 } from "../src/utils";
+
+// ── Hostnames ─────────────────────────────────────────────────────────────────
+
+describe("isValidHostname", () => {
+  it("accepts RFC-1123 labels", () => {
+    for (const h of ["pc1", "web-01", "PC-A", "Core-SW", "a", "host123"]) expect(isValidHostname(h)).toBe(true);
+  });
+  it("rejects empty, spaces, underscores, dots, and leading/trailing hyphens", () => {
+    for (const h of ["", "bad name", "_nope", "a.b", "-x", "x-", "pc!"]) expect(isValidHostname(h)).toBe(false);
+  });
+  it("rejects labels longer than 63 characters", () => {
+    expect(isValidHostname("a".repeat(63))).toBe(true);
+    expect(isValidHostname("a".repeat(64))).toBe(false);
+  });
+});
 
 // ── IPv4 ──────────────────────────────────────────────────────────────────────
 

@@ -6,7 +6,7 @@ import { normalisePortVlans, normalisePortModes, normaliseTrunkAllowedVlans, nor
 import { sameSubnet, prefixOf, isValidIpv4, escapeHtml, ipv4ToInt, intToIpv4, normaliseMacAddress, deriveMac } from "./utils";
 import { createArpRequest, createArpReply, createIcmpEchoRequest, createIcmpEchoReply, createIcmpTimeExceeded, createDhcpOffer, createDhcpRequest, createDhcpAck, createTcpSegment, createDnsResponse, createDot11Frame, createDot1xFrame, BROADCAST_MAC, frameLabel, packetColumns } from "./frame";
 import { terminalLine, terminalLineFor, sessionFor, syncTerminal, openDock, syncSimLogBadge } from "./terminal";
-import { buildPingEvents, buildResolveEvents, buildDhcpEvents, findPingTarget } from "./simulation";
+import { buildPingEvents, buildResolveEvents, buildDhcpEvents, findPingTarget, hostnameToIp } from "./simulation";
 import type { PingSetup } from "./simulation";
 import { routingLookup, runRipConvergence, buildRoutingTable } from "./routing";
 
@@ -897,8 +897,10 @@ export function processAtServer(device: Device, frame: EthernetFrame, fromDevice
       }
       learnArp(config, ipv4.srcIp, frame.srcMac);
       const dns = ipv4.payload as DnsPayload;
+      // Manual A-records first, then the auto-zone: any device's hostname
+      // resolves to its IP without a configured record.
       const record = (config.dnsRecords || []).find(r => r.name === dns.name.toLowerCase());
-      const address = record?.ip ?? null;
+      const address = record?.ip ?? hostnameToIp(dns.name);
       logStep(device, address ? "sim-dns" : "sim-drop",
         address ? `DNS query: ${dns.name} → ${address}` : `DNS query: ${dns.name} — NXDOMAIN`);
       const reply = createDnsResponse(config.macAddress || "", frame.srcMac,

@@ -430,3 +430,68 @@ describe("router CLI — faithfulness fixes", () => {
     expect(rtr.config.rip!.networks).not.toContain("192.168.5.7/24");
   });
 });
+
+describe("hostname — a CLI device's name is its hostname", () => {
+  beforeEach(() => resetState());
+
+  function loadHost() {
+    const topo = basicTopology();
+    state.devices = topo.devices as any;
+    state.links = topo.links as any;
+    state.dock.open = true;
+    state.terminal.deviceId = "pc1";
+    state.terminal.mode = "exec";
+    return state.devices.find(d => d.id === "pc1")!;
+  }
+
+  it("`hostname <name>` renames the host (which is its canvas name)", () => {
+    const pc = loadHost();
+    runTerminalCommand("hostname web-01");
+    expect(pc.name).toBe("web-01");
+    expect(hasError()).toBe(false);
+  });
+
+  it("`hostname` with no args prints the current name", () => {
+    const pc = loadHost();
+    runTerminalCommand("hostname");
+    expect(state.terminal.lines.some(l => l.text === pc.name)).toBe(true);
+  });
+
+  it("`hostnamectl set-hostname` and `echo > /etc/hostname` both set it", () => {
+    const pc = loadHost();
+    runTerminalCommand("hostnamectl set-hostname alpha");
+    expect(pc.name).toBe("alpha");
+    runTerminalCommand("echo beta > /etc/hostname");
+    expect(pc.name).toBe("beta");
+    expect(hasError()).toBe(false);
+  });
+
+  it("rejects an invalid hostname and leaves the name unchanged", () => {
+    const pc = loadHost();
+    const before = pc.name;
+    runTerminalCommand("hostname _nope");   // can't start with a hyphen/underscore
+    expect(pc.name).toBe(before);
+    expect(hasError()).toBe(true);
+  });
+
+  it("router `hostname` renames it, but only in config mode", () => {
+    const rtr = loadRouter();
+    const before = rtr.name;
+    runRouterTerminalCommand(rtr, "hostname R9");   // exec mode → refused
+    expect(rtr.name).toBe(before);
+    runRouterTerminalCommand(rtr, "enable");
+    runRouterTerminalCommand(rtr, "configure terminal");
+    runRouterTerminalCommand(rtr, "hostname R9");
+    expect(rtr.name).toBe("R9");
+  });
+
+  it("switch `config hostname` renames it", () => {
+    const topo = vlanTopology();
+    state.devices = topo.devices as any;
+    state.links = topo.links as any;
+    state.terminal.deviceId = "msw";
+    const sw = state.devices.find(d => d.id === "msw")!;
+    runSwitchTerminalCommand(sw, "config hostname Core-SW");
+    expect(sw.name).toBe("Core-SW");
+  });
+});

@@ -94,6 +94,7 @@ describe("buildSettingsQuery", () => {
     state.options.silentDhcp = false;
     state.options.silentDns = false;
     state.options.silentWifi = false;
+    state.options.instantDns = true;
     state.theme = DEFAULT_THEME;
     state.simulation.speed = 1000;
   });

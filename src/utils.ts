@@ -83,6 +83,14 @@ export function isValidMac(value: string): boolean {
   return /^([0-9A-F]{2}:){5}[0-9A-F]{2}$/.test(value);
 }
 
+// A single DNS label (RFC 1123): letters/digits/hyphens, not starting or ending
+// with a hyphen, 1–63 chars. This is what a hostname must be to be a valid name
+// on the wire — the canvas name of a CLI device is its hostname, so it's held to
+// the same rule. (Case is preserved for display; resolution is case-insensitive.)
+export function isValidHostname(value: string): boolean {
+  return /^[A-Za-z0-9](?:[A-Za-z0-9-]{0,61}[A-Za-z0-9])?$/.test(value);
+}
+
 export function clampPortCount(value: any): number {
   const portCount = Number(value);
   if (!Number.isInteger(portCount)) return 8;

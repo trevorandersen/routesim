@@ -2,8 +2,31 @@ import type { PortOption, Device, Link, DeviceType, NamedRouterIface } from "./t
 import { state, sync, pushUndo, networkSnapshot, dropTerminalSessions } from "./state";
 import { dom } from "./dom";
 import { deviceSize, defaultDeviceConfig, ensureConfig, normaliseRouterInterfaces, normalisePortVlans, normalisePortModes } from "./normalise";
-import { clampPortCount, clampApPortCount, clampRouterPortCount, escapeHtml, randomMac } from "./utils";
+import { clampPortCount, clampApPortCount, clampRouterPortCount, escapeHtml, randomMac, isValidHostname } from "./utils";
 import { DEVICE_SPECS, freshNameCounters } from "./device-registry";
+
+// CLI devices carry a hostname — it's their canvas name, prompt, and the name
+// they resolve as. (Unmanaged switches and hubs have no shell; LANs are groups.)
+export function hasHostname(device: Device): boolean {
+  if (device.type === "switch") return !!device.config?.managed;
+  return ["computer", "laptop", "server", "router", "firewall"].includes(device.type);
+}
+
+// Set a CLI device's hostname, which IS its canvas name. Validates against the
+// RFC-1123 label rule, pushes undo, and re-syncs the panel/terminal/canvas.
+// Returns an error message on a bad name, or null on success — the realistic
+// `hostname`/`hostnamectl`/`/etc/hostname` CLI paths and the console all share it.
+export function applyHostname(device: Device, name: string): string | null {
+  const next = String(name || "").trim();
+  if (!isValidHostname(next))
+    return `Invalid hostname '${name}': use letters, digits and hyphens (1–63 chars, no leading/trailing hyphen).`;
+  pushUndo();
+  device.name = next;
+  sync().syncPanel();
+  sync().syncTerminal();
+  sync().render();
+  return null;
+}
 
 export function addDevice(type: DeviceType, x: number, y: number, name?: string): Device {
   pushUndo();

@@ -7,7 +7,7 @@ import type { Device } from "../types";
 import { state, sync, pushUndo } from "../state";
 import { normaliseVlanId } from "../utils";
 import { normaliseMacTable, normaliseVlans, normalisePortVlans, normalisePortModes, normaliseTrunkAllowedVlans, ensureConfig } from "../normalise";
-import { switchInterfacesWithNames, switchIfaceByName } from "../devices";
+import { switchInterfacesWithNames, switchIfaceByName, applyHostname } from "../devices";
 import { terminalLine } from "./core";
 
 export function showSwitchInterfaces(device: Device): string {
@@ -290,6 +290,7 @@ export function runSwitchTerminalCommand(device: Device, command: string): void 
       "config vlan member add <vlan-id> <EthernetN>      (untagged / access)",
       "config vlan member add -t <vlan-id> <EthernetN>   (tagged / trunk)",
       "config vlan member del <vlan-id> <EthernetN>",
+      "config hostname <name>",
       "clear"
     ].join("\n"));
     return;
@@ -336,6 +337,15 @@ export function runSwitchTerminalCommand(device: Device, command: string): void 
   if (memberDelMatch) {
     const result = sonicVlanMemberDel(device, memberDelMatch[1], memberDelMatch[2]);
     terminalLine(/^(Unknown|Invalid|Error)/.test(result) ? "error" : "", result);
+    return;
+  }
+  // SONiC `config hostname <name>` renames the switch — its prompt, canvas label
+  // and resolvable name are the hostname. (`sudo` prefix tolerated.)
+  if (lower === "hostname") { terminalLine("", device.name); return; }
+  const hostnameMatch = command.match(/^(?:sudo\s+)?config\s+hostname\s+(\S+)$/i);
+  if (hostnameMatch) {
+    const error = applyHostname(device, hostnameMatch[1]);
+    if (error) terminalLine("error", error);
     return;
   }
   terminalLine("error", `% Unknown command: ${command}`);

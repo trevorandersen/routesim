@@ -96,6 +96,17 @@ export function findPingTarget(value: string): any {
   );
 }
 
+// The DNS auto-zone: a device's hostname → its IPv4, so any DNS server resolves
+// device names without a manually-added A-record. Hosts/servers only (they own a
+// single IP). Used by the server's query handler (engine.ts) and the resolver.
+export function hostnameToIp(name: string): string | null {
+  const n = String(name || "").trim().toLowerCase();
+  const d = state.devices.find(dev =>
+    (dev.type === "computer" || dev.type === "laptop" || dev.type === "server") &&
+    dev.name.toLowerCase() === n);
+  return d?.config?.ipv4Address || null;
+}
+
 // ─── Build initial simulation events for a ping ──────────────────────────────
 
 /**
@@ -115,16 +126,20 @@ export function buildPingEvents(source: any, targetText: string, options: { ttl?
   // case we still emit a real ARP request and let it time out, rather than
   // "magically" reporting the host as unreachable before any frame is sent.
   const target = findPingTarget(targetText);
+  const instant = state.options?.instantDns !== false;   // default on
+  const trimmed = targetText.trim();
   let dstIp: string;
-  if (target) {
+  if (isValidIpv4(trimmed)) {
+    dstIp = trimmed;
+  } else if (instant && target) {
+    // Instant DNS: a device name resolves straight to its IP, no query.
     if (!target.config?.ipv4Address) return `${target.name}: eth0 has no IPv4 address.`;
     dstIp = target.config.ipv4Address;
-  } else if (isValidIpv4(targetText.trim())) {
-    dstIp = targetText.trim();
   } else if (source.config?.dnsServerIp) {
-    // A real hostname: resolve via the configured nameserver first (UDP/53),
-    // then ping the answer — the DNS exchange happens in real frames.
-    return buildResolveEvents(source, targetText.trim(), "ping", null);
+    // A real hostname: resolve via the configured nameserver first (UDP/53), then
+    // ping the answer — the exchange is real frames, and the DNS auto-zone means
+    // a device's own hostname resolves even without a manual A-record.
+    return buildResolveEvents(source, trimmed, "ping", null);
   } else {
     return `ping: cannot resolve ${targetText}`;
   }
@@ -213,14 +228,16 @@ export function buildConnectEvents(source: any, targetText: string, port: number
   const srcPort = 30000 + Math.floor(Math.random() * 20000); // ephemeral
 
   const target = findPingTarget(targetText);
+  const instant = state.options?.instantDns !== false;   // default on
+  const trimmed = targetText.trim();
   let dstIp: string;
-  if (target) {
+  if (isValidIpv4(trimmed)) {
+    dstIp = trimmed;
+  } else if (instant && target) {
     if (!target.config?.ipv4Address) return `${target.name}: eth0 has no IPv4 address.`;
     dstIp = target.config.ipv4Address;
-  } else if (isValidIpv4(targetText.trim())) {
-    dstIp = targetText.trim();
   } else if (source.config?.dnsServerIp) {
-    return buildResolveEvents(source, targetText.trim(), "tcp", port);
+    return buildResolveEvents(source, trimmed, "tcp", port);
   } else {
     return `nc: cannot resolve ${targetText}`;
   }

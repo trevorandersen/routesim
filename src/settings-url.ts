@@ -27,6 +27,7 @@ const BOOL_PARAMS: { param: string; key: keyof DisplayOptions; def: boolean }[] 
   { param: "silentdhcp", key: "silentDhcp", def: false },
   { param: "silentdns", key: "silentDns", def: false },
   { param: "silentwifi", key: "silentWifi", def: false },
+  { param: "instantdns", key: "instantDns", def: true },
 ];
 
 export interface ParsedSettings {

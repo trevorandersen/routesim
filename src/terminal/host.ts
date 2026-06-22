@@ -9,6 +9,7 @@ import { isValidIpv4, isValidMac, normaliseMacAddress, parseIpv4Token, prefixOf,
 import { normaliseArpTable, ensureConfig } from "../normalise";
 import { buildPingEvents, buildDhcpEvents, buildConnectEvents, buildResolveEvents } from "../simulation";
 import { startSimulation, runTraceroute } from "../engine";
+import { applyHostname } from "../devices";
 import { terminalLine } from "./core";
 
 export function showHostIp(device: Device): string {
@@ -161,6 +162,28 @@ export function runHostTerminalCommand(host: Device, command: string): void {
     return;
   }
 
+  // Hostname — the box's own name, which is its canvas label, its prompt, and
+  // the name it resolves as. `hostname`/`cat /etc/hostname` read it; `hostname
+  // <name>`, `hostnamectl set-hostname <name>`, and `echo <name> > /etc/hostname`
+  // set it (silently, like the real tools — the prompt then shows the new name).
+  if (lower === "hostname" || lower === "cat /etc/hostname") {
+    terminalLine("", host.name);
+    return;
+  }
+  if (lower === "hostnamectl" || lower === "hostnamectl status") {
+    const icon = host.type === "laptop" ? "computer-laptop" : host.type === "server" ? "server" : "computer";
+    terminalLine("", [` Static hostname: ${host.name}`, `       Icon name: ${icon}`, `Operating System: Linux (RouteSim)`].join("\n"));
+    return;
+  }
+  const hostnameSet = command.match(/^hostname\s+(\S+)$/i)
+    || command.match(/^hostnamectl\s+set-hostname\s+(\S+)$/i)
+    || command.match(/^echo\s+['"]?(\S+?)['"]?\s*>{1,2}\s*\/etc\/hostname$/i);
+  if (hostnameSet) {
+    const error = applyHostname(host, hostnameSet[1]);
+    if (error) terminalLine("error", error);
+    return;
+  }
+
   const lookupMatch = command.match(/^(?:nslookup|host|dig)\s+(\S+)$/i);
   if (lookupMatch) {
     const result = buildResolveEvents(host, lookupMatch[1], null, null);
@@ -279,6 +302,8 @@ export function hostHelpLines(): string[] {
     "  ip route add default via <ipv4> dev eth0",
     "  ip route del default",
     "  ip link set dev eth0 address <mac>",
+    "  hostname [name]               (show / set the hostname)",
+    "  hostnamectl set-hostname <name>",
     "  arp -n",
     "  cat /etc/resolv.conf",
     "  echo nameserver <ipv4> > /etc/resolv.conf",

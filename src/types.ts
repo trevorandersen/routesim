@@ -60,6 +60,11 @@ export interface DisplayOptions {
   silentDhcp: boolean;
   silentDns: boolean;
   silentWifi: boolean;   // suppress the 802.11 association/auth frame animation
+  // When on, a device *name* used as a target (e.g. `ping PC-A1`) resolves
+  // straight to its IP with no DNS query — a built-in hosts file. When off, a
+  // name needs a reachable DNS server (which auto-resolves device hostnames).
+  // Defaults on for topologies, off when a scenario is loaded.
+  instantDns: boolean;
 }
 
 export interface ArpEntry {

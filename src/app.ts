@@ -19,7 +19,8 @@ registerCallbacks({
   syncTerminal,
   resizeCanvas,
   syncScenarioPanel,
-  syncCoordReadout
+  syncCoordReadout,
+  syncOptionControls
 });
 
 // Register UI callbacks that devices.ts needs without circular imports.

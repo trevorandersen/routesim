@@ -533,6 +533,7 @@ export function setupUI(): void {
   bindOptionToggle(dom.optSilentDhcp, "silentDhcp");
   bindOptionToggle(dom.optSilentDns, "silentDns");
   bindOptionToggle(dom.optSilentWifi, "silentWifi");
+  bindOptionToggle(dom.optInstantDns, "instantDns");
   window.addEventListener("resize", resizeCanvas);
 
   // Simulation controls

@@ -2116,6 +2116,17 @@
         </label>
       </section>
       <section class="settings-section">
+        <h3 class="settings-section-title">Name resolution</h3>
+        <p class="settings-section-note">How a device <em>name</em> used as a target (e.g. <code>ping PC-A1</code>) becomes an IP. A DNS server always auto-resolves device hostnames; this controls whether names also resolve without one.</p>
+        <label class="settings-row">
+          <input id="optInstantDns" type="checkbox">
+          <span class="settings-row-text">
+            <span class="settings-row-title">Instant DNS</span>
+            <span class="settings-row-desc">Resolve a device name straight to its IP with no DNS query — a built-in hosts file. Off: a name needs a reachable nameserver, like the real world. On by default in topologies, off when a scenario is loaded.</span>
+          </span>
+        </label>
+      </section>
+      <section class="settings-section">
         <h3 class="settings-section-title">Silent protocols</h3>
         <p class="settings-section-note">Resolve these instantly with no animated frames or packet-list rows. The exchange still happens — it just isn't shown — so the higher-layer flow stays uncluttered once you understand it.</p>
         <label class="settings-row">
@@ -2239,6 +2250,9 @@ Full legal text: https://creativecommons.org/publicdomain/zero/1.0/legalcode</pr
   }
   function isValidMac(value) {
     return /^([0-9A-F]{2}:){5}[0-9A-F]{2}$/.test(value);
+  }
+  function isValidHostname(value) {
+    return /^[A-Za-z0-9](?:[A-Za-z0-9-]{0,61}[A-Za-z0-9])?$/.test(value);
   }
   function clampPortCount(value) {
     const portCount = Number(value);
@@ -2950,7 +2964,8 @@ Full legal text: https://creativecommons.org/publicdomain/zero/1.0/legalcode</pr
       silentArp: false,
       silentDhcp: false,
       silentDns: false,
-      silentWifi: false
+      silentWifi: false,
+      instantDns: true
     },
     nameCounters: freshNameCounters(),
     configStore: { version: 1, configs: {} },
@@ -3442,6 +3457,7 @@ Full legal text: https://creativecommons.org/publicdomain/zero/1.0/legalcode</pr
     optSilentDhcp: document.getElementById("optSilentDhcp"),
     optSilentDns: document.getElementById("optSilentDns"),
     optSilentWifi: document.getElementById("optSilentWifi"),
+    optInstantDns: document.getElementById("optInstantDns"),
     detailsPanel: document.getElementById("detailsPanel"),
     deviceList: document.getElementById("deviceList"),
     zoomLevel: document.getElementById("zoomLevel"),
@@ -3491,6 +3507,21 @@ Full legal text: https://creativecommons.org/publicdomain/zero/1.0/legalcode</pr
   };
 
   // src/devices.ts
+  function hasHostname(device) {
+    if (device.type === "switch") return !!device.config?.managed;
+    return ["computer", "laptop", "server", "router", "firewall"].includes(device.type);
+  }
+  function applyHostname(device, name) {
+    const next = String(name || "").trim();
+    if (!isValidHostname(next))
+      return `Invalid hostname '${name}': use letters, digits and hyphens (1\u201363 chars, no leading/trailing hyphen).`;
+    pushUndo();
+    device.name = next;
+    sync().syncPanel();
+    sync().syncTerminal();
+    sync().render();
+    return null;
+  }
   function addDevice(type, x, y, name) {
     pushUndo();
     const device = {
@@ -4554,6 +4585,11 @@ Full legal text: https://creativecommons.org/publicdomain/zero/1.0/legalcode</pr
       (device) => (device.type === "computer" || device.type === "laptop" || device.type === "server") && (String(device.config?.ipv4Address || "").toLowerCase() === target || device.name.toLowerCase() === target)
     );
   }
+  function hostnameToIp(name) {
+    const n = String(name || "").trim().toLowerCase();
+    const d = state.devices.find((dev) => (dev.type === "computer" || dev.type === "laptop" || dev.type === "server") && dev.name.toLowerCase() === n);
+    return d?.config?.ipv4Address || null;
+  }
   function buildPingEvents(source, targetText, options = {}) {
     const ttl = options.ttl ?? 64;
     if (!source.config?.ipv4Address) return `${source.name}: eth0 has no IPv4 address.`;
@@ -4561,14 +4597,16 @@ Full legal text: https://creativecommons.org/publicdomain/zero/1.0/legalcode</pr
     const srcIp = source.config.ipv4Address;
     const srcMac = source.config.macAddress;
     const target = findPingTarget(targetText);
+    const instant = state.options?.instantDns !== false;
+    const trimmed = targetText.trim();
     let dstIp;
-    if (target) {
+    if (isValidIpv4(trimmed)) {
+      dstIp = trimmed;
+    } else if (instant && target) {
       if (!target.config?.ipv4Address) return `${target.name}: eth0 has no IPv4 address.`;
       dstIp = target.config.ipv4Address;
-    } else if (isValidIpv4(targetText.trim())) {
-      dstIp = targetText.trim();
     } else if (source.config?.dnsServerIp) {
-      return buildResolveEvents(source, targetText.trim(), "ping", null);
+      return buildResolveEvents(source, trimmed, "ping", null);
     } else {
       return `ping: cannot resolve ${targetText}`;
     }
@@ -4635,14 +4673,16 @@ Full legal text: https://creativecommons.org/publicdomain/zero/1.0/legalcode</pr
     const srcMac = source.config.macAddress;
     const srcPort = 3e4 + Math.floor(Math.random() * 2e4);
     const target = findPingTarget(targetText);
+    const instant = state.options?.instantDns !== false;
+    const trimmed = targetText.trim();
     let dstIp;
-    if (target) {
+    if (isValidIpv4(trimmed)) {
+      dstIp = trimmed;
+    } else if (instant && target) {
       if (!target.config?.ipv4Address) return `${target.name}: eth0 has no IPv4 address.`;
       dstIp = target.config.ipv4Address;
-    } else if (isValidIpv4(targetText.trim())) {
-      dstIp = targetText.trim();
     } else if (source.config?.dnsServerIp) {
-      return buildResolveEvents(source, targetText.trim(), "tcp", port);
+      return buildResolveEvents(source, trimmed, "tcp", port);
     } else {
       return `nc: cannot resolve ${targetText}`;
     }
@@ -6086,7 +6126,7 @@ Full legal text: https://creativecommons.org/publicdomain/zero/1.0/legalcode</pr
         learnArp(config, ipv4.srcIp, frame.srcMac);
         const dns = ipv4.payload;
         const record = (config.dnsRecords || []).find((r) => r.name === dns.name.toLowerCase());
-        const address = record?.ip ?? null;
+        const address = record?.ip ?? hostnameToIp(dns.name);
         logStep(
           device,
           address ? "sim-dns" : "sim-drop",
@@ -6983,6 +7023,21 @@ Address: ${sim.dnsResolvedIp}`);
       terminalLine(result.startsWith("Invalid") ? "error" : "", result);
       return;
     }
+    if (lower === "hostname" || lower === "cat /etc/hostname") {
+      terminalLine("", host.name);
+      return;
+    }
+    if (lower === "hostnamectl" || lower === "hostnamectl status") {
+      const icon = host.type === "laptop" ? "computer-laptop" : host.type === "server" ? "server" : "computer";
+      terminalLine("", [` Static hostname: ${host.name}`, `       Icon name: ${icon}`, `Operating System: Linux (RouteSim)`].join("\n"));
+      return;
+    }
+    const hostnameSet = command.match(/^hostname\s+(\S+)$/i) || command.match(/^hostnamectl\s+set-hostname\s+(\S+)$/i) || command.match(/^echo\s+['"]?(\S+?)['"]?\s*>{1,2}\s*\/etc\/hostname$/i);
+    if (hostnameSet) {
+      const error = applyHostname(host, hostnameSet[1]);
+      if (error) terminalLine("error", error);
+      return;
+    }
     const lookupMatch = command.match(/^(?:nslookup|host|dig)\s+(\S+)$/i);
     if (lookupMatch) {
       const result = buildResolveEvents(host, lookupMatch[1], null, null);
@@ -7087,6 +7142,8 @@ Address: ${sim.dnsResolvedIp}`);
       "  ip route add default via <ipv4> dev eth0",
       "  ip route del default",
       "  ip link set dev eth0 address <mac>",
+      "  hostname [name]               (show / set the hostname)",
+      "  hostnamectl set-hostname <name>",
       "  arp -n",
       "  cat /etc/resolv.conf",
       "  echo nameserver <ipv4> > /etc/resolv.conf",
@@ -7550,6 +7607,7 @@ Address: ${sim.dnsResolvedIp}`);
     { tokens: ["write", "memory"], modes: ["privileged"] },
     { tokens: ["clear", "ip", "rip", "database"], modes: ["privileged", "config", "rip"] },
     { tokens: ["do"], args: true, modes: ["config", "interface", "rip"] },
+    { tokens: ["hostname"], args: true, modes: ["config"] },
     { tokens: ["interface"], args: true, modes: ["config"] },
     { tokens: ["ip", "address"], args: true, modes: ["interface"] },
     { tokens: ["no", "ip", "address"], modes: ["interface"] },
@@ -7678,6 +7736,16 @@ Address: ${sim.dnsResolvedIp}`);
         return;
       }
       runIptablesCommand(router, command, ["input", "forward"]);
+      return;
+    }
+    const hostnameMatch = command.match(/^hostname\s+(\S+)$/i);
+    if (hostnameMatch) {
+      if (mode !== "config") {
+        terminalLine("error", "% Configuration mode required (configure terminal).");
+        return;
+      }
+      const error = applyHostname(router, hostnameMatch[1]);
+      if (error) terminalLine("error", `% ${error}`);
       return;
     }
     if (routerNatCommand(router, lower)) return;
@@ -8300,6 +8368,7 @@ Address: ${sim.dnsResolvedIp}`);
         "config vlan member add <vlan-id> <EthernetN>      (untagged / access)",
         "config vlan member add -t <vlan-id> <EthernetN>   (tagged / trunk)",
         "config vlan member del <vlan-id> <EthernetN>",
+        "config hostname <name>",
         "clear"
       ].join("\n"));
       return;
@@ -8346,6 +8415,16 @@ Address: ${sim.dnsResolvedIp}`);
     if (memberDelMatch) {
       const result = sonicVlanMemberDel(device, memberDelMatch[1], memberDelMatch[2]);
       terminalLine(/^(Unknown|Invalid|Error)/.test(result) ? "error" : "", result);
+      return;
+    }
+    if (lower === "hostname") {
+      terminalLine("", device.name);
+      return;
+    }
+    const hostnameMatch = command.match(/^(?:sudo\s+)?config\s+hostname\s+(\S+)$/i);
+    if (hostnameMatch) {
+      const error = applyHostname(device, hostnameMatch[1]);
+      if (error) terminalLine("error", error);
       return;
     }
     terminalLine("error", `% Unknown command: ${command}`);
@@ -8637,6 +8716,7 @@ Address: ${sim.dnsResolvedIp}`);
     dom.optSilentDhcp.checked = state.options.silentDhcp;
     dom.optSilentDns.checked = state.options.silentDns;
     dom.optSilentWifi.checked = state.options.silentWifi;
+    dom.optInstantDns.checked = state.options.instantDns;
   }
   function ipSourceInfo(config) {
     if (!config?.ipv4Address) return { cls: "none", text: "unassigned" };
@@ -9409,7 +9489,7 @@ Address: ${sim.dnsResolvedIp}`);
       dom.detailsPanel.innerHTML = `
       ${panelHeading(isConfiguring ? "Configure" : "Selection")}
       <div class="field">
-        <label for="selectedName">Name</label>
+        <label for="selectedName">${hasHostname(selected) ? "Hostname" : "Name"}</label>
         <input id="selectedName" value="${escapeHtml(selected.name)}" autocomplete="off">
       </div>
       ${selected.type === "switch" ? `
@@ -10159,6 +10239,8 @@ Address: ${sim.dnsResolvedIp}`);
     if (!scenario) return false;
     applyConfig(normaliseConfig(scenario.topology));
     state.activeScenarioId = id;
+    state.options.instantDns = false;
+    sync().syncOptionControls();
     sync().syncScenarioPanel();
     return true;
   }
@@ -10844,6 +10926,7 @@ Address: ${sim.dnsResolvedIp}`);
     bindOptionToggle(dom.optSilentDhcp, "silentDhcp");
     bindOptionToggle(dom.optSilentDns, "silentDns");
     bindOptionToggle(dom.optSilentWifi, "silentWifi");
+    bindOptionToggle(dom.optInstantDns, "instantDns");
     window.addEventListener("resize", resizeCanvas);
     dom.simPlayPause.addEventListener("click", () => {
       const sim = state.simulation;
@@ -11044,6 +11127,8 @@ Address: ${sim.dnsResolvedIp}`);
     render();
   }
   function loadTopology(name) {
+    state.options.instantDns = true;
+    sync().syncOptionControls();
     try {
       if (name === "vlan-roas") {
         applyConfig(normaliseConfig(vlanRoasConfig));
@@ -11080,7 +11165,8 @@ Address: ${sim.dnsResolvedIp}`);
     { param: "silentarp", key: "silentArp", def: false },
     { param: "silentdhcp", key: "silentDhcp", def: false },
     { param: "silentdns", key: "silentDns", def: false },
-    { param: "silentwifi", key: "silentWifi", def: false }
+    { param: "silentwifi", key: "silentWifi", def: false },
+    { param: "instantdns", key: "instantDns", def: true }
   ];
   function parseBool(raw) {
     const v = raw.trim().toLowerCase();
@@ -12078,7 +12164,8 @@ Address: ${sim.dnsResolvedIp}`);
     syncTerminal,
     resizeCanvas,
     syncScenarioPanel,
-    syncCoordReadout
+    syncCoordReadout,
+    syncOptionControls
   });
   registerDeviceCallbacks({
     setTool,

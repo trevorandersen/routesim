@@ -9,6 +9,7 @@ export type SyncCallbacks = {
   resizeCanvas: () => void;
   syncScenarioPanel: () => void;
   syncCoordReadout: () => void;
+  syncOptionControls: () => void;
 };
 
 // Available colour themes. The id is written to `<html data-theme>` and matched
@@ -79,7 +80,8 @@ export const state: AppState = {
     silentArp: false,
     silentDhcp: false,
     silentDns: false,
-    silentWifi: false
+    silentWifi: false,
+    instantDns: true
   },
   nameCounters: freshNameCounters(),
   configStore: { version: 1, configs: {} },

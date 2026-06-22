@@ -3519,11 +3519,16 @@ Full legal text: https://creativecommons.org/publicdomain/zero/1.0/legalcode</pr
     if (lapSsid !== apSsid) {
       return `${laptop.name} is set to join "${lapSsid || "(none)"}", but ${ap.name} broadcasts "${apSsid}".`;
     }
-    const apPassword = ap.config?.wifiPassword || "";
-    if (apPassword && (laptop.config?.wifiPassword || "") !== apPassword) {
-      return `${laptop.name} has the wrong password for "${apSsid}".`;
-    }
     return null;
+  }
+  function wifiLinkAuthenticated(link) {
+    if (!link?.wireless) return true;
+    const a = getDevice(link.from), b = getDevice(link.to);
+    const ap = a?.type === "access-point" ? a : b?.type === "access-point" ? b : null;
+    const laptop = a?.type === "laptop" ? a : b?.type === "laptop" ? b : null;
+    if (!ap || !laptop) return true;
+    const apPassword = ap.config?.wifiPassword || "";
+    return !apPassword || (laptop.config?.wifiPassword || "") === apPassword;
   }
   function linkBlockReason(fromId, toId) {
     if (fromId === toId) return "Cannot link a device to itself.";
@@ -3552,14 +3557,19 @@ Full legal text: https://creativecommons.org/publicdomain/zero/1.0/legalcode</pr
       pushUndo();
       const resolvedFromPort = resolvePort(fromId, fromPort);
       const resolvedToPort = resolvePort(toId, toPort);
-      state.links.push({
+      const link = {
         id: crypto.randomUUID ? crypto.randomUUID() : `${Date.now()}-${Math.random()}`,
         from: fromId,
         to: toId,
         fromPort: resolvedFromPort,
         toPort: resolvedToPort,
         ...wireless ? { wireless: true } : {}
-      });
+      };
+      state.links.push(link);
+      if (wireless && !wifiLinkAuthenticated(link)) {
+        const laptop = getDevice(fromId)?.type === "laptop" ? getDevice(fromId) : getDevice(toId);
+        dom.modeLabel.textContent = `${laptop?.name} associated but not authenticated \u2014 wrong WiFi password.`;
+      }
       if (_linkUp) _linkUp(fromId, toId);
     }
     state.linkStartId = null;
@@ -4306,6 +4316,8 @@ Full legal text: https://creativecommons.org/publicdomain/zero/1.0/legalcode</pr
         return "Key (Message 3 of 4)";
       case "eapol-m4":
         return "Key (Message 4 of 4)";
+      case "deauth":
+        return "Deauthentication, reason 15 (4-way handshake timeout / MIC failure)";
     }
   }
   function dot11Label(subtype) {
@@ -4320,7 +4332,8 @@ Full legal text: https://creativecommons.org/publicdomain/zero/1.0/legalcode</pr
       "eapol-m1": "EAPOL M1",
       "eapol-m2": "EAPOL M2",
       "eapol-m3": "EAPOL M3",
-      "eapol-m4": "EAPOL M4"
+      "eapol-m4": "EAPOL M4",
+      "deauth": "Deauth"
     };
     return labels[subtype];
   }
@@ -4332,7 +4345,7 @@ Full legal text: https://creativecommons.org/publicdomain/zero/1.0/legalcode</pr
     if (frame.payload.type === "dot11") {
       const d = frame.payload;
       const eapol = d.subtype.startsWith("eapol");
-      return { src: frame.srcMac, dst: frame.dstMac, protocol: eapol ? "EAPOL" : "802.11", info: dot11Info(d.subtype, d.ssid), tone: "dot11" };
+      return { src: frame.srcMac, dst: frame.dstMac, protocol: eapol ? "EAPOL" : "802.11", info: dot11Info(d.subtype, d.ssid), tone: d.subtype === "deauth" ? "bad" : "dot11" };
     }
     const ipv4 = frame.payload;
     const src = ipv4.srcIp;
@@ -4630,6 +4643,7 @@ Full legal text: https://creativecommons.org/publicdomain/zero/1.0/legalcode</pr
   function findFirstHop(source) {
     for (const link of linksFor(source.id)) {
       if (link.hidden || link.shutdown) continue;
+      if (!wifiLinkAuthenticated(link)) continue;
       const isFrom = link.from === source.id;
       const peerId = isFrom ? link.to : link.from;
       const peer = getDevice(peerId);
@@ -4727,7 +4741,8 @@ Full legal text: https://creativecommons.org/publicdomain/zero/1.0/legalcode</pr
     const captureLink = state.inspectedCapture?.linkId === link.id;
     const shut = !!link.shutdown;
     const wireless = !!link.wireless;
-    const linkColor = captureLink ? colors.selected : active ? cssColor("--link-active") : shut ? cssColor("--danger") : linkColorFor(from, to);
+    const unauth = wireless && !wifiLinkAuthenticated(link);
+    const linkColor = captureLink ? colors.selected : active ? cssColor("--link-active") : shut || unauth ? cssColor("--danger") : linkColorFor(from, to);
     const dimmed = from.poweredOff || to.poweredOff;
     const trunk = isTrunkLink(from, to);
     ctx.save();
@@ -5564,6 +5579,10 @@ Full legal text: https://creativecommons.org/publicdomain/zero/1.0/legalcode</pr
         logStep(device, "sim-drop", `${linkName(link)} is administratively down \u2014 frame dropped`);
         continue;
       }
+      if (link.wireless && out.frame.payload.type !== "dot11" && !wifiLinkAuthenticated(link)) {
+        logStep(device, "sim-drop", `${linkName(link)} is not authenticated \u2014 frame dropped`);
+        continue;
+      }
       if (!sim.headless && Number(link.loss) > 0 && Math.random() * 100 < link.loss) {
         logStep(device, "sim-drop", `${linkName(link)} dropped ${frameLabel(out.frame)} (${link.loss}% loss)`);
         continue;
@@ -5627,8 +5646,12 @@ Full legal text: https://creativecommons.org/publicdomain/zero/1.0/legalcode</pr
         case "eapol-start":
           logStep(device, "sim-wifi", `WPA2 4-way handshake \u2014 sending Message 1`);
           return next("eapol-m1");
-        case "eapol-m2":
-          return next("eapol-m3");
+        case "eapol-m2": {
+          const client = getDevice(fromDeviceId || "");
+          if ((client?.config?.wifiPassword || "") === (device.config?.wifiPassword || "")) return next("eapol-m3");
+          logStep(device, "sim-drop", `WPA2 key mismatch from ${client?.name || "client"} \u2014 sending Deauthentication`);
+          return next("deauth");
+        }
         case "eapol-m4":
           return done();
       }
@@ -5653,6 +5676,9 @@ Full legal text: https://creativecommons.org/publicdomain/zero/1.0/legalcode</pr
         return next("eapol-m2");
       case "eapol-m3":
         return next("eapol-m4");
+      case "deauth":
+        logStep(device, "sim-drop", `Deauthenticated from "${ssid}" \u2014 wrong password (WPA2 handshake failed)`);
+        return [];
     }
     return [];
   }
@@ -9066,8 +9092,11 @@ Address: ${sim.dnsResolvedIp}`);
           <button class="inline-button" id="randomMac" type="button" title="Generate random MAC">Random</button>
         </div>
       </div>
-      ${selected.type === "laptop" ? renderWifiFields(selected.config, "The WiFi network this laptop associates to (must match an access point).") + `
-      <div class="field"><button class="wide-button" id="associateLaptop" type="button">Show association handshake</button></div>` : ""}
+      ${selected.type === "laptop" ? renderWifiFields(selected.config, "The WiFi network this laptop associates to (must match an access point).") + (() => {
+        const wlink = state.links.find((l) => l.wireless && (l.from === selected.id || l.to === selected.id));
+        const warn = wlink && !wifiLinkAuthenticated(wlink) ? `<p class="field-note" style="color: var(--danger)">Associated but not authenticated \u2014 the password does not match the access point, so no traffic passes.</p>` : "";
+        return `${warn}<div class="field"><button class="wide-button" id="associateLaptop" type="button">Show association handshake</button></div>`;
+      })() : ""}
       ${selected.type === "server" ? renderDnsmasqSection(selected) : ""}
       <div class="field">
         <label>ARP table</label>

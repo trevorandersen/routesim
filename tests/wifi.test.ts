@@ -4,7 +4,7 @@
  */
 import { describe, it, expect, beforeAll, beforeEach, afterEach } from "bun:test";
 import { state } from "../src/state";
-import { addLink, classifyLink, linkBlockReason, switchInterfacesWithNames } from "../src/devices";
+import { addLink, classifyLink, linkBlockReason, switchInterfacesWithNames, wifiLinkAuthenticated } from "../src/devices";
 import { runSimulationHeadless, startSimulation, stepOnce } from "../src/engine";
 import { buildPingEvents, buildAssociationEvents } from "../src/simulation";
 import { packetColumns } from "../src/frame";
@@ -115,21 +115,23 @@ describe("wifi — SSID and password", () => {
     expect(reason).toContain("OfficeNet");
   });
 
-  it("a secured AP needs the matching password", () => {
+  it("a wrong password still associates (link forms) but is not authenticated", () => {
     runConsoleScript(`
       add laptop LT1 at 0 0
       add access-point AP1 at 100 0
       ssid AP1 Secure hunter2
+      ssid LT1 Secure wrongpw
     `);
     const lt = byName("LT1"), ap = byName("AP1");
-    expect(ap.config.wifiPassword).toBe("hunter2");
-    // SSID matches but no/old password → wrong password
-    runConsoleScript("ssid LT1 Secure");
-    expect(linkBlockReason(lt.id, ap.id)).toMatch(/wrong password/i);
-    // correct password → associates
-    runConsoleScript("ssid LT1 Secure hunter2");
+    // SSID matches → the association is allowed to form (the join fails later, at auth)
     expect(linkBlockReason(lt.id, ap.id)).toBeNull();
     expect(classifyLink(lt.id, ap.id).wireless).toBe(true);
+    addLink(lt.id, ap.id);
+    const link = state.links.find(l => l.wireless)!;
+    expect(wifiLinkAuthenticated(link)).toBe(false); // wrong password → unauthenticated
+    // Fix the password → it authenticates live (no re-link needed)
+    runConsoleScript("ssid LT1 Secure hunter2");
+    expect(wifiLinkAuthenticated(link)).toBe(true);
   });
 
   it("the ssid command rejects a non-WiFi device", () => {
@@ -297,6 +299,18 @@ describe("wifi — 802.11 association handshake", () => {
     const r = runConsoleScript("run associate LT9")[0];
     expect(r.ok).toBe(false);
     expect(r.output.join(" ")).toMatch(/not associated/i);
+  });
+
+  it("a wrong password fails the join: deauth at the WPA2 handshake, no connectivity", () => {
+    const seq = associate("\nssid AP1 Secure right123\nssid LT1 Secure wrong999");
+    expect(state.simulation.wifiAssociated).toBe(false);             // the join failed
+    expect(seq.some(s => s.includes("Association Response"))).toBe(true); // assoc succeeded…
+    expect(seq.some(s => s.includes("Message 2 of 4"))).toBe(true);       // …M1/M2 exchanged…
+    expect(seq.some(s => s.includes("Deauthentication"))).toBe(true);     // …then deauth
+    expect(seq.some(s => s.includes("Message 3 of 4"))).toBe(false);      // never reached M3
+    // The unauthenticated association carries no data.
+    runConsoleScript("add switch SW at 200 0\nadd router R1 at 300 0\nlink AP1 SW\nlink SW R1\ninterface R1 SW ip 10.9.0.1\nip LT1 10.9.0.10/24\ngateway LT1 10.9.0.1");
+    expect(runConsoleScript("run ping LT1 10.9.0.1")[0].ok).toBe(false);
   });
 
   it("Silent WiFi association resolves but keeps the frames out of the packet list", () => {

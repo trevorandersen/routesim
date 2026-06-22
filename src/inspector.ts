@@ -5,7 +5,7 @@ import { dom } from "./dom";
 import { escapeHtml, isValidIpv4, isValidMac, normaliseMacAddress, randomMac, parseIpv4Token, prefixOf, networkOf, normaliseSsid, normaliseWifiPassword } from "./utils";
 import { ensureConfig, normaliseVlans, normaliseDnsRecords, normaliseDhcpLeases } from "./normalise";
 import {
-  getDevice, isVisibleDevice, connectedIds, linkedPortsFor, linksFor,
+  getDevice, isVisibleDevice, connectedIds, linkedPortsFor, linksFor, wifiLinkAuthenticated,
   routerInterfacesWithNames, routerInterfaceFor, routerInterfaceForName, switchInterfacesWithNames,
   deleteSelection, deleteLink, collapseLan, expandLan, configureDevice
 } from "./devices";
@@ -748,8 +748,11 @@ export function syncPanel(): void {
           <button class="inline-button" id="randomMac" type="button" title="Generate random MAC">Random</button>
         </div>
       </div>
-      ${selected.type === "laptop" ? renderWifiFields(selected.config, "The WiFi network this laptop associates to (must match an access point).") + `
-      <div class="field"><button class="wide-button" id="associateLaptop" type="button">Show association handshake</button></div>` : ""}
+      ${selected.type === "laptop" ? renderWifiFields(selected.config, "The WiFi network this laptop associates to (must match an access point).") + (() => {
+        const wlink = state.links.find((l: any) => l.wireless && (l.from === selected.id || l.to === selected.id));
+        const warn = wlink && !wifiLinkAuthenticated(wlink) ? `<p class="field-note" style="color: var(--danger)">Associated but not authenticated — the password does not match the access point, so no traffic passes.</p>` : "";
+        return `${warn}<div class="field"><button class="wide-button" id="associateLaptop" type="button">Show association handshake</button></div>`;
+      })() : ""}
       ${selected.type === "server" ? renderDnsmasqSection(selected) : ""}
       <div class="field">
         <label>ARP table</label>

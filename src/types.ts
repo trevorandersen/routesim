@@ -418,7 +418,8 @@ export type Dot11Subtype =
   | "probe-req" | "probe-resp"
   | "auth-req" | "auth-resp"
   | "assoc-req" | "assoc-resp"
-  | "eapol-start" | "eapol-m1" | "eapol-m2" | "eapol-m3" | "eapol-m4";
+  | "eapol-start" | "eapol-m1" | "eapol-m2" | "eapol-m3" | "eapol-m4"
+  | "deauth";   // the AP rejects the client (e.g. a WPA2 key mismatch — wrong password)
 
 export interface Dot11Payload {
   type: "dot11";

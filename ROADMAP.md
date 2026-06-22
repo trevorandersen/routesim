@@ -108,12 +108,16 @@ now simulated: `associate <laptop>` animates the real join — Probe / open-syst
 Authentication / Association, plus the WPA2 4-way (EAPOL M1–M4) key handshake on a
 secured AP — as `dot11` frames in the packet list (a `handleDot11` reactive state
 machine across the laptop and AP; a Silent WiFi toggle suppresses them like the
-other silent protocols). **Still to do:** signal range/strength (clients
+other silent protocols). A **wrong password** is modelled faithfully: the SSID
+match lets the association *form* (probe/auth/assoc all succeed), but the WPA2
+4-way handshake fails at the MIC check and the AP sends a **Deauthentication** —
+the link stays unauthenticated (drawn red), carries no data (`wifiLinkAuthenticated`
+gates `l2Reachable`/`findFirstHop`/the transit path), and authenticates live once
+the password is corrected. **Still to do:** signal range/strength (clients
 auto-associating to an in-range AP — pairs with the **physical** mode),
-channels/interference, multiple SSIDs mapped to VLANs, a **failed** association
-(wrong-password auth/EAPOL failure — currently impossible since a mismatched link
-can't form), and beacons/roaming. The wireless link already carries loss/bandwidth
-(it's a normal link), so per-link signal degradation is cheap to layer on.
+channels/interference, multiple SSIDs mapped to VLANs, and beacons/roaming. The
+wireless link already carries loss/bandwidth (it's a normal link), so per-link
+signal degradation is cheap to layer on.
 
 ### Router roles — border vs internal
 Give routers a **role** that sets sensible defaults and teaches placement, the

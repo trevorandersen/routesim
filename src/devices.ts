@@ -78,8 +78,11 @@ export function classifyLink(fromId: string, toId: string): { reject: string | n
   return { reject: null, wireless: false };
 }
 
-// Why a laptop can't join an access point (null = the SSID, and password if the
-// network is secured, both match). Case-sensitive, like real 802.11.
+// Why a laptop can't even attempt to join an access point (null = it can). The
+// SSID must match — you can't associate to a network you aren't looking for. A
+// *wrong password* does NOT block the link: the association forms but stays
+// unauthenticated (data is blocked and the WPA2 handshake fails), exactly like a
+// real client that associates then fails the 4-way key exchange.
 function wifiJoinReason(laptop: any, ap: any): string | null {
   const apSsid = (ap.config?.ssid || "").trim();
   const lapSsid = (laptop.config?.ssid || "").trim();
@@ -87,11 +90,20 @@ function wifiJoinReason(laptop: any, ap: any): string | null {
   if (lapSsid !== apSsid) {
     return `${laptop.name} is set to join "${lapSsid || "(none)"}", but ${ap.name} broadcasts "${apSsid}".`;
   }
-  const apPassword = ap.config?.wifiPassword || "";
-  if (apPassword && (laptop.config?.wifiPassword || "") !== apPassword) {
-    return `${laptop.name} has the wrong password for "${apSsid}".`;
-  }
   return null;
+}
+
+// Whether a wireless association is authenticated — open network, or the
+// laptop's password matches the AP's. Computed live (no stored state), so it
+// tracks password edits. A wired link is always "authenticated".
+export function wifiLinkAuthenticated(link: any): boolean {
+  if (!link?.wireless) return true;
+  const a = getDevice(link.from), b = getDevice(link.to);
+  const ap = a?.type === "access-point" ? a : b?.type === "access-point" ? b : null;
+  const laptop = a?.type === "laptop" ? a : b?.type === "laptop" ? b : null;
+  if (!ap || !laptop) return true;
+  const apPassword = ap.config?.wifiPassword || "";
+  return !apPassword || (laptop.config?.wifiPassword || "") === apPassword;
 }
 
 // Why a link from→to can't be created (null = allowed). Shared by addLink and
@@ -125,14 +137,21 @@ export function addLink(fromId: string, toId: string, fromPort?: number, toPort?
     pushUndo();
     const resolvedFromPort = resolvePort(fromId, fromPort);
     const resolvedToPort = resolvePort(toId, toPort);
-    state.links.push({
+    const link: any = {
       id: crypto.randomUUID ? crypto.randomUUID() : `${Date.now()}-${Math.random()}`,
       from: fromId,
       to: toId,
       fromPort: resolvedFromPort,
       toPort: resolvedToPort,
       ...(wireless ? { wireless: true } : {})
-    } as any);
+    };
+    state.links.push(link);
+    // A wireless association with a wrong password forms but can't authenticate —
+    // flag it so the user knows why traffic won't pass (the join handshake will fail).
+    if (wireless && !wifiLinkAuthenticated(link)) {
+      const laptop = getDevice(fromId)?.type === "laptop" ? getDevice(fromId) : getDevice(toId);
+      dom.modeLabel.textContent = `${laptop?.name} associated but not authenticated — wrong WiFi password.`;
+    }
     // The cable just came up: unconfigured hosts on either end boot their
     // network config (DHCP, then APIPA) — wired to the engine in app.ts.
     if (_linkUp) _linkUp(fromId, toId);

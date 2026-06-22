@@ -1,6 +1,6 @@
 import type { SimEvent, EthernetFrame } from "./types";
 import { state } from "./state";
-import { getDevice, linkedPortsFor, linksFor } from "./devices";
+import { getDevice, linkedPortsFor, linksFor, wifiLinkAuthenticated } from "./devices";
 import { normalisePortVlans, normalisePortModes, normaliseTrunkAllowedVlans, memoPortVlans } from "./normalise";
 import { isValidIpv4, sameSubnet, prefixOf, deriveMac } from "./utils";
 import { createArpRequest, createIcmpEchoRequest, createDhcpDiscover, createTcpSegment, createDnsQuery, createDot11Frame } from "./frame";
@@ -24,6 +24,7 @@ export function l2Reachable(fromId: string, toId: string, vlanId: number | null)
     if (id === toId) return true;
     for (const link of linksFor(id)) {
       if (link.hidden || link.shutdown) continue; // a shut link breaks the path
+      if (!wifiLinkAuthenticated(link)) continue;  // a wrong-password association carries no data
       const isFrom = link.from === id;
       const nextId = isFrom ? link.to : link.from;
       if (seen.has(nextId)) continue;
@@ -369,6 +370,7 @@ export function buildAssociationEvents(laptop: any): PingSetup | string {
 function findFirstHop(source: any): { peerId: string; linkId: string } | null {
   for (const link of linksFor(source.id)) {
     if (link.hidden || link.shutdown) continue; // a shut link carries no traffic
+    if (!wifiLinkAuthenticated(link)) continue;  // an unauthenticated association carries no data
     const isFrom = link.from === source.id;
     const peerId = isFrom ? link.to : link.from;
     const peer = getDevice(peerId);

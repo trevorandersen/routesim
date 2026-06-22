@@ -3,7 +3,7 @@ import { state, colors } from "./state";
 import { dom } from "./dom";
 import { cssColor, prefixOf } from "./utils";
 import { DEVICE_SPECS } from "./device-registry";
-import { getDevice, isVisibleDevice, routerInterfacesWithNames, linkedPortsFor } from "./devices";
+import { getDevice, isVisibleDevice, routerInterfacesWithNames, linkedPortsFor, wifiLinkAuthenticated } from "./devices";
 import { memoPortModes } from "./normalise";
 import { getVlanForDevice } from "./simulation";
 import { frameLabel, frameColor } from "./frame";
@@ -106,7 +106,10 @@ export function drawLink(link: any): void {
   const captureLink = state.inspectedCapture?.linkId === link.id;
   const shut = !!link.shutdown;
   const wireless = !!link.wireless;
-  const linkColor = captureLink ? colors.selected : active ? cssColor("--link-active") : shut ? cssColor("--danger") : linkColorFor(from, to);
+  // A wireless association with a wrong password never authenticates — draw it
+  // red/dotted so it's clearly not a working link.
+  const unauth = wireless && !wifiLinkAuthenticated(link);
+  const linkColor = captureLink ? colors.selected : active ? cssColor("--link-active") : (shut || unauth) ? cssColor("--danger") : linkColorFor(from, to);
   const dimmed = from.poweredOff || to.poweredOff;
   const trunk = isTrunkLink(from, to);
 

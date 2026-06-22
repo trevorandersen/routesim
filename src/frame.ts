@@ -211,6 +211,7 @@ function dot11Info(subtype: Dot11Subtype, ssid: string): string {
     case "eapol-m2": return "Key (Message 2 of 4)";
     case "eapol-m3": return "Key (Message 3 of 4)";
     case "eapol-m4": return "Key (Message 4 of 4)";
+    case "deauth": return "Deauthentication, reason 15 (4-way handshake timeout / MIC failure)";
   }
 }
 
@@ -221,7 +222,7 @@ export function dot11Label(subtype: Dot11Subtype): string {
     "auth-req": "Auth", "auth-resp": "Auth OK",
     "assoc-req": "Assoc Req", "assoc-resp": "Assoc OK",
     "eapol-start": "EAPOL Start", "eapol-m1": "EAPOL M1", "eapol-m2": "EAPOL M2",
-    "eapol-m3": "EAPOL M3", "eapol-m4": "EAPOL M4",
+    "eapol-m3": "EAPOL M3", "eapol-m4": "EAPOL M4", "deauth": "Deauth",
   };
   return labels[subtype];
 }
@@ -239,7 +240,7 @@ export function packetColumns(frame: EthernetFrame): PacketColumns {
   if (frame.payload.type === "dot11") {
     const d = frame.payload;
     const eapol = d.subtype.startsWith("eapol");
-    return { src: frame.srcMac, dst: frame.dstMac, protocol: eapol ? "EAPOL" : "802.11", info: dot11Info(d.subtype, d.ssid), tone: "dot11" };
+    return { src: frame.srcMac, dst: frame.dstMac, protocol: eapol ? "EAPOL" : "802.11", info: dot11Info(d.subtype, d.ssid), tone: d.subtype === "deauth" ? "bad" : "dot11" };
   }
   const ipv4 = frame.payload; // narrowed to Ipv4Payload after the arp/dot11 branches return
   const src = ipv4.srcIp;

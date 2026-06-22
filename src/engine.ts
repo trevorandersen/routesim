@@ -1,7 +1,7 @@
 import type { EthernetFrame, ArpPayload, Ipv4Payload, DhcpPayload, TcpPayload, DnsPayload, Dot11Payload, NatEntry, SimEvent, SimLogEntry, ActiveTransit, FrameHistoryEntry, RouteEntry, Device, DeviceType, FirewallRule, FirewallTarget } from "./types";
 import { state, pushUndo, sync } from "./state";
 import { dom } from "./dom";
-import { getDevice, linkedPortsFor, routerInterfacesWithNames, linkName, linkById, linksFor } from "./devices";
+import { getDevice, linkedPortsFor, routerInterfacesWithNames, linkName, linkById, linksFor, wifiLinkAuthenticated } from "./devices";
 import { normalisePortVlans, normalisePortModes, normaliseTrunkAllowedVlans, normaliseArpTable, normaliseMacTable, normaliseDhcpLeases, normaliseStaticRoutes, ensureConfig } from "./normalise";
 import { sameSubnet, prefixOf, isValidIpv4, escapeHtml, ipv4ToInt, intToIpv4, normaliseMacAddress } from "./utils";
 import { createArpRequest, createArpReply, createIcmpEchoRequest, createIcmpEchoReply, createIcmpTimeExceeded, createDhcpOffer, createDhcpRequest, createDhcpAck, createTcpSegment, createDnsResponse, createDot11Frame, BROADCAST_MAC, frameLabel, packetColumns } from "./frame";
@@ -452,6 +452,12 @@ function processNextStep(): void {
       logStep(device, "sim-drop", `${linkName(link)} is administratively down — frame dropped`);
       continue;
     }
+    // A wrong-password association passes the join handshake (dot11) but no data —
+    // it never authenticated, so the AP/client won't forward IP/ARP across it.
+    if (link.wireless && out.frame.payload.type !== "dot11" && !wifiLinkAuthenticated(link)) {
+      logStep(device, "sim-drop", `${linkName(link)} is not authenticated — frame dropped`);
+      continue;
+    }
     // Per-link packet loss — a probabilistic drop, only in animated runs so
     // headless reachability checks (scenarios, `run`) stay deterministic.
     if (!sim.headless && Number(link.loss) > 0 && Math.random() * 100 < link.loss) {
@@ -532,7 +538,14 @@ function handleDot11(device: Device, frame: EthernetFrame, fromDeviceId: string 
       case "auth-req": logStep(device, "sim-wifi", `Open-system Authentication — sending success`); return next("auth-resp");
       case "assoc-req": logStep(device, "sim-wifi", `Association Request — sending Association Response${secured ? " (WPA2 follows)" : ""}`); return next("assoc-resp");
       case "eapol-start": logStep(device, "sim-wifi", `WPA2 4-way handshake — sending Message 1`); return next("eapol-m1");
-      case "eapol-m2": return next("eapol-m3");
+      case "eapol-m2": {
+        // The Message-2 MIC is derived from the client's PSK: a wrong password
+        // fails the check and the AP deauthenticates instead of sending M3.
+        const client = getDevice(fromDeviceId || "");
+        if ((client?.config?.wifiPassword || "") === (device.config?.wifiPassword || "")) return next("eapol-m3");
+        logStep(device, "sim-drop", `WPA2 key mismatch from ${client?.name || "client"} — sending Deauthentication`);
+        return next("deauth");
+      }
       case "eapol-m4": return done(); // client confirmed the keys
     }
     return [];
@@ -548,6 +561,9 @@ function handleDot11(device: Device, frame: EthernetFrame, fromDeviceId: string 
       return done(); // open network: associated once the response lands
     case "eapol-m1": return next("eapol-m2");
     case "eapol-m3": return next("eapol-m4");
+    case "deauth":
+      logStep(device, "sim-drop", `Deauthenticated from "${ssid}" — wrong password (WPA2 handshake failed)`);
+      return []; // wifiAssociated stays false: the join failed
   }
   return [];
 }

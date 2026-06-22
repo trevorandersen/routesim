@@ -94,7 +94,7 @@ describe("setSwitchPortVlan", () => {
 | `tests/scenarios.test.ts` | Scenario loading/goal checks + positive-coordinate invariants |
 | `tests/io.test.ts` | JSON import/export round-trips |
 | `tests/settings-url.test.ts` | URL query-string settings: `parseSettingsFromUrl` (bool spellings incl. the silent-protocol params, theme/speed validation + clamping, ignored params) and the `buildSettingsQuery` inverse (diff-only emit + round-trip) |
-| `tests/wifi.test.ts` | WiFi: the laptop (WiFi-only host) + access point (single-uplink L2 bridge) device types, the wireless association (`classifyLink`/`linkBlockReason` — laptop↔AP only, single NIC, SSID + password matching), forwarding through an AP onto the wired LAN, SSID/password serialisation round-trips, and the **802.11 association handshake** (probe/auth/assoc + WPA2 4-way for a secured AP, `run associate`, the Silent WiFi toggle) |
+| `tests/wifi.test.ts` | WiFi: the laptop (WiFi-only host) + access point (single-uplink L2 bridge) device types, the wireless association (`classifyLink`/`linkBlockReason` — laptop↔AP only, single NIC, SSID + password matching), forwarding through an AP onto the wired LAN, SSID/password serialisation round-trips, and the **802.11 association handshake** (probe/auth/assoc + WPA2 4-way for a secured AP, the wrong-password failure path — link forms unauthenticated, deauth, data blocked — `run associate`, the Silent WiFi toggle) |
 | `tests/frame.test.ts` | Frame factories, `frameLabel`/`frameColor` |
 | `tests/normalise.test.ts` | All normalisers, `ensureConfig`, `defaultDeviceConfig`, `deviceSize` |
 | `tests/devices.test.ts` | CRUD, hit-testing, lookup indexes + invalidation |

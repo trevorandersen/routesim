@@ -68,7 +68,8 @@ export function buildConfigPayload(): SerialisedTopology {
             trunkAllowedVlans: normaliseTrunkAllowedVlans(config?.trunkAllowedVlans || {}),
             trunkNativeVlans: normalisePortVlans(config?.trunkNativeVlans || {})
           } : {}),
-          ...(config?.portAuth && Object.keys(config.portAuth).length ? { portAuth: { ...config.portAuth } } : {})
+          ...(config?.portAuth && Object.keys(config.portAuth).length ? { portAuth: { ...config.portAuth } } : {}),
+          ...macsecPayload(config)
         }
       } : {}),
       ...(type === "router" ? {
@@ -81,13 +82,15 @@ export function buildConfigPayload(): SerialisedTopology {
           ...(config?.rules?.length ? { rules: normaliseFirewallRules(config.rules) } : {}),
           ...(config?.policy && Object.keys(config.policy).length ? { policy: config.policy } : {}),
           ...(config?.natTranslations?.length ? { natTranslations: config.natTranslations } : {}),
+          ...macsecPayload(config)
         }
       } : {}),
       ...(type === "firewall" ? {
         config: {
           ethernetPorts: config?.ethernetPorts ?? 2,
           rules: normaliseFirewallRules(config?.rules || []),
-          policy: { forward: config?.policy?.forward === "drop" ? "drop" : "accept" }
+          policy: { forward: config?.policy?.forward === "drop" ? "drop" : "accept" },
+          ...macsecPayload(config)
         }
       } : {}),
       ...(type === "lan" ? {
@@ -126,9 +129,21 @@ function wifiConfigForPayload(config: any): any {
   };
 }
 
+// MACsec per-peer keys for the config payload (any device type).
+function macsecPayload(config: any): any {
+  const m = config?.macsec;
+  if (!m || !Object.keys(m).length) return {};
+  const out: any = {};
+  for (const [peer, v] of Object.entries(m as Record<string, any>)) {
+    if (v?.cak) out[peer] = { cak: v.cak, mode: v.mode === "must" ? "must" : "should" };
+  }
+  return Object.keys(out).length ? { macsec: out } : {};
+}
+
 // Shared host (computer/server) endpoint fields for the config payload.
 function hostConfigForPayload(config: any): any {
   return {
+    ...macsecPayload(config),
     ipv4Address: config?.ipv4Address || "",
     ...(config?.prefixLength != null ? { prefixLength: config.prefixLength } : {}),
     ...(config?.ipSource ? { ipSource: config.ipSource } : {}),

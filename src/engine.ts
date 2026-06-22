@@ -1,7 +1,7 @@
 import type { EthernetFrame, ArpPayload, Ipv4Payload, DhcpPayload, TcpPayload, DnsPayload, Dot11Payload, Dot1xPayload, NatEntry, SimEvent, SimLogEntry, ActiveTransit, FrameHistoryEntry, RouteEntry, Device, DeviceType, FirewallRule, FirewallTarget } from "./types";
 import { state, pushUndo, sync } from "./state";
 import { dom } from "./dom";
-import { getDevice, linkedPortsFor, routerInterfacesWithNames, linkName, linkById, linksFor, linkAuthorizedForData } from "./devices";
+import { getDevice, linkedPortsFor, routerInterfacesWithNames, linkName, linkById, linksFor, linkAuthorizedForData, macsecState } from "./devices";
 import { normalisePortVlans, normalisePortModes, normaliseTrunkAllowedVlans, normaliseArpTable, normaliseMacTable, normaliseDhcpLeases, normaliseStaticRoutes, ensureConfig } from "./normalise";
 import { sameSubnet, prefixOf, isValidIpv4, escapeHtml, ipv4ToInt, intToIpv4, normaliseMacAddress, deriveMac } from "./utils";
 import { createArpRequest, createArpReply, createIcmpEchoRequest, createIcmpEchoReply, createIcmpTimeExceeded, createDhcpOffer, createDhcpRequest, createDhcpAck, createTcpSegment, createDnsResponse, createDot11Frame, createDot1xFrame, BROADCAST_MAC, frameLabel, packetColumns } from "./frame";
@@ -398,6 +398,11 @@ function deliverCompletedTransits(): void {
     // headless probes like traceroute/scenario checks stay invisible). Silent
     // frames (ARP/DHCP/DNS, per the settings) are delivered but never listed.
     if (!sim.headless && !t.silent) {
+      const wireLink = linkById(t.linkId);
+      // A frame crossing a MACsec-secured link is protected on the wire — shown
+      // encrypted in the packet list (the engine still processes the real inner
+      // frame at the far end, where MACsec would have decrypted it).
+      const macsec = !!wireLink && t.frame.payload.type !== "dot11" && t.frame.payload.type !== "dot1x" && macsecState(wireLink) === "secured";
       sim.capture.push({
         no: sim.capture.length + 1,
         step: sim.stepIndex,
@@ -405,6 +410,7 @@ function deliverCompletedTransits(): void {
         fromDeviceId: t.fromDeviceId,
         toDeviceId: t.toDeviceId,
         linkId: t.linkId,
+        ...(macsec ? { macsec: true } : {}),
       });
       if (sim.capture.length > 1000) sim.capture.shift();
     }
@@ -1660,7 +1666,12 @@ function renderPacketList(): string {
   }
   const linkById = new Map(state.links.map(l => [l.id, l]));
   const rows = sim.capture.map(entry => {
-    const cols = packetColumns(entry.frame);
+    const inner = packetColumns(entry.frame);
+    // A MACsec-protected frame shows as encrypted on the wire (its real protocol
+    // would only be visible after decryption at the far end).
+    const cols = entry.macsec
+      ? { ...inner, protocol: "MACsec", info: `Encrypted ${inner.protocol} (SecTAG, ICV)`, tone: "macsec" }
+      : inner;
     // The wire it was captured on: the link's name (user-given, or the
     // endpoint combo). Falls back to the traversal endpoints if the link is gone.
     const link = linkById.get(entry.linkId);

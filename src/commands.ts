@@ -425,6 +425,28 @@ function cmdRadius(args: string[]): CommandResult {
   return ok(`${server.name} RADIUS user "${identity}" set.`);
 }
 
+// MACsec: set (or clear, with "off") the pre-shared key for the link to a peer.
+function cmdMacsec(args: string[]): CommandResult {
+  const dev = resolveDevice(args[0]);
+  if (typeof dev === "string") return err(dev);
+  const peer = resolveDevice(args[1]);
+  if (typeof peer === "string") return err(peer);
+  const cak = args[2];
+  if (!cak) return err("Usage: macsec <device> <peer> <key> [must|should]  (key 'off' clears)");
+  ensureConfig(dev);
+  const cfg: any = dev.config;
+  cfg.macsec = cfg.macsec || {};
+  if (cak.toLowerCase() === "off" || cak.toLowerCase() === "none") {
+    delete cfg.macsec[peer.id];
+    sync().render();
+    return ok(`MACsec cleared on ${dev.name} ↔ ${peer.name}.`);
+  }
+  const mode = (args[3] || "should").toLowerCase() === "must" ? "must" : "should";
+  cfg.macsec[peer.id] = { cak, mode };
+  sync().render();
+  return ok(`${dev.name} ↔ ${peer.name}: MACsec key set (${mode}-secure).`);
+}
+
 function cmdDot1x(args: string[]): CommandResult {
   const host = resolveDevice(args[0]);
   if (typeof host === "string") return err(host);
@@ -705,7 +727,7 @@ const COMMANDS: Record<string, Handler> = {
   shut: cmdShut, noshut: cmdNoShut,
   move: cmdMove, rename: cmdRename, clear: cmdClear, collapse: cmdCollapse, expand: cmdExpand,
   ip: cmdIp, gateway: cmdGateway, nameserver: cmdNameserver, mac: cmdMac, ssid: cmdSsid, interface: cmdInterface, route: cmdRoute,
-  supplicant: cmdSupplicant, portauth: cmdPortAuth, radius: cmdRadius, dot1x: cmdDot1x,
+  supplicant: cmdSupplicant, portauth: cmdPortAuth, radius: cmdRadius, dot1x: cmdDot1x, macsec: cmdMacsec,
   vlan: cmdVlan, port: cmdPort, cli: cmdCli,
   ping: cmdPing, dhcp: cmdDhcp, connect: cmdConnect, associate: cmdAssociate, run: cmdRun, traceroute: cmdTraceroute, tracert: cmdTraceroute,
   play: cmdPlay, pause: cmdPause, step: cmdStep,
@@ -730,6 +752,7 @@ const HELP: Record<string, string> = {
   portauth: "portauth <switch> <EthN> <auto|force-authorized|force-unauthorized>",
   radius: "radius <server> <identity> <password> (add a RADIUS user, enables the back end)",
   dot1x: "dot1x <host> (animate the 802.1X EAP/RADIUS exchange)",
+  macsec: "macsec <device> <peer> <key> [must|should] (802.1AE link encryption; 'off' clears)",
   interface: "interface <router> <peer> ip <addr> [vlan <tag>]", route: "route <router> <net/prefix> <nextHop>",
   vlan: "vlan <switch> add|del <id>", port: "port <switch> <EthN> vlan|mode|native|allowed ...",
   cli: "cli <device> <raw CLI command>",
@@ -823,6 +846,11 @@ export function exportTopologyScript(): string {
       for (const r of (c.staticRoutes || [])) lines.push(`route ${d.name} ${r.network} ${r.nextHop}`);
     } else if (d.type === "access-point" && c.ssid) {
       lines.push(`ssid ${d.name} ${c.ssid}${c.wifiPassword ? ` ${c.wifiPassword}` : ""}`);
+    }
+    // MACsec keys (any device, keyed by peer) — each end emits its own.
+    for (const [peerId, m] of Object.entries((c.macsec || {}) as Record<string, any>)) {
+      const peer = idToName.get(peerId);
+      if (peer) lines.push(`macsec ${d.name} ${peer} ${m.cak} ${m.mode}`);
     }
   }
 

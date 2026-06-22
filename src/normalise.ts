@@ -255,6 +255,18 @@ function normalisePortAuth(raw: unknown): Record<string, "auto" | "force-authori
   return out;
 }
 
+// MACsec per-peer keys — keep only well-formed entries (a non-empty CAK and a
+// valid mode). Returns {} (spreads to nothing) when there's no MACsec config.
+function normaliseMacsec(raw: unknown): { macsec?: Record<string, { cak: string; mode: "must" | "should" }> } {
+  if (!raw || typeof raw !== "object") return {};
+  const out: Record<string, { cak: string; mode: "must" | "should" }> = {};
+  for (const [peer, v] of Object.entries(raw as Record<string, any>)) {
+    const cak = String(v?.cak || "");
+    if (cak) out[String(peer)] = { cak, mode: v?.mode === "must" ? "must" : "should" };
+  }
+  return Object.keys(out).length ? { macsec: out } : {};
+}
+
 // RADIUS user database (the authentication server back end).
 function normaliseRadiusUsers(raw: unknown): { identity: string; password: string }[] {
   if (!Array.isArray(raw)) return [];
@@ -406,7 +418,7 @@ export function normaliseConfig(parsed: any): { devices: Device[]; links: Link[]
       hidden: Boolean(device.hidden),
       ...(device.poweredOff ? { poweredOff: true } : {}),
       ...(device.collapsedBy ? { collapsedBy: String(device.collapsedBy) } : {}),
-      config: normaliseDeviceConfig(device)
+      config: { ...normaliseDeviceConfig(device), ...normaliseMacsec(device.config?.macsec) }
     };
   });
 

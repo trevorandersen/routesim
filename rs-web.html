@@ -1563,6 +1563,7 @@
     .pkt-dns        td { color: #22d3ee; }
     .pkt-dhcp       td { color: #a78bfa; }
     .pkt-dot11      td { color: #2dd4bf; }
+    .pkt-macsec     td { color: #5eead4; font-style: italic; }
     .pkt-bad        td { color: #f87171; }
     .pkt-row td.pkt-num,
     .pkt-row td.pkt-link { color: #95a4b3; }
@@ -2684,6 +2685,15 @@ Full legal text: https://creativecommons.org/publicdomain/zero/1.0/legalcode</pr
     }
     return out;
   }
+  function normaliseMacsec(raw) {
+    if (!raw || typeof raw !== "object") return {};
+    const out = {};
+    for (const [peer, v] of Object.entries(raw)) {
+      const cak = String(v?.cak || "");
+      if (cak) out[String(peer)] = { cak, mode: v?.mode === "must" ? "must" : "should" };
+    }
+    return Object.keys(out).length ? { macsec: out } : {};
+  }
   function normaliseRadiusUsers(raw) {
     if (!Array.isArray(raw)) return [];
     return raw.filter((u) => u && u.identity).map((u) => ({ identity: String(u.identity), password: String(u.password ?? "") }));
@@ -2813,7 +2823,7 @@ Full legal text: https://creativecommons.org/publicdomain/zero/1.0/legalcode</pr
         hidden: Boolean(device.hidden),
         ...device.poweredOff ? { poweredOff: true } : {},
         ...device.collapsedBy ? { collapsedBy: String(device.collapsedBy) } : {},
-        config: normaliseDeviceConfig(device)
+        config: { ...normaliseDeviceConfig(device), ...normaliseMacsec(device.config?.macsec) }
       };
     });
     const links = [];
@@ -3566,9 +3576,19 @@ Full legal text: https://creativecommons.org/publicdomain/zero/1.0/legalcode</pr
     if (info.mode === "force-unauthorized") return false;
     return !!link.dot1xAuthorized;
   }
+  function macsecState(link) {
+    const a = getDevice(link?.from), b = getDevice(link?.to);
+    const aCfg = a?.config?.macsec?.[link?.to];
+    const bCfg = b?.config?.macsec?.[link?.from];
+    if (!aCfg && !bCfg) return "open";
+    if (aCfg && bCfg) return aCfg.cak === bCfg.cak ? "secured" : "failed";
+    const cfg = aCfg || bCfg;
+    return cfg.mode === "must" ? "failed" : "open";
+  }
   function linkAuthorizedForData(link) {
     if (link?.wireless && !wifiLinkAuthenticated(link)) return false;
     if (!dot1xPortAuthorized(link)) return false;
+    if (macsecState(link) === "failed") return false;
     return true;
   }
   function linkBlockReason(fromId, toId) {
@@ -4848,7 +4868,8 @@ Full legal text: https://creativecommons.org/publicdomain/zero/1.0/legalcode</pr
     const shut = !!link.shutdown;
     const wireless = !!link.wireless;
     const unauth = wireless && !wifiLinkAuthenticated(link);
-    const linkColor = captureLink ? colors.selected : active ? cssColor("--link-active") : shut || unauth ? cssColor("--danger") : linkColorFor(from, to);
+    const macsec = macsecState(link);
+    const linkColor = captureLink ? colors.selected : active ? cssColor("--link-active") : shut || unauth || macsec === "failed" ? cssColor("--danger") : macsec === "secured" ? "#14b8a6" : linkColorFor(from, to);
     const dimmed = from.poweredOff || to.poweredOff;
     const trunk = isTrunkLink(from, to);
     ctx.save();
@@ -5637,13 +5658,16 @@ Full legal text: https://creativecommons.org/publicdomain/zero/1.0/legalcode</pr
     sim.transits = sim.transits.filter((t) => t.progress < 1);
     for (const t of completed) {
       if (!sim.headless && !t.silent) {
+        const wireLink = linkById(t.linkId);
+        const macsec = !!wireLink && t.frame.payload.type !== "dot11" && t.frame.payload.type !== "dot1x" && macsecState(wireLink) === "secured";
         sim.capture.push({
           no: sim.capture.length + 1,
           step: sim.stepIndex,
           frame: t.frame,
           fromDeviceId: t.fromDeviceId,
           toDeviceId: t.toDeviceId,
-          linkId: t.linkId
+          linkId: t.linkId,
+          ...macsec ? { macsec: true } : {}
         });
         if (sim.capture.length > 1e3) sim.capture.shift();
       }
@@ -6696,7 +6720,8 @@ Full legal text: https://creativecommons.org/publicdomain/zero/1.0/legalcode</pr
     }
     const linkById2 = new Map(state.links.map((l) => [l.id, l]));
     const rows = sim.capture.map((entry) => {
-      const cols = packetColumns(entry.frame);
+      const inner = packetColumns(entry.frame);
+      const cols = entry.macsec ? { ...inner, protocol: "MACsec", info: `Encrypted ${inner.protocol} (SecTAG, ICV)`, tone: "macsec" } : inner;
       const link = linkById2.get(entry.linkId);
       const wire = link ? linkName(link) : `${getDevice(entry.fromDeviceId)?.name ?? "?"} \u2194 ${getDevice(entry.toDeviceId)?.name ?? "?"}`;
       const selected = (state.inspectedCapture ? state.inspectedCapture.no === entry.no : state.inspectedFrame === entry.frame) ? " selected" : "";
@@ -10889,7 +10914,8 @@ Address: ${sim.dnsResolvedIp}`);
               trunkAllowedVlans: normaliseTrunkAllowedVlans(config?.trunkAllowedVlans || {}),
               trunkNativeVlans: normalisePortVlans(config?.trunkNativeVlans || {})
             } : {},
-            ...config?.portAuth && Object.keys(config.portAuth).length ? { portAuth: { ...config.portAuth } } : {}
+            ...config?.portAuth && Object.keys(config.portAuth).length ? { portAuth: { ...config.portAuth } } : {},
+            ...macsecPayload(config)
           }
         } : {},
         ...type === "router" ? {
@@ -10901,14 +10927,16 @@ Address: ${sim.dnsResolvedIp}`);
             ...config?.rip?.enabled ? { rip: config.rip } : {},
             ...config?.rules?.length ? { rules: normaliseFirewallRules(config.rules) } : {},
             ...config?.policy && Object.keys(config.policy).length ? { policy: config.policy } : {},
-            ...config?.natTranslations?.length ? { natTranslations: config.natTranslations } : {}
+            ...config?.natTranslations?.length ? { natTranslations: config.natTranslations } : {},
+            ...macsecPayload(config)
           }
         } : {},
         ...type === "firewall" ? {
           config: {
             ethernetPorts: config?.ethernetPorts ?? 2,
             rules: normaliseFirewallRules(config?.rules || []),
-            policy: { forward: config?.policy?.forward === "drop" ? "drop" : "accept" }
+            policy: { forward: config?.policy?.forward === "drop" ? "drop" : "accept" },
+            ...macsecPayload(config)
           }
         } : {},
         ...type === "lan" ? {
@@ -10943,8 +10971,18 @@ Address: ${sim.dnsResolvedIp}`);
       ...wifiPassword ? { wifiPassword } : {}
     };
   }
+  function macsecPayload(config) {
+    const m = config?.macsec;
+    if (!m || !Object.keys(m).length) return {};
+    const out = {};
+    for (const [peer, v] of Object.entries(m)) {
+      if (v?.cak) out[peer] = { cak: v.cak, mode: v.mode === "must" ? "must" : "should" };
+    }
+    return Object.keys(out).length ? { macsec: out } : {};
+  }
   function hostConfigForPayload(config) {
     return {
+      ...macsecPayload(config),
       ipv4Address: config?.ipv4Address || "",
       ...config?.prefixLength != null ? { prefixLength: config.prefixLength } : {},
       ...config?.ipSource ? { ipSource: config.ipSource } : {},
@@ -11446,6 +11484,26 @@ Address: ${sim.dnsResolvedIp}`);
     sync().syncPanel();
     return ok(`${server.name} RADIUS user "${identity}" set.`);
   }
+  function cmdMacsec(args) {
+    const dev = resolveDevice(args[0]);
+    if (typeof dev === "string") return err(dev);
+    const peer = resolveDevice(args[1]);
+    if (typeof peer === "string") return err(peer);
+    const cak = args[2];
+    if (!cak) return err("Usage: macsec <device> <peer> <key> [must|should]  (key 'off' clears)");
+    ensureConfig(dev);
+    const cfg = dev.config;
+    cfg.macsec = cfg.macsec || {};
+    if (cak.toLowerCase() === "off" || cak.toLowerCase() === "none") {
+      delete cfg.macsec[peer.id];
+      sync().render();
+      return ok(`MACsec cleared on ${dev.name} \u2194 ${peer.name}.`);
+    }
+    const mode = (args[3] || "should").toLowerCase() === "must" ? "must" : "should";
+    cfg.macsec[peer.id] = { cak, mode };
+    sync().render();
+    return ok(`${dev.name} \u2194 ${peer.name}: MACsec key set (${mode}-secure).`);
+  }
   function cmdDot1x(args) {
     const host = resolveDevice(args[0]);
     if (typeof host === "string") return err(host);
@@ -11753,6 +11811,7 @@ Address: ${sim.dnsResolvedIp}`);
     portauth: cmdPortAuth,
     radius: cmdRadius,
     dot1x: cmdDot1x,
+    macsec: cmdMacsec,
     vlan: cmdVlan,
     port: cmdPort,
     cli: cmdCli,
@@ -11808,6 +11867,7 @@ Address: ${sim.dnsResolvedIp}`);
     portauth: "portauth <switch> <EthN> <auto|force-authorized|force-unauthorized>",
     radius: "radius <server> <identity> <password> (add a RADIUS user, enables the back end)",
     dot1x: "dot1x <host> (animate the 802.1X EAP/RADIUS exchange)",
+    macsec: "macsec <device> <peer> <key> [must|should] (802.1AE link encryption; 'off' clears)",
     interface: "interface <router> <peer> ip <addr> [vlan <tag>]",
     route: "route <router> <net/prefix> <nextHop>",
     vlan: "vlan <switch> add|del <id>",
@@ -11902,6 +11962,10 @@ Address: ${sim.dnsResolvedIp}`);
         for (const r of c.staticRoutes || []) lines.push(`route ${d.name} ${r.network} ${r.nextHop}`);
       } else if (d.type === "access-point" && c.ssid) {
         lines.push(`ssid ${d.name} ${c.ssid}${c.wifiPassword ? ` ${c.wifiPassword}` : ""}`);
+      }
+      for (const [peerId, m] of Object.entries(c.macsec || {})) {
+        const peer = idToName.get(peerId);
+        if (peer) lines.push(`macsec ${d.name} ${peer} ${m.cak} ${m.mode}`);
       }
     }
     for (const l of payload.links) {

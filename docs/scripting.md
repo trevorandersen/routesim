@@ -73,6 +73,7 @@ Param keys and boolean values are case-insensitive. Adding a setting is a one-ro
 | `supplicant <host> <identity> <password>` | Set a host's 802.1X credentials (the supplicant). |
 | `portauth <switch> <EthN> <auto\|force-authorized\|force-unauthorized>` | Set a switch port's 802.1X control. `auto` blocks data until the host authenticates; `force-authorized` (default) is open. |
 | `radius <server> <identity> <password>` | Add/update a RADIUS user on a server (enables the authentication back end). |
+| `macsec <device> <peer> <key> [must\|should]` | Set the MACsec (802.1AE) pre-shared key for the link to a peer (`off` clears it). Both ends need a matching key to secure the link; `must` drops traffic when it can't secure, `should` falls back to plaintext. |
 | `interface <router> <peer> ip <addr> [vlan <tag>]` | Set a router interface IP (by connected peer; optional sub-interface VLAN). |
 | `route <router> <net/prefix> <nextHop>` | Add a static route. |
 | `vlan <switch> add\|del <id>` | Add/remove a VLAN on a managed switch. |

@@ -257,11 +257,19 @@ export interface WifiConfig {
   wifiPassword?: string;
 }
 
+// MACsec (802.1AE) per-link key, keyed by the peer device id (so it's naturally
+// per-link and uniform across device types). `cak` is the pre-shared key; both
+// ends must match for the link to secure. `mode` "must" drops traffic when the
+// link can't be secured; "should" falls back to plaintext.
+export interface MacsecConfig {
+  macsec?: Record<string, { cak: string; mode: "must" | "should" }>;
+}
+
 // Permissive superset (every field optional) so existing `device.config?.x`
 // access sites compile unchanged, while typos and wrong field types are caught.
 // The strict per-type interfaces above type the normalise layer and the
 // asComputer/asSwitch/asRouter/asLan accessors.
-export type DeviceConfig = Partial<ComputerConfig & ServerConfig & SwitchConfig & RouterConfig & FirewallConfig & HubConfig & WifiConfig & LanConfig>;
+export type DeviceConfig = Partial<ComputerConfig & ServerConfig & SwitchConfig & RouterConfig & FirewallConfig & HubConfig & WifiConfig & MacsecConfig & LanConfig>;
 
 export interface DragState {
   id: string;
@@ -497,6 +505,7 @@ export interface CaptureEntry {
   fromDeviceId: string;
   toDeviceId: string;
   linkId: string;
+  macsec?: boolean;  // traversed a MACsec-secured link — shown encrypted in the packet list
 }
 
 export interface SimulationState {

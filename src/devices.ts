@@ -133,13 +133,29 @@ export function dot1xPortAuthorized(link: any): boolean {
   return !!link.dot1xAuthorized;
 }
 
+// MACsec (802.1AE) state of a link, from each end's per-peer CAK. "secured" =
+// both ends configured with a matching key; "failed" = a key mismatch, or a
+// must-secure end facing a peer with no MACsec; "open" = no MACsec in play (or a
+// should-secure end falling back to plaintext). Live — tracks key edits.
+export function macsecState(link: any): "open" | "secured" | "failed" {
+  const a = getDevice(link?.from), b = getDevice(link?.to);
+  const aCfg = a?.config?.macsec?.[link?.to];
+  const bCfg = b?.config?.macsec?.[link?.from];
+  if (!aCfg && !bCfg) return "open";
+  if (aCfg && bCfg) return aCfg.cak === bCfg.cak ? "secured" : "failed";
+  const cfg = aCfg || bCfg;            // only one end wants MACsec
+  return cfg!.mode === "must" ? "failed" : "open";
+}
+
 // The single data-path gate: false = this link drops DATA frames right now,
-// whether because a WiFi association never authenticated or an 802.1X port is
-// unauthorized. (Shutdown/hidden are still checked separately at each site; the
-// auth/EAPOL control frames bypass this — see the engine transit step.)
+// whether because a WiFi association never authenticated, an 802.1X port is
+// unauthorized, or a MACsec link could not be secured (must-secure). (Shutdown/
+// hidden are checked separately at each site; auth/EAPOL control frames bypass
+// this — see the engine transit step.)
 export function linkAuthorizedForData(link: any): boolean {
   if (link?.wireless && !wifiLinkAuthenticated(link)) return false;
   if (!dot1xPortAuthorized(link)) return false;
+  if (macsecState(link) === "failed") return false;
   return true;
 }
 

@@ -168,9 +168,13 @@ already drop data on an unauthenticated link while letting control frames pass).
   the WiFi gate. Config via `supplicant`/`portauth`/`radius` (round-tripped).
   **Later:** the EAP method challenge round, MAB, dynamic VLAN assignment from
   RADIUS, a built-in topology/scenario, inspector controls, and the Cisco-style CLI.
-- **Phase 2 (MACsec, 802.1AE):** per-link encryption — an MKA handshake
-  establishes the SA, a SecTAG (ethertype `0x88E5`) marks frames protected, and
-  `must-secure` drops unprotected frames (the same gate). Drawn as a secured link.
+- **Phase 2 (MACsec, 802.1AE): shipped.** Per-link encryption via a pre-shared
+  CAK keyed by peer (`macsec <device> <peer> <key> [must|should]`, computed live
+  by `macsecState`): matching keys **secure** the link (frames render as
+  "MACsec — Encrypted … (SecTAG, ICV)" in the packet list, drawn teal), a
+  must-secure mismatch **fails** it (data dropped via the unified gate, drawn
+  red), and should-secure falls back to plaintext. **Later:** an animated MKA
+  handshake, the SecTAG/ICV as real frame fields, and inspector controls.
 - **Phase 3 (integration):** 802.1X-derived MACsec keys (auth the port, then
   encrypt the link) — the full enterprise story.
 Effort: moderate per phase; the unified gate is the keystone.

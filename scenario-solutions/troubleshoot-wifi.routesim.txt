@@ -1,0 +1,10 @@
+# Troubleshoot: wrong WiFi password  ·  scenario id: troubleshoot-wifi
+#
+# LT-1 shows as associated to the Acme-Guest WiFi but cannot reach SRV-1. The classic symptom of a wrong saved password — the network is "Acme-Guest" with password "tulip-2024". Re-join LT-1 with the correct credentials.
+#
+# Loads the scenario, applies the solution, and checks the goal. Paste into
+# the command console (the >_ toolbar button) or run with routesim.run(...).
+
+scenario load troubleshoot-wifi
+ssid LT-1 Acme-Guest tulip-2024
+scenario check

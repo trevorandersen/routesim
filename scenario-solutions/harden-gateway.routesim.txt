@@ -1,0 +1,11 @@
+# Harden the gateway  ·  scenario id: harden-gateway
+#
+# Security policy: the gateway router itself must not answer pings from the LAN, but traffic THROUGH it must keep flowing. Use the router's INPUT chain (iptables) — not FORWARD — to drop ICMP addressed to R1.
+#
+# Loads the scenario, applies the solution, and checks the goal. Paste into
+# the command console (the >_ toolbar button) or run with routesim.run(...).
+
+scenario load harden-gateway
+cli R1 enable
+cli R1 iptables -A INPUT -p icmp -j DROP
+scenario check

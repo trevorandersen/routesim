@@ -1,0 +1,10 @@
+# Troubleshoot: broken gateway  ·  scenario id: troubleshoot-gateway
+#
+# Users report PC-A cannot reach the 192.168.2.0/24 office, but replies from there work. Find the misconfiguration and fix it (hint: traceroute / ip route show on PC-A).
+#
+# Loads the scenario, applies the solution, and checks the goal. Paste into
+# the command console (the >_ toolbar button) or run with routesim.run(...).
+
+scenario load troubleshoot-gateway
+gateway PC-A 192.168.1.1
+scenario check

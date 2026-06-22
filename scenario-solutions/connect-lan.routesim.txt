@@ -1,0 +1,11 @@
+# Connect a LAN  ·  scenario id: connect-lan
+#
+# Link PC-A and PC-B to Switch-1, then ping PC-B from PC-A.
+#
+# Loads the scenario, applies the solution, and checks the goal. Paste into
+# the command console (the >_ toolbar button) or run with routesim.run(...).
+
+scenario load connect-lan
+link PC-A Switch-1
+link PC-B Switch-1
+scenario check

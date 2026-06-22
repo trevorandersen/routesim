@@ -1,0 +1,13 @@
+# Troubleshoot: bad static route  ·  scenario id: troubleshoot-static-route
+#
+# The two offices stopped reaching each other after a maintenance window. Check the routing tables (show ip route) — one router's static route has a typo'd next-hop.
+#
+# Loads the scenario, applies the solution, and checks the goal. Paste into
+# the command console (the >_ toolbar button) or run with routesim.run(...).
+
+scenario load troubleshoot-static-route
+cli R1 enable
+cli R1 configure terminal
+cli R1 no ip route 192.168.2.0/24
+cli R1 ip route 192.168.2.0/24 10.0.0.2
+scenario check

@@ -38,7 +38,7 @@ Device references in checks/topology resolve by **name or id**. `checkScenario(s
 
 ## Adding a scenario
 
-Add a `Scenario` to `src/scenario-library.ts` (data only) and it joins `SCENARIOS` automatically — or register one at runtime via JSON import (`registerScenario`). Every built-in scenario has a reference solution in `tests/scenarios.test.ts` proving it starts unsolved and is solvable; add one for yours.
+Add a `Scenario` to `src/scenario-library.ts` (data only) and it joins `SCENARIOS` automatically — or register one at runtime via JSON import (`registerScenario`). Every built-in scenario has a runnable reference solution in [`scenario-solutions/`](../scenario-solutions/) (`<id>.routesim.txt`); `tests/scenarios.test.ts` runs each one to prove the scenario starts unsolved and is solvable, so add one for yours too.
 
 ```ts
 {
@@ -77,3 +77,18 @@ The curriculum is a progression from L2 basics to routing, services, security, a
 | `dns-service` | Name service (DNS) | Point PC-A at the nameserver (`/etc/resolv.conf`) and add a dnsmasq A-record so `web.corp` resolves, pings, and serves port 80 by name. |
 | `troubleshoot-dns` | Troubleshoot: name vs address | The IP pings but the name doesn't — find and fix the stale A-record on the dnsmasq server. |
 | `server-dhcp` | DHCP from the server | Enable `dhcp-range` on the dnsmasq server: the client leases address + nameserver (option 6) and reaches `web.corp` with zero manual config. |
+| `wifi-join` | Join a WiFi network | Set the laptop's SSID + password to match the secured access point, then associate it so it reaches the wired server. |
+| `troubleshoot-wifi` | Troubleshoot: wrong WiFi password | A laptop is "associated" but offline — a wrong saved password leaves the link unauthenticated; re-join with the correct credentials. |
+| `wifi-dhcp` | WiFi hotspot + DHCP | Join an open guest hotspot and let the laptop pull an address from the DHCP server automatically, over the air. |
+| `port-auth-8021x` | 802.1X port authentication | Configure the host's supplicant credentials and authenticate (`run dot1x`) so the switch's `auto` port opens and carries data. |
+| `macsec-link` | MACsec the inter-switch trunk | A must-secure trunk is down for want of a key — set the matching CAK on the other switch to bring the encrypted link up. |
+| `secure-access` | Secure access (802.1X + MACsec) | Capstone: one 802.1X exchange both authorises the port and derives its MACsec key (must-secure), bringing the encrypted link up. |
+
+## Solution scripts (answer key)
+
+Each scenario's worked solution is a runnable console script in
+[`scenario-solutions/`](../scenario-solutions/) — `<id>.routesim.txt`. A script
+loads its scenario, applies the fix, and checks the goal, so you can paste it into
+the command console (the `>_` button) or run it with `routesim.run(<contents>)` to
+see the answer play out. They double as the curriculum's test fixtures
+(`tests/scenarios.test.ts` runs each), so they always match the live scenarios.

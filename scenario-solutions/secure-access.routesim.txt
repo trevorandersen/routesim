@@ -1,0 +1,11 @@
+# Secure access (802.1X + MACsec)  ·  scenario id: secure-access
+#
+# Capstone: PC-1 sits on an `auto` 802.1X port of SW-1, and both ends of the PC-1 ↔ SW-1 link key MACsec from that 802.1X exchange (must-secure). PC-1 has no supplicant credentials, so the port stays unauthorised and the link cannot derive a key — PC-1 cannot reach PC-2. Give PC-1 the RADIUS account (emp01 / Net$2024), then run 802.1X (`run dot1x PC-1`): the single exchange authorises the port AND derives the MACsec key, bringing the encrypted link up.
+#
+# Loads the scenario, applies the solution, and checks the goal. Paste into
+# the command console (the >_ toolbar button) or run with routesim.run(...).
+
+scenario load secure-access
+supplicant PC-1 emp01 Net$2024
+run dot1x PC-1
+scenario check

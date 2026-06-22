@@ -1,0 +1,15 @@
+# VLAN segmentation  ·  scenario id: vlan-segmentation
+#
+# Sales (PC-S1, PC-S2) and Engineering (PC-E1, PC-E2) share one switch. Create VLAN 10 (Sales: Ethernet1-2) and VLAN 20 (Engineering: Ethernet3-4) so each team can only reach itself.
+#
+# Loads the scenario, applies the solution, and checks the goal. Paste into
+# the command console (the >_ toolbar button) or run with routesim.run(...).
+
+scenario load vlan-segmentation
+cli MSW-1 config vlan add 10
+cli MSW-1 config vlan add 20
+cli MSW-1 config vlan member add 10 Ethernet1
+cli MSW-1 config vlan member add 10 Ethernet2
+cli MSW-1 config vlan member add 20 Ethernet3
+cli MSW-1 config vlan member add 20 Ethernet4
+scenario check

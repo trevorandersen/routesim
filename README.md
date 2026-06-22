@@ -33,6 +33,7 @@ routesim/
 ├── styles.css          # All CSS (three themes via custom properties)
 ├── rs-web.html         # Build output — the single portable file
 ├── docs/               # Architecture, build, testing, scripting, scenario docs
+├── scenario-solutions/ # Runnable console scripts that solve each built-in scenario
 ├── tests/              # Bun test suites + benchmark harness
 └── src/
     ├── app.ts          # Entry point — wires callbacks, initialises the app
@@ -51,7 +52,7 @@ routesim/
     ├── commands.ts     # Console command engine (also window.routesim + scripts)
     ├── console.ts      # Command console panel UI
     ├── scenarios.ts    # Scenario model, registry, goal checking
-    ├── scenario-library.ts # The built-in 16-scenario curriculum
+    ├── scenario-library.ts # The built-in 22-scenario curriculum
     ├── scenario-ui.ts  # Scenario goal banner
     ├── canvas.ts       # Canvas rendering (devices, links, labels, pan/zoom)
     ├── inspector.ts    # Right-side panel (device details, link history, options)
@@ -127,7 +128,7 @@ sync().render();
 - **802.1X port authentication** — `dot1x <host>` animates the supplicant → authenticator (switch `auto` port) → RADIUS server EAP/RADIUS exchange; an `auto` port blocks data until EAP-Success, and a bad credential gets Access-Reject → EAP-Failure
 - **MACsec (802.1AE)** — `macsec <device> <peer> <key>` encrypts a link with a pre-shared key; matching keys secure it (frames show encrypted in the packet list), a `must`-secure key mismatch drops traffic, and `should`-secure falls back to plaintext. `macsec <device> <peer> dot1x` instead **derives the key from 802.1X** (MKA): the link stays unsecured until the port authenticates, then auto-keys from the EAP exchange — the full enterprise "authenticate, then encrypt" story
 - **Silent protocols** — optionally resolve ARP/DHCP/DNS instantly with no animation or packet-list rows, to keep the higher-layer flow uncluttered
-- **Scenarios** — a 16-entry guided curriculum with goal checking, every entry solvable (tested)
+- **Scenarios** — a 22-entry guided curriculum with goal checking, every entry solvable (tested) — including WiFi joins, 802.1X port authentication, and MACsec link encryption
 - **Undo/redo** — snapshot-based history for topology and config changes
 - **Persistence** — import/export configs, scenarios, scripts, and logs as JSON files
 - **WiFi** — a WiFi-only **laptop** that associates to an **access point** (a transparent L2 bridge) over a matching **SSID** (with an optional password); the wireless link is drawn dotted, and ARP/DHCP/IP work through the AP onto the wired LAN. `associate <laptop>` animates the real **802.11 join** — probe / authentication / association, plus the WPA2 4-way (EAPOL) key handshake on a secured network. A **wrong password** still associates but fails the key handshake (the AP deauthenticates), leaving the link unauthenticated and carrying no data until the password is fixed

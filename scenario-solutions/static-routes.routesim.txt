@@ -1,0 +1,11 @@
+# Static routes  ·  scenario id: static-routes
+#
+# Two offices connect over a serial link (10.0.0.0/24) but neither router knows about the other's LAN. Add a static route on each router so PC-A and PC-B can reach each other.
+#
+# Loads the scenario, applies the solution, and checks the goal. Paste into
+# the command console (the >_ toolbar button) or run with routesim.run(...).
+
+scenario load static-routes
+route R1 192.168.2.0/24 10.0.0.2
+route R2 192.168.1.0/24 10.0.0.1
+scenario check

@@ -1,0 +1,11 @@
+# DHCP service  ·  scenario id: dhcp-service
+#
+# PC-A has no address and nothing is cabled. Wire PC-A to SW-1 and SW-1 to R1, then obtain a lease (R1 serves 192.168.50.0/24 on its LAN interface).
+#
+# Loads the scenario, applies the solution, and checks the goal. Paste into
+# the command console (the >_ toolbar button) or run with routesim.run(...).
+
+scenario load dhcp-service
+link PC-A SW-1
+link SW-1 R1
+scenario check

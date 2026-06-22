@@ -1,0 +1,11 @@
+# Name service (DNS)  ·  scenario id: dns-service
+#
+# PC-A should reach the web server by NAME, not address. Point PC-A at the nameserver (`echo nameserver 192.168.1.53 > /etc/resolv.conf` in its terminal), then add an A-record on SRV-1 (`echo address=/web.corp/192.168.1.80 >> /etc/dnsmasq.conf`).
+#
+# Loads the scenario, applies the solution, and checks the goal. Paste into
+# the command console (the >_ toolbar button) or run with routesim.run(...).
+
+scenario load dns-service
+cli PC-A echo nameserver 192.168.1.53 > /etc/resolv.conf
+cli SRV-1 echo address=/web.corp/192.168.1.80 >> /etc/dnsmasq.conf
+scenario check

@@ -1,0 +1,10 @@
+# DHCP from the server  ·  scenario id: server-dhcp
+#
+# Bring PC-A up with zero manual configuration. Enable DHCP on SRV-1 (`echo dhcp-range=192.168.1.100,192.168.1.200 >> /etc/dnsmasq.conf`) — dnsmasq hands out address, mask, and nameserver in one exchange, after which PC-A must reach web.corp by name.
+#
+# Loads the scenario, applies the solution, and checks the goal. Paste into
+# the command console (the >_ toolbar button) or run with routesim.run(...).
+
+scenario load server-dhcp
+cli SRV-1 echo dhcp-range=192.168.1.100,192.168.1.200 >> /etc/dnsmasq.conf
+scenario check

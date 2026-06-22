@@ -1,0 +1,10 @@
+# Troubleshoot: name vs address  ·  scenario id: troubleshoot-dns
+#
+# The classic complaint: 192.168.1.80 pings fine but web.corp does not. PC-A's resolver is fine — inspect SRV-1's records (`cat /etc/dnsmasq.conf`) and fix the stale A-record (appending `address=/web.corp/<correct ip>` replaces it).
+#
+# Loads the scenario, applies the solution, and checks the goal. Paste into
+# the command console (the >_ toolbar button) or run with routesim.run(...).
+
+scenario load troubleshoot-dns
+cli SRV-1 echo address=/web.corp/192.168.1.80 >> /etc/dnsmasq.conf
+scenario check

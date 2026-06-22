@@ -1,0 +1,11 @@
+# Troubleshoot: overzealous firewall  ·  scenario id: troubleshoot-firewall
+#
+# A change request asked for Telnet (23) to be blocked, but since the change users cannot SSH to SRV-1 — and Telnet still works. Inspect FW-1's rules (iptables -L --line-numbers) and fix them.
+#
+# Loads the scenario, applies the solution, and checks the goal. Paste into
+# the command console (the >_ toolbar button) or run with routesim.run(...).
+
+scenario load troubleshoot-firewall
+cli FW-1 iptables -D FORWARD 1
+cli FW-1 iptables -A FORWARD -p tcp --dport 23 -j DROP
+scenario check

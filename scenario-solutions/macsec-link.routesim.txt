@@ -1,0 +1,10 @@
+# MACsec the inter-switch trunk  ·  scenario id: macsec-link
+#
+# Compliance requires the SW-1 ↔ SW-2 trunk to be encrypted with MACsec. SW-1 is already keyed must-secure with the CAK CAKKEY0123456789, but its peer SW-2 has no matching key — so the link has failed and PC-A cannot reach PC-B. Configure SW-2 with the same key and mode to bring the now-encrypted trunk up.
+#
+# Loads the scenario, applies the solution, and checks the goal. Paste into
+# the command console (the >_ toolbar button) or run with routesim.run(...).
+
+scenario load macsec-link
+macsec SW-2 SW-1 CAKKEY0123456789 must
+scenario check

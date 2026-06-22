@@ -1,0 +1,11 @@
+# 802.1X port authentication  ·  scenario id: port-auth-8021x
+#
+# SW-1's port to PC-1 is locked with 802.1X (`auto`): until PC-1 authenticates, the port carries no data, so PC-1 cannot reach PC-2. The RADIUS server RAD already holds the account (identity "emp01", password "Net$2024"). Give PC-1 those supplicant credentials, then authenticate the port (`run dot1x PC-1`) so it opens and PC-1 can ping PC-2.
+#
+# Loads the scenario, applies the solution, and checks the goal. Paste into
+# the command console (the >_ toolbar button) or run with routesim.run(...).
+
+scenario load port-auth-8021x
+supplicant PC-1 emp01 Net$2024
+run dot1x PC-1
+scenario check

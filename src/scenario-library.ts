@@ -18,6 +18,12 @@
  *  14. dns-service          stand up dnsmasq so names resolve
  *  15. troubleshoot-dns     the IP pings but the name doesn't
  *  16. server-dhcp          zero-touch client config from dnsmasq DHCP
+ *  17. wifi-join            join a secured WiFi network from a new laptop
+ *  18. troubleshoot-wifi    laptop "associated" but offline — a wrong WiFi password
+ *  19. wifi-dhcp            join an open hotspot, then pull a lease over the air
+ *  20. port-auth-8021x      authenticate an 802.1X `auto` switch port to pass data
+ *  21. macsec-link          key a must-secure trunk to bring the encrypted link up
+ *  22. secure-access        capstone: 802.1X auth that also derives the MACsec key
  *
  * Data only — evaluation lives in scenarios.ts. Type-only import: no cycle.
  */
@@ -445,6 +451,149 @@ const serverDhcp: Scenario = {
   ],
 };
 
+const wifiJoin: Scenario = {
+  id: "wifi-join",
+  name: "Join a WiFi network",
+  objective: "A new laptop LT-1 is not yet on the office WiFi. The access point AP-1 broadcasts the secured SSID \"Acme-Corp\" with password \"marigold42\". Set LT-1's SSID and password to match, then associate it to AP-1 so it can reach the wired server SRV-1.",
+  topology: {
+    version: 1,
+    devices: [
+      { id: "wj-lt", type: "laptop", name: "LT-1", x: -280, y: 200, config: { ipv4Address: "192.168.1.30", gatewayIpv4Address: "192.168.1.1", macAddress: "02:00:00:00:21:01", ssid: "", wifiPassword: "" } },
+      { id: "wj-ap", type: "access-point", name: "AP-1", x: -180, y: 0, config: { managed: false, ethernetPorts: 1, ssid: "Acme-Corp", wifiPassword: "marigold42", macTable: [] } },
+      { id: "wj-sw", type: "switch", name: "SW-1", x: 60, y: 0, config: { managed: false, ethernetPorts: 4, macTable: [] } },
+      { id: "wj-srv", type: "computer", name: "SRV-1", x: 300, y: 0, config: { ipv4Address: "192.168.1.20", gatewayIpv4Address: "192.168.1.1", macAddress: "02:00:00:00:21:20", arpTable: [], openPorts: [80] } },
+    ],
+    links: [
+      { from: "wj-ap", to: "wj-sw" },
+      { from: "wj-srv", to: "wj-sw" },
+    ],
+  },
+  checks: [
+    { kind: "link", a: "LT-1", b: "AP-1", label: "LT-1 is associated to AP-1" },
+    { kind: "ping", from: "LT-1", to: "SRV-1", label: "LT-1 can reach SRV-1" },
+    { kind: "tcp", from: "LT-1", to: "SRV-1", port: 80, label: "LT-1 can reach the web port (80)" },
+  ],
+};
+
+const troubleshootWifi: Scenario = {
+  id: "troubleshoot-wifi",
+  name: "Troubleshoot: wrong WiFi password",
+  objective: "LT-1 shows as associated to the Acme-Guest WiFi but cannot reach SRV-1. The classic symptom of a wrong saved password — the network is \"Acme-Guest\" with password \"tulip-2024\". Re-join LT-1 with the correct credentials.",
+  topology: {
+    version: 1,
+    devices: [
+      { id: "tw-lt", type: "laptop", name: "LT-1", x: -300, y: 180, config: { ipv4Address: "192.168.1.10", gatewayIpv4Address: "", macAddress: "02:00:00:00:22:0A", arpTable: [], ssid: "Acme-Guest", wifiPassword: "hunter2" } },
+      { id: "tw-ap", type: "access-point", name: "AP-1", x: -180, y: 0, config: { managed: false, ethernetPorts: 1, ssid: "Acme-Guest", wifiPassword: "tulip-2024", macTable: [] } },
+      { id: "tw-sw", type: "switch", name: "SW-1", x: 60, y: 0, config: { managed: false, ethernetPorts: 8, macTable: [] } },
+      { id: "tw-srv", type: "computer", name: "SRV-1", x: 300, y: 0, config: { ipv4Address: "192.168.1.20", gatewayIpv4Address: "", macAddress: "02:00:00:00:22:1F", arpTable: [], openPorts: [80] } },
+    ],
+    links: [
+      { from: "tw-ap", to: "tw-lt", wireless: true },
+      { from: "tw-ap", to: "tw-sw" },
+      { from: "tw-sw", to: "tw-srv" },
+    ],
+  },
+  checks: [
+    { kind: "config", device: "LT-1", field: "wifiPassword", equals: "tulip-2024", label: "LT-1 has the correct WiFi password" },
+    { kind: "ping", from: "LT-1", to: "SRV-1", label: "LT-1 can reach SRV-1 over the WiFi" },
+    { kind: "tcp", from: "LT-1", to: "SRV-1", port: 80, label: "LT-1 can reach the web server (80)" },
+  ],
+};
+
+const wifiDhcp: Scenario = {
+  id: "wifi-dhcp",
+  name: "WiFi hotspot + DHCP",
+  objective: "LT-1 has no address and is not on the WiFi. AP-1 broadcasts the open guest network \"Cafe-Guest\", bridged through SW-1 to SRV-1 (dnsmasq, serving 192.168.7.100-200). Join the hotspot (set LT-1's SSID to \"Cafe-Guest\", then associate it to AP-1) so LT-1 pulls an address automatically over the air.",
+  topology: {
+    version: 1,
+    devices: [
+      { id: "wd-lt", type: "laptop", name: "LT-1", x: -300, y: 160, config: { ipv4Address: "", gatewayIpv4Address: "", macAddress: "02:00:00:00:23:0A", arpTable: [], ssid: "RouteSim" } },
+      { id: "wd-ap", type: "access-point", name: "AP-1", x: -300, y: 0, config: { managed: false, ethernetPorts: 1, ssid: "Cafe-Guest", macTable: [] } },
+      { id: "wd-sw", type: "switch", name: "SW-1", x: 0, y: 0, config: { managed: false, ethernetPorts: 8, macTable: [] } },
+      { id: "wd-srv", type: "server", name: "SRV-1", x: 320, y: 0, config: { ipv4Address: "192.168.7.1", gatewayIpv4Address: "", macAddress: "02:00:00:00:23:35", arpTable: [], dnsmasqRunning: true, dhcpRangeStart: "192.168.7.100", dhcpRangeEnd: "192.168.7.200", dnsRecords: [] } },
+    ],
+    links: [
+      { from: "wd-ap", to: "wd-sw" },
+      { from: "wd-srv", to: "wd-sw" },
+    ],
+  },
+  checks: [
+    { kind: "config", device: "LT-1", field: "ssid", equals: "Cafe-Guest", label: "LT-1 is set to the Cafe-Guest SSID" },
+    { kind: "link", a: "LT-1", b: "AP-1", label: "LT-1 is associated to AP-1" },
+    { kind: "dhcp", host: "LT-1", label: "LT-1 obtains a DHCP lease over the air" },
+  ],
+};
+
+const portAuth8021x: Scenario = {
+  id: "port-auth-8021x",
+  name: "802.1X port authentication",
+  objective: "SW-1's port to PC-1 is locked with 802.1X (`auto`): until PC-1 authenticates, the port carries no data, so PC-1 cannot reach PC-2. The RADIUS server RAD already holds the account (identity \"emp01\", password \"Net$2024\"). Give PC-1 those supplicant credentials, then authenticate the port (`run dot1x PC-1`) so it opens and PC-1 can ping PC-2.",
+  topology: {
+    version: 1,
+    devices: [
+      { id: "px-pc1", type: "computer", name: "PC-1", x: -300, y: 0, config: { ipv4Address: "10.10.0.10", gatewayIpv4Address: "", macAddress: "02:00:00:00:24:01", arpTable: [] } },
+      { id: "px-sw", type: "switch", name: "SW-1", x: 0, y: 0, config: { managed: true, ethernetPorts: 8, macTable: [], vlans: [], portVlans: {}, portModes: {}, portAuth: { Ethernet1: "auto" } } },
+      { id: "px-pc2", type: "computer", name: "PC-2", x: 300, y: 0, config: { ipv4Address: "10.10.0.20", gatewayIpv4Address: "", macAddress: "02:00:00:00:24:02", arpTable: [] } },
+      { id: "px-rad", type: "server", name: "RAD", x: 0, y: 240, config: { ipv4Address: "10.10.0.53", gatewayIpv4Address: "", macAddress: "02:00:00:00:24:53", arpTable: [], radius: { users: [{ identity: "emp01", password: "Net$2024" }] } } },
+    ],
+    links: [
+      { from: "px-sw", to: "px-pc1", fromPort: 1 },
+      { from: "px-sw", to: "px-pc2", fromPort: 2 },
+      { from: "px-sw", to: "px-rad", fromPort: 3 },
+    ],
+  },
+  checks: [
+    { kind: "ping", from: "PC-1", to: "PC-2", label: "PC-1 can reach PC-2 once the port is authenticated" },
+  ],
+};
+
+const macsecLink: Scenario = {
+  id: "macsec-link",
+  name: "MACsec the inter-switch trunk",
+  objective: "Compliance requires the SW-1 ↔ SW-2 trunk to be encrypted with MACsec. SW-1 is already keyed must-secure with the CAK CAKKEY0123456789, but its peer SW-2 has no matching key — so the link has failed and PC-A cannot reach PC-B. Configure SW-2 with the same key and mode to bring the now-encrypted trunk up.",
+  topology: {
+    version: 1,
+    devices: [
+      { id: "ms-a", type: "computer", name: "PC-A", x: -440, y: 0, config: { ipv4Address: "192.168.5.10", gatewayIpv4Address: "", macAddress: "02:00:00:00:25:0A", arpTable: [] } },
+      { id: "ms-sw1", type: "switch", name: "SW-1", x: -150, y: 0, config: { managed: true, ethernetPorts: 8, macTable: [], macsec: { "ms-sw2": { cak: "CAKKEY0123456789", mode: "must" } } } },
+      { id: "ms-sw2", type: "switch", name: "SW-2", x: 150, y: 0, config: { managed: true, ethernetPorts: 8, macTable: [] } },
+      { id: "ms-b", type: "computer", name: "PC-B", x: 440, y: 0, config: { ipv4Address: "192.168.5.20", gatewayIpv4Address: "", macAddress: "02:00:00:00:25:0B", arpTable: [] } },
+    ],
+    links: [
+      { from: "ms-a", to: "ms-sw1", fromPort: 1 },
+      { from: "ms-sw1", to: "ms-sw2", fromPort: 2 },
+      { from: "ms-sw2", to: "ms-b", fromPort: 1 },
+    ],
+  },
+  checks: [
+    { kind: "ping", from: "PC-A", to: "PC-B", label: "PC-A can reach PC-B across the encrypted trunk" },
+    { kind: "ping", from: "PC-B", to: "PC-A", label: "PC-B can reach PC-A across the encrypted trunk" },
+  ],
+};
+
+const secureAccess: Scenario = {
+  id: "secure-access",
+  name: "Secure access (802.1X + MACsec)",
+  objective: "Capstone: PC-1 sits on an `auto` 802.1X port of SW-1, and both ends of the PC-1 ↔ SW-1 link key MACsec from that 802.1X exchange (must-secure). PC-1 has no supplicant credentials, so the port stays unauthorised and the link cannot derive a key — PC-1 cannot reach PC-2. Give PC-1 the RADIUS account (emp01 / Net$2024), then run 802.1X (`run dot1x PC-1`): the single exchange authorises the port AND derives the MACsec key, bringing the encrypted link up.",
+  topology: {
+    version: 1,
+    devices: [
+      { id: "sa-pc1", type: "computer", name: "PC-1", x: -260, y: -120, config: { ipv4Address: "10.20.0.10", gatewayIpv4Address: "", macAddress: "02:00:00:00:26:01", arpTable: [], macsec: { "sa-sw": { derive: true, mode: "must" } } } },
+      { id: "sa-sw", type: "switch", name: "SW-1", x: 0, y: 0, config: { managed: true, ethernetPorts: 8, macTable: [], vlans: [], portVlans: {}, portModes: {}, portAuth: { Ethernet1: "auto" }, macsec: { "sa-pc1": { derive: true, mode: "must" } } } },
+      { id: "sa-pc2", type: "computer", name: "PC-2", x: -260, y: 120, config: { ipv4Address: "10.20.0.20", gatewayIpv4Address: "", macAddress: "02:00:00:00:26:02", arpTable: [] } },
+      { id: "sa-rad", type: "server", name: "RAD", x: 220, y: 0, config: { ipv4Address: "10.20.0.2", gatewayIpv4Address: "", macAddress: "02:00:00:00:26:03", arpTable: [], radius: { users: [{ identity: "emp01", password: "Net$2024" }] } } },
+    ],
+    links: [
+      { from: "sa-pc1", to: "sa-sw", fromPort: 1 },
+      { from: "sa-sw", to: "sa-pc2", fromPort: 2 },
+      { from: "sa-sw", to: "sa-rad", fromPort: 3 },
+    ],
+  },
+  checks: [
+    { kind: "ping", from: "PC-1", to: "PC-2", label: "PC-1 reaches PC-2 over the authenticated, encrypted link" },
+  ],
+};
+
 export const CURRICULUM: Scenario[] = [
   vlanSegmentation,
   routerOnAStick,
@@ -461,4 +610,10 @@ export const CURRICULUM: Scenario[] = [
   dnsService,
   troubleshootDns,
   serverDhcp,
+  wifiJoin,
+  troubleshootWifi,
+  wifiDhcp,
+  portAuth8021x,
+  macsecLink,
+  secureAccess,
 ];

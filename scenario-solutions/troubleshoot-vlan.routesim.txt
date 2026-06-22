@@ -1,0 +1,10 @@
+# Troubleshoot: wrong VLAN  ·  scenario id: troubleshoot-vlan
+#
+# PC-W was re-cabled during maintenance and can no longer reach its team. All of Sales should be on VLAN 10 — find the misassigned switch port and fix it.
+#
+# Loads the scenario, applies the solution, and checks the goal. Paste into
+# the command console (the >_ toolbar button) or run with routesim.run(...).
+
+scenario load troubleshoot-vlan
+cli MSW-1 config vlan member add 10 Ethernet2
+scenario check

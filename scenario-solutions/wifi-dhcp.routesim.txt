@@ -1,0 +1,11 @@
+# WiFi hotspot + DHCP  ·  scenario id: wifi-dhcp
+#
+# LT-1 has no address and is not on the WiFi. AP-1 broadcasts the open guest network "Cafe-Guest", bridged through SW-1 to SRV-1 (dnsmasq, serving 192.168.7.100-200). Join the hotspot (set LT-1's SSID to "Cafe-Guest", then associate it to AP-1) so LT-1 pulls an address automatically over the air.
+#
+# Loads the scenario, applies the solution, and checks the goal. Paste into
+# the command console (the >_ toolbar button) or run with routesim.run(...).
+
+scenario load wifi-dhcp
+ssid LT-1 Cafe-Guest
+link LT-1 AP-1
+scenario check

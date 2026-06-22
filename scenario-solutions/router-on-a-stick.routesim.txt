@@ -1,0 +1,11 @@
+# Router on a stick  ·  scenario id: router-on-a-stick
+#
+# VLAN 10 and VLAN 20 are configured on MSW-1 with a trunk to RTR-1, but the router has no sub-interfaces. Give RTR-1 a dot1q sub-interface per VLAN (192.168.10.1 on VLAN 10, 192.168.20.1 on VLAN 20) so the VLANs can reach each other.
+#
+# Loads the scenario, applies the solution, and checks the goal. Paste into
+# the command console (the >_ toolbar button) or run with routesim.run(...).
+
+scenario load router-on-a-stick
+interface RTR-1 MSW-1 ip 192.168.10.1 vlan 10
+interface RTR-1 MSW-1 ip 192.168.20.1 vlan 20
+scenario check

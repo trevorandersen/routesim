@@ -16,7 +16,8 @@ committed scope — it's a menu for "what next".
 > **server device with DNS + DHCP via dnsmasq** (A-records, UDP/53 frames,
 > resolve-then-ping/connect, `/etc/resolv.conf`, server `dhcp-range` leases
 > with nameserver option 6, DNS through NAT) — with the curriculum now at
-> **16 scenarios**, every one carrying a tested reference solution. Plus the
+> **22 scenarios** (including WiFi joins, 802.1X port authentication, and MACsec
+> link encryption), every one carrying a tested reference solution. Plus the
 > **unified bottom dock**: per-device terminal sessions as tabs (own
 > scrollback/history, the router's CLI mode survives switching), with the
 > console and the sim log as sibling panes and a drag-resizable height — the

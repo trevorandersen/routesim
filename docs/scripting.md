@@ -126,6 +126,8 @@ Param keys and boolean values are case-insensitive. Adding a setting is a one-ro
 | `scenario goal` | Print the active scenario's objective + checklist. |
 | `scenario check` | Run the goal checks against the current topology. |
 
+Each scenario's worked answer is a runnable script in [`scenario-solutions/`](../scenario-solutions/) (`<id>.routesim.txt`) — it loads the scenario, applies the fix, and checks the goal, so `routesim.run(<contents>)` plays the whole solution through.
+
 ### View
 `select <ref>` · `tool <name>` · `theme <warm-light\|dark\|blueprint>` · `zoom <scale>` · `fit` · `help [command]`
 

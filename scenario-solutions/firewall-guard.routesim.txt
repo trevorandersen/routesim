@@ -1,0 +1,10 @@
+# Firewall: allow SSH, block Telnet  ·  scenario id: firewall-guard
+#
+# SRV-1 runs SSH (22) and Telnet (23). Configure FW-1 with iptables so Telnet from PC-A is blocked while SSH and ping keep working.
+#
+# Loads the scenario, applies the solution, and checks the goal. Paste into
+# the command console (the >_ toolbar button) or run with routesim.run(...).
+
+scenario load firewall-guard
+cli FW-1 iptables -A FORWARD -p tcp --dport 23 -j DROP
+scenario check

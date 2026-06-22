@@ -1,0 +1,24 @@
+# RIP convergence  ·  scenario id: rip-convergence
+#
+# Three routers in a chain, no routes between the end LANs. Enable RIP on R1, R2, and R3 (advertise each router's connected networks) so PC-A and PC-C can reach each other.
+#
+# Loads the scenario, applies the solution, and checks the goal. Paste into
+# the command console (the >_ toolbar button) or run with routesim.run(...).
+
+scenario load rip-convergence
+cli R1 enable
+cli R1 configure terminal
+cli R1 router rip
+cli R1 network 192.168.1.0/24
+cli R1 network 10.0.12.0/24
+cli R2 enable
+cli R2 configure terminal
+cli R2 router rip
+cli R2 network 10.0.12.0/24
+cli R2 network 10.0.23.0/24
+cli R3 enable
+cli R3 configure terminal
+cli R3 router rip
+cli R3 network 10.0.23.0/24
+cli R3 network 192.168.3.0/24
+scenario check

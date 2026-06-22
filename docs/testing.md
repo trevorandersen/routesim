@@ -91,7 +91,7 @@ describe("setSwitchPortVlan", () => {
 | `tests/terminal-commands.test.ts` | The command **dispatchers**, router mode machine, abbreviation + `?`, the host inspector-set commands (`ip link set`/`ip route del`/`rm resolv.conf`), `runDeviceCommand` (injected), and the **hostname** commands (host `hostname`/`hostnamectl`/`/etc/hostname`, router `hostname` in config mode, switch `config hostname` — each renames the device, with RFC-1123 validation) |
 | `tests/commands.test.ts` | The console command engine (verbs, headless runs, script round-trip) |
 | `tests/simulation.test.ts` | `l2Reachable`, `getVlanForDevice`, `buildPing/DhcpEvents` |
-| `tests/scenarios.test.ts` | Scenario loading/goal checks + positive-coordinate invariants |
+| `tests/scenarios.test.ts` | Scenario loading/goal checks, positive-coordinate invariants, and the **curriculum solvability** proof (every entry starts unsolved and passes after its reference solution in `SOLUTIONS`) |
 | `tests/io.test.ts` | JSON import/export round-trips |
 | `tests/settings-url.test.ts` | URL query-string settings: `parseSettingsFromUrl` (bool spellings incl. the silent-protocol params, theme/speed validation + clamping, ignored params) and the `buildSettingsQuery` inverse (diff-only emit + round-trip) |
 | `tests/macsec.test.ts` | MACsec (802.1AE): the per-peer CAK config, `macsecState` (secured / failed / open), the must-secure data gate, should-secure plaintext fallback, encrypted-frame capture, config round-trip, and the **802.1X-derived keying** (Phase 3 / MKA — a derive link secures only after `dot1x` authenticates, derive-vs-PSK is incompatible, JSON + script round-trip) |

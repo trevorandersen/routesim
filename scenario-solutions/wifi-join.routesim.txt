@@ -1,0 +1,11 @@
+# Join a WiFi network  ·  scenario id: wifi-join
+#
+# A new laptop LT-1 is not yet on the office WiFi. The access point AP-1 broadcasts the secured SSID "Acme-Corp" with password "marigold42". Set LT-1's SSID and password to match, then associate it to AP-1 so it can reach the wired server SRV-1.
+#
+# Loads the scenario, applies the solution, and checks the goal. Paste into
+# the command console (the >_ toolbar button) or run with routesim.run(...).
+
+scenario load wifi-join
+ssid LT-1 Acme-Corp marigold42
+link LT-1 AP-1
+scenario check

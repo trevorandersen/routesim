@@ -133,16 +133,26 @@ export function dot1xPortAuthorized(link: any): boolean {
   return !!link.dot1xAuthorized;
 }
 
-// MACsec (802.1AE) state of a link, from each end's per-peer CAK. "secured" =
-// both ends configured with a matching key; "failed" = a key mismatch, or a
-// must-secure end facing a peer with no MACsec; "open" = no MACsec in play (or a
-// should-secure end falling back to plaintext). Live — tracks key edits.
+// MACsec (802.1AE) state of a link, from each end's per-peer config. "secured" =
+// both ends agree on a key; "failed" = a key/method mismatch, or a must-secure
+// end facing a peer with no (or incompatible) MACsec; "open" = no MACsec in play
+// (or a should-secure end falling back to plaintext). Two keying methods: a
+// static pre-shared `cak` (both must match), or `derive` — keys bootstrapped
+// from a successful 802.1X exchange on this link (MKA), so the link secures only
+// once `link.dot1xAuthorized` is set. Live — tracks key edits and authentication.
 export function macsecState(link: any): "open" | "secured" | "failed" {
   const a = getDevice(link?.from), b = getDevice(link?.to);
   const aCfg = a?.config?.macsec?.[link?.to];
   const bCfg = b?.config?.macsec?.[link?.from];
   if (!aCfg && !bCfg) return "open";
-  if (aCfg && bCfg) return aCfg.cak === bCfg.cak ? "secured" : "failed";
+  if (aCfg && bCfg) {
+    const mustEither = aCfg.mode === "must" || bCfg.mode === "must";
+    if (aCfg.derive && bCfg.derive)       // 802.1X-derived keys: secured once the port has authenticated
+      return link.dot1xAuthorized ? "secured" : (mustEither ? "failed" : "open");
+    if (aCfg.derive || bCfg.derive)        // one end derives, the other a static PSK — incompatible
+      return mustEither ? "failed" : "open";
+    return aCfg.cak === bCfg.cak ? "secured" : "failed";   // matching pre-shared CAK
+  }
   const cfg = aCfg || bCfg;            // only one end wants MACsec
   return cfg!.mode === "must" ? "failed" : "open";
 }

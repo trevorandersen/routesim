@@ -135,7 +135,9 @@ function macsecPayload(config: any): any {
   if (!m || !Object.keys(m).length) return {};
   const out: any = {};
   for (const [peer, v] of Object.entries(m as Record<string, any>)) {
-    if (v?.cak) out[peer] = { cak: v.cak, mode: v.mode === "must" ? "must" : "should" };
+    const mode = v?.mode === "must" ? "must" : "should";
+    if (v?.derive) out[peer] = { derive: true, mode };
+    else if (v?.cak) out[peer] = { cak: v.cak, mode };
   }
   return Object.keys(out).length ? { macsec: out } : {};
 }

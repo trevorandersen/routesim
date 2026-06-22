@@ -255,14 +255,16 @@ function normalisePortAuth(raw: unknown): Record<string, "auto" | "force-authori
   return out;
 }
 
-// MACsec per-peer keys — keep only well-formed entries (a non-empty CAK and a
-// valid mode). Returns {} (spreads to nothing) when there's no MACsec config.
-function normaliseMacsec(raw: unknown): { macsec?: Record<string, { cak: string; mode: "must" | "should" }> } {
+// MACsec per-peer keys — keep only well-formed entries (a valid mode and either
+// a non-empty CAK or the 802.1X-derive flag). Returns {} (spreads to nothing)
+// when there's no MACsec config.
+function normaliseMacsec(raw: unknown): { macsec?: Record<string, { cak?: string; mode: "must" | "should"; derive?: boolean }> } {
   if (!raw || typeof raw !== "object") return {};
-  const out: Record<string, { cak: string; mode: "must" | "should" }> = {};
+  const out: Record<string, { cak?: string; mode: "must" | "should"; derive?: boolean }> = {};
   for (const [peer, v] of Object.entries(raw as Record<string, any>)) {
-    const cak = String(v?.cak || "");
-    if (cak) out[String(peer)] = { cak, mode: v?.mode === "must" ? "must" : "should" };
+    const mode = v?.mode === "must" ? "must" : "should";
+    if (v?.derive) out[String(peer)] = { derive: true, mode };
+    else { const cak = String(v?.cak || ""); if (cak) out[String(peer)] = { cak, mode }; }
   }
   return Object.keys(out).length ? { macsec: out } : {};
 }

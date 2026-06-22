@@ -431,18 +431,23 @@ function cmdMacsec(args: string[]): CommandResult {
   if (typeof dev === "string") return err(dev);
   const peer = resolveDevice(args[1]);
   if (typeof peer === "string") return err(peer);
-  const cak = args[2];
-  if (!cak) return err("Usage: macsec <device> <peer> <key> [must|should]  (key 'off' clears)");
+  const key = args[2];
+  if (!key) return err("Usage: macsec <device> <peer> <key|dot1x> [must|should]  (key 'off' clears)");
   ensureConfig(dev);
   const cfg: any = dev.config;
   cfg.macsec = cfg.macsec || {};
-  if (cak.toLowerCase() === "off" || cak.toLowerCase() === "none") {
+  if (key.toLowerCase() === "off" || key.toLowerCase() === "none") {
     delete cfg.macsec[peer.id];
     sync().render();
     return ok(`MACsec cleared on ${dev.name} ↔ ${peer.name}.`);
   }
   const mode = (args[3] || "should").toLowerCase() === "must" ? "must" : "should";
-  cfg.macsec[peer.id] = { cak, mode };
+  if (key.toLowerCase() === "dot1x" || key.toLowerCase() === "mka") {
+    cfg.macsec[peer.id] = { derive: true, mode };
+    sync().render();
+    return ok(`${dev.name} ↔ ${peer.name}: MACsec keyed from 802.1X (${mode}-secure).`);
+  }
+  cfg.macsec[peer.id] = { cak: key, mode };
   sync().render();
   return ok(`${dev.name} ↔ ${peer.name}: MACsec key set (${mode}-secure).`);
 }
@@ -752,7 +757,7 @@ const HELP: Record<string, string> = {
   portauth: "portauth <switch> <EthN> <auto|force-authorized|force-unauthorized>",
   radius: "radius <server> <identity> <password> (add a RADIUS user, enables the back end)",
   dot1x: "dot1x <host> (animate the 802.1X EAP/RADIUS exchange)",
-  macsec: "macsec <device> <peer> <key> [must|should] (802.1AE link encryption; 'off' clears)",
+  macsec: "macsec <device> <peer> <key|dot1x> [must|should] (802.1AE link encryption; 'dot1x' derives keys from 802.1X, 'off' clears)",
   interface: "interface <router> <peer> ip <addr> [vlan <tag>]", route: "route <router> <net/prefix> <nextHop>",
   vlan: "vlan <switch> add|del <id>", port: "port <switch> <EthN> vlan|mode|native|allowed ...",
   cli: "cli <device> <raw CLI command>",
@@ -850,7 +855,7 @@ export function exportTopologyScript(): string {
     // MACsec keys (any device, keyed by peer) — each end emits its own.
     for (const [peerId, m] of Object.entries((c.macsec || {}) as Record<string, any>)) {
       const peer = idToName.get(peerId);
-      if (peer) lines.push(`macsec ${d.name} ${peer} ${m.cak} ${m.mode}`);
+      if (peer) lines.push(`macsec ${d.name} ${peer} ${m.derive ? "dot1x" : m.cak} ${m.mode}`);
     }
   }
 

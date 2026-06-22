@@ -124,7 +124,7 @@ sync().render();
 - **ARP/MAC learning** — ping populates ARP tables on hosts and routers, MAC tables on switches
 - **Firewall editing** — add/delete iptables rules and set the chain policy from the Configure pane (routers: INPUT + FORWARD; firewall: FORWARD), or via the terminal
 - **802.1X port authentication** — `dot1x <host>` animates the supplicant → authenticator (switch `auto` port) → RADIUS server EAP/RADIUS exchange; an `auto` port blocks data until EAP-Success, and a bad credential gets Access-Reject → EAP-Failure
-- **MACsec (802.1AE)** — `macsec <device> <peer> <key>` encrypts a link with a pre-shared key; matching keys secure it (frames show encrypted in the packet list), a `must`-secure key mismatch drops traffic, and `should`-secure falls back to plaintext
+- **MACsec (802.1AE)** — `macsec <device> <peer> <key>` encrypts a link with a pre-shared key; matching keys secure it (frames show encrypted in the packet list), a `must`-secure key mismatch drops traffic, and `should`-secure falls back to plaintext. `macsec <device> <peer> dot1x` instead **derives the key from 802.1X** (MKA): the link stays unsecured until the port authenticates, then auto-keys from the EAP exchange — the full enterprise "authenticate, then encrypt" story
 - **Silent protocols** — optionally resolve ARP/DHCP/DNS instantly with no animation or packet-list rows, to keep the higher-layer flow uncluttered
 - **Scenarios** — a 16-entry guided curriculum with goal checking, every entry solvable (tested)
 - **Undo/redo** — snapshot-based history for topology and config changes

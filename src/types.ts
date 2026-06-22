@@ -258,11 +258,13 @@ export interface WifiConfig {
 }
 
 // MACsec (802.1AE) per-link key, keyed by the peer device id (so it's naturally
-// per-link and uniform across device types). `cak` is the pre-shared key; both
-// ends must match for the link to secure. `mode` "must" drops traffic when the
-// link can't be secured; "should" falls back to plaintext.
+// per-link and uniform across device types). Either a static pre-shared `cak`
+// (both ends must match for the link to secure), or `derive` — the key is
+// bootstrapped from a successful 802.1X exchange on the link (MKA), so no PSK is
+// configured and the link only secures after authentication. `mode` "must" drops
+// traffic when the link can't be secured; "should" falls back to plaintext.
 export interface MacsecConfig {
-  macsec?: Record<string, { cak: string; mode: "must" | "should" }>;
+  macsec?: Record<string, { cak?: string; mode: "must" | "should"; derive?: boolean }>;
 }
 
 // Permissive superset (every field optional) so existing `device.config?.x`

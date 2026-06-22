@@ -173,10 +173,17 @@ already drop data on an unauthenticated link while letting control frames pass).
   by `macsecState`): matching keys **secure** the link (frames render as
   "MACsec — Encrypted … (SecTAG, ICV)" in the packet list, drawn teal), a
   must-secure mismatch **fails** it (data dropped via the unified gate, drawn
-  red), and should-secure falls back to plaintext. **Later:** an animated MKA
-  handshake, the SecTAG/ICV as real frame fields, and inspector controls.
-- **Phase 3 (integration):** 802.1X-derived MACsec keys (auth the port, then
-  encrypt the link) — the full enterprise story.
+  red), and should-secure falls back to plaintext. **Later:** the SecTAG/ICV as
+  real frame fields, and inspector controls.
+- **Phase 3 (integration): shipped.** 802.1X-derived MACsec keys — the full
+  enterprise "authenticate, then encrypt" story. `macsec <device> <peer> dot1x
+  [must|should]` keys a link from the EAP exchange instead of a static CAK:
+  `macsecState` reports it unsecured (must-secure → failed, data blocked) until a
+  real 802.1X exchange sets `link.dot1xAuthorized`, then secured — so the link
+  auto-keys the moment the port authenticates (a derive end facing a static-PSK
+  end is an incompatible method). Reuses the unified gate and the `dot1x` flow
+  wholesale; no new frame type. **Later:** an animated MKA (Key Agreement)
+  handshake distributing the SAK, and the derived CAK/CKN shown in the inspector.
 Effort: moderate per phase; the unified gate is the keystone.
 
 ### OSPF

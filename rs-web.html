@@ -2671,8 +2671,22 @@ Full legal text: https://creativecommons.org/publicdomain/zero/1.0/legalcode</pr
       macAddress,
       arpTable: normaliseArpTable(device.config?.arpTable || device.arpTable || []),
       ...openPorts ? { openPorts } : {},
-      ...isValidIpv4(dnsServerIp) ? { dnsServerIp } : {}
+      ...isValidIpv4(dnsServerIp) ? { dnsServerIp } : {},
+      ...device.config?.dot1x?.identity ? { dot1x: { identity: String(device.config.dot1x.identity), password: String(device.config.dot1x.password ?? "") } } : {}
     };
+  }
+  function normalisePortAuth(raw) {
+    const out = {};
+    if (raw && typeof raw === "object") {
+      for (const [port, mode] of Object.entries(raw)) {
+        if (["auto", "force-authorized", "force-unauthorized"].includes(String(mode))) out[String(port)] = mode;
+      }
+    }
+    return out;
+  }
+  function normaliseRadiusUsers(raw) {
+    if (!Array.isArray(raw)) return [];
+    return raw.filter((u) => u && u.identity).map((u) => ({ identity: String(u.identity), password: String(u.password ?? "") }));
   }
   function normaliseDeviceConfig(device) {
     if (device.type === "hub") {
@@ -2691,7 +2705,8 @@ Full legal text: https://creativecommons.org/publicdomain/zero/1.0/legalcode</pr
           portModes: normalisePortModes(device.config?.portModes || device.portModes || {}),
           trunkAllowedVlans: normaliseTrunkAllowedVlans(device.config?.trunkAllowedVlans || {}),
           trunkNativeVlans: normalisePortVlans(device.config?.trunkNativeVlans || {})
-        } : {}
+        } : {},
+        ...device.config?.portAuth ? { portAuth: normalisePortAuth(device.config.portAuth) } : {}
       };
     }
     if (device.type === "router") {
@@ -2747,7 +2762,8 @@ Full legal text: https://creativecommons.org/publicdomain/zero/1.0/legalcode</pr
         dnsRecords: normaliseDnsRecords(device.config?.dnsRecords),
         ...rangeValid ? { dhcpRangeStart, dhcpRangeEnd } : {},
         ...isValidIpv4(dhcpRouterIp) ? { dhcpRouterIp } : {},
-        dhcpLeases: normaliseDhcpLeases(device.config?.dhcpLeases || [])
+        dhcpLeases: normaliseDhcpLeases(device.config?.dhcpLeases || []),
+        ...device.config?.radius?.users ? { radius: { users: normaliseRadiusUsers(device.config.radius.users) } } : {}
       };
     }
     if (device.type === "access-point") {
@@ -2957,7 +2973,8 @@ Full legal text: https://creativecommons.org/publicdomain/zero/1.0/legalcode</pr
       dhcpSuccess: false,
       dhcpAssignedIp: null,
       dhcpAssignedGateway: null,
-      wifiAssociated: false
+      wifiAssociated: false,
+      dot1xAuthorized: false
     },
     portSelection: null
   };
@@ -3529,6 +3546,30 @@ Full legal text: https://creativecommons.org/publicdomain/zero/1.0/legalcode</pr
     if (!ap || !laptop) return true;
     const apPassword = ap.config?.wifiPassword || "";
     return !apPassword || (laptop.config?.wifiPassword || "") === apPassword;
+  }
+  function dot1xLinkInfo(link) {
+    if (!link || link.wireless) return null;
+    const a = getDevice(link.from), b = getDevice(link.to);
+    const sw = a?.type === "switch" ? a : b?.type === "switch" ? b : null;
+    if (!sw?.config?.portAuth) return null;
+    const host = a?.type === "switch" ? b : a;
+    if (!host || !["computer", "laptop", "server"].includes(host.type)) return null;
+    const ports = linkedPortsFor(sw.id);
+    const idx = ports.findIndex((p) => p.peer?.id === host.id);
+    if (idx < 0) return null;
+    const port = `Ethernet${idx + 1}`;
+    return { sw, host, mode: sw.config.portAuth[port] || "force-authorized", port };
+  }
+  function dot1xPortAuthorized(link) {
+    const info = dot1xLinkInfo(link);
+    if (!info || info.mode === "force-authorized") return true;
+    if (info.mode === "force-unauthorized") return false;
+    return !!link.dot1xAuthorized;
+  }
+  function linkAuthorizedForData(link) {
+    if (link?.wireless && !wifiLinkAuthenticated(link)) return false;
+    if (!dot1xPortAuthorized(link)) return false;
+    return true;
   }
   function linkBlockReason(fromId, toId) {
     if (fromId === toId) return "Cannot link a device to itself.";
@@ -4292,6 +4333,10 @@ Full legal text: https://creativecommons.org/publicdomain/zero/1.0/legalcode</pr
     const payload = { type: "dot11", subtype, ssid };
     return { id: nextFrameId(), srcMac, dstMac, etherType: 34958, vlanTag: null, payload };
   }
+  function createDot1xFrame(srcMac, dstMac, subtype, identity) {
+    const payload = { type: "dot1x", subtype, ...identity ? { identity } : {} };
+    return { id: nextFrameId(), srcMac, dstMac, etherType: 34958, vlanTag: null, payload };
+  }
   function dot11Info(subtype, ssid) {
     switch (subtype) {
       case "probe-req":
@@ -4320,6 +4365,40 @@ Full legal text: https://creativecommons.org/publicdomain/zero/1.0/legalcode</pr
         return "Deauthentication, reason 15 (4-way handshake timeout / MIC failure)";
     }
   }
+  function dot1xInfo(subtype, identity) {
+    const id = identity ? ` (id "${identity}")` : "";
+    switch (subtype) {
+      case "eapol-start":
+        return { protocol: "EAPOL", info: "Start" };
+      case "eap-req-id":
+        return { protocol: "EAP", info: "Request, Identity" };
+      case "eap-resp-id":
+        return { protocol: "EAP", info: `Response, Identity${id}` };
+      case "radius-request":
+        return { protocol: "RADIUS", info: `Access-Request${id}` };
+      case "radius-accept":
+        return { protocol: "RADIUS", info: "Access-Accept" };
+      case "radius-reject":
+        return { protocol: "RADIUS", info: "Access-Reject" };
+      case "eap-success":
+        return { protocol: "EAP", info: "Success" };
+      case "eap-failure":
+        return { protocol: "EAP", info: "Failure" };
+    }
+  }
+  function dot1xLabel(subtype) {
+    const labels = {
+      "eapol-start": "EAPOL Start",
+      "eap-req-id": "EAP Req-ID",
+      "eap-resp-id": "EAP Resp-ID",
+      "radius-request": "RADIUS Req",
+      "radius-accept": "RADIUS Accept",
+      "radius-reject": "RADIUS Reject",
+      "eap-success": "EAP Success",
+      "eap-failure": "EAP Failure"
+    };
+    return labels[subtype];
+  }
   function dot11Label(subtype) {
     const labels = {
       "probe-req": "Probe Req",
@@ -4346,6 +4425,12 @@ Full legal text: https://creativecommons.org/publicdomain/zero/1.0/legalcode</pr
       const d = frame.payload;
       const eapol = d.subtype.startsWith("eapol");
       return { src: frame.srcMac, dst: frame.dstMac, protocol: eapol ? "EAPOL" : "802.11", info: dot11Info(d.subtype, d.ssid), tone: d.subtype === "deauth" ? "bad" : "dot11" };
+    }
+    if (frame.payload.type === "dot1x") {
+      const d = frame.payload;
+      const { protocol, info } = dot1xInfo(d.subtype, d.identity);
+      const bad = d.subtype === "radius-reject" || d.subtype === "eap-failure";
+      return { src: frame.srcMac, dst: frame.dstMac, protocol, info, tone: bad ? "bad" : "dot11" };
     }
     const ipv4 = frame.payload;
     const src = ipv4.srcIp;
@@ -4377,6 +4462,8 @@ Full legal text: https://creativecommons.org/publicdomain/zero/1.0/legalcode</pr
       label = frame.payload.operation === "request" ? "ARP Req" : "ARP Reply";
     } else if (frame.payload.type === "dot11") {
       label = dot11Label(frame.payload.subtype);
+    } else if (frame.payload.type === "dot1x") {
+      label = dot1xLabel(frame.payload.subtype);
     } else {
       const ipv4 = frame.payload;
       if (ipv4.payload.type === "dhcp") {
@@ -4400,6 +4487,10 @@ Full legal text: https://creativecommons.org/publicdomain/zero/1.0/legalcode</pr
   function frameColor(frame) {
     if (frame.payload.type === "arp") return "#f59e0b";
     if (frame.payload.type === "dot11") return "#14b8a6";
+    if (frame.payload.type === "dot1x") {
+      const bad = frame.payload.subtype === "radius-reject" || frame.payload.subtype === "eap-failure";
+      return bad ? "#ef4444" : "#14b8a6";
+    }
     const ipv4 = frame.payload;
     if (ipv4.payload.type === "dhcp") return "#a78bfa";
     if (ipv4.payload.type === "dns") return ipv4.payload.op === "response" && !ipv4.payload.address ? "#ef4444" : "#22d3ee";
@@ -4640,10 +4731,25 @@ Full legal text: https://creativecommons.org/publicdomain/zero/1.0/legalcode</pr
       pendingArp: {}
     };
   }
+  function buildDot1xEvents(host) {
+    if (!["computer", "laptop", "server"].includes(host.type)) return `${host.name} is not a host (802.1X supplicant).`;
+    const srcMac = host.config?.macAddress;
+    if (!srcMac) return `${host.name}: eth0 has no MAC address.`;
+    if (!host.config?.dot1x?.identity) return `${host.name} has no 802.1X identity \u2014 set one with "supplicant ${host.name} <identity> <password>".`;
+    for (const link of linksFor(host.id)) {
+      if (link.hidden || link.shutdown) continue;
+      const info = dot1xLinkInfo(link);
+      if (info && info.host.id === host.id) {
+        const start = createDot1xFrame(srcMac, "01:80:C2:00:00:03", "eapol-start", host.config.dot1x.identity);
+        return { events: [{ type: "frame_arrive", frame: start, deviceId: info.sw.id, fromDeviceId: host.id, linkId: link.id }], pendingArp: {} };
+      }
+    }
+    return `${host.name} is not on an 802.1X-controlled port (set one with "portauth <switch> <EthN> auto").`;
+  }
   function findFirstHop(source) {
     for (const link of linksFor(source.id)) {
       if (link.hidden || link.shutdown) continue;
-      if (!wifiLinkAuthenticated(link)) continue;
+      if (!linkAuthorizedForData(link)) continue;
       const isFrom = link.from === source.id;
       const peerId = isFrom ? link.to : link.from;
       const peer = getDevice(peerId);
@@ -5312,8 +5418,9 @@ Full legal text: https://creativecommons.org/publicdomain/zero/1.0/legalcode</pr
     sim.dhcpAssignedIp = null;
     sim.dhcpAssignedGateway = null;
     sim.wifiAssociated = false;
+    sim.dot1xAuthorized = false;
     const target = setup.dns ? setup.dns.name : targetIp;
-    const label = mode === "dhcp" ? "Requesting DHCP lease..." : mode === "tcp" ? `Opening TCP connection to ${target}:${sim.tcpTargetPort ?? "?"}...` : mode === "dns" ? `Resolving ${target}...` : mode === "associate" ? `Associating to ${target || "WiFi"}...` : `Simulating ping to ${target}...`;
+    const label = mode === "dhcp" ? "Requesting DHCP lease..." : mode === "tcp" ? `Opening TCP connection to ${target}:${sim.tcpTargetPort ?? "?"}...` : mode === "dns" ? `Resolving ${target}...` : mode === "associate" ? `Associating to ${target || "WiFi"}...` : mode === "dot1x" ? `802.1X authenticating ${target || "supplicant"}...` : `Simulating ping to ${target}...`;
     state.terminal.lines.push({ kind: "sim", text: label });
     if (!state.dock.open) openDock("simlog");
     syncTerminal();
@@ -5388,6 +5495,7 @@ Full legal text: https://creativecommons.org/publicdomain/zero/1.0/legalcode</pr
     sim.dhcpAssignedIp = null;
     sim.dhcpAssignedGateway = null;
     sim.wifiAssociated = false;
+    sim.dot1xAuthorized = false;
     const MAX_STEPS = 1e4;
     let guard = 0;
     processNextStep();
@@ -5398,7 +5506,7 @@ Full legal text: https://creativecommons.org/publicdomain/zero/1.0/legalcode</pr
     }
     if (sim.status !== "done") finishSimulation();
     return {
-      success: mode === "dhcp" ? sim.dhcpSuccess : mode === "tcp" ? sim.tcpSuccess : mode === "dns" ? sim.dnsResolvedIp != null : mode === "associate" ? sim.wifiAssociated : sim.pingSuccess,
+      success: mode === "dhcp" ? sim.dhcpSuccess : mode === "tcp" ? sim.tcpSuccess : mode === "dns" ? sim.dnsResolvedIp != null : mode === "associate" ? sim.wifiAssociated : mode === "dot1x" ? sim.dot1xAuthorized : sim.pingSuccess,
       refused: sim.tcpRefused,
       ttl: sim.pingTtl,
       responderIp: sim.pingResponderIp,
@@ -5579,7 +5687,8 @@ Full legal text: https://creativecommons.org/publicdomain/zero/1.0/legalcode</pr
         logStep(device, "sim-drop", `${linkName(link)} is administratively down \u2014 frame dropped`);
         continue;
       }
-      if (link.wireless && out.frame.payload.type !== "dot11" && !wifiLinkAuthenticated(link)) {
+      const ctrl = out.frame.payload.type === "dot11" || out.frame.payload.type === "dot1x";
+      if (!ctrl && !linkAuthorizedForData(link)) {
         logStep(device, "sim-drop", `${linkName(link)} is not authenticated \u2014 frame dropped`);
         continue;
       }
@@ -5682,6 +5791,78 @@ Full legal text: https://creativecommons.org/publicdomain/zero/1.0/legalcode</pr
     }
     return [];
   }
+  var PAE_GROUP_MAC = "01:80:C2:00:00:03";
+  function radiusServerFor(sw) {
+    for (const link of linksFor(sw.id)) {
+      if (link.hidden || link.shutdown) continue;
+      const peer = getDevice(link.from === sw.id ? link.to : link.from);
+      if (peer?.type === "server" && peer.config?.radius?.users?.length) return peer;
+    }
+    return null;
+  }
+  function supplicantByIdentity(sw, identity) {
+    for (const link of linksFor(sw.id)) {
+      if (link.hidden || link.shutdown || link.wireless) continue;
+      const host = getDevice(link.from === sw.id ? link.to : link.from);
+      if (host && (host.type === "computer" || host.type === "laptop" || host.type === "server") && host.config?.dot1x?.identity === identity) {
+        return { host, link };
+      }
+    }
+    return null;
+  }
+  function handleDot1x(device, frame, fromDeviceId) {
+    const p = frame.payload;
+    const identity = p.identity || "";
+    const back = (subtype, id) => fromDeviceId ? [{ frame: createDot1xFrame(frame.dstMac, frame.srcMac, subtype, id), toDeviceId: fromDeviceId }] : [];
+    switch (p.subtype) {
+      case "eapol-start":
+        logStep(device, "sim-dot1x", `EAPOL-Start \u2014 requesting the supplicant's identity`);
+        return back("eap-req-id");
+      case "eap-req-id": {
+        const id = device.config?.dot1x?.identity || "";
+        logStep(device, "sim-dot1x", `EAP Identity request \u2014 responding "${id}"`);
+        return back("eap-resp-id", id);
+      }
+      case "eap-resp-id": {
+        const server = radiusServerFor(device);
+        if (!server) {
+          logStep(device, "sim-drop", `802.1X: no RADIUS server reachable \u2014 cannot authenticate`);
+          return [];
+        }
+        logStep(device, "sim-dot1x", `Relaying identity "${identity}" to RADIUS (${server.name})`);
+        return [{ frame: createDot1xFrame(deriveMac(device.id), server.config?.macAddress || deriveMac(server.id), "radius-request", identity), toDeviceId: server.id }];
+      }
+      case "radius-request": {
+        const users = device.config?.radius?.users || [];
+        const supPw = state.devices.find((d) => d.config?.dot1x?.identity === identity)?.config?.dot1x?.password;
+        const ok2 = users.some((u) => u.identity === identity && u.password === supPw);
+        logStep(device, "sim-dot1x", `RADIUS Access-Request "${identity}" \u2014 ${ok2 ? "Access-Accept" : "Access-Reject"}`);
+        return back(ok2 ? "radius-accept" : "radius-reject", identity);
+      }
+      case "radius-accept": {
+        const sup = supplicantByIdentity(device, identity);
+        if (!sup) return [];
+        sup.link.dot1xAuthorized = true;
+        logStep(device, "sim-dot1x", `Access-Accept \u2014 authorising ${sup.host.name}`);
+        return [{ frame: createDot1xFrame(PAE_GROUP_MAC, sup.host.config?.macAddress || "", "eap-success", identity), toDeviceId: sup.host.id }];
+      }
+      case "radius-reject": {
+        const sup = supplicantByIdentity(device, identity);
+        if (!sup) return [];
+        sup.link.dot1xAuthorized = false;
+        logStep(device, "sim-drop", `Access-Reject \u2014 ${sup.host.name} stays unauthorized`);
+        return [{ frame: createDot1xFrame(PAE_GROUP_MAC, sup.host.config?.macAddress || "", "eap-failure", identity), toDeviceId: sup.host.id }];
+      }
+      case "eap-success":
+        state.simulation.dot1xAuthorized = true;
+        logStep(device, "sim-dot1x", `EAP-Success \u2014 the port is authorised, traffic may pass`);
+        return [];
+      case "eap-failure":
+        logStep(device, "sim-drop", `EAP-Failure \u2014 802.1X authentication denied (check the identity/password)`);
+        return [];
+    }
+    return [];
+  }
   function processAtComputer(device, frame, fromDeviceId) {
     const sim = state.simulation;
     const outgoing = [];
@@ -5689,6 +5870,7 @@ Full legal text: https://creativecommons.org/publicdomain/zero/1.0/legalcode</pr
     const config = device.config;
     if (!config) return outgoing;
     if (frame.payload.type === "dot11") return handleDot11(device, frame, fromDeviceId);
+    if (frame.payload.type === "dot1x") return handleDot1x(device, frame, fromDeviceId);
     frame = { ...frame, srcMac: normaliseMacAddress(frame.srcMac), dstMac: normaliseMacAddress(frame.dstMac) };
     if (frame.payload.type === "arp") {
       const arp = frame.payload;
@@ -5965,6 +6147,7 @@ Full legal text: https://creativecommons.org/publicdomain/zero/1.0/legalcode</pr
     const config = device.config;
     if (!config) return outgoing;
     if (device.type === "access-point" && frame.payload.type === "dot11") return handleDot11(device, frame, fromDeviceId);
+    if (frame.payload.type === "dot1x") return handleDot1x(device, frame, fromDeviceId);
     frame = { ...frame, srcMac: normaliseMacAddress(frame.srcMac), dstMac: normaliseMacAddress(frame.dstMac) };
     const ports = linkedPortsFor(device.id);
     const ingressIdx = fromDeviceId ? ports.findIndex((p) => p.peer.id === fromDeviceId) : -1;
@@ -10690,7 +10873,8 @@ Address: ${sim.dnsResolvedIp}`);
             dnsRecords: normaliseDnsRecords(config?.dnsRecords || []),
             ...config?.dhcpRangeStart && config?.dhcpRangeEnd ? { dhcpRangeStart: config.dhcpRangeStart, dhcpRangeEnd: config.dhcpRangeEnd } : {},
             ...config?.dhcpRouterIp ? { dhcpRouterIp: config.dhcpRouterIp } : {},
-            dhcpLeases: normaliseDhcpLeases(config?.dhcpLeases || [])
+            dhcpLeases: normaliseDhcpLeases(config?.dhcpLeases || []),
+            ...config?.radius?.users?.length ? { radius: { users: config.radius.users.map((u) => ({ identity: u.identity, password: u.password || "" })) } } : {}
           }
         } : {},
         ...type === "switch" ? {
@@ -10704,7 +10888,8 @@ Address: ${sim.dnsResolvedIp}`);
               portModes: normalisePortModes(config?.portModes || {}),
               trunkAllowedVlans: normaliseTrunkAllowedVlans(config?.trunkAllowedVlans || {}),
               trunkNativeVlans: normalisePortVlans(config?.trunkNativeVlans || {})
-            } : {}
+            } : {},
+            ...config?.portAuth && Object.keys(config.portAuth).length ? { portAuth: { ...config.portAuth } } : {}
           }
         } : {},
         ...type === "router" ? {
@@ -10767,7 +10952,8 @@ Address: ${sim.dnsResolvedIp}`);
       macAddress: config?.macAddress || "",
       arpTable: normaliseArpTable(config?.arpTable || []),
       ...Array.isArray(config?.openPorts) ? { openPorts: config.openPorts } : {},
-      ...config?.dnsServerIp ? { dnsServerIp: config.dnsServerIp } : {}
+      ...config?.dnsServerIp ? { dnsServerIp: config.dnsServerIp } : {},
+      ...config?.dot1x?.identity ? { dot1x: { identity: config.dot1x.identity, password: config.dot1x.password || "" } } : {}
     };
   }
   function routerInterfacesForPayload(device) {
@@ -11219,8 +11405,69 @@ Address: ${sim.dnsResolvedIp}`);
     startSimulation(setup, laptop.id, ssid, "associate");
     return ok(`Associating ${laptop.name} to "${ssid}"...`);
   }
+  function cmdSupplicant(args) {
+    const host = resolveDevice(args[0]);
+    if (typeof host === "string") return err(host);
+    if (!["computer", "laptop", "server"].includes(host.type)) return err(`${host.name} is not a host.`);
+    const identity = args[1], password = args[2];
+    if (!identity || password == null) return err("Usage: supplicant <host> <identity> <password>");
+    ensureConfig(host);
+    host.config.dot1x = { identity, password };
+    sync().syncPanel();
+    return ok(`${host.name} 802.1X supplicant: identity "${identity}".`);
+  }
+  function cmdPortAuth(args) {
+    const sw = resolveDevice(args[0]);
+    if (typeof sw === "string") return err(sw);
+    if (sw.type !== "switch") return err(`${sw.name} is not a switch.`);
+    const portMatch = (args[1] || "").trim().match(/^(?:ethernet|eth|e)?\s*(\d+)$/i);
+    const port = portMatch ? `Ethernet${portMatch[1]}` : "";
+    const mode = (args[2] || "").toLowerCase();
+    if (!port) return err("Usage: portauth <switch> <EthN> <auto|force-authorized|force-unauthorized>");
+    if (!["auto", "force-authorized", "force-unauthorized"].includes(mode)) return err("portauth mode: auto|force-authorized|force-unauthorized");
+    ensureConfig(sw);
+    sw.config.portAuth = sw.config.portAuth || {};
+    sw.config.portAuth[port] = mode;
+    sync().syncPanel();
+    return ok(`${sw.name} ${port} 802.1X port-control: ${mode}.`);
+  }
+  function cmdRadius(args) {
+    const server = resolveDevice(args[0]);
+    if (typeof server === "string") return err(server);
+    if (server.type !== "server") return err(`${server.name} is not a server.`);
+    const identity = args[1], password = args[2];
+    if (!identity || password == null) return err("Usage: radius <server> <identity> <password>");
+    ensureConfig(server);
+    const cfg = server.config;
+    cfg.radius = cfg.radius || { users: [] };
+    const existing = cfg.radius.users.find((u) => u.identity === identity);
+    if (existing) existing.password = password;
+    else cfg.radius.users.push({ identity, password });
+    sync().syncPanel();
+    return ok(`${server.name} RADIUS user "${identity}" set.`);
+  }
+  function cmdDot1x(args) {
+    const host = resolveDevice(args[0]);
+    if (typeof host === "string") return err(host);
+    const setup = buildDot1xEvents(host);
+    if (typeof setup === "string") return err(setup);
+    startSimulation(setup, host.id, host.config?.dot1x?.identity || "", "dot1x");
+    return ok(`802.1X authentication started for ${host.name}.`);
+  }
   function cmdRun(args) {
     const mode = (args[0] || "").toLowerCase();
+    if (mode === "dot1x") {
+      const host = resolveDevice(args[1]);
+      if (typeof host === "string") return err(host);
+      const setup = buildDot1xEvents(host);
+      if (typeof setup === "string") return err(setup);
+      const r = runSimulationHeadless(setup, host.id, "", "dot1x");
+      return {
+        ok: r.success,
+        data: r,
+        output: [r.success ? `dot1x: ${host.name} authenticated \u2014 port authorised (${r.steps} frames)` : `dot1x: authentication failed`]
+      };
+    }
     if (mode === "associate") {
       const laptop = resolveDevice(args[1]);
       if (typeof laptop === "string") return err(laptop);
@@ -11502,6 +11749,10 @@ Address: ${sim.dnsResolvedIp}`);
     ssid: cmdSsid,
     interface: cmdInterface,
     route: cmdRoute,
+    supplicant: cmdSupplicant,
+    portauth: cmdPortAuth,
+    radius: cmdRadius,
+    dot1x: cmdDot1x,
     vlan: cmdVlan,
     port: cmdPort,
     cli: cmdCli,
@@ -11553,6 +11804,10 @@ Address: ${sim.dnsResolvedIp}`);
     nameserver: "nameserver <host> <ip>",
     mac: "mac <host> <addr>",
     ssid: "ssid <laptop|access-point> <name> [password] (omit password = open)",
+    supplicant: "supplicant <host> <identity> <password> (set 802.1X credentials)",
+    portauth: "portauth <switch> <EthN> <auto|force-authorized|force-unauthorized>",
+    radius: "radius <server> <identity> <password> (add a RADIUS user, enables the back end)",
+    dot1x: "dot1x <host> (animate the 802.1X EAP/RADIUS exchange)",
     interface: "interface <router> <peer> ip <addr> [vlan <tag>]",
     route: "route <router> <net/prefix> <nextHop>",
     vlan: "vlan <switch> add|del <id>",
@@ -11624,14 +11879,19 @@ Address: ${sim.dnsResolvedIp}`);
         if (c.dhcpRangeStart && c.dhcpRangeEnd) lines.push(`cli ${d.name} echo dhcp-range=${c.dhcpRangeStart},${c.dhcpRangeEnd} >> /etc/dnsmasq.conf`);
         if (c.dhcpRouterIp) lines.push(`cli ${d.name} echo dhcp-option=option:router,${c.dhcpRouterIp} >> /etc/dnsmasq.conf`);
         if (d.type === "server" && c.dnsmasqRunning === false) lines.push(`cli ${d.name} systemctl stop dnsmasq`);
-      } else if (d.type === "switch" && c.managed) {
-        for (const v of c.vlans || []) if (v.id !== 1) lines.push(`vlan ${d.name} add ${v.id}`);
-        for (const [port, mode] of Object.entries(c.portModes || {})) lines.push(`port ${d.name} ${port} mode ${mode}`);
-        for (const [port, id] of Object.entries(c.portVlans || {})) lines.push(`port ${d.name} ${port} vlan ${id}`);
-        for (const [port, id] of Object.entries(c.trunkNativeVlans || {})) lines.push(`port ${d.name} ${port} native ${id}`);
-        for (const [port, ids] of Object.entries(c.trunkAllowedVlans || {})) {
-          for (const id of ids) lines.push(`port ${d.name} ${port} allowed add ${id}`);
+        if (c.dot1x?.identity) lines.push(`supplicant ${d.name} ${c.dot1x.identity} ${c.dot1x.password || ""}`.trimEnd());
+        for (const u of c.radius?.users || []) lines.push(`radius ${d.name} ${u.identity} ${u.password || ""}`.trimEnd());
+      } else if (d.type === "switch") {
+        if (c.managed) {
+          for (const v of c.vlans || []) if (v.id !== 1) lines.push(`vlan ${d.name} add ${v.id}`);
+          for (const [port, mode] of Object.entries(c.portModes || {})) lines.push(`port ${d.name} ${port} mode ${mode}`);
+          for (const [port, id] of Object.entries(c.portVlans || {})) lines.push(`port ${d.name} ${port} vlan ${id}`);
+          for (const [port, id] of Object.entries(c.trunkNativeVlans || {})) lines.push(`port ${d.name} ${port} native ${id}`);
+          for (const [port, ids] of Object.entries(c.trunkAllowedVlans || {})) {
+            for (const id of ids) lines.push(`port ${d.name} ${port} allowed add ${id}`);
+          }
         }
+        for (const [port, mode] of Object.entries(c.portAuth || {})) lines.push(`portauth ${d.name} ${port} ${mode}`);
       } else if (d.type === "router") {
         for (const i of c.interfaces || []) {
           const peer = idToName.get(i.peerId);

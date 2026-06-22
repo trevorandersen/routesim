@@ -116,7 +116,8 @@ export const state: AppState = {
     dhcpSuccess: false,
     dhcpAssignedIp: null,
     dhcpAssignedGateway: null,
-    wifiAssociated: false
+    wifiAssociated: false,
+    dot1xAuthorized: false
   },
   portSelection: null
 };

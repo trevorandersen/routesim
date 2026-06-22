@@ -1,10 +1,10 @@
-import type { EthernetFrame, ArpPayload, Ipv4Payload, DhcpPayload, TcpPayload, DnsPayload, Dot11Payload, NatEntry, SimEvent, SimLogEntry, ActiveTransit, FrameHistoryEntry, RouteEntry, Device, DeviceType, FirewallRule, FirewallTarget } from "./types";
+import type { EthernetFrame, ArpPayload, Ipv4Payload, DhcpPayload, TcpPayload, DnsPayload, Dot11Payload, Dot1xPayload, NatEntry, SimEvent, SimLogEntry, ActiveTransit, FrameHistoryEntry, RouteEntry, Device, DeviceType, FirewallRule, FirewallTarget } from "./types";
 import { state, pushUndo, sync } from "./state";
 import { dom } from "./dom";
-import { getDevice, linkedPortsFor, routerInterfacesWithNames, linkName, linkById, linksFor, wifiLinkAuthenticated } from "./devices";
+import { getDevice, linkedPortsFor, routerInterfacesWithNames, linkName, linkById, linksFor, linkAuthorizedForData } from "./devices";
 import { normalisePortVlans, normalisePortModes, normaliseTrunkAllowedVlans, normaliseArpTable, normaliseMacTable, normaliseDhcpLeases, normaliseStaticRoutes, ensureConfig } from "./normalise";
-import { sameSubnet, prefixOf, isValidIpv4, escapeHtml, ipv4ToInt, intToIpv4, normaliseMacAddress } from "./utils";
-import { createArpRequest, createArpReply, createIcmpEchoRequest, createIcmpEchoReply, createIcmpTimeExceeded, createDhcpOffer, createDhcpRequest, createDhcpAck, createTcpSegment, createDnsResponse, createDot11Frame, BROADCAST_MAC, frameLabel, packetColumns } from "./frame";
+import { sameSubnet, prefixOf, isValidIpv4, escapeHtml, ipv4ToInt, intToIpv4, normaliseMacAddress, deriveMac } from "./utils";
+import { createArpRequest, createArpReply, createIcmpEchoRequest, createIcmpEchoReply, createIcmpTimeExceeded, createDhcpOffer, createDhcpRequest, createDhcpAck, createTcpSegment, createDnsResponse, createDot11Frame, createDot1xFrame, BROADCAST_MAC, frameLabel, packetColumns } from "./frame";
 import { terminalLine, terminalLineFor, sessionFor, syncTerminal, openDock, syncSimLogBadge } from "./terminal";
 import { buildPingEvents, buildResolveEvents, buildDhcpEvents, findPingTarget } from "./simulation";
 import type { PingSetup } from "./simulation";
@@ -15,7 +15,7 @@ export { buildRoutingTable, routingLookup, runRipConvergence } from "./routing";
 
 // ─── Public API ──────────────────────────────────────────────────────────────
 
-export function startSimulation(setup: PingSetup, originDeviceId: string, targetIp: string, mode: "ping" | "dhcp" | "tcp" | "dns" | "associate" = "ping", targetPort: number | null = null): void {
+export function startSimulation(setup: PingSetup, originDeviceId: string, targetIp: string, mode: "ping" | "dhcp" | "tcp" | "dns" | "associate" | "dot1x" = "ping", targetPort: number | null = null): void {
   // Run RIP convergence before simulation to populate learned routes
   runRipConvergence();
   pushUndo();
@@ -65,11 +65,13 @@ export function startSimulation(setup: PingSetup, originDeviceId: string, target
   sim.dhcpAssignedIp = null;
   sim.dhcpAssignedGateway = null;
   sim.wifiAssociated = false;
+  sim.dot1xAuthorized = false;
   const target = setup.dns ? setup.dns.name : targetIp;
   const label = mode === "dhcp" ? "Requesting DHCP lease..."
     : mode === "tcp" ? `Opening TCP connection to ${target}:${sim.tcpTargetPort ?? "?"}...`
     : mode === "dns" ? `Resolving ${target}...`
     : mode === "associate" ? `Associating to ${target || "WiFi"}...`
+    : mode === "dot1x" ? `802.1X authenticating ${target || "supplicant"}...`
     : `Simulating ping to ${target}...`;
   state.terminal.lines.push({ kind: "sim", text: label });
   // Surface the hop-by-hop log: open the dock on the Sim Log pane if nothing
@@ -145,7 +147,7 @@ export interface SimResult {
 // and returns the result plus the hop-by-hop log. Reuses the same process handlers as
 // the animated path; powers the console `run` command, window.routesim, and tests.
 export function runSimulationHeadless(
-  setup: PingSetup, originDeviceId: string, targetIp: string, mode: "ping" | "dhcp" | "tcp" | "dns" | "associate" = "ping", targetPort: number | null = null
+  setup: PingSetup, originDeviceId: string, targetIp: string, mode: "ping" | "dhcp" | "tcp" | "dns" | "associate" | "dot1x" = "ping", targetPort: number | null = null
 ): SimResult {
   runRipConvergence();
   const sim = state.simulation;
@@ -176,6 +178,7 @@ export function runSimulationHeadless(
   sim.dhcpAssignedIp = null;
   sim.dhcpAssignedGateway = null;
   sim.wifiAssociated = false;
+  sim.dot1xAuthorized = false;
 
   // Drain the event queue, completing each batch of transits instantly. processNextStep
   // recurses internally while status === "running" and events have no transits, and calls
@@ -197,6 +200,7 @@ export function runSimulationHeadless(
       : mode === "tcp" ? sim.tcpSuccess
       : mode === "dns" ? sim.dnsResolvedIp != null
       : mode === "associate" ? sim.wifiAssociated
+      : mode === "dot1x" ? sim.dot1xAuthorized
       : sim.pingSuccess,
     refused: sim.tcpRefused,
     ttl: sim.pingTtl,
@@ -452,9 +456,11 @@ function processNextStep(): void {
       logStep(device, "sim-drop", `${linkName(link)} is administratively down — frame dropped`);
       continue;
     }
-    // A wrong-password association passes the join handshake (dot11) but no data —
-    // it never authenticated, so the AP/client won't forward IP/ARP across it.
-    if (link.wireless && out.frame.payload.type !== "dot11" && !wifiLinkAuthenticated(link)) {
+    // A link that hasn't authenticated (a wrong-password WiFi association, or an
+    // 802.1X port still unauthorized) passes only the auth handshake frames
+    // (dot11 / dot1x) — never data, until authentication succeeds.
+    const ctrl = out.frame.payload.type === "dot11" || out.frame.payload.type === "dot1x";
+    if (!ctrl && !linkAuthorizedForData(link)) {
       logStep(device, "sim-drop", `${linkName(link)} is not authenticated — frame dropped`);
       continue;
     }
@@ -568,6 +574,90 @@ function handleDot11(device: Device, frame: EthernetFrame, fromDeviceId: string 
   return [];
 }
 
+// ─── 802.1X port authentication ──────────────────────────────────────────────
+
+const PAE_GROUP_MAC = "01:80:C2:00:00:03"; // the real 802.1X PAE group address
+
+// The RADIUS server directly attached to an authenticator switch (the demo keeps
+// the back-end adjacent; real RADIUS would route over IP).
+function radiusServerFor(sw: Device): Device | null {
+  for (const link of linksFor(sw.id)) {
+    if (link.hidden || link.shutdown) continue;
+    const peer = getDevice(link.from === sw.id ? link.to : link.from);
+    if (peer?.type === "server" && (peer.config as any)?.radius?.users?.length) return peer;
+  }
+  return null;
+}
+
+// The supplicant host on one of this switch's ports presenting a given identity.
+function supplicantByIdentity(sw: Device, identity: string): { host: Device; link: any } | null {
+  for (const link of linksFor(sw.id)) {
+    if (link.hidden || link.shutdown || link.wireless) continue;
+    const host = getDevice(link.from === sw.id ? link.to : link.from);
+    if (host && (host.type === "computer" || host.type === "laptop" || host.type === "server") && host.config?.dot1x?.identity === identity) {
+      return { host, link };
+    }
+  }
+  return null;
+}
+
+// The reactive 802.1X exchange, routed by frame subtype across all three roles —
+// supplicant (host), authenticator (switch), and RADIUS server. EAPOL/EAP runs
+// host↔switch; RADIUS runs switch↔server. An `auto` port stays unauthorized
+// (link.dot1xAuthorized) until EAP-Success.
+function handleDot1x(device: Device, frame: EthernetFrame, fromDeviceId: string | null): OutgoingFrame[] {
+  const p = frame.payload as Dot1xPayload;
+  const identity = p.identity || "";
+  const back = (subtype: Dot1xPayload["subtype"], id?: string) =>
+    fromDeviceId ? [{ frame: createDot1xFrame(frame.dstMac, frame.srcMac, subtype, id), toDeviceId: fromDeviceId }] : [];
+
+  switch (p.subtype) {
+    case "eapol-start": // authenticator: kick off identity request
+      logStep(device, "sim-dot1x", `EAPOL-Start — requesting the supplicant's identity`);
+      return back("eap-req-id");
+    case "eap-req-id": { // supplicant: answer with its identity
+      const id = device.config?.dot1x?.identity || "";
+      logStep(device, "sim-dot1x", `EAP Identity request — responding "${id}"`);
+      return back("eap-resp-id", id);
+    }
+    case "eap-resp-id": { // authenticator: relay to RADIUS
+      const server = radiusServerFor(device);
+      if (!server) { logStep(device, "sim-drop", `802.1X: no RADIUS server reachable — cannot authenticate`); return []; }
+      logStep(device, "sim-dot1x", `Relaying identity "${identity}" to RADIUS (${server.name})`);
+      return [{ frame: createDot1xFrame(deriveMac(device.id), server.config?.macAddress || deriveMac(server.id), "radius-request", identity), toDeviceId: server.id }];
+    }
+    case "radius-request": { // RADIUS server: validate identity + the supplicant's password
+      const users = (device.config as any)?.radius?.users || [];
+      const supPw = state.devices.find((d: any) => d.config?.dot1x?.identity === identity)?.config?.dot1x?.password;
+      const ok = users.some((u: any) => u.identity === identity && u.password === supPw);
+      logStep(device, "sim-dot1x", `RADIUS Access-Request "${identity}" — ${ok ? "Access-Accept" : "Access-Reject"}`);
+      return back(ok ? "radius-accept" : "radius-reject", identity);
+    }
+    case "radius-accept": { // authenticator: authorise the port, tell the supplicant
+      const sup = supplicantByIdentity(device, identity);
+      if (!sup) return [];
+      sup.link.dot1xAuthorized = true;
+      logStep(device, "sim-dot1x", `Access-Accept — authorising ${sup.host.name}`);
+      return [{ frame: createDot1xFrame(PAE_GROUP_MAC, sup.host.config?.macAddress || "", "eap-success", identity), toDeviceId: sup.host.id }];
+    }
+    case "radius-reject": { // authenticator: keep the port closed
+      const sup = supplicantByIdentity(device, identity);
+      if (!sup) return [];
+      sup.link.dot1xAuthorized = false;
+      logStep(device, "sim-drop", `Access-Reject — ${sup.host.name} stays unauthorized`);
+      return [{ frame: createDot1xFrame(PAE_GROUP_MAC, sup.host.config?.macAddress || "", "eap-failure", identity), toDeviceId: sup.host.id }];
+    }
+    case "eap-success": // supplicant: authenticated
+      state.simulation.dot1xAuthorized = true;
+      logStep(device, "sim-dot1x", `EAP-Success — the port is authorised, traffic may pass`);
+      return [];
+    case "eap-failure": // supplicant: rejected
+      logStep(device, "sim-drop", `EAP-Failure — 802.1X authentication denied (check the identity/password)`);
+      return [];
+  }
+  return [];
+}
+
 // ─── Computer processing ─────────────────────────────────────────────────────
 
 export function processAtComputer(device: Device, frame: EthernetFrame, fromDeviceId: string | null): OutgoingFrame[] {
@@ -578,6 +668,8 @@ export function processAtComputer(device: Device, frame: EthernetFrame, fromDevi
   if (!config) return outgoing;
   // A laptop drives the client side of the 802.11 association handshake.
   if (frame.payload.type === "dot11") return handleDot11(device, frame, fromDeviceId);
+  // A host is the 802.1X supplicant (and a server may also be the RADIUS back end).
+  if (frame.payload.type === "dot1x") return handleDot1x(device, frame, fromDeviceId);
 
   frame = { ...frame, srcMac: normaliseMacAddress(frame.srcMac), dstMac: normaliseMacAddress(frame.dstMac) };
 
@@ -883,6 +975,9 @@ export function processAtSwitch(device: Device, frame: EthernetFrame, fromDevice
   // An access point answers the 802.11 association handshake (it does not bridge
   // these management frames onward — they live only on the air between AP/client).
   if (device.type === "access-point" && frame.payload.type === "dot11") return handleDot11(device, frame, fromDeviceId);
+  // A managed switch is the 802.1X authenticator — it terminates EAPOL (it never
+  // floods these) and relays to RADIUS.
+  if (frame.payload.type === "dot1x") return handleDot1x(device, frame, fromDeviceId);
 
   frame = { ...frame, srcMac: normaliseMacAddress(frame.srcMac), dstMac: normaliseMacAddress(frame.dstMac) };
 

@@ -152,6 +152,29 @@ and surfacing latency/loss on the canvas (currently inspector-only). Effort: low
 **Stateful filtering + REJECT replies** (conntrack-style `-m state`, and an
 ICMP-unreachable for REJECT instead of a silent drop).
 
+### Port security — 802.1X & MACsec
+Both reuse the substrate the WiFi auth work built — the EAPOL frame family and
+the data-path gate (`l2Reachable`/`findFirstHop`/the engine transit step that
+already drop data on an unauthenticated link while letting control frames pass).
+- **Phase 0 (groundwork): shipped.** The gate is unified into one
+  `linkAuthorizedForData(link)` consulted by all three sites, so WiFi auth, 802.1X
+  port control and MACsec must-secure all compose at one chokepoint.
+- **Phase 1 (802.1X): shipped.** A **supplicant** host authenticates to a switch
+  **authenticator** port (`portauth … auto`) which relays EAP to a **RADIUS
+  server** (a role on the server device). `dot1x <host>` / `run dot1x` animate
+  EAPOL-Start → EAP-Identity → RADIUS Access-Request → Accept/Reject →
+  EAP-Success/Failure (`handleDot1x` reactive state machine across all three
+  roles); an `auto` port stays unauthorized (data blocked) until success, like
+  the WiFi gate. Config via `supplicant`/`portauth`/`radius` (round-tripped).
+  **Later:** the EAP method challenge round, MAB, dynamic VLAN assignment from
+  RADIUS, a built-in topology/scenario, inspector controls, and the Cisco-style CLI.
+- **Phase 2 (MACsec, 802.1AE):** per-link encryption — an MKA handshake
+  establishes the SA, a SecTAG (ethertype `0x88E5`) marks frames protected, and
+  `must-secure` drops unprotected frames (the same gate). Drawn as a secured link.
+- **Phase 3 (integration):** 802.1X-derived MACsec keys (auth the port, then
+  encrypt the link) — the full enterprise story.
+Effort: moderate per phase; the unified gate is the keystone.
+
 ### OSPF
 A second IGP to contrast with RIP (link-state vs distance-vector, areas, cost).
 Pairs with the existing `runRipConvergence` structure. Effort: high.

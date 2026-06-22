@@ -1,9 +1,9 @@
 import type { SimEvent, EthernetFrame } from "./types";
 import { state } from "./state";
-import { getDevice, linkedPortsFor, linksFor, wifiLinkAuthenticated } from "./devices";
+import { getDevice, linkedPortsFor, linksFor, linkAuthorizedForData, dot1xLinkInfo } from "./devices";
 import { normalisePortVlans, normalisePortModes, normaliseTrunkAllowedVlans, memoPortVlans } from "./normalise";
 import { isValidIpv4, sameSubnet, prefixOf, deriveMac } from "./utils";
-import { createArpRequest, createIcmpEchoRequest, createDhcpDiscover, createTcpSegment, createDnsQuery, createDot11Frame } from "./frame";
+import { createArpRequest, createIcmpEchoRequest, createDhcpDiscover, createTcpSegment, createDnsQuery, createDot11Frame, createDot1xFrame } from "./frame";
 
 export interface PingSetup {
   events: SimEvent[];
@@ -24,7 +24,7 @@ export function l2Reachable(fromId: string, toId: string, vlanId: number | null)
     if (id === toId) return true;
     for (const link of linksFor(id)) {
       if (link.hidden || link.shutdown) continue; // a shut link breaks the path
-      if (!wifiLinkAuthenticated(link)) continue;  // a wrong-password association carries no data
+      if (!linkAuthorizedForData(link)) continue;  // unauthenticated WiFi / unauthorized 802.1X port: no data
       const isFrom = link.from === id;
       const nextId = isFrom ? link.to : link.from;
       if (seen.has(nextId)) continue;
@@ -367,10 +367,28 @@ export function buildAssociationEvents(laptop: any): PingSetup | string {
   };
 }
 
+// Seed the 802.1X exchange: a supplicant host sends EAPOL-Start to its
+// authenticator switch (the port it's on must be under 802.1X port control).
+export function buildDot1xEvents(host: any): PingSetup | string {
+  if (!["computer", "laptop", "server"].includes(host.type)) return `${host.name} is not a host (802.1X supplicant).`;
+  const srcMac = host.config?.macAddress;
+  if (!srcMac) return `${host.name}: eth0 has no MAC address.`;
+  if (!host.config?.dot1x?.identity) return `${host.name} has no 802.1X identity — set one with "supplicant ${host.name} <identity> <password>".`;
+  for (const link of linksFor(host.id)) {
+    if (link.hidden || link.shutdown) continue;
+    const info = dot1xLinkInfo(link);
+    if (info && info.host.id === host.id) {
+      const start = createDot1xFrame(srcMac, "01:80:C2:00:00:03", "eapol-start", host.config.dot1x.identity);
+      return { events: [{ type: "frame_arrive" as const, frame: start, deviceId: info.sw.id, fromDeviceId: host.id, linkId: link.id }], pendingArp: {} };
+    }
+  }
+  return `${host.name} is not on an 802.1X-controlled port (set one with "portauth <switch> <EthN> auto").`;
+}
+
 function findFirstHop(source: any): { peerId: string; linkId: string } | null {
   for (const link of linksFor(source.id)) {
     if (link.hidden || link.shutdown) continue; // a shut link carries no traffic
-    if (!wifiLinkAuthenticated(link)) continue;  // an unauthenticated association carries no data
+    if (!linkAuthorizedForData(link)) continue;  // unauthenticated WiFi / unauthorized 802.1X port: no data
     const isFrom = link.from === source.id;
     const peerId = isFrom ? link.to : link.from;
     const peer = getDevice(peerId);

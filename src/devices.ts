@@ -106,6 +106,43 @@ export function wifiLinkAuthenticated(link: any): boolean {
   return !apPassword || (laptop.config?.wifiPassword || "") === apPassword;
 }
 
+// The 802.1X authenticator port for a host↔managed-switch link, or null when the
+// link isn't under port control. Cheap early-out (a switch with no portAuth map
+// pays only a property read) so non-802.1X topologies don't hit the hot path.
+export function dot1xLinkInfo(link: any): { sw: any; host: any; mode: string; port: string } | null {
+  if (!link || link.wireless) return null;
+  const a = getDevice(link.from), b = getDevice(link.to);
+  const sw = a?.type === "switch" ? a : b?.type === "switch" ? b : null;
+  if (!sw?.config?.portAuth) return null;
+  const host = (a?.type === "switch" ? b : a);
+  if (!host || !["computer", "laptop", "server"].includes(host.type)) return null;
+  const ports = linkedPortsFor(sw.id);
+  const idx = ports.findIndex((p: any) => p.peer?.id === host.id);
+  if (idx < 0) return null;
+  const port = `Ethernet${idx + 1}`;
+  return { sw, host, mode: sw.config.portAuth[port] || "force-authorized", port };
+}
+
+// Whether an 802.1X-controlled port currently authorises the host. force-authorized
+// (the default / no 802.1X) always passes; force-unauthorized never; "auto" passes
+// only after a successful EAP exchange (stored on the link as dot1xAuthorized).
+export function dot1xPortAuthorized(link: any): boolean {
+  const info = dot1xLinkInfo(link);
+  if (!info || info.mode === "force-authorized") return true;
+  if (info.mode === "force-unauthorized") return false;
+  return !!link.dot1xAuthorized;
+}
+
+// The single data-path gate: false = this link drops DATA frames right now,
+// whether because a WiFi association never authenticated or an 802.1X port is
+// unauthorized. (Shutdown/hidden are still checked separately at each site; the
+// auth/EAPOL control frames bypass this — see the engine transit step.)
+export function linkAuthorizedForData(link: any): boolean {
+  if (link?.wireless && !wifiLinkAuthenticated(link)) return false;
+  if (!dot1xPortAuthorized(link)) return false;
+  return true;
+}
+
 // Why a link from→to can't be created (null = allowed). Shared by addLink and
 // the `link` console command so both reject — and explain — the same cases.
 export function linkBlockReason(fromId: string, toId: string): string | null {

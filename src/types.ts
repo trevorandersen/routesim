@@ -154,6 +154,9 @@ export interface ComputerConfig {
   // The resolver (/etc/resolv.conf nameserver). Set by hand or learned via
   // DHCP option 6. Empty/undefined = names cannot be resolved.
   dnsServerIp?: string;
+  // 802.1X supplicant credentials — the identity/password the host presents to
+  // an authenticator port. Absent = the host can't authenticate on an `auto` port.
+  dot1x?: { identity: string; password: string };
 }
 
 // One dnsmasq A-record: `address=/name/ip`.
@@ -172,6 +175,9 @@ export interface ServerConfig extends ComputerConfig {
   dhcpRangeEnd?: string;
   dhcpRouterIp?: string;        // dhcp-option=option:router,<ip> (default: the server itself)
   dhcpLeases?: DhcpLease[];
+  // RADIUS authentication server (the 802.1X back end): the user database an
+  // authenticator validates supplicants against. Presence enables the service.
+  radius?: { users: { identity: string; password: string }[] };
 }
 
 export interface SwitchConfig {
@@ -183,6 +189,9 @@ export interface SwitchConfig {
   portModes?: Record<string, PortMode>;
   trunkAllowedVlans?: Record<string, number[]>;
   trunkNativeVlans?: Record<string, number>;
+  // 802.1X port control per port (the authenticator role). Absent / "force-authorized"
+  // = open (today's behaviour); "auto" = require 802.1X; "force-unauthorized" = closed.
+  portAuth?: Record<string, "auto" | "force-authorized" | "force-unauthorized">;
 }
 
 // One PAT (overload) translation: an inside flow mapped onto the router's
@@ -301,6 +310,7 @@ export interface Link {
   to: string;
   name?: string;       // user-given name; unnamed links derive "A ↔ B" (linkName in devices.ts)
   wireless?: boolean;  // a WiFi association (laptop ↔ access point) rather than a cable
+  dot1xAuthorized?: boolean; // an 802.1X `auto` port that has authenticated its supplicant (data allowed)
   shutdown?: boolean;  // administratively down — present in the topology but carries no traffic
   bandwidth?: number;  // capacity in Mbps (the streams sim's input; metadata in packet mode)
   latency?: number;    // ms — slows this link's transit animation (a far/WAN link crawls)
@@ -427,13 +437,27 @@ export interface Dot11Payload {
   ssid: string;
 }
 
+// An 802.1X port-authentication frame: EAP over LAN between the supplicant (host)
+// and authenticator (switch port), and RADIUS between the authenticator and the
+// authentication server. One reactive exchange, three roles.
+export type Dot1xSubtype =
+  | "eapol-start" | "eap-req-id" | "eap-resp-id"
+  | "radius-request" | "radius-accept" | "radius-reject"
+  | "eap-success" | "eap-failure";
+
+export interface Dot1xPayload {
+  type: "dot1x";
+  subtype: Dot1xSubtype;
+  identity?: string;   // the supplicant identity, carried through the exchange
+}
+
 export interface EthernetFrame {
   id: string;
   srcMac: string;
   dstMac: string;
-  etherType: 0x0806 | 0x0800 | 0x888e;   // ARP, IPv4, or 802.11 mgmt / EAPOL
+  etherType: 0x0806 | 0x0800 | 0x888e;   // ARP, IPv4, or 802.11 mgmt / EAPOL / 802.1X
   vlanTag: number | null;
-  payload: ArpPayload | Ipv4Payload | Dot11Payload;
+  payload: ArpPayload | Ipv4Payload | Dot11Payload | Dot1xPayload;
 }
 
 export interface SimEvent {
@@ -477,7 +501,7 @@ export interface CaptureEntry {
 
 export interface SimulationState {
   status: "idle" | "running" | "paused" | "done";
-  mode: "ping" | "dhcp" | "tcp" | "dns" | "associate";
+  mode: "ping" | "dhcp" | "tcp" | "dns" | "associate" | "dot1x";
   events: SimEvent[];
   log: SimLogEntry[];
   capture: CaptureEntry[];   // packet list (animated runs only; capped)
@@ -504,6 +528,7 @@ export interface SimulationState {
   dhcpAssignedIp: string | null;
   dhcpAssignedGateway: string | null;
   wifiAssociated: boolean;           // the 802.11 association handshake completed (mode "associate")
+  dot1xAuthorized: boolean;          // the 802.1X EAP exchange authorised the port (mode "dot1x")
 }
 
 export interface PortOption {

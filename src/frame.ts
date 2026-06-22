@@ -1,4 +1,4 @@
-import type { EthernetFrame, ArpPayload, Ipv4Payload, IcmpPayload, DhcpPayload, TcpPayload, TcpFlags, DnsPayload, Dot11Payload, Dot11Subtype } from "./types";
+import type { EthernetFrame, ArpPayload, Ipv4Payload, IcmpPayload, DhcpPayload, TcpPayload, TcpFlags, DnsPayload, Dot11Payload, Dot11Subtype, Dot1xPayload, Dot1xSubtype } from "./types";
 
 let frameCounter = 0;
 function nextFrameId(): string {
@@ -187,6 +187,13 @@ export function createDot11Frame(srcMac: string, dstMac: string, subtype: Dot11S
   return { id: nextFrameId(), srcMac, dstMac, etherType: 0x888e, vlanTag: null, payload };
 }
 
+// An 802.1X EAPOL / EAP / RADIUS frame (etherType 0x888e — EAPOL; RADIUS is
+// really UDP/1812, abstracted here to one authenticator↔server hop).
+export function createDot1xFrame(srcMac: string, dstMac: string, subtype: Dot1xSubtype, identity?: string): EthernetFrame {
+  const payload: Dot1xPayload = { type: "dot1x", subtype, ...(identity ? { identity } : {}) };
+  return { id: nextFrameId(), srcMac, dstMac, etherType: 0x888e, vlanTag: null, payload };
+}
+
 // ── Packet-list columns (the Wireshark-style sim log) ────────────────────────
 
 export interface PacketColumns {
@@ -215,6 +222,30 @@ function dot11Info(subtype: Dot11Subtype, ssid: string): string {
   }
 }
 
+// Wireshark-style Info + protocol for an 802.1X EAPOL / EAP / RADIUS frame.
+function dot1xInfo(subtype: Dot1xSubtype, identity?: string): { protocol: string; info: string } {
+  const id = identity ? ` (id "${identity}")` : "";
+  switch (subtype) {
+    case "eapol-start": return { protocol: "EAPOL", info: "Start" };
+    case "eap-req-id": return { protocol: "EAP", info: "Request, Identity" };
+    case "eap-resp-id": return { protocol: "EAP", info: `Response, Identity${id}` };
+    case "radius-request": return { protocol: "RADIUS", info: `Access-Request${id}` };
+    case "radius-accept": return { protocol: "RADIUS", info: "Access-Accept" };
+    case "radius-reject": return { protocol: "RADIUS", info: "Access-Reject" };
+    case "eap-success": return { protocol: "EAP", info: "Success" };
+    case "eap-failure": return { protocol: "EAP", info: "Failure" };
+  }
+}
+
+export function dot1xLabel(subtype: Dot1xSubtype): string {
+  const labels: Record<Dot1xSubtype, string> = {
+    "eapol-start": "EAPOL Start", "eap-req-id": "EAP Req-ID", "eap-resp-id": "EAP Resp-ID",
+    "radius-request": "RADIUS Req", "radius-accept": "RADIUS Accept", "radius-reject": "RADIUS Reject",
+    "eap-success": "EAP Success", "eap-failure": "EAP Failure",
+  };
+  return labels[subtype];
+}
+
 // Short label for the canvas transit dot.
 export function dot11Label(subtype: Dot11Subtype): string {
   const labels: Record<Dot11Subtype, string> = {
@@ -241,6 +272,12 @@ export function packetColumns(frame: EthernetFrame): PacketColumns {
     const d = frame.payload;
     const eapol = d.subtype.startsWith("eapol");
     return { src: frame.srcMac, dst: frame.dstMac, protocol: eapol ? "EAPOL" : "802.11", info: dot11Info(d.subtype, d.ssid), tone: d.subtype === "deauth" ? "bad" : "dot11" };
+  }
+  if (frame.payload.type === "dot1x") {
+    const d = frame.payload;
+    const { protocol, info } = dot1xInfo(d.subtype, d.identity);
+    const bad = d.subtype === "radius-reject" || d.subtype === "eap-failure";
+    return { src: frame.srcMac, dst: frame.dstMac, protocol, info, tone: bad ? "bad" : "dot11" };
   }
   const ipv4 = frame.payload; // narrowed to Ipv4Payload after the arp/dot11 branches return
   const src = ipv4.srcIp;
@@ -275,6 +312,8 @@ export function frameLabel(frame: EthernetFrame): string {
     label = frame.payload.operation === "request" ? "ARP Req" : "ARP Reply";
   } else if (frame.payload.type === "dot11") {
     label = dot11Label(frame.payload.subtype);
+  } else if (frame.payload.type === "dot1x") {
+    label = dot1xLabel(frame.payload.subtype);
   } else {
     const ipv4 = frame.payload; // narrowed to Ipv4Payload after the arp branch returns
     if (ipv4.payload.type === "dhcp") {
@@ -302,6 +341,10 @@ export function frameLabel(frame: EthernetFrame): string {
 export function frameColor(frame: EthernetFrame): string {
   if (frame.payload.type === "arp") return "#f59e0b";    // amber
   if (frame.payload.type === "dot11") return "#14b8a6";  // teal (802.11 management)
+  if (frame.payload.type === "dot1x") {
+    const bad = frame.payload.subtype === "radius-reject" || frame.payload.subtype === "eap-failure";
+    return bad ? "#ef4444" : "#14b8a6"; // teal, red on reject/failure
+  }
   const ipv4 = frame.payload; // narrowed to Ipv4Payload after the arp/dot11 branches return
   if (ipv4.payload.type === "dhcp") return "#a78bfa";    // violet
   if (ipv4.payload.type === "dns") return ipv4.payload.op === "response" && !ipv4.payload.address ? "#ef4444" : "#22d3ee"; // cyan (NXDOMAIN red)

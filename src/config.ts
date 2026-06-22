@@ -52,7 +52,8 @@ export function buildConfigPayload(): SerialisedTopology {
           ...(config?.dhcpRangeStart && config?.dhcpRangeEnd
             ? { dhcpRangeStart: config.dhcpRangeStart, dhcpRangeEnd: config.dhcpRangeEnd } : {}),
           ...(config?.dhcpRouterIp ? { dhcpRouterIp: config.dhcpRouterIp } : {}),
-          dhcpLeases: normaliseDhcpLeases(config?.dhcpLeases || [])
+          dhcpLeases: normaliseDhcpLeases(config?.dhcpLeases || []),
+          ...(config?.radius?.users?.length ? { radius: { users: config.radius.users.map((u: any) => ({ identity: u.identity, password: u.password || "" })) } } : {})
         }
       } : {}),
       ...(type === "switch" ? {
@@ -66,7 +67,8 @@ export function buildConfigPayload(): SerialisedTopology {
             portModes: normalisePortModes(config?.portModes || {}),
             trunkAllowedVlans: normaliseTrunkAllowedVlans(config?.trunkAllowedVlans || {}),
             trunkNativeVlans: normalisePortVlans(config?.trunkNativeVlans || {})
-          } : {})
+          } : {}),
+          ...(config?.portAuth && Object.keys(config.portAuth).length ? { portAuth: { ...config.portAuth } } : {})
         }
       } : {}),
       ...(type === "router" ? {
@@ -134,7 +136,8 @@ function hostConfigForPayload(config: any): any {
     macAddress: config?.macAddress || "",
     arpTable: normaliseArpTable(config?.arpTable || []),
     ...(Array.isArray(config?.openPorts) ? { openPorts: config.openPorts } : {}),
-    ...(config?.dnsServerIp ? { dnsServerIp: config.dnsServerIp } : {})
+    ...(config?.dnsServerIp ? { dnsServerIp: config.dnsServerIp } : {}),
+    ...(config?.dot1x?.identity ? { dot1x: { identity: config.dot1x.identity, password: config.dot1x.password || "" } } : {})
   };
 }
 

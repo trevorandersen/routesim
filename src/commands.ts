@@ -18,7 +18,7 @@ import {
   startSimulation, stopSimulation, pauseSimulation, resumeSimulation, stepOnce,
   runSimulationHeadless, runTraceroute,
 } from "./engine";
-import { buildPingEvents, buildDhcpEvents, buildConnectEvents, buildResolveEvents, buildAssociationEvents, associatedAp, findPingTarget } from "./simulation";
+import { buildPingEvents, buildDhcpEvents, buildConnectEvents, buildResolveEvents, buildAssociationEvents, buildDot1xEvents, associatedAp, findPingTarget } from "./simulation";
 import {
   setHostIp, setHostGateway, setHostDns, setRouterInterfaceIp, addSwitchVlan, removeSwitchVlan,
   setSwitchPortVlan, setSwitchPortMode, setSwitchTrunkNative, modifySwitchTrunkAllowed,
@@ -379,8 +379,72 @@ function cmdAssociate(args: string[]): CommandResult {
   return ok(`Associating ${laptop.name} to "${ssid}"...`);
 }
 
+// 802.1X: set a host's supplicant identity/password.
+function cmdSupplicant(args: string[]): CommandResult {
+  const host = resolveDevice(args[0]);
+  if (typeof host === "string") return err(host);
+  if (!["computer", "laptop", "server"].includes(host.type)) return err(`${host.name} is not a host.`);
+  const identity = args[1], password = args[2];
+  if (!identity || password == null) return err("Usage: supplicant <host> <identity> <password>");
+  ensureConfig(host);
+  host.config.dot1x = { identity, password };
+  sync().syncPanel();
+  return ok(`${host.name} 802.1X supplicant: identity "${identity}".`);
+}
+
+// 802.1X: set a switch port's authentication mode (the authenticator).
+function cmdPortAuth(args: string[]): CommandResult {
+  const sw = resolveDevice(args[0]);
+  if (typeof sw === "string") return err(sw);
+  if (sw.type !== "switch") return err(`${sw.name} is not a switch.`);
+  const portMatch = (args[1] || "").trim().match(/^(?:ethernet|eth|e)?\s*(\d+)$/i);
+  const port = portMatch ? `Ethernet${portMatch[1]}` : "";
+  const mode = (args[2] || "").toLowerCase();
+  if (!port) return err("Usage: portauth <switch> <EthN> <auto|force-authorized|force-unauthorized>");
+  if (!["auto", "force-authorized", "force-unauthorized"].includes(mode)) return err("portauth mode: auto|force-authorized|force-unauthorized");
+  ensureConfig(sw);
+  sw.config.portAuth = sw.config.portAuth || {};
+  sw.config.portAuth[port] = mode as any;
+  sync().syncPanel();
+  return ok(`${sw.name} ${port} 802.1X port-control: ${mode}.`);
+}
+
+// 802.1X: add/update a RADIUS user on a server (enables the RADIUS back end).
+function cmdRadius(args: string[]): CommandResult {
+  const server = resolveDevice(args[0]);
+  if (typeof server === "string") return err(server);
+  if (server.type !== "server") return err(`${server.name} is not a server.`);
+  const identity = args[1], password = args[2];
+  if (!identity || password == null) return err("Usage: radius <server> <identity> <password>");
+  ensureConfig(server);
+  const cfg: any = server.config;
+  cfg.radius = cfg.radius || { users: [] };
+  const existing = cfg.radius.users.find((u: any) => u.identity === identity);
+  if (existing) existing.password = password; else cfg.radius.users.push({ identity, password });
+  sync().syncPanel();
+  return ok(`${server.name} RADIUS user "${identity}" set.`);
+}
+
+function cmdDot1x(args: string[]): CommandResult {
+  const host = resolveDevice(args[0]);
+  if (typeof host === "string") return err(host);
+  const setup = buildDot1xEvents(host);
+  if (typeof setup === "string") return err(setup);
+  startSimulation(setup, host.id, host.config?.dot1x?.identity || "", "dot1x");
+  return ok(`802.1X authentication started for ${host.name}.`);
+}
+
 function cmdRun(args: string[]): CommandResult {
   const mode = (args[0] || "").toLowerCase();
+  if (mode === "dot1x") {
+    const host = resolveDevice(args[1]);
+    if (typeof host === "string") return err(host);
+    const setup = buildDot1xEvents(host);
+    if (typeof setup === "string") return err(setup);
+    const r = runSimulationHeadless(setup, host.id, "", "dot1x");
+    return { ok: r.success, data: r,
+      output: [r.success ? `dot1x: ${host.name} authenticated — port authorised (${r.steps} frames)` : `dot1x: authentication failed`] };
+  }
   if (mode === "associate") {
     const laptop = resolveDevice(args[1]);
     if (typeof laptop === "string") return err(laptop);
@@ -641,6 +705,7 @@ const COMMANDS: Record<string, Handler> = {
   shut: cmdShut, noshut: cmdNoShut,
   move: cmdMove, rename: cmdRename, clear: cmdClear, collapse: cmdCollapse, expand: cmdExpand,
   ip: cmdIp, gateway: cmdGateway, nameserver: cmdNameserver, mac: cmdMac, ssid: cmdSsid, interface: cmdInterface, route: cmdRoute,
+  supplicant: cmdSupplicant, portauth: cmdPortAuth, radius: cmdRadius, dot1x: cmdDot1x,
   vlan: cmdVlan, port: cmdPort, cli: cmdCli,
   ping: cmdPing, dhcp: cmdDhcp, connect: cmdConnect, associate: cmdAssociate, run: cmdRun, traceroute: cmdTraceroute, tracert: cmdTraceroute,
   play: cmdPlay, pause: cmdPause, step: cmdStep,
@@ -661,6 +726,10 @@ const HELP: Record<string, string> = {
   collapse: "collapse <switch> into a LAN", expand: "expand <lan>",
   ip: "ip <host> <addr/prefix>", gateway: "gateway <host> <ip>", nameserver: "nameserver <host> <ip>", mac: "mac <host> <addr>",
   ssid: "ssid <laptop|access-point> <name> [password] (omit password = open)",
+  supplicant: "supplicant <host> <identity> <password> (set 802.1X credentials)",
+  portauth: "portauth <switch> <EthN> <auto|force-authorized|force-unauthorized>",
+  radius: "radius <server> <identity> <password> (add a RADIUS user, enables the back end)",
+  dot1x: "dot1x <host> (animate the 802.1X EAP/RADIUS exchange)",
   interface: "interface <router> <peer> ip <addr> [vlan <tag>]", route: "route <router> <net/prefix> <nextHop>",
   vlan: "vlan <switch> add|del <id>", port: "port <switch> <EthN> vlan|mode|native|allowed ...",
   cli: "cli <device> <raw CLI command>",
@@ -731,14 +800,19 @@ export function exportTopologyScript(): string {
       if (c.dhcpRangeStart && c.dhcpRangeEnd) lines.push(`cli ${d.name} echo dhcp-range=${c.dhcpRangeStart},${c.dhcpRangeEnd} >> /etc/dnsmasq.conf`);
       if (c.dhcpRouterIp) lines.push(`cli ${d.name} echo dhcp-option=option:router,${c.dhcpRouterIp} >> /etc/dnsmasq.conf`);
       if (d.type === "server" && c.dnsmasqRunning === false) lines.push(`cli ${d.name} systemctl stop dnsmasq`);
-    } else if (d.type === "switch" && c.managed) {
-      for (const v of (c.vlans || [])) if (v.id !== 1) lines.push(`vlan ${d.name} add ${v.id}`);
-      for (const [port, mode] of Object.entries(c.portModes || {})) lines.push(`port ${d.name} ${port} mode ${mode}`);
-      for (const [port, id] of Object.entries(c.portVlans || {})) lines.push(`port ${d.name} ${port} vlan ${id}`);
-      for (const [port, id] of Object.entries(c.trunkNativeVlans || {})) lines.push(`port ${d.name} ${port} native ${id}`);
-      for (const [port, ids] of Object.entries(c.trunkAllowedVlans || {})) {
-        for (const id of (ids as number[])) lines.push(`port ${d.name} ${port} allowed add ${id}`);
+      if (c.dot1x?.identity) lines.push(`supplicant ${d.name} ${c.dot1x.identity} ${c.dot1x.password || ""}`.trimEnd());
+      for (const u of (c.radius?.users || [])) lines.push(`radius ${d.name} ${u.identity} ${u.password || ""}`.trimEnd());
+    } else if (d.type === "switch") {
+      if (c.managed) {
+        for (const v of (c.vlans || [])) if (v.id !== 1) lines.push(`vlan ${d.name} add ${v.id}`);
+        for (const [port, mode] of Object.entries(c.portModes || {})) lines.push(`port ${d.name} ${port} mode ${mode}`);
+        for (const [port, id] of Object.entries(c.portVlans || {})) lines.push(`port ${d.name} ${port} vlan ${id}`);
+        for (const [port, id] of Object.entries(c.trunkNativeVlans || {})) lines.push(`port ${d.name} ${port} native ${id}`);
+        for (const [port, ids] of Object.entries(c.trunkAllowedVlans || {})) {
+          for (const id of (ids as number[])) lines.push(`port ${d.name} ${port} allowed add ${id}`);
+        }
       }
+      for (const [port, mode] of Object.entries(c.portAuth || {})) lines.push(`portauth ${d.name} ${port} ${mode}`);
     } else if (d.type === "router") {
       for (const i of (c.interfaces || [])) {
         const peer = idToName.get(i.peerId);

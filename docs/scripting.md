@@ -70,6 +70,9 @@ Param keys and boolean values are case-insensitive. Adding a setting is a one-ro
 | `nameserver <host> <ip>` | Set a host DNS server (`/etc/resolv.conf`). |
 | `mac <host> <addr>` | Set a host MAC. |
 | `ssid <laptop\|access-point> <name> [password]` | Set the WiFi network a laptop joins or an access point broadcasts. Omitting the password opens the network (and clears any existing one). A laptop only associates if its SSID — and password, if set — match the AP's. |
+| `supplicant <host> <identity> <password>` | Set a host's 802.1X credentials (the supplicant). |
+| `portauth <switch> <EthN> <auto\|force-authorized\|force-unauthorized>` | Set a switch port's 802.1X control. `auto` blocks data until the host authenticates; `force-authorized` (default) is open. |
+| `radius <server> <identity> <password>` | Add/update a RADIUS user on a server (enables the authentication back end). |
 | `interface <router> <peer> ip <addr> [vlan <tag>]` | Set a router interface IP (by connected peer; optional sub-interface VLAN). |
 | `route <router> <net/prefix> <nextHop>` | Add a static route. |
 | `vlan <switch> add\|del <id>` | Add/remove a VLAN on a managed switch. |
@@ -86,11 +89,13 @@ Param keys and boolean values are case-insensitive. Adding a setting is a one-ro
 | `dhcp <host>` | Start an **animated** DHCP request. |
 | `connect <src> <dst> <port>` | Start an **animated** TCP three-way handshake. |
 | `associate <laptop>` | Animate the **802.11 join** to the laptop's access point: probe / open-system auth / association, plus the WPA2 4-way key handshake when the AP is secured. |
+| `dot1x <host>` | Animate the **802.1X** port authentication: EAPOL-Start → EAP-Identity → RADIUS Access-Request → Accept/Reject → EAP-Success/Failure. An `auto` port carries no data until it succeeds. |
 | `run ping <src> <dst>` | **Headless** ping → returns reachable/unreachable + TTL + step count. |
 | `run dhcp <host>` | **Headless** DHCP → returns the assigned lease (or no response). |
 | `run resolve <src> <name>` | **Headless** DNS lookup → returns the resolved IP (or NXDOMAIN). Alias: `run dns`. |
 | `run connect <src> <dst> <port>` | **Headless** TCP connect → open / refused (RST) / timed out. |
 | `run associate <laptop>` | **Headless** 802.11 association → joined / did-not-complete + frame count. |
+| `run dot1x <host>` | **Headless** 802.1X authentication → authorised / failed + frame count. |
 | `traceroute <src> <dst>` | **Headless** hop-by-hop path discovery via increasing TTL; `data` is `{ targetIp, hops, reached }`. Also `tracert`. |
 | `play` / `pause` / `step` / `stop` | Drive an animated run. |
 | `speed <ms>` | Milliseconds per hop. |

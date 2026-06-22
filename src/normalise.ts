@@ -240,7 +240,27 @@ function normaliseHostFields(device: any): DeviceConfig {
     arpTable: normaliseArpTable(device.config?.arpTable || device.arpTable || []),
     ...(openPorts ? { openPorts } : {}),
     ...(isValidIpv4(dnsServerIp) ? { dnsServerIp } : {}),
+    ...(device.config?.dot1x?.identity ? { dot1x: { identity: String(device.config.dot1x.identity), password: String(device.config.dot1x.password ?? "") } } : {}),
   };
+}
+
+// 802.1X port-control map (the authenticator) — keep only valid modes.
+function normalisePortAuth(raw: unknown): Record<string, "auto" | "force-authorized" | "force-unauthorized"> {
+  const out: Record<string, any> = {};
+  if (raw && typeof raw === "object") {
+    for (const [port, mode] of Object.entries(raw as Record<string, unknown>)) {
+      if (["auto", "force-authorized", "force-unauthorized"].includes(String(mode))) out[String(port)] = mode;
+    }
+  }
+  return out;
+}
+
+// RADIUS user database (the authentication server back end).
+function normaliseRadiusUsers(raw: unknown): { identity: string; password: string }[] {
+  if (!Array.isArray(raw)) return [];
+  return raw
+    .filter((u: any) => u && u.identity)
+    .map((u: any) => ({ identity: String(u.identity), password: String(u.password ?? "") }));
 }
 
 export function normaliseDeviceConfig(device: any): DeviceConfig {
@@ -261,7 +281,8 @@ export function normaliseDeviceConfig(device: any): DeviceConfig {
         portModes: normalisePortModes(device.config?.portModes || device.portModes || {}),
         trunkAllowedVlans: normaliseTrunkAllowedVlans(device.config?.trunkAllowedVlans || {}),
         trunkNativeVlans: normalisePortVlans(device.config?.trunkNativeVlans || {})
-      } : {})
+      } : {}),
+      ...(device.config?.portAuth ? { portAuth: normalisePortAuth(device.config.portAuth) } : {})
     };
   }
   if (device.type === "router") {
@@ -323,6 +344,7 @@ export function normaliseDeviceConfig(device: any): DeviceConfig {
       ...(rangeValid ? { dhcpRangeStart, dhcpRangeEnd } : {}),
       ...(isValidIpv4(dhcpRouterIp) ? { dhcpRouterIp } : {}),
       dhcpLeases: normaliseDhcpLeases(device.config?.dhcpLeases || []),
+      ...(device.config?.radius?.users ? { radius: { users: normaliseRadiusUsers(device.config.radius.users) } } : {}),
     };
   }
   if (device.type === "access-point") {

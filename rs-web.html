@@ -1827,20 +1827,17 @@
       border-top: 1px solid var(--border);
     }
     .settings-section-title {
-      margin: 0 0 4px;
+      display: flex;
+      align-items: center;
+      margin: 0 0 8px;
       font-size: 13px;
       font-weight: 600;
       color: var(--fg);
     }
-    .settings-section-note {
-      margin: 0 0 12px;
-      font-size: 12px;
-      line-height: 1.5;
-      color: var(--muted);
-    }
+    .settings-section-title .settings-info { margin-left: auto; }
     .settings-row {
       display: flex;
-      align-items: flex-start;
+      align-items: center;
       gap: 10px;
       padding: 8px;
       margin: 0 -8px;
@@ -1848,10 +1845,83 @@
       cursor: pointer;
     }
     .settings-row:hover { background: var(--panel-soft); }
-    .settings-row input[type="checkbox"] { margin-top: 2px; flex: none; }
-    .settings-row-text { display: flex; flex-direction: column; gap: 2px; }
+    .settings-row input[type="checkbox"] { flex: none; }
+    .settings-row-text { display: flex; flex-direction: column; gap: 2px; flex: 1; min-width: 0; }
     .settings-row-title { font-size: 13px; color: var(--fg); }
-    .settings-row-desc { font-size: 12px; line-height: 1.45; color: var(--muted); }
+
+    /* The (i) info affordance: a small circled glyph that reveals its explanatory
+       text (held in aria-label, so it doubles as the accessible name) as a
+       tooltip on hover or keyboard focus. Anchored to the icon's right edge and
+       width-capped so it can't spill past the narrow pane (overflow-x: hidden). */
+    .settings-info {
+      position: relative;
+      flex: none;
+      width: 16px;
+      height: 16px;
+      padding: 0;
+      border: 1px solid var(--border);
+      border-radius: 50%;
+      background: transparent;
+      color: var(--muted);
+      font-size: 11px;
+      font-weight: 700;
+      font-style: italic;
+      line-height: 1;
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      cursor: help;
+      transition: color 0.12s, border-color 0.12s, background 0.12s;
+    }
+    .settings-info:hover,
+    .settings-info:focus-visible {
+      color: var(--fg);
+      border-color: var(--muted);
+      background: var(--panel-soft);
+      outline: none;
+    }
+    .settings-info::after {
+      content: attr(aria-label);
+      position: absolute;
+      top: calc(100% + 6px);
+      right: 0;
+      width: 232px;
+      padding: 8px 10px;
+      border-radius: 8px;
+      background: var(--panel);
+      border: 1px solid var(--line);
+      box-shadow: var(--shadow);
+      color: var(--muted);
+      font-size: 12px;
+      font-weight: 400;
+      font-style: normal;
+      line-height: 1.45;
+      text-align: left;
+      white-space: normal;
+      z-index: 20;
+      opacity: 0;
+      visibility: hidden;
+      transform: translateY(-3px);
+      transition: opacity 0.12s ease, transform 0.12s ease, visibility 0.12s;
+      pointer-events: none;
+    }
+    .settings-info:hover::after,
+    .settings-info:focus-visible::after {
+      opacity: 1;
+      visibility: visible;
+      transform: none;
+    }
+    /* The last section sits at the bottom of the pane — open its tooltips upward
+       so they aren't clipped by the scroll boundary. */
+    .settings-section:last-child .settings-info::after {
+      top: auto;
+      bottom: calc(100% + 6px);
+      transform: translateY(3px);
+    }
+    .settings-section:last-child .settings-info:hover::after,
+    .settings-section:last-child .settings-info:focus-visible::after {
+      transform: none;
+    }
 
     /* On narrow viewports the inspector is a fixed right-hand drawer; the
        settings pane follows suit (placed after the desktop rule so it wins the
@@ -2098,64 +2168,61 @@
     </div>
     <div class="settings-pane-body">
       <section class="settings-section">
-        <h3 class="settings-section-title">Network boot</h3>
-        <p class="settings-section-note">How unconfigured hosts behave when the simulation starts. Both are off by default, so addressing stays explicit until you opt in.</p>
+        <h3 class="settings-section-title">Network boot<button type="button" class="settings-info" aria-label="How unconfigured hosts behave when the simulation starts. Both are off by default, so addressing stays explicit until you opt in.">i</button></h3>
         <label class="settings-row">
           <input id="optAutoDhcp" type="checkbox">
           <span class="settings-row-text">
             <span class="settings-row-title">Auto-DHCP on boot</span>
-            <span class="settings-row-desc">Unconfigured, cabled, powered-on hosts try DHCP when you press Play.</span>
           </span>
+          <button type="button" class="settings-info" aria-label="Unconfigured, cabled, powered-on hosts try DHCP when you press Play.">i</button>
         </label>
         <label class="settings-row">
           <input id="optApipa" type="checkbox">
           <span class="settings-row-text">
             <span class="settings-row-title">APIPA fallback</span>
-            <span class="settings-row-desc">A host that gets no DHCP lease self-assigns a link-local 169.254.x.y/16 address.</span>
           </span>
+          <button type="button" class="settings-info" aria-label="A host that gets no DHCP lease self-assigns a link-local 169.254.x.y/16 address.">i</button>
         </label>
       </section>
       <section class="settings-section">
-        <h3 class="settings-section-title">Name resolution</h3>
-        <p class="settings-section-note">How a device <em>name</em> used as a target (e.g. <code>ping PC-A1</code>) becomes an IP. A DNS server always auto-resolves device hostnames; this controls whether names also resolve without one.</p>
+        <h3 class="settings-section-title">Name resolution<button type="button" class="settings-info" aria-label="How a device name used as a target (e.g. ping PC-A1) becomes an IP. A DNS server always auto-resolves device hostnames; this controls whether names also resolve without one.">i</button></h3>
         <label class="settings-row">
           <input id="optInstantDns" type="checkbox">
           <span class="settings-row-text">
             <span class="settings-row-title">Instant DNS</span>
-            <span class="settings-row-desc">Resolve a device name straight to its IP with no DNS query — a built-in hosts file. Off: a name needs a reachable nameserver, like the real world. On by default in topologies, off when a scenario is loaded.</span>
           </span>
+          <button type="button" class="settings-info" aria-label="Resolve a device name straight to its IP with no DNS query — a built-in hosts file. Off: a name needs a reachable nameserver, like the real world. On by default in topologies, off when a scenario is loaded.">i</button>
         </label>
       </section>
       <section class="settings-section">
-        <h3 class="settings-section-title">Silent protocols</h3>
-        <p class="settings-section-note">Resolve these instantly with no animated frames or packet-list rows. The exchange still happens — it just isn't shown — so the higher-layer flow stays uncluttered once you understand it.</p>
+        <h3 class="settings-section-title">Silent protocols<button type="button" class="settings-info" aria-label="Resolve these instantly with no animated frames or packet-list rows. The exchange still happens — it just isn't shown — so the higher-layer flow stays uncluttered once you understand it.">i</button></h3>
         <label class="settings-row">
           <input id="optSilentArp" type="checkbox">
           <span class="settings-row-text">
             <span class="settings-row-title">Silent ARP</span>
-            <span class="settings-row-desc">Skip the ARP request/reply animation; MAC addresses resolve instantly.</span>
           </span>
+          <button type="button" class="settings-info" aria-label="Skip the ARP request/reply animation; MAC addresses resolve instantly.">i</button>
         </label>
         <label class="settings-row">
           <input id="optSilentDhcp" type="checkbox">
           <span class="settings-row-text">
             <span class="settings-row-title">Silent DHCP</span>
-            <span class="settings-row-desc">Skip the DORA animation; a host takes its lease instantly.</span>
           </span>
+          <button type="button" class="settings-info" aria-label="Skip the DORA animation; a host takes its lease instantly.">i</button>
         </label>
         <label class="settings-row">
           <input id="optSilentDns" type="checkbox">
           <span class="settings-row-text">
             <span class="settings-row-title">Silent DNS</span>
-            <span class="settings-row-desc">Skip the query/response animation; names resolve instantly before the ping or connection.</span>
           </span>
+          <button type="button" class="settings-info" aria-label="Skip the query/response animation; names resolve instantly before the ping or connection.">i</button>
         </label>
         <label class="settings-row">
           <input id="optSilentWifi" type="checkbox">
           <span class="settings-row-text">
             <span class="settings-row-title">Silent WiFi association</span>
-            <span class="settings-row-desc">Skip the 802.11 probe/auth/association (and WPA2) frames when a laptop joins an access point.</span>
           </span>
+          <button type="button" class="settings-info" aria-label="Skip the 802.11 probe/auth/association (and WPA2) frames when a laptop joins an access point.">i</button>
         </label>
       </section>
     </div>

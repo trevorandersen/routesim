@@ -236,64 +236,61 @@
     </div>
     <div class="settings-pane-body">
       <section class="settings-section">
-        <h3 class="settings-section-title">Network boot</h3>
-        <p class="settings-section-note">How unconfigured hosts behave when the simulation starts. Both are off by default, so addressing stays explicit until you opt in.</p>
+        <h3 class="settings-section-title">Network boot<button type="button" class="settings-info" aria-label="How unconfigured hosts behave when the simulation starts. Both are off by default, so addressing stays explicit until you opt in.">i</button></h3>
         <label class="settings-row">
           <input id="optAutoDhcp" type="checkbox">
           <span class="settings-row-text">
             <span class="settings-row-title">Auto-DHCP on boot</span>
-            <span class="settings-row-desc">Unconfigured, cabled, powered-on hosts try DHCP when you press Play.</span>
           </span>
+          <button type="button" class="settings-info" aria-label="Unconfigured, cabled, powered-on hosts try DHCP when you press Play.">i</button>
         </label>
         <label class="settings-row">
           <input id="optApipa" type="checkbox">
           <span class="settings-row-text">
             <span class="settings-row-title">APIPA fallback</span>
-            <span class="settings-row-desc">A host that gets no DHCP lease self-assigns a link-local 169.254.x.y/16 address.</span>
           </span>
+          <button type="button" class="settings-info" aria-label="A host that gets no DHCP lease self-assigns a link-local 169.254.x.y/16 address.">i</button>
         </label>
       </section>
       <section class="settings-section">
-        <h3 class="settings-section-title">Name resolution</h3>
-        <p class="settings-section-note">How a device <em>name</em> used as a target (e.g. <code>ping PC-A1</code>) becomes an IP. A DNS server always auto-resolves device hostnames; this controls whether names also resolve without one.</p>
+        <h3 class="settings-section-title">Name resolution<button type="button" class="settings-info" aria-label="How a device name used as a target (e.g. ping PC-A1) becomes an IP. A DNS server always auto-resolves device hostnames; this controls whether names also resolve without one.">i</button></h3>
         <label class="settings-row">
           <input id="optInstantDns" type="checkbox">
           <span class="settings-row-text">
             <span class="settings-row-title">Instant DNS</span>
-            <span class="settings-row-desc">Resolve a device name straight to its IP with no DNS query — a built-in hosts file. Off: a name needs a reachable nameserver, like the real world. On by default in topologies, off when a scenario is loaded.</span>
           </span>
+          <button type="button" class="settings-info" aria-label="Resolve a device name straight to its IP with no DNS query — a built-in hosts file. Off: a name needs a reachable nameserver, like the real world. On by default in topologies, off when a scenario is loaded.">i</button>
         </label>
       </section>
       <section class="settings-section">
-        <h3 class="settings-section-title">Silent protocols</h3>
-        <p class="settings-section-note">Resolve these instantly with no animated frames or packet-list rows. The exchange still happens — it just isn't shown — so the higher-layer flow stays uncluttered once you understand it.</p>
+        <h3 class="settings-section-title">Silent protocols<button type="button" class="settings-info" aria-label="Resolve these instantly with no animated frames or packet-list rows. The exchange still happens — it just isn't shown — so the higher-layer flow stays uncluttered once you understand it.">i</button></h3>
         <label class="settings-row">
           <input id="optSilentArp" type="checkbox">
           <span class="settings-row-text">
             <span class="settings-row-title">Silent ARP</span>
-            <span class="settings-row-desc">Skip the ARP request/reply animation; MAC addresses resolve instantly.</span>
           </span>
+          <button type="button" class="settings-info" aria-label="Skip the ARP request/reply animation; MAC addresses resolve instantly.">i</button>
         </label>
         <label class="settings-row">
           <input id="optSilentDhcp" type="checkbox">
           <span class="settings-row-text">
             <span class="settings-row-title">Silent DHCP</span>
-            <span class="settings-row-desc">Skip the DORA animation; a host takes its lease instantly.</span>
           </span>
+          <button type="button" class="settings-info" aria-label="Skip the DORA animation; a host takes its lease instantly.">i</button>
         </label>
         <label class="settings-row">
           <input id="optSilentDns" type="checkbox">
           <span class="settings-row-text">
             <span class="settings-row-title">Silent DNS</span>
-            <span class="settings-row-desc">Skip the query/response animation; names resolve instantly before the ping or connection.</span>
           </span>
+          <button type="button" class="settings-info" aria-label="Skip the query/response animation; names resolve instantly before the ping or connection.">i</button>
         </label>
         <label class="settings-row">
           <input id="optSilentWifi" type="checkbox">
           <span class="settings-row-text">
             <span class="settings-row-title">Silent WiFi association</span>
-            <span class="settings-row-desc">Skip the 802.11 probe/auth/association (and WPA2) frames when a laptop joins an access point.</span>
           </span>
+          <button type="button" class="settings-info" aria-label="Skip the 802.11 probe/auth/association (and WPA2) frames when a laptop joins an access point.">i</button>
         </label>
       </section>
     </div>

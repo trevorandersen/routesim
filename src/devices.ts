@@ -1,4 +1,4 @@
-import type { PortOption, Device, Link, DeviceType, NamedRouterIface } from "./types";
+import type { PortOption, Device, Link, DeviceType, DeviceConfig, NamedRouterIface } from "./types";
 import { state, sync, pushUndo, networkSnapshot, dropTerminalSessions } from "./state";
 import { dom } from "./dom";
 import { deviceSize, defaultDeviceConfig, ensureConfig, normaliseRouterInterfaces, normalisePortVlans, normalisePortModes } from "./normalise";
@@ -51,15 +51,51 @@ export function addDevice(type: DeviceType, x: number, y: number, name?: string)
 
 // Tools that place a device on a canvas click. "managed-switch" is a UI variant
 // of the switch tool (the Switch tool group), not a distinct device type.
-export const PLACEMENT_TOOLS = new Set(["computer", "laptop", "server", "switch", "managed-switch", "router", "firewall", "hub", "access-point"]);
+export const PLACEMENT_TOOLS = new Set(["computer", "laptop", "server", "dns-server", "dhcp-server", "radius-server", "web-server", "switch", "managed-switch", "router", "firewall", "hub", "access-point"]);
+
+// The Server tool group places a `server` pre-configured for a role. They are all
+// the same `server` device type — so the inspector, frame processing, and
+// serialisation are shared — and a preset only seeds the role's (empty) config
+// plus a role-specific name prefix. The plain "server" tool keeps the type
+// default (DNS + DHCP via dnsmasq). Mirrors the managed-switch variant.
+interface ServerPreset { namePrefix: string; config: () => DeviceConfig }
+export const SERVER_PRESETS: Record<string, ServerPreset> = {
+  "dns-server": { namePrefix: "DNS", config: () => ({ dnsmasqRunning: true, dnsRecords: [] }) },
+  "dhcp-server": { namePrefix: "DHCP", config: () => ({ dnsmasqRunning: true, dnsRecords: [] }) },
+  "radius-server": { namePrefix: "RAD", config: () => ({ dnsmasqRunning: false, radius: { users: [] } }) },
+  "web-server": { namePrefix: "WEB", config: () => ({ dnsmasqRunning: false, openPorts: [80] }) },
+};
+
+// Next free "<PREFIX>-<n>" name across all devices. Preset prefixes aren't in
+// DEVICE_SPECS, so they can't use the per-type nameCounters.
+function nextNameForPrefix(prefix: string): string {
+  const p = `${prefix}-`;
+  const highest = state.devices
+    .filter(d => d.name.startsWith(p))
+    .map(d => Number(d.name.slice(p.length)))
+    .filter(Number.isFinite)
+    .reduce((max, v) => Math.max(max, v), 0);
+  return `${prefix}-${highest + 1}`;
+}
 
 // Place the device for a placement tool, resolving UI variants to real types:
-// "managed-switch" is a switch with management turned on.
+// "managed-switch" is a switch with management on; the server presets seed a
+// role's config onto a plain server.
 export function placeToolDevice(tool: string, x: number, y: number): Device {
   if (tool === "managed-switch") {
     const device = addDevice("switch", x, y);
     device.config = device.config || {};
     (device.config as any).managed = true;
+    sync().syncPanel();
+    sync().render();
+    return device;
+  }
+  // A server role preset (dns/dhcp/radius/web). The plain "server" tool isn't in
+  // the table, so it falls through to the default addDevice below.
+  const preset = SERVER_PRESETS[tool];
+  if (preset) {
+    const device = addDevice("server", x, y, nextNameForPrefix(preset.namePrefix));
+    device.config = { ...device.config, ...preset.config() } as DeviceConfig;
     sync().syncPanel();
     sync().render();
     return device;

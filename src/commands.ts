@@ -425,6 +425,27 @@ function cmdRadius(args: string[]): CommandResult {
   return ok(`${server.name} RADIUS user "${identity}" set.`);
 }
 
+// Set a host's listening TCP ports (the simple "is this port open?" model nc/
+// connect use). Comma- or space-separated; "none"/"off"/"clear" removes them.
+function cmdPorts(args: string[]): CommandResult {
+  const host = resolveDevice(args[0]);
+  if (typeof host === "string") return err(host);
+  if (!["computer", "laptop", "server"].includes(host.type)) return err(`${host.name} is not a host (only computers/laptops/servers listen on ports).`);
+  const spec = args.slice(1).join(" ").trim();
+  ensureConfig(host);
+  const cfg: any = host.config;
+  if (!spec || /^(none|off|clear)$/i.test(spec)) {
+    delete cfg.openPorts;
+    sync().syncPanel();
+    return ok(`${host.name}: listening ports cleared.`);
+  }
+  const ports = spec.split(/[\s,]+/).filter(Boolean).map(Number);
+  if (!ports.every(p => Number.isInteger(p) && p >= 1 && p <= 65535)) return err("ports: each port must be an integer 1–65535.");
+  cfg.openPorts = [...new Set(ports)];
+  sync().syncPanel();
+  return ok(`${host.name} listening on ${cfg.openPorts.join(", ")}.`);
+}
+
 // MACsec: set (or clear, with "off") the pre-shared key for the link to a peer.
 function cmdMacsec(args: string[]): CommandResult {
   const dev = resolveDevice(args[0]);
@@ -732,7 +753,7 @@ const COMMANDS: Record<string, Handler> = {
   shut: cmdShut, noshut: cmdNoShut,
   move: cmdMove, rename: cmdRename, clear: cmdClear, collapse: cmdCollapse, expand: cmdExpand,
   ip: cmdIp, gateway: cmdGateway, nameserver: cmdNameserver, mac: cmdMac, ssid: cmdSsid, interface: cmdInterface, route: cmdRoute,
-  supplicant: cmdSupplicant, portauth: cmdPortAuth, radius: cmdRadius, dot1x: cmdDot1x, macsec: cmdMacsec,
+  supplicant: cmdSupplicant, portauth: cmdPortAuth, radius: cmdRadius, ports: cmdPorts, dot1x: cmdDot1x, macsec: cmdMacsec,
   vlan: cmdVlan, port: cmdPort, cli: cmdCli,
   ping: cmdPing, dhcp: cmdDhcp, connect: cmdConnect, associate: cmdAssociate, run: cmdRun, traceroute: cmdTraceroute, tracert: cmdTraceroute,
   play: cmdPlay, pause: cmdPause, step: cmdStep,
@@ -756,6 +777,7 @@ const HELP: Record<string, string> = {
   supplicant: "supplicant <host> <identity> <password> (set 802.1X credentials)",
   portauth: "portauth <switch> <EthN> <auto|force-authorized|force-unauthorized>",
   radius: "radius <server> <identity> <password> (add a RADIUS user, enables the back end)",
+  ports: "ports <host> <port[,port…]> (set the host's listening TCP ports; 'none' clears)",
   dot1x: "dot1x <host> (animate the 802.1X EAP/RADIUS exchange)",
   macsec: "macsec <device> <peer> <key|dot1x> [must|should] (802.1AE link encryption; 'dot1x' derives keys from 802.1X, 'off' clears)",
   interface: "interface <router> <peer> ip <addr> [vlan <tag>]", route: "route <router> <net/prefix> <nextHop>",
@@ -830,6 +852,7 @@ export function exportTopologyScript(): string {
       if (d.type === "server" && c.dnsmasqRunning === false) lines.push(`cli ${d.name} systemctl stop dnsmasq`);
       if (c.dot1x?.identity) lines.push(`supplicant ${d.name} ${c.dot1x.identity} ${c.dot1x.password || ""}`.trimEnd());
       for (const u of (c.radius?.users || [])) lines.push(`radius ${d.name} ${u.identity} ${u.password || ""}`.trimEnd());
+      if (Array.isArray(c.openPorts) && c.openPorts.length) lines.push(`ports ${d.name} ${c.openPorts.join(",")}`);
     } else if (d.type === "switch") {
       if (c.managed) {
         for (const v of (c.vlans || [])) if (v.id !== 1) lines.push(`vlan ${d.name} add ${v.id}`);

@@ -52,6 +52,32 @@ describe("addDevice", () => {
     expect(PLACEMENT_TOOLS.has("managed-switch")).toBe(true);
   });
 
+  it("placeToolDevice resolves the server presets to pre-configured servers", () => {
+    const dns = placeToolDevice("dns-server", 0, 0);
+    expect(dns.type).toBe("server");
+    expect(dns.name).toBe("DNS-1");
+    expect(dns.config?.dnsmasqRunning).toBe(true);
+
+    const radius = placeToolDevice("radius-server", 100, 0);
+    expect(radius.type).toBe("server");
+    expect(radius.name).toBe("RAD-1");
+    expect(radius.config?.radius).toEqual({ users: [] });   // role enabled, empty
+    expect(radius.config?.dnsmasqRunning).toBe(false);       // a dedicated AAA box
+
+    const web = placeToolDevice("web-server", 200, 0);
+    expect(web.name).toBe("WEB-1");
+    expect(web.config?.openPorts).toEqual([80]);
+
+    // Each preset still gets a fresh NIC MAC like any server.
+    expect(radius.config?.macAddress).toMatch(/^([0-9A-F]{2}:){5}[0-9A-F]{2}$/);
+    // Preset name prefixes increment independently of the SRV counter.
+    expect(placeToolDevice("dns-server", 300, 0).name).toBe("DNS-2");
+    expect(placeToolDevice("server", 400, 0).name).toBe("SRV-1");
+    for (const t of ["dns-server", "dhcp-server", "radius-server", "web-server"]) {
+      expect(PLACEMENT_TOOLS.has(t)).toBe(true);
+    }
+  });
+
   it("auto-generates sequential names", () => {
     addDevice("computer", 100, 200);
     addDevice("computer", 200, 200);

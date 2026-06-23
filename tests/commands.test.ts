@@ -76,6 +76,19 @@ describe("commands — config verbs", () => {
     expect(sw.config.vlans.some((v: any) => v.id === 30)).toBe(true);
     expect(sw.config.portVlans.Ethernet2).toBe(30);
   });
+
+  it("ports sets a host's listening TCP ports, clears them, and round-trips through export", () => {
+    exec("add server SRV1");
+    expect(exec("ports SRV1 80, 443").ok).toBe(true);
+    const srv = state.devices.find(d => d.name === "SRV1")!;
+    expect(srv.config.openPorts).toEqual([80, 443]);
+    expect(exec("ports SRV1 not-a-port").ok).toBe(false);   // validation
+    expect(exec("ports SRV-switch 80").ok).toBe(false);     // unknown device
+    // Export reproduces the listening ports (the script completeness guarantee).
+    expect(exportTopologyScript()).toContain("ports SRV1 80,443");
+    exec("ports SRV1 none");
+    expect(srv.config.openPorts).toBeUndefined();
+  });
 });
 
 describe("commands — headless simulation", () => {

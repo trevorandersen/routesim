@@ -270,7 +270,7 @@ function normaliseMacsec(raw: unknown): { macsec?: Record<string, { cak?: string
 }
 
 // RADIUS user database (the authentication server back end).
-function normaliseRadiusUsers(raw: unknown): { identity: string; password: string }[] {
+export function normaliseRadiusUsers(raw: unknown): { identity: string; password: string }[] {
   if (!Array.isArray(raw)) return [];
   return raw
     .filter((u: any) => u && u.identity)

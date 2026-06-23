@@ -13,7 +13,7 @@ Builds the right-hand inspector panel: device configuration forms, the device li
 - **`renderSwitchPorts(device)`** — per-port rows for a managed switch with an access/trunk **mode dropdown** and an **access-VLAN** or **trunk-native-VLAN** dropdown; unmanaged switches get a simpler peer/remove row.
 - **`renderSwitchVlans(device)`** — the VLAN list (a chip per VLAN with remove) plus an "Add VLAN" control.
 - **`renderRouterInterfaces(device)`** — router interface rows, each stacked two lines: the interface name + peer name on top (peer right-aligned, ellipsised), the editable `address/prefix` input full-width below (a bare address keeps the prefix; the subnet shows as the tooltip). Stacking avoids the cramped horizontal layout that overlapped at narrow inspector widths. A **connected** port carries a `×` **unlink** button (deletes that port's cable, keeping the router selected); an **unconnected** port reads "not connected" (greyed) and still accepts an address — persisted by interface name via `routerInterfaceForName` ([devices.md](devices.md)), keyed by peer once a cable exists.
-- **`renderDnsmasqSection(device)`** — the server's dnsmasq panel: daemon state (start/stop), DNS A-records (add/remove), and the DHCP range/router-option fields (`bindDnsmasqControls` wires them).
+- **`renderDnsmasqSection(device)`** — the server's service panel: dnsmasq daemon state (start/stop), DNS A-records (add/remove), the DHCP range/router-option fields, a **RADIUS users** editor (identity/password add/remove for the 802.1X back end), and a **listening TCP ports** field (comma-separated, 1–65535). `bindDnsmasqControls` wires them all.
 - **`renderArpTable`, `renderMacAddressTable`** — read-only tables.
 
 ### Binding & misc

@@ -1994,8 +1994,19 @@
             <button class="tool-caret" type="button" aria-label="Choose computer type" aria-haspopup="true" aria-expanded="false"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M6 9l6 6l6 -6"></path></svg></button>
             <div class="tool-menu" hidden>
               <button class="tool-menu-item active" data-tool="computer" type="button"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M3 5a1 1 0 0 1 1 -1h16a1 1 0 0 1 1 1v10a1 1 0 0 1 -1 1h-16a1 1 0 0 1 -1 -1v-10"></path><path d="M7 20h10"></path><path d="M9 16v4"></path><path d="M15 16v4"></path></svg><span>Client PC</span></button>
-              <button class="tool-menu-item" data-tool="server" type="button"><svg viewBox="0 0 24 24" aria-hidden="true"><rect x="3" y="4" width="18" height="8" rx="3"></rect><rect x="3" y="12" width="18" height="8" rx="3"></rect><path d="M7 8l0 .01"></path><path d="M7 16l0 .01"></path></svg><span>Server</span></button>
               <button class="tool-menu-item" data-tool="laptop" type="button"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M3 19l18 0"></path><path d="M5 5h14a1 1 0 0 1 1 1v9a1 1 0 0 1 -1 1h-14a1 1 0 0 1 -1 -1v-9a1 1 0 0 1 1 -1z"></path></svg><span>Laptop</span></button>
+            </div>
+          </div>
+
+          <div class="tool-split" data-group="server">
+            <button class="ribbon-btn tool-button tool-face" data-tool="server" type="button"><svg viewBox="0 0 24 24" aria-hidden="true"><rect x="3" y="4" width="18" height="8" rx="3"></rect><rect x="3" y="12" width="18" height="8" rx="3"></rect><path d="M7 8l0 .01"></path><path d="M7 16l0 .01"></path></svg><span>Server</span></button>
+            <button class="tool-caret" type="button" aria-label="Choose server type" aria-haspopup="true" aria-expanded="false"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M6 9l6 6l6 -6"></path></svg></button>
+            <div class="tool-menu" hidden>
+              <button class="tool-menu-item active" data-tool="server" type="button"><svg viewBox="0 0 24 24" aria-hidden="true"><rect x="3" y="4" width="18" height="8" rx="3"></rect><rect x="3" y="12" width="18" height="8" rx="3"></rect><path d="M7 8l0 .01"></path><path d="M7 16l0 .01"></path></svg><span>Server</span></button>
+              <button class="tool-menu-item" data-tool="dns-server" type="button"><svg viewBox="0 0 24 24" aria-hidden="true"><rect x="3" y="4" width="18" height="8" rx="3"></rect><rect x="3" y="12" width="18" height="8" rx="3"></rect><path d="M7 8l0 .01"></path><path d="M7 16l0 .01"></path></svg><span>DNS server</span></button>
+              <button class="tool-menu-item" data-tool="dhcp-server" type="button"><svg viewBox="0 0 24 24" aria-hidden="true"><rect x="3" y="4" width="18" height="8" rx="3"></rect><rect x="3" y="12" width="18" height="8" rx="3"></rect><path d="M7 8l0 .01"></path><path d="M7 16l0 .01"></path></svg><span>DHCP server</span></button>
+              <button class="tool-menu-item" data-tool="radius-server" type="button"><svg viewBox="0 0 24 24" aria-hidden="true"><rect x="3" y="4" width="18" height="8" rx="3"></rect><rect x="3" y="12" width="18" height="8" rx="3"></rect><path d="M7 8l0 .01"></path><path d="M7 16l0 .01"></path></svg><span>RADIUS server</span></button>
+              <button class="tool-menu-item" data-tool="web-server" type="button"><svg viewBox="0 0 24 24" aria-hidden="true"><rect x="3" y="4" width="18" height="8" rx="3"></rect><rect x="3" y="12" width="18" height="8" rx="3"></rect><path d="M7 8l0 .01"></path><path d="M7 16l0 .01"></path></svg><span>Web server</span></button>
             </div>
           </div>
 
@@ -3100,6 +3111,10 @@ Full legal text: https://creativecommons.org/publicdomain/zero/1.0/legalcode</pr
     computer: ["Add client PC", "Click the canvas to place a client PC."],
     laptop: ["Add laptop", "Click the canvas to place a WiFi laptop (associate it to an access point)."],
     server: ["Add server", "Click the canvas to place a server (DNS/DHCP via dnsmasq)."],
+    "dns-server": ["Add DNS server", "Click the canvas to place a DNS server (dnsmasq \u2014 add A-records to resolve names)."],
+    "dhcp-server": ["Add DHCP server", "Click the canvas to place a DHCP server (dnsmasq \u2014 set a dhcp-range to hand out addresses)."],
+    "radius-server": ["Add RADIUS server", "Click the canvas to place a RADIUS server (the 802.1X authentication back-end \u2014 add user accounts)."],
+    "web-server": ["Add web server", "Click the canvas to place a web server (listening on TCP/80)."],
     switch: ["Add switch", "Click the canvas to place a switch."],
     "managed-switch": ["Add managed switch", "Click the canvas to place a managed switch."],
     connect: ["Connect devices", "Click one device, then another device to connect them."],
@@ -3608,12 +3623,31 @@ Full legal text: https://creativecommons.org/publicdomain/zero/1.0/legalcode</pr
     sync().render();
     return device;
   }
-  var PLACEMENT_TOOLS = /* @__PURE__ */ new Set(["computer", "laptop", "server", "switch", "managed-switch", "router", "firewall", "hub", "access-point"]);
+  var PLACEMENT_TOOLS = /* @__PURE__ */ new Set(["computer", "laptop", "server", "dns-server", "dhcp-server", "radius-server", "web-server", "switch", "managed-switch", "router", "firewall", "hub", "access-point"]);
+  var SERVER_PRESETS = {
+    "dns-server": { namePrefix: "DNS", config: () => ({ dnsmasqRunning: true, dnsRecords: [] }) },
+    "dhcp-server": { namePrefix: "DHCP", config: () => ({ dnsmasqRunning: true, dnsRecords: [] }) },
+    "radius-server": { namePrefix: "RAD", config: () => ({ dnsmasqRunning: false, radius: { users: [] } }) },
+    "web-server": { namePrefix: "WEB", config: () => ({ dnsmasqRunning: false, openPorts: [80] }) }
+  };
+  function nextNameForPrefix(prefix) {
+    const p = `${prefix}-`;
+    const highest = state.devices.filter((d) => d.name.startsWith(p)).map((d) => Number(d.name.slice(p.length))).filter(Number.isFinite).reduce((max, v) => Math.max(max, v), 0);
+    return `${prefix}-${highest + 1}`;
+  }
   function placeToolDevice(tool, x, y) {
     if (tool === "managed-switch") {
       const device = addDevice("switch", x, y);
       device.config = device.config || {};
       device.config.managed = true;
+      sync().syncPanel();
+      sync().render();
+      return device;
+    }
+    const preset = SERVER_PRESETS[tool];
+    if (preset) {
+      const device = addDevice("server", x, y, nextNameForPrefix(preset.namePrefix));
+      device.config = { ...device.config, ...preset.config() };
       sync().syncPanel();
       sync().render();
       return device;
@@ -8973,6 +9007,8 @@ Address: ${sim.dnsResolvedIp}`);
     const config = device.config || {};
     const records = normaliseDnsRecords(config.dnsRecords || []);
     const leases = normaliseDhcpLeases(config.dhcpLeases || []);
+    const radiusUsers = normaliseRadiusUsers(config.radius?.users || []);
+    const ports = Array.isArray(config.openPorts) ? config.openPorts : [];
     return `
     <div class="field">
       <label for="dnsmasqRunning">dnsmasq service running</label>
@@ -9020,6 +9056,31 @@ Address: ${sim.dnsResolvedIp}`);
         </tbody>
       </table>
     </div>` : ""}
+    <div class="field">
+      <label>RADIUS users (802.1X)</label>
+      ${radiusUsers.length ? `
+      <table class="data-table">
+        <thead><tr><th>Identity</th><th>Password</th><th></th></tr></thead>
+        <tbody>
+          ${radiusUsers.map((u, i) => `
+            <tr>
+              <td>${escapeHtml(u.identity)}</td>
+              <td>${escapeHtml(u.password)}</td>
+              <td><button class="inline-button radius-user-remove" data-index="${i}" type="button" title="Remove user">&times;</button></td>
+            </tr>
+          `).join("")}
+        </tbody>
+      </table>` : `<p class="empty-state">No accounts yet \u2014 add one to use this server as an 802.1X (RADIUS) back end.</p>`}
+      <div class="input-with-button">
+        <input id="radiusUserId" placeholder="alice" autocomplete="off">
+        <input id="radiusUserPw" placeholder="secret" autocomplete="off">
+        <button class="inline-button" id="radiusUserAdd" type="button" title="Add user">Add</button>
+      </div>
+    </div>
+    <div class="field">
+      <label for="listenPorts">Listening TCP ports</label>
+      <input id="listenPorts" value="${escapeHtml(ports.join(", "))}" placeholder="80, 443" autocomplete="off" inputmode="numeric">
+    </div>
   `;
   }
   function bindDnsmasqControls(selected) {
@@ -9083,6 +9144,57 @@ Address: ${sim.dnsResolvedIp}`);
     bindIpField("dhcpRangeStart", "dhcpRangeStart");
     bindIpField("dhcpRangeEnd", "dhcpRangeEnd");
     bindIpField("dhcpRouterIp", "dhcpRouterIp");
+    const radiusAdd = document.getElementById("radiusUserAdd");
+    if (radiusAdd) {
+      radiusAdd.addEventListener("click", () => {
+        const idInput = document.getElementById("radiusUserId");
+        const pwInput = document.getElementById("radiusUserPw");
+        if (!idInput || !pwInput) return;
+        const identity = idInput.value.trim();
+        const password = pwInput.value;
+        if (!identity) {
+          idInput.setCustomValidity("Enter an identity.");
+          idInput.reportValidity?.();
+          return;
+        }
+        pushUndo();
+        ensureConfig(selected);
+        const users = normaliseRadiusUsers(selected.config.radius?.users || []);
+        const existing = users.find((u) => u.identity === identity);
+        if (existing) existing.password = password;
+        else users.push({ identity, password });
+        selected.config.radius = { users };
+        syncPanel();
+      });
+    }
+    document.querySelectorAll(".radius-user-remove").forEach((button) => {
+      button.addEventListener("click", (event) => {
+        const index = Number(event.currentTarget.dataset.index);
+        pushUndo();
+        ensureConfig(selected);
+        const users = normaliseRadiusUsers(selected.config.radius?.users || []);
+        users.splice(index, 1);
+        selected.config.radius = { users };
+        syncPanel();
+      });
+    });
+    const portsInput = document.getElementById("listenPorts");
+    if (portsInput) {
+      captureUndoOnFocus(portsInput);
+      portsInput.addEventListener("input", (event) => {
+        const raw = event.target.value.trim();
+        const parts = raw ? raw.split(",").map((s) => s.trim()).filter(Boolean) : [];
+        const ports = parts.map(Number);
+        const valid = ports.every((p) => Number.isInteger(p) && p >= 1 && p <= 65535);
+        if (!valid) {
+          event.target.setCustomValidity("Enter comma-separated ports (1\u201365535).");
+          return;
+        }
+        event.target.setCustomValidity("");
+        ensureConfig(selected);
+        selected.config.openPorts = [...new Set(ports)];
+      });
+    }
   }
   function renderArpTable(device) {
     const entries = Array.isArray(device.config?.arpTable) ? device.config.arpTable : [];
@@ -11203,7 +11315,7 @@ Address: ${sim.dnsResolvedIp}`);
             ...config?.dhcpRangeStart && config?.dhcpRangeEnd ? { dhcpRangeStart: config.dhcpRangeStart, dhcpRangeEnd: config.dhcpRangeEnd } : {},
             ...config?.dhcpRouterIp ? { dhcpRouterIp: config.dhcpRouterIp } : {},
             dhcpLeases: normaliseDhcpLeases(config?.dhcpLeases || []),
-            ...config?.radius?.users?.length ? { radius: { users: config.radius.users.map((u) => ({ identity: u.identity, password: u.password || "" })) } } : {}
+            ...config?.radius ? { radius: { users: (config.radius.users || []).map((u) => ({ identity: u.identity, password: u.password || "" })) } } : {}
           }
         } : {},
         ...type === "switch" ? {
@@ -11793,6 +11905,24 @@ Address: ${sim.dnsResolvedIp}`);
     sync().syncPanel();
     return ok(`${server.name} RADIUS user "${identity}" set.`);
   }
+  function cmdPorts(args) {
+    const host = resolveDevice(args[0]);
+    if (typeof host === "string") return err(host);
+    if (!["computer", "laptop", "server"].includes(host.type)) return err(`${host.name} is not a host (only computers/laptops/servers listen on ports).`);
+    const spec = args.slice(1).join(" ").trim();
+    ensureConfig(host);
+    const cfg = host.config;
+    if (!spec || /^(none|off|clear)$/i.test(spec)) {
+      delete cfg.openPorts;
+      sync().syncPanel();
+      return ok(`${host.name}: listening ports cleared.`);
+    }
+    const ports = spec.split(/[\s,]+/).filter(Boolean).map(Number);
+    if (!ports.every((p) => Number.isInteger(p) && p >= 1 && p <= 65535)) return err("ports: each port must be an integer 1\u201365535.");
+    cfg.openPorts = [...new Set(ports)];
+    sync().syncPanel();
+    return ok(`${host.name} listening on ${cfg.openPorts.join(", ")}.`);
+  }
   function cmdMacsec(args) {
     const dev = resolveDevice(args[0]);
     if (typeof dev === "string") return err(dev);
@@ -12124,6 +12254,7 @@ Address: ${sim.dnsResolvedIp}`);
     supplicant: cmdSupplicant,
     portauth: cmdPortAuth,
     radius: cmdRadius,
+    ports: cmdPorts,
     dot1x: cmdDot1x,
     macsec: cmdMacsec,
     vlan: cmdVlan,
@@ -12180,6 +12311,7 @@ Address: ${sim.dnsResolvedIp}`);
     supplicant: "supplicant <host> <identity> <password> (set 802.1X credentials)",
     portauth: "portauth <switch> <EthN> <auto|force-authorized|force-unauthorized>",
     radius: "radius <server> <identity> <password> (add a RADIUS user, enables the back end)",
+    ports: "ports <host> <port[,port\u2026]> (set the host's listening TCP ports; 'none' clears)",
     dot1x: "dot1x <host> (animate the 802.1X EAP/RADIUS exchange)",
     macsec: "macsec <device> <peer> <key|dot1x> [must|should] (802.1AE link encryption; 'dot1x' derives keys from 802.1X, 'off' clears)",
     interface: "interface <router> <peer> ip <addr> [vlan <tag>]",
@@ -12255,6 +12387,7 @@ Address: ${sim.dnsResolvedIp}`);
         if (d.type === "server" && c.dnsmasqRunning === false) lines.push(`cli ${d.name} systemctl stop dnsmasq`);
         if (c.dot1x?.identity) lines.push(`supplicant ${d.name} ${c.dot1x.identity} ${c.dot1x.password || ""}`.trimEnd());
         for (const u of c.radius?.users || []) lines.push(`radius ${d.name} ${u.identity} ${u.password || ""}`.trimEnd());
+        if (Array.isArray(c.openPorts) && c.openPorts.length) lines.push(`ports ${d.name} ${c.openPorts.join(",")}`);
       } else if (d.type === "switch") {
         if (c.managed) {
           for (const v of c.vlans || []) if (v.id !== 1) lines.push(`vlan ${d.name} add ${v.id}`);

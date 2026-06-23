@@ -3,7 +3,7 @@ import { state, sync, pushUndo, captureUndoOnFocus } from "./state";
 import { DEVICE_SPECS } from "./device-registry";
 import { dom } from "./dom";
 import { escapeHtml, isValidIpv4, isValidMac, normaliseMacAddress, randomMac, parseIpv4Token, prefixOf, networkOf, normaliseSsid, normaliseWifiPassword } from "./utils";
-import { ensureConfig, normaliseVlans, normaliseDnsRecords, normaliseDhcpLeases } from "./normalise";
+import { ensureConfig, normaliseVlans, normaliseDnsRecords, normaliseDhcpLeases, normaliseRadiusUsers } from "./normalise";
 import {
   getDevice, isVisibleDevice, connectedIds, linkedPortsFor, linksFor, wifiLinkAuthenticated,
   routerInterfacesWithNames, routerInterfaceFor, routerInterfaceForName, switchInterfacesWithNames,
@@ -256,6 +256,8 @@ function renderDnsmasqSection(device: any): string {
   const config = device.config || {};
   const records = normaliseDnsRecords(config.dnsRecords || []);
   const leases = normaliseDhcpLeases(config.dhcpLeases || []);
+  const radiusUsers = normaliseRadiusUsers(config.radius?.users || []);
+  const ports = Array.isArray(config.openPorts) ? config.openPorts : [];
   return `
     <div class="field">
       <label for="dnsmasqRunning">dnsmasq service running</label>
@@ -303,6 +305,31 @@ function renderDnsmasqSection(device: any): string {
         </tbody>
       </table>
     </div>` : ""}
+    <div class="field">
+      <label>RADIUS users (802.1X)</label>
+      ${radiusUsers.length ? `
+      <table class="data-table">
+        <thead><tr><th>Identity</th><th>Password</th><th></th></tr></thead>
+        <tbody>
+          ${radiusUsers.map((u: any, i: number) => `
+            <tr>
+              <td>${escapeHtml(u.identity)}</td>
+              <td>${escapeHtml(u.password)}</td>
+              <td><button class="inline-button radius-user-remove" data-index="${i}" type="button" title="Remove user">&times;</button></td>
+            </tr>
+          `).join("")}
+        </tbody>
+      </table>` : `<p class="empty-state">No accounts yet — add one to use this server as an 802.1X (RADIUS) back end.</p>`}
+      <div class="input-with-button">
+        <input id="radiusUserId" placeholder="alice" autocomplete="off">
+        <input id="radiusUserPw" placeholder="secret" autocomplete="off">
+        <button class="inline-button" id="radiusUserAdd" type="button" title="Add user">Add</button>
+      </div>
+    </div>
+    <div class="field">
+      <label for="listenPorts">Listening TCP ports</label>
+      <input id="listenPorts" value="${escapeHtml(ports.join(", "))}" placeholder="80, 443" autocomplete="off" inputmode="numeric">
+    </div>
   `;
 }
 
@@ -369,6 +396,52 @@ function bindDnsmasqControls(selected: any): void {
   bindIpField("dhcpRangeStart", "dhcpRangeStart");
   bindIpField("dhcpRangeEnd", "dhcpRangeEnd");
   bindIpField("dhcpRouterIp", "dhcpRouterIp");
+
+  const radiusAdd = document.getElementById("radiusUserAdd");
+  if (radiusAdd) {
+    radiusAdd.addEventListener("click", () => {
+      const idInput = document.getElementById("radiusUserId") as HTMLInputElement | null;
+      const pwInput = document.getElementById("radiusUserPw") as HTMLInputElement | null;
+      if (!idInput || !pwInput) return;
+      const identity = idInput.value.trim();
+      const password = pwInput.value;
+      if (!identity) { idInput.setCustomValidity("Enter an identity."); idInput.reportValidity?.(); return; }
+      pushUndo();
+      ensureConfig(selected);
+      const users = normaliseRadiusUsers(selected.config.radius?.users || []);
+      const existing = users.find((u: any) => u.identity === identity);
+      if (existing) existing.password = password;
+      else users.push({ identity, password });
+      selected.config.radius = { users };
+      syncPanel();
+    });
+  }
+  document.querySelectorAll(".radius-user-remove").forEach(button => {
+    button.addEventListener("click", (event: any) => {
+      const index = Number(event.currentTarget.dataset.index);
+      pushUndo();
+      ensureConfig(selected);
+      const users = normaliseRadiusUsers(selected.config.radius?.users || []);
+      users.splice(index, 1);
+      selected.config.radius = { users };
+      syncPanel();
+    });
+  });
+
+  const portsInput = document.getElementById("listenPorts") as HTMLInputElement | null;
+  if (portsInput) {
+    captureUndoOnFocus(portsInput);
+    portsInput.addEventListener("input", (event: any) => {
+      const raw = event.target.value.trim();
+      const parts = raw ? raw.split(",").map((s: string) => s.trim()).filter(Boolean) : [];
+      const ports = parts.map(Number);
+      const valid = ports.every((p: number) => Number.isInteger(p) && p >= 1 && p <= 65535);
+      if (!valid) { event.target.setCustomValidity("Enter comma-separated ports (1–65535)."); return; }
+      event.target.setCustomValidity("");
+      ensureConfig(selected);
+      selected.config.openPorts = [...new Set(ports)];
+    });
+  }
 }
 
 export function renderArpTable(device: any): string {

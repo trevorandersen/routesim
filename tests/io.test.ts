@@ -7,6 +7,7 @@ import { describe, it, expect, beforeAll, beforeEach } from "bun:test";
 import { state } from "../src/state";
 import { downloadJson, downloadText, exportConfig, exportScenarios, exportScript, exportLog } from "../src/io";
 import { buildConfigPayload, parseConfig, applyConfig } from "../src/config";
+import { placeToolDevice } from "../src/devices";
 import { registerScenario, getScenario, SCENARIOS } from "../src/scenarios";
 import { registerNoopCallbacks, resetState } from "./helpers";
 import { basicTopology } from "./fixtures";
@@ -39,6 +40,17 @@ describe("io — config export→import data path", () => {
 
   it("parseConfig throws on invalid JSON", () => {
     expect(() => parseConfig("{ not json")).toThrow();
+  });
+
+  it("a role-enabled-but-empty RADIUS server keeps its (empty) radius config across a round-trip", () => {
+    const rad = placeToolDevice("radius-server", 0, 0);
+    expect(rad.config.radius).toEqual({ users: [] });
+    const json = JSON.stringify(buildConfigPayload());
+    resetState();
+    applyConfig(parseConfig(json));
+    const restored = state.devices.find(d => d.type === "server")!;
+    expect(restored.config.radius).toEqual({ users: [] });   // still flagged RADIUS, not a plain server
+    expect(restored.config.dnsmasqRunning).toBe(false);
   });
 });
 

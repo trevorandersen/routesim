@@ -176,7 +176,7 @@ export function dot1xLinkInfo(link: any): { sw: any; host: any; mode: string; po
   const host = (a?.type === "switch" ? b : a);
   if (!host || !["computer", "laptop", "server"].includes(host.type)) return null;
   const ports = linkedPortsFor(sw.id);
-  const idx = ports.findIndex((p: any) => p.peer?.id === host.id);
+  const idx = ports.findIndex((p: any) => p?.peer?.id === host.id);   // linkedPortsFor can be sparse (null gaps)
   if (idx < 0) return null;
   const port = `Ethernet${idx + 1}`;
   return { sw, host, mode: sw.config.portAuth[port] || "force-authorized", port };
@@ -744,7 +744,7 @@ export function routerInterfacesWithNames(router: any): NamedRouterIface[] {
   const ethernetPorts = clampRouterPortCount(router.config?.ethernetPorts ?? 4);
   const serialPorts = clampRouterPortCount(router.config?.serialPorts ?? 4);
   const configured = normaliseRouterInterfaces(router.config?.interfaces || []);
-  const linked = linkedPortsFor(router.id).map(port => {
+  const linked = linkedPortsFor(router.id).filter((port: any) => port).map(port => {   // drop null gaps from sparse port arrays
     const type = port.peer.type === "router" ? "serial" : "ethernet";
     // Find ALL configured interfaces for this peer (supports sub-interfaces)
     const allConfigs = configured.filter((entry: any) => entry.peerId === port.peer.id);
@@ -814,7 +814,7 @@ export function switchInterfacesWithNames(device: any): any[] {
   // A wireless association (laptop ↔ access point) is not an ethernet port, so
   // it never occupies a wired-port slot in the inspector / port picker. The
   // engine still floods over every link (it uses linkedPortsFor directly).
-  const ports = linkedPortsFor(device.id).filter((p: any) => !p.link?.wireless);
+  const ports = linkedPortsFor(device.id).filter((p: any) => !p?.link?.wireless);   // keep null gaps (index alignment), drop wireless
   const portVlans = normalisePortVlans(device.config?.portVlans || {});
   const portModes = normalisePortModes(device.config?.portModes || {});
   const trunkNativeVlans = normalisePortVlans(device.config?.trunkNativeVlans || {});

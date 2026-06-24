@@ -10,6 +10,10 @@ import { runConsoleCommand as exec, runConsoleScript, exportTopologyScript } fro
 import { runStpConvergence, isStpParticipant, isRootBridge } from "../src/stp";
 import { getDevice } from "../src/devices";
 import { runSwitchTerminalCommand, showSwitchSpanningTree } from "../src/terminal/switch";
+import { linkedPortsFor, switchInterfacesWithNames, routerInterfacesWithNames } from "../src/devices";
+import { isTrunkLink } from "../src/canvas";
+import { processAtFirewall } from "../src/engine";
+import { createArpRequest } from "../src/frame";
 import { buildConfigPayload } from "../src/config";
 import { normaliseConfig } from "../src/normalise";
 import { registerNoopCallbacks, resetState } from "./helpers";
@@ -223,5 +227,45 @@ describe("STP — console + CLI + round-trip", () => {
     const payload = buildConfigPayload();
     const sw1 = payload.devices.find((d: any) => d.name === "SW1")!;
     expect((sw1.config as any).stp).toBeUndefined();
+  });
+});
+
+// A device with explicit port numbers that skip a slot (or after deleting a
+// middle link) gives linkedPortsFor a sparse array with a null gap. The render
+// and routing paths must tolerate that without crashing on `p.peer`.
+describe("STP — sparse port arrays don't crash the render/routing paths", () => {
+  beforeEach(reset);
+
+  it("a switch/router/firewall with a gapped port survives the lookups", () => {
+    exec("add switch SW1 at 0 0");
+    exec("add router R1 at 200 0");
+    exec("add firewall FW1 at 400 0");
+    exec("add computer PC1 at 0 100");
+    exec("add computer PC2 at 0 200");
+    exec("add computer PC3 at 200 100");
+    exec("add computer PC4 at 400 100");
+    managed("SW1");
+    // Explicit ports 1 and 3 (skip 2) → a null at index 1 in linkedPortsFor.
+    exec("link SW1 PC1 1 1");
+    exec("link SW1 PC2 3 1");
+    exec("link R1 PC3 1 1");
+    exec("link R1 SW1 3 4");
+    exec("link FW1 PC4 1 1");
+    exec("link FW1 SW1 3 5");
+
+    const sw1 = state.devices.find(d => d.name === "SW1")!;
+    const r1 = state.devices.find(d => d.name === "R1")!;
+    const fw1 = state.devices.find(d => d.name === "FW1")!;
+    // Confirm the array really is sparse (the precondition for the bug).
+    expect(linkedPortsFor(sw1.id).some(p => p == null)).toBe(true);
+
+    // None of these may throw on the null gap.
+    expect(() => switchInterfacesWithNames(sw1)).not.toThrow();
+    expect(() => routerInterfacesWithNames(r1)).not.toThrow();
+    expect(() => isTrunkLink(sw1, state.devices.find(d => d.name === "PC2")!)).not.toThrow();
+    expect(() => runStpConvergence()).not.toThrow();
+    expect(() => processAtFirewall(fw1, createArpRequest("02:00:00:00:00:01", "1.1.1.1", "1.1.1.2"), null)).not.toThrow();
+    // The router still enumerates its two real interfaces (the gap is skipped).
+    expect(routerInterfacesWithNames(r1).filter((i: any) => i.peer).length).toBe(2);
   });
 });

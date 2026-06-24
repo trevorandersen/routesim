@@ -1012,8 +1012,9 @@ function allocateServerDhcpIp(device: Device): string | null {
 // A switch receives a Configuration BPDU. The tree is already computed
 // (runStpConvergence, at sim start), so this animates the steady-state flood:
 // a BPDU arriving on the root port is relayed out the designated ports toward
-// the leaves (root path cost + 1); a BPDU on any other port is consumed (an
-// inferior/own advertisement). BPDUs never loop — they follow the tree.
+// the leaves, each advertising THIS bridge's own root path cost (the root
+// advertises 0; the receiver adds the link cost). A BPDU on any other port is
+// consumed (an inferior/own advertisement). BPDUs never loop — they follow the tree.
 function handleBpdu(device: Device, frame: EthernetFrame, fromDeviceId: string | null): OutgoingFrame[] {
   const stp = device.config?.stp;
   if (!stp || !isStpParticipant(device)) return [];
@@ -1593,7 +1594,9 @@ export function processAtFirewall(device: Device, frame: EthernetFrame, fromDevi
   if (device.poweredOff) return outgoing;
 
   // Transparent bridge: forward to every linked port except the ingress one.
+  // (linkedPortsFor can be sparse — null gaps — when explicit ports skip a slot.)
   const egress = linkedPortsFor(device.id)
+    .filter((p: any) => p?.peer)
     .map((p: any) => p.peer.id)
     .filter((id: string) => id !== fromDeviceId);
 

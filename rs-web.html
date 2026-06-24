@@ -3751,7 +3751,7 @@ Full legal text: https://creativecommons.org/publicdomain/zero/1.0/legalcode</pr
     const host = a?.type === "switch" ? b : a;
     if (!host || !["computer", "laptop", "server"].includes(host.type)) return null;
     const ports = linkedPortsFor(sw.id);
-    const idx = ports.findIndex((p) => p.peer?.id === host.id);
+    const idx = ports.findIndex((p) => p?.peer?.id === host.id);
     if (idx < 0) return null;
     const port = `Ethernet${idx + 1}`;
     return { sw, host, mode: sw.config.portAuth[port] || "force-authorized", port };
@@ -4208,7 +4208,7 @@ Full legal text: https://creativecommons.org/publicdomain/zero/1.0/legalcode</pr
     const ethernetPorts = clampRouterPortCount(router.config?.ethernetPorts ?? 4);
     const serialPorts = clampRouterPortCount(router.config?.serialPorts ?? 4);
     const configured = normaliseRouterInterfaces(router.config?.interfaces || []);
-    const linked = linkedPortsFor(router.id).map((port) => {
+    const linked = linkedPortsFor(router.id).filter((port) => port).map((port) => {
       const type = port.peer.type === "router" ? "serial" : "ethernet";
       const allConfigs = configured.filter((entry) => entry.peerId === port.peer.id);
       if (allConfigs.length === 0) {
@@ -4264,7 +4264,7 @@ Full legal text: https://creativecommons.org/publicdomain/zero/1.0/legalcode</pr
   }
   function switchInterfacesWithNames(device) {
     const portCount = device.type === "access-point" ? clampApPortCount(device.config?.ethernetPorts ?? 1) : clampPortCount(device.config?.ethernetPorts ?? 8);
-    const ports = linkedPortsFor(device.id).filter((p) => !p.link?.wireless);
+    const ports = linkedPortsFor(device.id).filter((p) => !p?.link?.wireless);
     const portVlans = normalisePortVlans(device.config?.portVlans || {});
     const portModes = normalisePortModes(device.config?.portModes || {});
     const trunkNativeVlans = normalisePortVlans(device.config?.trunkNativeVlans || {});
@@ -5156,11 +5156,6 @@ Full legal text: https://creativecommons.org/publicdomain/zero/1.0/legalcode</pr
     }
     return `${host.name} is not on an 802.1X-controlled port (set one with "portauth <switch> <EthN> auto").`;
   }
-  function stpRootOrigin() {
-    runStpConvergence();
-    const root = state.devices.find((d) => isStpParticipant(d) && !!d.config?.stp?.bridgeId && d.config.stp.bridgeId === d.config.stp.rootId);
-    return root?.id ?? null;
-  }
   function buildStpEvents() {
     runStpConvergence();
     const participants = state.devices.filter(isStpParticipant);
@@ -5268,7 +5263,7 @@ Full legal text: https://creativecommons.org/publicdomain/zero/1.0/legalcode</pr
       if (sw.type !== "switch" || !sw.config?.managed) return false;
       const portModes = memoPortModes(sw.config.portModes);
       const ports = linkedPortsFor(sw.id);
-      const idx = ports.findIndex((p) => p.peer.id === peerId);
+      const idx = ports.findIndex((p) => p?.peer?.id === peerId);
       if (idx < 0) return false;
       return (portModes[`Ethernet${idx + 1}`] || "access") === "trunk";
     }
@@ -7084,7 +7079,7 @@ Full legal text: https://creativecommons.org/publicdomain/zero/1.0/legalcode</pr
   function processAtFirewall(device, frame, fromDeviceId) {
     const outgoing = [];
     if (device.poweredOff) return outgoing;
-    const egress = linkedPortsFor(device.id).map((p) => p.peer.id).filter((id) => id !== fromDeviceId);
+    const egress = linkedPortsFor(device.id).filter((p) => p?.peer).map((p) => p.peer.id).filter((id) => id !== fromDeviceId);
     if (frame.payload.type === "ipv4") {
       const ipv4 = frame.payload;
       const verdict = evaluateFirewall(device, ipv4, "forward");
@@ -12470,7 +12465,7 @@ Address: ${sim.dnsResolvedIp}`);
     if (args.length === 0) {
       const setup = buildStpEvents();
       if (typeof setup === "string") return err(setup);
-      startSimulation(setup, stpRootOrigin() || "", "", "stp");
+      startSimulation(setup, setup.events[0]?.fromDeviceId || "", "", "stp");
       return ok("Spanning-tree BPDU exchange started.");
     }
     const sw = resolveDevice(args[0]);
@@ -12506,7 +12501,7 @@ Address: ${sim.dnsResolvedIp}`);
     if (mode === "stp") {
       const setup = buildStpEvents();
       if (typeof setup === "string") return err(setup);
-      const r = runSimulationHeadless(setup, stpRootOrigin() || "", "", "stp");
+      const r = runSimulationHeadless(setup, setup.events[0]?.fromDeviceId || "", "", "stp");
       const blocked = state.links.filter((l) => l.stpBlocked).length;
       return {
         ok: r.success,

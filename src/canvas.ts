@@ -89,7 +89,7 @@ export function isTrunkLink(from: any, to: any): boolean {
     if (sw.type !== "switch" || !sw.config?.managed) return false;
     const portModes = memoPortModes(sw.config.portModes);
     const ports = linkedPortsFor(sw.id);
-    const idx = ports.findIndex((p: any) => p.peer.id === peerId);
+    const idx = ports.findIndex((p: any) => p?.peer?.id === peerId);   // linkedPortsFor can be sparse (null gaps)
     if (idx < 0) return false;
     return (portModes[`Ethernet${idx + 1}`] || "access") === "trunk";
   }

@@ -44,4 +44,4 @@ Each port gets `{ role: "root" | "designated" | "alternate", state: "forwarding"
 
 ## The animated BPDU run
 
-`stp` / `run stp` ([scripting.md](../scripting.md)) animate the steady-state BPDU flood: each root bridge advertises a Configuration BPDU out its designated ports, and `handleBpdu` ([engine.md](engine.md)) relays it down the tree (root path cost + 1) — terminating, never looping. A `silentStp` setting hides the frames like the other silent protocols. BPDUs are a faithful frame type (dst `01:80:C2:00:00:00`, the bridge group address) — see [frame.md](frame.md).
+`stp` / `run stp` ([scripting.md](../scripting.md)) animate the steady-state BPDU flood: each root bridge advertises a Configuration BPDU out its designated ports (root path cost 0), and `handleBpdu` ([engine.md](engine.md)) relays it down the tree — each bridge advertising its own root path cost (the receiver adds the link cost), terminating, never looping. A `silentStp` setting hides the frames like the other silent protocols. BPDUs are a faithful frame type (dst `01:80:C2:00:00:00`, the bridge group address) — see [frame.md](frame.md).

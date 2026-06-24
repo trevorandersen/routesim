@@ -403,15 +403,6 @@ export function buildDot1xEvents(host: any): PingSetup | string {
   return `${host.name} is not on an 802.1X-controlled port (set one with "portauth <switch> <EthN> auto").`;
 }
 
-// A converged root bridge id, used as the origin device for an animated BPDU
-// run (where the result lands). Null when no switch runs spanning tree.
-export function stpRootOrigin(): string | null {
-  runStpConvergence();
-  const root = state.devices.find(d =>
-    isStpParticipant(d) && !!d.config?.stp?.bridgeId && d.config.stp.bridgeId === d.config.stp.rootId);
-  return root?.id ?? null;
-}
-
 // Seed the animated spanning-tree run: each root bridge advertises a
 // Configuration BPDU out its designated ports toward neighbouring switches. The
 // engine's handleBpdu relays them down the tree (root path cost + 1 per hop).

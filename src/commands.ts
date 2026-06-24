@@ -18,7 +18,7 @@ import {
   startSimulation, stopSimulation, pauseSimulation, resumeSimulation, stepOnce,
   runSimulationHeadless, runTraceroute,
 } from "./engine";
-import { buildPingEvents, buildDhcpEvents, buildConnectEvents, buildResolveEvents, buildAssociationEvents, buildDot1xEvents, buildStpEvents, stpRootOrigin, associatedAp, findPingTarget } from "./simulation";
+import { buildPingEvents, buildDhcpEvents, buildConnectEvents, buildResolveEvents, buildAssociationEvents, buildDot1xEvents, buildStpEvents, associatedAp, findPingTarget } from "./simulation";
 import { DEFAULT_BRIDGE_PRIORITY } from "./stp";
 import {
   setHostIp, setHostGateway, setHostDns, setRouterInterfaceIp, addSwitchVlan, removeSwitchVlan,
@@ -504,7 +504,9 @@ function cmdStp(args: string[]): CommandResult {
   if (args.length === 0) {
     const setup = buildStpEvents();
     if (typeof setup === "string") return err(setup);
-    startSimulation(setup, stpRootOrigin() || "", "", "stp");
+    // The seeded events originate at a root bridge (fromDeviceId) — use it as the
+    // run origin (where the result lands) rather than reconverging to find it.
+    startSimulation(setup, setup.events[0]?.fromDeviceId || "", "", "stp");
     return ok("Spanning-tree BPDU exchange started.");
   }
   const sw = resolveDevice(args[0]);
@@ -531,7 +533,7 @@ function cmdRun(args: string[]): CommandResult {
   if (mode === "stp") {
     const setup = buildStpEvents();
     if (typeof setup === "string") return err(setup);
-    const r = runSimulationHeadless(setup, stpRootOrigin() || "", "", "stp");
+    const r = runSimulationHeadless(setup, setup.events[0]?.fromDeviceId || "", "", "stp");
     const blocked = state.links.filter(l => l.stpBlocked).length;
     return { ok: r.success, data: r,
       output: [r.success ? `stp: spanning tree converged — ${blocked} port(s) blocking (${r.steps} BPDUs)` : "stp: broadcast storm — no spanning tree to break the loop"] };

@@ -60,6 +60,7 @@ routesim/
     ├── ribbon.ts       # Tabbed ribbon UI
     ├── io.ts           # JSON import/export (config/scenario/script/log)
     ├── config.ts       # Topology serialise/apply + built-in topologies
+    ├── tutorial.ts     # Tutorial mode: auto-playing faux-cursor demo
     └── ui.ts           # Event handlers, tools, keyboard shortcuts
 ```
 
@@ -132,6 +133,7 @@ sync().render();
 - **802.1X port authentication** — `dot1x <host>` animates the supplicant → authenticator (switch `auto` port) → RADIUS server EAP/RADIUS exchange; an `auto` port blocks data until EAP-Success, and a bad credential gets Access-Reject → EAP-Failure
 - **MACsec (802.1AE)** — `macsec <device> <peer> <key>` encrypts a link with a pre-shared key; matching keys secure it (frames show encrypted in the packet list), a `must`-secure key mismatch drops traffic, and `should`-secure falls back to plaintext. `macsec <device> <peer> dot1x` instead **derives the key from 802.1X** (MKA): the link stays unsecured until the port authenticates, then auto-keys from the EAP exchange — the full enterprise "authenticate, then encrypt" story
 - **Silent protocols** — optionally resolve ARP/DHCP/DNS instantly with no animation or packet-list rows, to keep the higher-layer flow uncluttered
+- **Tutorial mode** — Help -> Tutorial plays a hands-off demo: a faux cursor builds two LANs joined by a router, configures the addresses and gateways, and pings across it, narrating each step with pause / skip / replay controls. It drives the real UI underneath, so it shows exactly what you would do by hand
 - **Scenarios** — a 23-entry guided curriculum with goal checking, every entry solvable (tested) — including WiFi joins, 802.1X port authentication, MACsec link encryption, and breaking an L2 loop with spanning tree
 - **Undo/redo** — snapshot-based history for topology and config changes
 - **Persistence** — import/export configs, scenarios, scripts, and logs as JSON files

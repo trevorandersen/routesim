@@ -46,6 +46,7 @@ It is a single-page app with **no framework and no runtime dependencies** — it
 | `src/utils.ts` | [utils.md](src/utils.md) | Pure helpers: IPv4/MAC, escaping, the `cssColor` cache |
 | `src/io.ts` | [scripting.md](scripting.md) | JSON import/export (config/scenario/script/log) |
 | `src/settings-url.ts` | [settings-url.md](src/settings-url.md) | Read/apply settings from the URL query string (+ inverse) |
+| `src/tutorial.ts` | [tutorial.md](src/tutorial.md) | Tutorial mode: an auto-playing faux-cursor demo that builds a network |
 | `src/ribbon.ts` | [src/ribbon.md](src/ribbon.md) | Tabbed ribbon: tab switching + dynamic scenario buttons |
 
 ## Conventions

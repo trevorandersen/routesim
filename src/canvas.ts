@@ -49,6 +49,16 @@ export function screenToWorld(point: { x: number; y: number }): { x: number; y: 
   };
 }
 
+// Inverse of screenToWorld: a world point → canvas-relative pixels (add the
+// canvas bounding rect's left/top for viewport coords). Used by the tutorial
+// to place its faux cursor over devices.
+export function worldToScreen(point: { x: number; y: number }): { x: number; y: number } {
+  return {
+    x: point.x * state.scale + state.pan.x,
+    y: point.y * state.scale + state.pan.y
+  };
+}
+
 
 export function setZoom(nextScale: number, anchor: { x: number; y: number }): void {
   const before = screenToWorld(anchor);

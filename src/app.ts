@@ -9,6 +9,7 @@ import { syncScenarioPanel } from "./scenario-ui";
 import { setupUI, setTool, setTheme, syncCoordReadout } from "./ui";
 import { loadDefaultConfig } from "./config";
 import { runStpConvergence } from "./stp";
+import { setupTutorial } from "./tutorial";
 import { runConsoleCommand, runConsoleScript, exportTopologyScript } from "./commands";
 import { parseSettingsFromUrl, buildSettingsQuery } from "./settings-url";
 import * as io from "./io";
@@ -38,6 +39,8 @@ registerDeviceCallbacks({
 
 // Wire all UI event listeners (ribbon, canvas, panels)
 setupUI();
+// Wire the faux-cursor tutorial (its launch button + control bar).
+setupTutorial();
 
 // Programmatic scripting / automation API — drive the simulator from the browser
 // console or an external harness. See docs/scripting.md.

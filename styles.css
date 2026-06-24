@@ -1960,3 +1960,62 @@
         box-shadow: var(--shadow);
       }
     }
+
+    /* ─── Tutorial mode (faux cursor) ──────────────────────── */
+    .tutorial-layer { position: fixed; inset: 0; z-index: 9000; }
+    .tutorial-layer[hidden] { display: none; }
+    /* A transparent catcher swallows stray clicks while the demo plays. */
+    .tutorial-catcher { position: absolute; inset: 0; pointer-events: auto; background: transparent; }
+
+    .tutorial-cursor {
+      position: fixed; top: 0; left: 0; width: 0; height: 0;
+      pointer-events: none; z-index: 2;
+      transition: transform 0.62s cubic-bezier(0.5, 0, 0.2, 1);
+      will-change: transform;
+    }
+    .tutorial-cursor svg {
+      position: absolute; left: -3px; top: -2px; width: 28px; height: 28px;
+      fill: #fff; stroke: #1f2937; stroke-width: 1.4;
+      filter: drop-shadow(0 2px 3px rgba(0,0,0,0.45));
+    }
+    .tutorial-ring {
+      position: absolute; left: 0; top: 0; width: 14px; height: 14px;
+      margin: -7px 0 0 -7px; border-radius: 50%;
+      border: 2px solid var(--accent); opacity: 0;
+    }
+    .tutorial-cursor.clicking .tutorial-ring { animation: tut-click 0.42s ease-out; }
+    @keyframes tut-click {
+      0%   { transform: scale(0.3); opacity: 0.9; }
+      100% { transform: scale(3.2); opacity: 0; }
+    }
+
+    .tutorial-bar {
+      position: fixed; left: 50%; bottom: 26px; transform: translateX(-50%);
+      width: min(760px, 92vw); max-height: 56vh; overflow-y: auto;
+      display: flex; align-items: center; gap: 14px;
+      padding: 12px 14px 12px 18px; z-index: 3; pointer-events: auto;
+      background: var(--panel); color: var(--text);
+      border: 1px solid var(--line); border-radius: 14px; box-shadow: var(--shadow);
+    }
+    .tutorial-caption { flex: 1 1 auto; font-size: 14px; line-height: 1.45; }
+    /* Narrow windows: stack the controls under the caption so the text gets the
+       full bar width instead of being squeezed beside the buttons. */
+    @media (max-width: 640px) {
+      .tutorial-bar { flex-direction: column; align-items: stretch; gap: 8px; bottom: 16px; padding: 12px; }
+      .tutorial-caption { font-size: 13px; }
+      .tutorial-controls { justify-content: flex-end; }
+    }
+    .tutorial-controls { flex: 0 0 auto; display: flex; align-items: center; gap: 6px; }
+    .tutorial-ctl {
+      display: inline-flex; align-items: center; justify-content: center;
+      min-width: 34px; height: 34px; padding: 0 10px;
+      border: 1px solid var(--line); border-radius: 9px;
+      background: var(--canvas-bg); color: var(--text);
+      font-size: 15px; font-weight: 700; cursor: pointer;
+    }
+    .tutorial-ctl:hover { border-color: var(--accent); color: var(--accent); }
+    .tutorial-exit { font-size: 13px; }
+    /* At the end, draw the eye to Replay / Exit. */
+    .tutorial-finished .tutorial-bar { border-color: var(--accent); }
+    .tutorial-finished #tutorialReplay { border-color: var(--accent); color: var(--accent); animation: tut-nudge 1.4s ease-in-out infinite; }
+    @keyframes tut-nudge { 0%, 100% { transform: scale(1); } 50% { transform: scale(1.12); } }

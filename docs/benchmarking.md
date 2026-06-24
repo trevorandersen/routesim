@@ -41,6 +41,7 @@ Budgets are calibrated for a ~2 GHz CPU with headroom, so they pass on modest ha
 | `bench: routing` | `buildRoutingTable` and `processAtRouter` (connected/static/NAT translate) |
 | `bench: routingLookup` | Per-frame route resolution — building the table per call vs reusing a prebuilt table (the ARP-flush path) |
 | `bench: RIP convergence` | `runRipConvergence` at 5/10/15 routers |
+| `bench: STP convergence` | `runStpConvergence` at 10/30 managed switches (a ring with chords — many L2 loops to resolve) |
 
 ## Adding a benchmark
 

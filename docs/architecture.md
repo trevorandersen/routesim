@@ -19,6 +19,7 @@ app.ts (entry)
   ├── config.ts      ← topology serialise/apply + built-in topologies (no fetch)
   ├── engine.ts      ← simulation engine: step loop, per-device frame processing
   ├── routing.ts     ← routing table, longest-match lookup, RIP convergence
+  ├── stp.ts         ← Spanning Tree (802.1D) convergence: root election, blocked ports
   ├── device-registry.ts ← per-type spec (label, prefix, size, palette, icon, defaults)
   ├── simulation.ts  ← buildPingEvents/buildDhcpEvents, L2 reachability, routing utils
   ├── frame.ts       ← EthernetFrame factories, frame labels/colours
@@ -48,6 +49,8 @@ A ping/DHCP run is driven by `engine.ts`:
 2. **Animate phase** — a `requestAnimationFrame` loop interpolates "transit dots" along links (amber = ARP, blue = ICMP request, green = ICMP reply, violet = DHCP, orange = TCP, cyan = DNS, red = errors). The opening frame is seeded as a transit from the source (so it animates off the source, not the first hop); when a dot arrives, the frame is delivered (and recorded in the packet capture) and re-enters the process phase at the next hop.
 
 Routers run `runRipConvergence()` before a simulation starts so RIP-learned routes exist. Forwarding uses a merged routing table (`buildRoutingTable`) combining connected, static, and RIP routes.
+
+Managed switches run `runStpConvergence()` (`stp.ts`) immediately after, electing a root bridge per connected component and blocking alternate ports (`link.stpBlocked`) to break L2 loops before any frame is sent.
 
 See [engine.md](src/engine.md) and [simulation.md](src/simulation.md) for detail.
 

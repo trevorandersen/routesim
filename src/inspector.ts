@@ -11,7 +11,7 @@ import {
 } from "./devices";
 import {
   openTerminalFor, syncTerminal, runDeviceCommand,
-  addSwitchVlan, removeSwitchVlan, setSwitchPortVlan, setSwitchPortMode, setSwitchTrunkNative
+  addSwitchVlan, removeSwitchVlan, setSwitchPortVlan, setSwitchPortMode, setSwitchTrunkNative, setSwitchStp
 } from "./terminal";
 import { resizeCanvas } from "./canvas";
 import { frameLabel } from "./frame";
@@ -28,6 +28,7 @@ export function syncOptionControls(): void {
   dom.optSilentDhcp.checked = state.options.silentDhcp;
   dom.optSilentDns.checked = state.options.silentDns;
   dom.optSilentWifi.checked = state.options.silentWifi;
+  dom.optSilentStp.checked = state.options.silentStp;
   dom.optInstantDns.checked = state.options.instantDns;
 }
 
@@ -132,10 +133,16 @@ function renderWifiFields(config: any, hint: string): string {
 export function renderSwitchPorts(device: any): string {
   const interfaces = switchInterfacesWithNames(device);
   const isManaged = Boolean(device.config?.managed);
+  const stpOn = isManaged && (device.config?.stp ? device.config.stp.enabled !== false : true);
+  const stpPorts = stpOn ? (device.config?.stp?.ports || {}) : {};
   const ports = linkedPortsFor(device.id);
   return interfaces.map((iface: any, index: number) => {
     const port = ports[index];
     const peer = port?.peer;
+    const si = peer ? stpPorts[iface.name] : null;
+    const stpBadge = si
+      ? `<span class="port-stp port-stp-${si.state === "blocking" ? "block" : si.role}" title="Spanning tree: ${si.role} port, ${si.state}">${si.state === "blocking" ? "Block" : si.role === "root" ? "Root" : "Desig"}</span>`
+      : "";
     const removeButton = port ? `
       <button class="port-remove" data-link-id="${escapeHtml(port.link.id)}" title="Remove link to ${escapeHtml(peer.name)}" aria-label="Remove link to ${escapeHtml(peer.name)}">
         <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M18 6 6 18"></path><path d="m6 6 12 12"></path></svg>
@@ -155,10 +162,38 @@ export function renderSwitchPorts(device: any): string {
         <span class="port-id">eth${index + 1}</span>
         ${modeControl}
         <span class="port-peer ${peer ? "" : "empty"}">${escapeHtml(peer?.name || "Empty")}</span>
+        ${stpBadge}
         ${removeButton}
       </div>
     `;
   }).join("");
+}
+
+// The managed-switch spanning-tree control: an enable toggle, the bridge
+// priority, and a one-line status (root bridge, or root id + cost). Wired by
+// bindStpControls; the mutations run through setSwitchStp (pushUndo + reconverge).
+export function renderStpSection(device: any): string {
+  const stp = device.config?.stp;
+  const enabled = stp ? stp.enabled !== false : true;
+  const priority = stp?.priority ?? 32768;
+  const isRoot = enabled && !!stp?.bridgeId && stp.bridgeId === stp.rootId;
+  const status = !enabled ? "disabled"
+    : isRoot ? "this switch is the root bridge"
+    : stp?.rootId ? `root ${escapeHtml(stp.rootId)} · path cost ${stp?.rootCost ?? "?"}`
+    : "no loop to resolve";
+  return `
+    <div class="field">
+      <label>Spanning tree</label>
+      <div class="stp-row">
+        <label class="stp-check"><input id="selectedStp" type="checkbox" ${enabled ? "checked" : ""}> Enabled</label>
+        <span class="stp-status">${status}</span>
+      </div>
+      ${enabled ? `<div class="stp-row">
+        <label class="stp-priolabel" for="selectedStpPriority">Bridge priority</label>
+        <input id="selectedStpPriority" class="stp-prio" type="number" min="0" max="61440" step="4096" value="${priority}">
+      </div>` : ""}
+    </div>
+  `;
 }
 
 export function renderRouterInterfaces(device: any): string {
@@ -497,6 +532,22 @@ export function bindPortRemoveButtons(): void {
   });
 }
 
+// Wires the spanning-tree enable toggle and bridge-priority field (managed
+// switches). setSwitchStp pushUndo()s, reconverges, and re-syncs the panel.
+export function bindStpControls(device: any): void {
+  const toggle = document.getElementById("selectedStp") as HTMLInputElement | null;
+  if (toggle) toggle.addEventListener("change", () => setSwitchStp(device, { enabled: toggle.checked }));
+  const prio = document.getElementById("selectedStpPriority") as HTMLInputElement | null;
+  if (prio) {
+    captureUndoOnFocus(prio);
+    prio.addEventListener("change", () => {
+      const n = Number(prio.value);
+      if (!Number.isInteger(n) || n < 0 || n > 61440 || n % 4096 !== 0) { sync().syncPanel(); return; }
+      setSwitchStp(device, { priority: n });
+    });
+  }
+}
+
 // Wires the managed-switch VLAN/mode controls. Each handler delegates to the
 // terminal mutators, which validate, pushUndo(), and sync().syncPanel() —
 // re-rendering the panel (so no manual rebind is needed afterwards).
@@ -713,17 +764,30 @@ function renderLinkPanel(link: Link): void {
 
 // Click-a-packet inspector: a full field breakdown of one captured frame.
 export function renderFramePanel(frame: any): void {
+  const etherTypeLabel: Record<number, string> = {
+    0x0806: "0x0806 (ARP)", 0x0800: "0x0800 (IPv4)",
+    0x888e: "0x888e (802.1X / EAPOL / 802.11)", 0x0802: "0x0802 (Spanning Tree / BPDU)",
+  };
   const rows: [string, string][] = [
     ["Frame id", frame.id],
     ["Src MAC", frame.srcMac],
     ["Dst MAC", frame.dstMac],
-    ["EtherType", frame.etherType === 0x0806 ? "0x0806 (ARP)" : "0x0800 (IPv4)"],
+    ["EtherType", etherTypeLabel[frame.etherType] || `0x${Number(frame.etherType).toString(16).padStart(4, "0")}`],
     ["802.1Q VLAN", frame.vlanTag != null ? String(frame.vlanTag) : "untagged"],
   ];
   const p = frame.payload;
   if (p.type === "arp") {
     rows.push(["ARP operation", p.operation], ["Sender MAC", p.senderMac], ["Sender IP", p.senderIp],
       ["Target MAC", p.targetMac], ["Target IP", p.targetIp]);
+  } else if (p.type === "dot11") {
+    rows.push(["802.11 subtype", p.subtype], ["SSID", p.ssid || "(none)"]);
+  } else if (p.type === "dot1x") {
+    rows.push(["802.1X subtype", p.subtype]);
+    if (p.identity) rows.push(["Identity", p.identity]);
+  } else if (p.type === "bpdu") {
+    rows.push(["BPDU", p.flavour === "tcn" ? "Topology Change Notification" : "Configuration"],
+      ["Root bridge id", p.rootId], ["Sending bridge id", p.bridgeId],
+      ["Root path cost", String(p.rootCost)], ["Sending port", p.portId]);
   } else if (p.type === "ipv4") {
     rows.push(["Src IP", p.srcIp], ["Dst IP", p.dstIp], ["TTL", String(p.ttl)],
       ["Protocol", p.protocol === 1 ? "1 (ICMP)" : p.protocol === 6 ? "6 (TCP)" : p.protocol === 17 ? "17 (UDP)" : String(p.protocol)]);
@@ -854,6 +918,7 @@ export function syncPanel(): void {
           ${renderSwitchVlans(selected)}
         </div>
       </div>
+      ${renderStpSection(selected)}
       ` : ""}
       <div class="field">
         <label>Ports</label>
@@ -1131,6 +1196,7 @@ export function syncPanel(): void {
     });
     bindPortRemoveButtons();
     bindSwitchPortControls(selected);
+    bindStpControls(selected);
     if (selected.type === "router") bindFirewallControls(selected, ["forward", "input"]);
     if (selected.type === "firewall") bindFirewallControls(selected, ["forward"]);
     const terminalButton = document.getElementById("openSelectedTerminal");

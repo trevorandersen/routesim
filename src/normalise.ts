@@ -269,6 +269,17 @@ function normaliseMacsec(raw: unknown): { macsec?: Record<string, { cak?: string
   return Object.keys(out).length ? { macsec: out } : {};
 }
 
+// Spanning-tree config — only the persisted bits (enabled + a valid bridge
+// priority). Derived fields (bridgeId/rootId/rootCost/ports) are recomputed by
+// stp.ts, never stored. Default priority 32768 is dropped (it's the default).
+export function normaliseStpConfig(raw: unknown): { enabled: boolean; priority?: number } {
+  const r = (raw && typeof raw === "object") ? raw as any : {};
+  const enabled = r.enabled !== false;
+  const p = Number(r.priority);
+  const priority = Number.isInteger(p) && p >= 0 && p <= 61440 && p % 4096 === 0 && p !== 32768 ? p : undefined;
+  return { enabled, ...(priority != null ? { priority } : {}) };
+}
+
 // RADIUS user database (the authentication server back end).
 export function normaliseRadiusUsers(raw: unknown): { identity: string; password: string }[] {
   if (!Array.isArray(raw)) return [];
@@ -296,7 +307,10 @@ export function normaliseDeviceConfig(device: any): DeviceConfig {
         trunkAllowedVlans: normaliseTrunkAllowedVlans(device.config?.trunkAllowedVlans || {}),
         trunkNativeVlans: normalisePortVlans(device.config?.trunkNativeVlans || {})
       } : {}),
-      ...(device.config?.portAuth ? { portAuth: normalisePortAuth(device.config.portAuth) } : {})
+      ...(device.config?.portAuth ? { portAuth: normalisePortAuth(device.config.portAuth) } : {}),
+      // STP only matters on managed switches; keep it only when a config is present
+      // (a managed switch with no stp config runs the default-on spanning tree).
+      ...(managed && device.config?.stp ? { stp: normaliseStpConfig(device.config.stp) } : {})
     };
   }
   if (device.type === "router") {

@@ -217,11 +217,12 @@ export function macsecState(link: any): "open" | "secured" | "failed" {
 }
 
 // The single data-path gate: false = this link drops DATA frames right now,
-// whether because a WiFi association never authenticated, an 802.1X port is
-// unauthorized, or a MACsec link could not be secured (must-secure). (Shutdown/
-// hidden are checked separately at each site; auth/EAPOL control frames bypass
-// this — see the engine transit step.)
+// whether because a spanning-tree alternate port blocks it, a WiFi association
+// never authenticated, an 802.1X port is unauthorized, or a MACsec link could
+// not be secured (must-secure). (Shutdown/hidden are checked separately at each
+// site; auth/EAPOL/BPDU control frames bypass this — see the engine transit step.)
 export function linkAuthorizedForData(link: any): boolean {
+  if (link?.stpBlocked) return false;   // a spanning-tree alternate port — blocks data to break the loop
   if (link?.wireless && !wifiLinkAuthenticated(link)) return false;
   if (!dot1xPortAuthorized(link)) return false;
   if (macsecState(link) === "failed") return false;
@@ -279,8 +280,10 @@ export function addLink(fromId: string, toId: string, fromPort?: number, toPort?
     if (_linkUp) _linkUp(fromId, toId);
   }
   state.linkStartId = null;
+  // A new cable can open or close a loop — recompute the spanning tree so any
+  // newly blocked/unblocked port shows live (also re-renders).
+  sync().recomputeStp();
   sync().syncPanel();
-  sync().render();
 }
 
 export function nextAvailablePort(deviceId: string): number {
@@ -320,7 +323,7 @@ export function deleteLink(linkId: string): boolean {
   state.links = state.links.filter(l => l.id !== linkId);
   if (state.selectedLinkId === linkId) state.selectedLinkId = null;
   sync().syncPanel();
-  sync().render();
+  sync().recomputeStp();   // removing a redundant link can unblock the surviving one
   return true;
 }
 
@@ -336,7 +339,7 @@ export function toggleLinkShutdown(linkId: string): Link | null {
   state.selectedId = null;
   state.configuringId = null;
   sync().syncPanel();
-  sync().render();
+  sync().recomputeStp();   // a shut redundant link lets the spanning tree re-open the other
   return link;
 }
 
@@ -362,7 +365,7 @@ export function deleteSelection(): void {
   if (id) dropTerminalSessions([id]); // a deleted device's session tab goes with it
   sync().syncPanel();
   sync().syncTerminal();
-  sync().render();
+  sync().recomputeStp();   // removing a switch/link can change which ports block
 }
 
 export function clearNetwork(): void {

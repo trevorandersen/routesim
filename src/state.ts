@@ -10,6 +10,7 @@ export type SyncCallbacks = {
   syncScenarioPanel: () => void;
   syncCoordReadout: () => void;
   syncOptionControls: () => void;
+  recomputeStp: () => void;   // recompute the spanning tree for live canvas/inspector display (also runs at sim start)
 };
 
 // Available colour themes. The id is written to `<html data-theme>` and matched
@@ -81,6 +82,7 @@ export const state: AppState = {
     silentDhcp: false,
     silentDns: false,
     silentWifi: false,
+    silentStp: false,
     instantDns: true
   },
   nameCounters: freshNameCounters(),
@@ -119,7 +121,8 @@ export const state: AppState = {
     dhcpAssignedIp: null,
     dhcpAssignedGateway: null,
     wifiAssociated: false,
-    dot1xAuthorized: false
+    dot1xAuthorized: false,
+    stormDetected: false
   },
   portSelection: null
 };
@@ -532,7 +535,9 @@ export function restoreSnapshot(snapshot: string): void {
   state.drag = null;
   state.panDrag = null;
   sync().syncPanel();
-  sync().render();
+  // Restoring a different topology can change which ports the spanning tree
+  // blocks — recompute so the canvas reflects the restored state (also renders).
+  sync().recomputeStp();
 }
 
 export function undo(): void {

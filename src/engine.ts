@@ -1,23 +1,27 @@
-import type { EthernetFrame, ArpPayload, Ipv4Payload, DhcpPayload, TcpPayload, DnsPayload, Dot11Payload, Dot1xPayload, NatEntry, SimEvent, SimLogEntry, ActiveTransit, FrameHistoryEntry, RouteEntry, Device, DeviceType, FirewallRule, FirewallTarget } from "./types";
+import type { EthernetFrame, ArpPayload, Ipv4Payload, DhcpPayload, TcpPayload, DnsPayload, Dot11Payload, Dot1xPayload, BpduPayload, NatEntry, SimEvent, SimLogEntry, ActiveTransit, FrameHistoryEntry, RouteEntry, Device, DeviceType, FirewallRule, FirewallTarget } from "./types";
 import { state, pushUndo, sync } from "./state";
 import { dom } from "./dom";
 import { getDevice, linkedPortsFor, routerInterfacesWithNames, linkName, linkById, linksFor, linkAuthorizedForData, macsecState } from "./devices";
 import { normalisePortVlans, normalisePortModes, normaliseTrunkAllowedVlans, normaliseArpTable, normaliseMacTable, normaliseDhcpLeases, normaliseStaticRoutes, ensureConfig } from "./normalise";
 import { sameSubnet, prefixOf, isValidIpv4, escapeHtml, ipv4ToInt, intToIpv4, normaliseMacAddress, deriveMac } from "./utils";
-import { createArpRequest, createArpReply, createIcmpEchoRequest, createIcmpEchoReply, createIcmpTimeExceeded, createDhcpOffer, createDhcpRequest, createDhcpAck, createTcpSegment, createDnsResponse, createDot11Frame, createDot1xFrame, BROADCAST_MAC, frameLabel, packetColumns } from "./frame";
+import { createArpRequest, createArpReply, createIcmpEchoRequest, createIcmpEchoReply, createIcmpTimeExceeded, createDhcpOffer, createDhcpRequest, createDhcpAck, createTcpSegment, createDnsResponse, createDot11Frame, createDot1xFrame, createBpduFrame, BROADCAST_MAC, frameLabel, packetColumns } from "./frame";
 import { terminalLine, terminalLineFor, sessionFor, syncTerminal, openDock, syncSimLogBadge } from "./terminal";
 import { buildPingEvents, buildResolveEvents, buildDhcpEvents, findPingTarget, hostnameToIp } from "./simulation";
 import type { PingSetup } from "./simulation";
 import { routingLookup, runRipConvergence, buildRoutingTable } from "./routing";
+import { runStpConvergence, isStpParticipant } from "./stp";
 
 // Re-exported so existing imports (terminal, tests, benchmarks) keep working.
 export { buildRoutingTable, routingLookup, runRipConvergence } from "./routing";
+export { runStpConvergence } from "./stp";
 
 // ─── Public API ──────────────────────────────────────────────────────────────
 
-export function startSimulation(setup: PingSetup, originDeviceId: string, targetIp: string, mode: "ping" | "dhcp" | "tcp" | "dns" | "associate" | "dot1x" = "ping", targetPort: number | null = null): void {
-  // Run RIP convergence before simulation to populate learned routes
+export function startSimulation(setup: PingSetup, originDeviceId: string, targetIp: string, mode: "ping" | "dhcp" | "tcp" | "dns" | "associate" | "dot1x" | "stp" = "ping", targetPort: number | null = null): void {
+  // Converge routing (RIP) and the spanning tree before the run, so frames route
+  // correctly and loops are already broken (blocked ports) before the first hop.
   runRipConvergence();
+  runStpConvergence();
   pushUndo();
   state.inspectedFrame = null; // a new run invalidates the inspected frame
   state.inspectedCapture = null;
@@ -66,12 +70,14 @@ export function startSimulation(setup: PingSetup, originDeviceId: string, target
   sim.dhcpAssignedGateway = null;
   sim.wifiAssociated = false;
   sim.dot1xAuthorized = false;
+  sim.stormDetected = false;
   const target = setup.dns ? setup.dns.name : targetIp;
   const label = mode === "dhcp" ? "Requesting DHCP lease..."
     : mode === "tcp" ? `Opening TCP connection to ${target}:${sim.tcpTargetPort ?? "?"}...`
     : mode === "dns" ? `Resolving ${target}...`
     : mode === "associate" ? `Associating to ${target || "WiFi"}...`
     : mode === "dot1x" ? `802.1X authenticating ${target || "supplicant"}...`
+    : mode === "stp" ? "Spanning tree: advertising BPDUs from the root bridge..."
     : `Simulating ping to ${target}...`;
   state.terminal.lines.push({ kind: "sim", text: label });
   // Surface the hop-by-hop log: open the dock on the Sim Log pane if nothing
@@ -147,9 +153,10 @@ export interface SimResult {
 // and returns the result plus the hop-by-hop log. Reuses the same process handlers as
 // the animated path; powers the console `run` command, window.routesim, and tests.
 export function runSimulationHeadless(
-  setup: PingSetup, originDeviceId: string, targetIp: string, mode: "ping" | "dhcp" | "tcp" | "dns" | "associate" | "dot1x" = "ping", targetPort: number | null = null
+  setup: PingSetup, originDeviceId: string, targetIp: string, mode: "ping" | "dhcp" | "tcp" | "dns" | "associate" | "dot1x" | "stp" = "ping", targetPort: number | null = null
 ): SimResult {
   runRipConvergence();
+  runStpConvergence();
   const sim = state.simulation;
   sim.status = "running";
   sim.mode = mode;
@@ -179,10 +186,12 @@ export function runSimulationHeadless(
   sim.dhcpAssignedGateway = null;
   sim.wifiAssociated = false;
   sim.dot1xAuthorized = false;
+  sim.stormDetected = false;
 
   // Drain the event queue, completing each batch of transits instantly. processNextStep
   // recurses internally while status === "running" and events have no transits, and calls
-  // finishSimulation() once fully drained. The guard caps pathological loops (routing loops).
+  // finishSimulation() once fully drained. The guard caps pathological loops (an L2 loop
+  // with no spanning tree storms — broadcasts multiply without bound).
   const MAX_STEPS = 10000;
   let guard = 0;
   processNextStep();
@@ -191,6 +200,9 @@ export function runSimulationHeadless(
     deliverCompletedTransits();
     processNextStep();
   }
+  // Hit the cap with frames still in flight: a broadcast storm (a switching loop
+  // with STP off or unable to break it). Surface it rather than failing silently.
+  if (guard >= MAX_STEPS && (sim.transits.length > 0 || sim.events.length > 0)) sim.stormDetected = true;
   // `sim.status` is mutated inside processNextStep/finishSimulation; the cast
   // stops TS from over-narrowing it to the literal assigned above.
   if ((sim.status as string) !== "done") finishSimulation();
@@ -201,6 +213,7 @@ export function runSimulationHeadless(
       : mode === "dns" ? sim.dnsResolvedIp != null
       : mode === "associate" ? sim.wifiAssociated
       : mode === "dot1x" ? sim.dot1xAuthorized
+      : mode === "stp" ? !sim.stormDetected
       : sim.pingSuccess,
     refused: sim.tcpRefused,
     ttl: sim.pingTtl,
@@ -329,6 +342,12 @@ export function runTraceroute(source: Device, targetText: string, maxHops = 30):
 
 let animFrameId: number | null = null;
 
+// Animated-path broadcast-storm bounds: a switching loop with no spanning tree
+// loops frames forever. Past either cap we declare a storm and stop. (Both are
+// far above any legitimate single run; the headless path caps via MAX_STEPS.)
+const STORM_STEP_CAP = 200;
+const STORM_TRANSIT_CAP = 250;
+
 function startAnimationLoop(): void {
   if (animFrameId != null) return;
   animFrameId = requestAnimationFrame(animationTick);
@@ -349,6 +368,7 @@ export function isSilentFrame(frame: EthernetFrame): boolean {
   const payload = frame.payload;
   if (payload.type === "arp") return opt.silentArp;
   if (payload.type === "dot11") return opt.silentWifi;
+  if (payload.type === "bpdu") return opt.silentStp;
   if (payload.type === "ipv4") {
     const inner = (payload as Ipv4Payload).payload;
     if (inner.type === "dhcp") return opt.silentDhcp;
@@ -402,7 +422,7 @@ function deliverCompletedTransits(): void {
       // A frame crossing a MACsec-secured link is protected on the wire — shown
       // encrypted in the packet list (the engine still processes the real inner
       // frame at the far end, where MACsec would have decrypted it).
-      const macsec = !!wireLink && t.frame.payload.type !== "dot11" && t.frame.payload.type !== "dot1x" && macsecState(wireLink) === "secured";
+      const macsec = !!wireLink && t.frame.payload.type !== "dot11" && t.frame.payload.type !== "dot1x" && t.frame.payload.type !== "bpdu" && macsecState(wireLink) === "secured";
       sim.capture.push({
         no: sim.capture.length + 1,
         step: sim.stepIndex,
@@ -447,6 +467,17 @@ function processNextStep(): void {
 
   const event = sim.events.shift()!;
   sim.stepIndex++;
+
+  // Broadcast-storm guard for the animated path (the headless path caps via
+  // MAX_STEPS). A switching loop with no spanning tree multiplies frames without
+  // bound — frames keep looping every step and never drain. Past the cap, call
+  // it: stop and surface a storm rather than animating forever.
+  if (!sim.headless && (sim.stepIndex > STORM_STEP_CAP || sim.transits.length > STORM_TRANSIT_CAP)) {
+    sim.stormDetected = true;
+    finishSimulation();
+    return;
+  }
+
   const device = getDevice(event.deviceId);
   if (!device) return;
 
@@ -463,11 +494,14 @@ function processNextStep(): void {
       continue;
     }
     // A link that hasn't authenticated (a wrong-password WiFi association, or an
-    // 802.1X port still unauthorized) passes only the auth handshake frames
-    // (dot11 / dot1x) — never data, until authentication succeeds.
-    const ctrl = out.frame.payload.type === "dot11" || out.frame.payload.type === "dot1x";
+    // 802.1X port still unauthorized), or a spanning-tree alternate port, passes
+    // only control frames (dot11 / dot1x / BPDU) — never data. BPDUs in
+    // particular must cross a blocked port so the tree stays converged.
+    const ptype = out.frame.payload.type;
+    const ctrl = ptype === "dot11" || ptype === "dot1x" || ptype === "bpdu";
     if (!ctrl && !linkAuthorizedForData(link)) {
-      logStep(device, "sim-drop", `${linkName(link)} is not authenticated — frame dropped`);
+      const reason = link.stpBlocked ? "is spanning-tree blocked" : "is not authenticated";
+      logStep(device, "sim-drop", `${linkName(link)} ${reason} — frame dropped`);
       continue;
     }
     // Per-link packet loss — a probabilistic drop, only in animated runs so
@@ -973,6 +1007,40 @@ function allocateServerDhcpIp(device: Device): string | null {
   return null;
 }
 
+// ─── Spanning-tree BPDU relay ────────────────────────────────────────────────
+
+// A switch receives a Configuration BPDU. The tree is already computed
+// (runStpConvergence, at sim start), so this animates the steady-state flood:
+// a BPDU arriving on the root port is relayed out the designated ports toward
+// the leaves (root path cost + 1); a BPDU on any other port is consumed (an
+// inferior/own advertisement). BPDUs never loop — they follow the tree.
+function handleBpdu(device: Device, frame: EthernetFrame, fromDeviceId: string | null): OutgoingFrame[] {
+  const stp = device.config?.stp;
+  if (!stp || !isStpParticipant(device)) return [];
+  const p = frame.payload as BpduPayload;
+  const ports = linkedPortsFor(device.id);
+  const ingressIdx = fromDeviceId ? ports.findIndex(pt => pt?.peer?.id === fromDeviceId) : -1;
+  const ingressPort = ingressIdx >= 0 ? `Ethernet${ingressIdx + 1}` : null;
+  const ingressRole = ingressPort ? stp.ports?.[ingressPort]?.role : undefined;
+
+  if (p.flavour !== "config" || ingressRole !== "root") {
+    const agree = p.rootId === stp.rootId ? "agrees on root" : "inferior";
+    logStep(device, "sim-stp", `BPDU on ${ingressPort || "?"} (${ingressRole || "edge"}) — ${agree}, not relayed`);
+    return [];
+  }
+
+  logStep(device, "sim-stp", `Root BPDU on root port ${ingressPort} — relaying toward designated ports (cost ${(stp.rootCost ?? 0)})`);
+  const srcMac = device.config?.macAddress || deriveMac(device.id);
+  const out: OutgoingFrame[] = [];
+  ports.forEach((pt, idx) => {
+    if (!pt?.peer || !isStpParticipant(pt.peer)) return;   // relay along the inter-switch tree only
+    const name = `Ethernet${idx + 1}`;
+    if (stp.ports?.[name]?.role !== "designated") return;
+    out.push({ frame: createBpduFrame(srcMac, stp.rootId || "", stp.bridgeId || "", stp.rootCost ?? 0, name), toDeviceId: pt.peer.id });
+  });
+  return out;
+}
+
 // ─── Switch processing ───────────────────────────────────────────────────────
 
 export function processAtSwitch(device: Device, frame: EthernetFrame, fromDeviceId: string | null): OutgoingFrame[] {
@@ -986,11 +1054,16 @@ export function processAtSwitch(device: Device, frame: EthernetFrame, fromDevice
   // A managed switch is the 802.1X authenticator — it terminates EAPOL (it never
   // floods these) and relays to RADIUS.
   if (frame.payload.type === "dot1x") return handleDot1x(device, frame, fromDeviceId);
+  // BPDUs are spanning-tree control frames: terminated and re-originated along
+  // the tree, never flooded as data (their dst is the bridge group, not broadcast).
+  if (frame.payload.type === "bpdu") return handleBpdu(device, frame, fromDeviceId);
 
   frame = { ...frame, srcMac: normaliseMacAddress(frame.srcMac), dstMac: normaliseMacAddress(frame.dstMac) };
 
   const ports = linkedPortsFor(device.id);
-  const ingressIdx = fromDeviceId ? ports.findIndex(p => p.peer.id === fromDeviceId) : -1;
+  // linkedPortsFor can be sparse (null gaps) when explicit port numbers skip a
+  // slot — guard the peer access on every lookup below.
+  const ingressIdx = fromDeviceId ? ports.findIndex(p => p?.peer?.id === fromDeviceId) : -1;
   const ingressPortName = ingressIdx >= 0 ? `Ethernet${ingressIdx + 1}` : null;
 
   // Precompute VLAN config for managed switches
@@ -1126,10 +1199,10 @@ export function processAtHub(device: Device, frame: EthernetFrame, fromDeviceId:
   const outgoing: OutgoingFrame[] = [];
   if (device.poweredOff) return outgoing;
   const ports = linkedPortsFor(device.id);
-  const ingressIdx = fromDeviceId ? ports.findIndex(p => p.peer.id === fromDeviceId) : -1;
+  const ingressIdx = fromDeviceId ? ports.findIndex(p => p?.peer?.id === fromDeviceId) : -1;
   const repeated: string[] = [];
   ports.forEach((port, idx) => {
-    if (idx === ingressIdx) return;
+    if (idx === ingressIdx || !port?.peer) return;
     outgoing.push({ frame: { ...frame, id: `${frame.id}-${idx}` }, toDeviceId: port.peer.id });
     repeated.push(`Ethernet${idx + 1}`);
   });
@@ -1725,7 +1798,22 @@ function finishSimulation(): void {
   const out = (kind: string, text: string) =>
     originSession ? terminalLineFor(originSession, kind, text) : terminalLine(kind, text);
 
-  if (sim.mode === "dhcp") {
+  if (sim.stormDetected) {
+    // A switching loop multiplied frames without bound: no spanning tree to
+    // break it. Report it plainly (and on the status line) instead of the
+    // mode's usual result — the run never really completed.
+    if (!sim.headless) {
+      out("error", "Broadcast storm: frames are looping endlessly — there's an L2 loop with no spanning tree to break it.\nEnable STP on the switches (it's on by default for managed switches), or remove the redundant link.");
+      dom.modeLabel.textContent = "Broadcast storm detected — an L2 loop with no spanning tree.";
+    }
+  } else if (sim.mode === "stp") {
+    if (!sim.headless) {
+      const blocked = state.links.filter(l => l.stpBlocked).length;
+      const roots = state.devices.filter(d => d.type === "switch" && d.config?.stp?.bridgeId && d.config.stp.bridgeId === d.config.stp.rootId);
+      const rootNames = roots.map(r => r.name).join(", ") || "(none)";
+      out("", `Spanning tree converged.\n  Root bridge: ${rootNames}\n  Blocking ports: ${blocked} (${blocked === 1 ? "1 redundant link cut" : blocked === 0 ? "no loop to break" : blocked + " redundant links cut"})`);
+    }
+  } else if (sim.mode === "dhcp") {
     if (sim.dhcpSuccess) {
       if (!sim.headless) out("", `DHCP configured:\n  IP address: ${sim.dhcpAssignedIp}\n  Default gateway: ${sim.dhcpAssignedGateway}`);
     } else if (state.options.apipaFallback) {

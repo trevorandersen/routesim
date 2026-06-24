@@ -1,0 +1,16 @@
+# Break the loop (spanning tree)  ·  scenario id: spanning-tree
+#
+# SW-1, SW-2 and SW-3 are wired in a triangle for redundancy, but spanning tree
+# has been switched off on all three, so a broadcast loops forever (a broadcast
+# storm) and PC-A cannot reach PC-B. Turn spanning tree back on so the bridges
+# elect a root and block one redundant port — every bridge in the loop needs it
+# on, or the off one keeps flooding the loop.
+#
+# Loads the scenario, applies the solution, and checks the goal. Paste into
+# the command console (the >_ toolbar button) or run with routesim.run(...).
+
+scenario load spanning-tree
+stp SW-1 on
+stp SW-2 on
+stp SW-3 on
+scenario check

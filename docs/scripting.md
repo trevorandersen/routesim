@@ -78,7 +78,10 @@ Param keys and boolean values are case-insensitive. Adding a setting is a one-ro
 | `macsec <device> <peer> <key\|dot1x> [must\|should]` | Set MACsec (802.1AE) for the link to a peer (`off` clears it). A literal key is a static pre-shared CAK (both ends must match); `dot1x` instead **derives** the key from a successful 802.1X exchange on the link (MKA) — it secures only after the port authenticates. `must` drops traffic when it can't secure, `should` falls back to plaintext. |
 | `interface <router> <peer> ip <addr> [vlan <tag>]` | Set a router interface IP (by connected peer; optional sub-interface VLAN). |
 | `route <router> <net/prefix> <nextHop>` | Add a static route. |
+| `managed <switch> [on\|off]` | Turn a switch's management plane on/off (no arg reports the current state). A managed switch carries VLANs, STP, and a SONiC CLI; an unmanaged one is a transparent L2 bridge. |
 | `vlan <switch> add\|del <id>` | Add/remove a VLAN on a managed switch. |
+| `stp <switch> on\|off` | Enable/disable spanning tree on a managed switch (default on). With STP off, an L2 loop becomes a broadcast storm. |
+| `stp <switch> priority <n>` | Set the bridge priority (`0`–`61440`, multiples of `4096`; default `32768`). Lowest priority (then MAC) in a connected component wins the root election. |
 | `port <switch> <EthN> vlan <id>` | Access VLAN for a port. |
 | `port <switch> <EthN> mode <access\|trunk>` | Port mode. |
 | `port <switch> <EthN> native <id>` | Trunk native VLAN. |
@@ -93,12 +96,14 @@ Param keys and boolean values are case-insensitive. Adding a setting is a one-ro
 | `connect <src> <dst> <port>` | Start an **animated** TCP three-way handshake. |
 | `associate <laptop>` | Animate the **802.11 join** to the laptop's access point: probe / open-system auth / association, plus the WPA2 4-way key handshake when the AP is secured. |
 | `dot1x <host>` | Animate the **802.1X** port authentication: EAPOL-Start → EAP-Identity → RADIUS Access-Request → Accept/Reject → EAP-Success/Failure. An `auto` port carries no data until it succeeds. |
+| `stp` | Animate the **spanning-tree** BPDU flood: each root bridge floods Configuration BPDUs out its designated ports toward the other switches. |
 | `run ping <src> <dst>` | **Headless** ping → returns reachable/unreachable + TTL + step count. |
 | `run dhcp <host>` | **Headless** DHCP → returns the assigned lease (or no response). |
 | `run resolve <src> <name>` | **Headless** DNS lookup → returns the resolved IP (or NXDOMAIN). Alias: `run dns`. |
 | `run connect <src> <dst> <port>` | **Headless** TCP connect → open / refused (RST) / timed out. |
 | `run associate <laptop>` | **Headless** 802.11 association → joined / did-not-complete + frame count. |
 | `run dot1x <host>` | **Headless** 802.1X authentication → authorised / failed + frame count. |
+| `run stp` | **Headless** BPDU flood → frame count (the spanning tree is computed before every run regardless). |
 | `traceroute <src> <dst>` | **Headless** hop-by-hop path discovery via increasing TTL; `data` is `{ targetIp, hops, reached }`. Also `tracert`. |
 | `play` / `pause` / `step` / `stop` | Drive an animated run. |
 | `speed <ms>` | Milliseconds per hop. |
@@ -175,7 +180,7 @@ routesim.exec("clear");
 routesim.run(script);               // recreates the identical topology
 ```
 
-This is the completeness guarantee — the command set can express everything the GUI can build.
+This is the completeness guarantee — the command set can express everything the GUI can build. The export emits `managed <name>` (before a switch's VLAN/STP config) and only the STP deviations — `stp <name> off` or `stp <name> priority <n>` — since the default-on, default-priority spanning tree round-trips implicitly.
 
 ## Headless vs animated
 

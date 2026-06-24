@@ -1,4 +1,4 @@
-import type { EthernetFrame, ArpPayload, Ipv4Payload, IcmpPayload, DhcpPayload, TcpPayload, TcpFlags, DnsPayload, Dot11Payload, Dot11Subtype, Dot1xPayload, Dot1xSubtype } from "./types";
+import type { EthernetFrame, ArpPayload, Ipv4Payload, IcmpPayload, DhcpPayload, TcpPayload, TcpFlags, DnsPayload, Dot11Payload, Dot11Subtype, Dot1xPayload, Dot1xSubtype, BpduPayload } from "./types";
 
 let frameCounter = 0;
 function nextFrameId(): string {
@@ -194,6 +194,17 @@ export function createDot1xFrame(srcMac: string, dstMac: string, subtype: Dot1xS
   return { id: nextFrameId(), srcMac, dstMac, etherType: 0x888e, vlanTag: null, payload };
 }
 
+// The IEEE 802.1D bridge group address — every bridge listens for BPDUs here.
+export const BPDU_GROUP_MAC = "01:80:C2:00:00:00";
+
+// A Spanning Tree Configuration BPDU. Always addressed to the bridge group MAC,
+// never VLAN-tagged. (Real BPDUs are LLC-framed with no EtherType; we tag a
+// sentinel 0x0802 — see BpduPayload.)
+export function createBpduFrame(srcMac: string, rootId: string, bridgeId: string, rootCost: number, portId: string, flavour: "config" | "tcn" = "config"): EthernetFrame {
+  const payload: BpduPayload = { type: "bpdu", flavour, rootId, bridgeId, rootCost, portId };
+  return { id: nextFrameId(), srcMac, dstMac: BPDU_GROUP_MAC, etherType: 0x0802, vlanTag: null, payload };
+}
+
 // ── Packet-list columns (the Wireshark-style sim log) ────────────────────────
 
 export interface PacketColumns {
@@ -201,7 +212,7 @@ export interface PacketColumns {
   dst: string;
   protocol: string;
   info: string;
-  tone: string;   // row colour class suffix: arp/icmp/icmp-reply/tcp/dns/dhcp/dot11/bad
+  tone: string;   // row colour class suffix: arp/icmp/icmp-reply/tcp/dns/dhcp/dot11/stp/bad
 }
 
 // Wireshark-style Info text for an 802.11 management / EAPOL frame.
@@ -279,7 +290,14 @@ export function packetColumns(frame: EthernetFrame): PacketColumns {
     const bad = d.subtype === "radius-reject" || d.subtype === "eap-failure";
     return { src: frame.srcMac, dst: frame.dstMac, protocol, info, tone: bad ? "bad" : "dot11" };
   }
-  const ipv4 = frame.payload; // narrowed to Ipv4Payload after the arp/dot11 branches return
+  if (frame.payload.type === "bpdu") {
+    const b = frame.payload;
+    const info = b.flavour === "tcn"
+      ? "Topology Change Notification"
+      : `Conf. Root = ${b.rootId}  Cost = ${b.rootCost}  Bridge = ${b.bridgeId}  Port = ${b.portId}`;
+    return { src: frame.srcMac, dst: "Spanning-tree (bridges)", protocol: "STP", info, tone: "stp" };
+  }
+  const ipv4 = frame.payload; // narrowed to Ipv4Payload after the arp/dot11/bpdu branches return
   const src = ipv4.srcIp;
   const dst = ipv4.dstIp;
   const p = ipv4.payload;
@@ -314,6 +332,8 @@ export function frameLabel(frame: EthernetFrame): string {
     label = dot11Label(frame.payload.subtype);
   } else if (frame.payload.type === "dot1x") {
     label = dot1xLabel(frame.payload.subtype);
+  } else if (frame.payload.type === "bpdu") {
+    label = frame.payload.flavour === "tcn" ? "STP TCN" : "BPDU";
   } else {
     const ipv4 = frame.payload; // narrowed to Ipv4Payload after the arp branch returns
     if (ipv4.payload.type === "dhcp") {
@@ -345,7 +365,8 @@ export function frameColor(frame: EthernetFrame): string {
     const bad = frame.payload.subtype === "radius-reject" || frame.payload.subtype === "eap-failure";
     return bad ? "#ef4444" : "#14b8a6"; // teal, red on reject/failure
   }
-  const ipv4 = frame.payload; // narrowed to Ipv4Payload after the arp/dot11 branches return
+  if (frame.payload.type === "bpdu") return "#818cf8";   // indigo (spanning-tree BPDU)
+  const ipv4 = frame.payload; // narrowed to Ipv4Payload after the arp/dot11/bpdu branches return
   if (ipv4.payload.type === "dhcp") return "#a78bfa";    // violet
   if (ipv4.payload.type === "dns") return ipv4.payload.op === "response" && !ipv4.payload.address ? "#ef4444" : "#22d3ee"; // cyan (NXDOMAIN red)
   if (ipv4.payload.type === "tcp") return ipv4.payload.flags === "rst" ? "#ef4444" : "#fb923c"; // orange (RST red)

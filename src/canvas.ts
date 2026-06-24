@@ -4,6 +4,7 @@ import { dom } from "./dom";
 import { cssColor, prefixOf } from "./utils";
 import { DEVICE_SPECS } from "./device-registry";
 import { getDevice, isVisibleDevice, routerInterfacesWithNames, linkedPortsFor, wifiLinkAuthenticated, macsecState } from "./devices";
+import { isRootBridge } from "./stp";
 import { memoPortModes } from "./normalise";
 import { getVlanForDevice } from "./simulation";
 import { frameLabel, frameColor } from "./frame";
@@ -109,10 +110,14 @@ export function drawLink(link: any): void {
   // A wireless association with a wrong password never authenticates — draw it
   // red/dotted so it's clearly not a working link.
   const unauth = wireless && !wifiLinkAuthenticated(link);
+  // A spanning-tree alternate port blocks this link to break a loop. Drawn amber
+  // and dashed (distinct from shut/failed red) — present but not carrying data.
+  const blocked = !!link.stpBlocked && !shut && !unauth;
   // MACsec: a secured link is teal; one that can't secure (must-secure mismatch) is red.
   const macsec = macsecState(link);
   const linkColor = captureLink ? colors.selected : active ? cssColor("--link-active")
     : (shut || unauth || macsec === "failed") ? cssColor("--danger")
+    : blocked ? cssColor("--stp-block")
     : macsec === "secured" ? "#14b8a6"
     : linkColorFor(from, to);
   const dimmed = from.poweredOff || to.poweredOff;
@@ -121,11 +126,13 @@ export function drawLink(link: any): void {
   ctx.save();
   if (dimmed) ctx.globalAlpha = 0.3;
   else if (shut) ctx.globalAlpha = 0.6; // administratively down — drawn faint + dashed
+  else if (blocked) ctx.globalAlpha = 0.7; // STP-blocked — faint + dashed (not carrying data)
   else if (wireless) ctx.globalAlpha = 0.85;
   if (captureLink) { ctx.shadowColor = colors.selected; ctx.shadowBlur = 12; }
   ctx.strokeStyle = linkColor;
   ctx.lineWidth = captureLink ? 4 : active ? 3 : 2;
   if (shut) ctx.setLineDash([6, 5]);
+  else if (blocked) ctx.setLineDash([11, 5]); // dashed, distinct from shut's tighter pattern
   else if (wireless) ctx.setLineDash([2, 6]); // a WiFi association — dotted, not a cable
 
   if (trunk) {
@@ -161,16 +168,17 @@ export function drawLink(link: any): void {
   ctx.fill();
   ctx.stroke();
 
-  // Label: an explicit name (opt-in canvas label), plus a "down" marker when shut.
+  // Label: an explicit name (opt-in canvas label), plus a "down"/"blocked" marker.
   const labelParts: string[] = [];
   if (link.name) labelParts.push(link.name);
   if (shut) labelParts.push("down");
+  else if (blocked) labelParts.push("STP blocked");
   if (labelParts.length) {
     ctx.globalAlpha = 1;
     ctx.font = FONT_SMALL;
     ctx.textAlign = "center";
     ctx.textBaseline = "bottom";
-    ctx.fillStyle = shut ? cssColor("--danger") : cssColor("--muted");
+    ctx.fillStyle = shut ? cssColor("--danger") : blocked ? cssColor("--stp-block") : cssColor("--muted");
     ctx.fillText(labelParts.join(" · "), midX, midY - 8);
   }
   ctx.restore();
@@ -250,6 +258,27 @@ export function drawManagedBadge(device: any, palette: any): void {
   ctx.restore();
 }
 
+// The spanning-tree root bridge carries a small indigo "R" badge (top-left, so
+// it doesn't collide with the managed badge top-right). Indigo ties it to BPDUs.
+function drawRootBridgeBadge(device: any): void {
+  const x = device.x - device.width / 2 + 18;
+  const y = device.y - device.height / 2 + 18;
+  ctx.save();
+  ctx.fillStyle = "#818cf8";
+  ctx.strokeStyle = cssColor("--panel");
+  ctx.lineWidth = 1.6;
+  ctx.beginPath();
+  ctx.arc(x, y, 10, 0, Math.PI * 2);
+  ctx.fill();
+  ctx.stroke();
+  ctx.fillStyle = "#ffffff";
+  ctx.font = "bold 12px system-ui, sans-serif";
+  ctx.textAlign = "center";
+  ctx.textBaseline = "middle";
+  ctx.fillText("R", x, y + 0.5);
+  ctx.restore();
+}
+
 function drawDeviceIcon(device: any): void {
   if (device.hidden) return;
   const selected = state.selectedId === device.id;
@@ -273,6 +302,7 @@ function drawDeviceIcon(device: any): void {
 
   drawIconDevice(device, palette);
   if (device.type === "switch" && device.config?.managed) drawManagedBadge(device, palette);
+  if (device.type === "switch" && isRootBridge(device)) drawRootBridgeBadge(device);
   ctx.restore();
 }
 

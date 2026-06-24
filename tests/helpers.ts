@@ -16,6 +16,7 @@ export function registerNoopCallbacks(): void {
     syncScenarioPanel: () => {},
     syncCoordReadout: () => {},
     syncOptionControls: () => {},
+    recomputeStp: () => {},
   });
 }
 

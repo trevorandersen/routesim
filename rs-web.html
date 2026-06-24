@@ -39,6 +39,7 @@
       --link-switch: #7dd3fc;
       --link-router: #ef4444;
       --link-active: #facc15;
+      --stp-block: #ea580c;
       --label-primary: #e6edf3;
       --label-ip: #c7d2de;
       --label-mac: #95a4b3;
@@ -103,6 +104,7 @@
       --link-switch: #2563eb;
       --link-router: #dc2626;
       --link-active: #0e827a;
+      --stp-block: #c2410c;
       --label-primary: #2a2520;
       --label-ip: #6a6052;
       --label-mac: #837a6b;
@@ -165,6 +167,7 @@
       --link-switch: #8ee0ff;
       --link-router: #ffd27f;
       --link-active: #fff07a;
+      --stp-block: #ffae57;
       --label-primary: #eaf2ff;
       --label-ip: #c3d8f7;
       --label-mac: #9cc0f0;
@@ -1067,6 +1070,30 @@
       border-color: var(--accent);
     }
     .port-mode-select { max-width: 76px; }
+
+    /* Spanning-tree per-port role/state badge + the switch STP control rows. */
+    .port-stp {
+      flex: 0 0 auto;
+      font-size: 10px;
+      font-weight: 800;
+      letter-spacing: 0.02em;
+      padding: 1px 6px;
+      border-radius: 999px;
+      border: 1px solid transparent;
+    }
+    .port-stp-root  { color: #22c55e; border-color: #22c55e80; }
+    .port-stp-designated { color: var(--muted); border-color: var(--line); }
+    .port-stp-block { color: var(--stp-block); border-color: color-mix(in srgb, var(--stp-block) 50%, transparent); }
+    .stp-row {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      margin-top: 4px;
+    }
+    .stp-check { display: inline-flex; align-items: center; gap: 6px; font-weight: 700; }
+    .stp-status { color: var(--muted); font-size: 12px; }
+    .stp-priolabel { color: var(--muted); font-size: 12px; flex: 0 0 auto; }
+    .stp-prio { width: 90px; height: 26px; border-radius: 6px; border: 1px solid var(--line); background: var(--panel); color: var(--text); padding: 0 6px; }
     .port-vlan-select, .port-native-select { max-width: 96px; }
 
     .vlan-list {
@@ -1473,6 +1500,7 @@
     .terminal-line.sim-tcp   { color: #fb923c; }
     .terminal-line.sim-nat   { color: #2dd4bf; }
     .terminal-line.sim-dns   { color: #22d3ee; }
+    .terminal-line.sim-stp   { color: #a5b4fc; }
 
     /* ─── Simulation log (a dock pane) ────────────────────── */
 
@@ -1499,6 +1527,7 @@
     .sim-log-line.sim-dns     { color: #22d3ee; }
     .sim-log-line.sim-drop    { color: #f87171; }
     .sim-log-line.sim-dhcp    { color: #a78bfa; }
+    .sim-log-line.sim-stp     { color: #a5b4fc; }
 
     /* ─── Packet list (Wireshark-style) ───────────────────── */
 
@@ -1563,6 +1592,7 @@
     .pkt-dns        td { color: #22d3ee; }
     .pkt-dhcp       td { color: #a78bfa; }
     .pkt-dot11      td { color: #2dd4bf; }
+    .pkt-stp        td { color: #a5b4fc; }
     .pkt-macsec     td { color: #5eead4; font-style: italic; }
     .pkt-bad        td { color: #f87171; }
     .pkt-row td.pkt-num,
@@ -2235,6 +2265,13 @@
           </span>
           <button type="button" class="settings-info" aria-label="Skip the 802.11 probe/auth/association (and WPA2) frames when a laptop joins an access point.">i</button>
         </label>
+        <label class="settings-row">
+          <input id="optSilentStp" type="checkbox">
+          <span class="settings-row-text">
+            <span class="settings-row-title">Silent spanning tree</span>
+          </span>
+          <button type="button" class="settings-info" aria-label="Skip the BPDU frames when the spanning tree advertises. The tree still converges and blocks loops — only the control-plane animation is hidden.">i</button>
+        </label>
       </section>
     </div>
   </aside>
@@ -2790,6 +2827,13 @@ Full legal text: https://creativecommons.org/publicdomain/zero/1.0/legalcode</pr
     }
     return Object.keys(out).length ? { macsec: out } : {};
   }
+  function normaliseStpConfig(raw) {
+    const r = raw && typeof raw === "object" ? raw : {};
+    const enabled = r.enabled !== false;
+    const p = Number(r.priority);
+    const priority = Number.isInteger(p) && p >= 0 && p <= 61440 && p % 4096 === 0 && p !== 32768 ? p : void 0;
+    return { enabled, ...priority != null ? { priority } : {} };
+  }
   function normaliseRadiusUsers(raw) {
     if (!Array.isArray(raw)) return [];
     return raw.filter((u) => u && u.identity).map((u) => ({ identity: String(u.identity), password: String(u.password ?? "") }));
@@ -2812,7 +2856,10 @@ Full legal text: https://creativecommons.org/publicdomain/zero/1.0/legalcode</pr
           trunkAllowedVlans: normaliseTrunkAllowedVlans(device.config?.trunkAllowedVlans || {}),
           trunkNativeVlans: normalisePortVlans(device.config?.trunkNativeVlans || {})
         } : {},
-        ...device.config?.portAuth ? { portAuth: normalisePortAuth(device.config.portAuth) } : {}
+        ...device.config?.portAuth ? { portAuth: normalisePortAuth(device.config.portAuth) } : {},
+        // STP only matters on managed switches; keep it only when a config is present
+        // (a managed switch with no stp config runs the default-on spanning tree).
+        ...managed && device.config?.stp ? { stp: normaliseStpConfig(device.config.stp) } : {}
       };
     }
     if (device.type === "router") {
@@ -3043,6 +3090,7 @@ Full legal text: https://creativecommons.org/publicdomain/zero/1.0/legalcode</pr
       silentDhcp: false,
       silentDns: false,
       silentWifi: false,
+      silentStp: false,
       instantDns: true
     },
     nameCounters: freshNameCounters(),
@@ -3081,7 +3129,8 @@ Full legal text: https://creativecommons.org/publicdomain/zero/1.0/legalcode</pr
       dhcpAssignedIp: null,
       dhcpAssignedGateway: null,
       wifiAssociated: false,
-      dot1xAuthorized: false
+      dot1xAuthorized: false,
+      stormDetected: false
     },
     portSelection: null
   };
@@ -3475,7 +3524,7 @@ Full legal text: https://creativecommons.org/publicdomain/zero/1.0/legalcode</pr
     state.drag = null;
     state.panDrag = null;
     sync().syncPanel();
-    sync().render();
+    sync().recomputeStp();
   }
   function undo() {
     if (state.simulation.status !== "idle" && state.simulation.status !== "done") {
@@ -3539,6 +3588,7 @@ Full legal text: https://creativecommons.org/publicdomain/zero/1.0/legalcode</pr
     optSilentDhcp: document.getElementById("optSilentDhcp"),
     optSilentDns: document.getElementById("optSilentDns"),
     optSilentWifi: document.getElementById("optSilentWifi"),
+    optSilentStp: document.getElementById("optSilentStp"),
     optInstantDns: document.getElementById("optInstantDns"),
     detailsPanel: document.getElementById("detailsPanel"),
     deviceList: document.getElementById("deviceList"),
@@ -3729,6 +3779,7 @@ Full legal text: https://creativecommons.org/publicdomain/zero/1.0/legalcode</pr
     return cfg.mode === "must" ? "failed" : "open";
   }
   function linkAuthorizedForData(link) {
+    if (link?.stpBlocked) return false;
     if (link?.wireless && !wifiLinkAuthenticated(link)) return false;
     if (!dot1xPortAuthorized(link)) return false;
     if (macsecState(link) === "failed") return false;
@@ -3777,8 +3828,8 @@ Full legal text: https://creativecommons.org/publicdomain/zero/1.0/legalcode</pr
       if (_linkUp) _linkUp(fromId, toId);
     }
     state.linkStartId = null;
+    sync().recomputeStp();
     sync().syncPanel();
-    sync().render();
   }
   function nextAvailablePort(deviceId) {
     const device = getDevice(deviceId);
@@ -3808,7 +3859,7 @@ Full legal text: https://creativecommons.org/publicdomain/zero/1.0/legalcode</pr
     state.links = state.links.filter((l) => l.id !== linkId);
     if (state.selectedLinkId === linkId) state.selectedLinkId = null;
     sync().syncPanel();
-    sync().render();
+    sync().recomputeStp();
     return true;
   }
   function toggleLinkShutdown(linkId) {
@@ -3821,7 +3872,7 @@ Full legal text: https://creativecommons.org/publicdomain/zero/1.0/legalcode</pr
     state.selectedId = null;
     state.configuringId = null;
     sync().syncPanel();
-    sync().render();
+    sync().recomputeStp();
     return link;
   }
   function deleteSelection() {
@@ -3845,7 +3896,7 @@ Full legal text: https://creativecommons.org/publicdomain/zero/1.0/legalcode</pr
     if (id) dropTerminalSessions([id]);
     sync().syncPanel();
     sync().syncTerminal();
-    sync().render();
+    sync().recomputeStp();
   }
   function clearNetwork() {
     if (state.devices.length || state.links.length) pushUndo();
@@ -4385,6 +4436,180 @@ Full legal text: https://creativecommons.org/publicdomain/zero/1.0/legalcode</pr
     sync().render();
   }
 
+  // src/stp.ts
+  var DEFAULT_BRIDGE_PRIORITY = 32768;
+  function isStpParticipant(device) {
+    if (device.type !== "switch" || device.hidden || device.poweredOff) return false;
+    if (!device.config?.managed) return false;
+    const stp = device.config.stp;
+    return stp ? stp.enabled !== false : true;
+  }
+  function bridgePriority(device) {
+    const p = device.config?.stp?.priority;
+    return Number.isFinite(p) ? p : DEFAULT_BRIDGE_PRIORITY;
+  }
+  function bridgeIdString(priority, mac) {
+    return `${priority}.${mac}`;
+  }
+  function cmpBridge(a, b) {
+    if (a.priority !== b.priority) return a.priority - b.priority;
+    return a.mac < b.mac ? -1 : a.mac > b.mac ? 1 : 0;
+  }
+  function portForLink(deviceId, linkId) {
+    const ports = linkedPortsFor(deviceId);
+    const idx = ports.findIndex((p) => p && p.link && p.link.id === linkId);
+    if (idx < 0) return null;
+    return { name: `Ethernet${idx + 1}`, num: idx + 1 };
+  }
+  function setPort(map, name, role, stpState) {
+    map[name] = { role, state: stpState };
+  }
+  function runStpConvergence() {
+    for (const link of state.links) if (link.stpBlocked) link.stpBlocked = false;
+    for (const d of state.devices) {
+      if (d.type === "switch" && d.config?.stp) {
+        delete d.config.stp.bridgeId;
+        delete d.config.stp.rootId;
+        delete d.config.stp.rootCost;
+        delete d.config.stp.ports;
+      }
+    }
+    const participants = state.devices.filter(isStpParticipant);
+    if (participants.length === 0) return { participants: 0, roots: 0, blocked: 0 };
+    const bridges = /* @__PURE__ */ new Map();
+    const portsOut = /* @__PURE__ */ new Map();
+    for (const dev of participants) {
+      const priority = bridgePriority(dev);
+      const mac = dev.config?.macAddress || deriveMac(dev.id);
+      bridges.set(dev.id, { dev, priority, mac, id: bridgeIdString(priority, mac) });
+      portsOut.set(dev.id, {});
+    }
+    const edges = [];
+    for (const link of state.links) {
+      if (link.hidden || link.shutdown || link.wireless) continue;
+      if (!bridges.has(link.from) || !bridges.has(link.to)) continue;
+      const aPort = portForLink(link.from, link.id);
+      const bPort = portForLink(link.to, link.id);
+      if (!aPort || !bPort) continue;
+      edges.push({ linkId: link.id, a: link.from, b: link.to, aPort, bPort });
+    }
+    for (const dev of participants) {
+      const map = portsOut.get(dev.id);
+      const ports = linkedPortsFor(dev.id);
+      ports.forEach((p, idx) => {
+        if (p && p.peer) setPort(map, `Ethernet${idx + 1}`, "designated", "forwarding");
+      });
+    }
+    const adj = /* @__PURE__ */ new Map();
+    for (const id of bridges.keys()) adj.set(id, []);
+    for (const e of edges) {
+      adj.get(e.a).push({ edge: e, other: e.b, ownPort: e.aPort, otherPort: e.bPort });
+      adj.get(e.b).push({ edge: e, other: e.a, ownPort: e.bPort, otherPort: e.aPort });
+    }
+    const cost = /* @__PURE__ */ new Map();
+    const rootOf = /* @__PURE__ */ new Map();
+    const visited = /* @__PURE__ */ new Set();
+    let roots = 0;
+    for (const startId of bridges.keys()) {
+      if (visited.has(startId)) continue;
+      const component = [];
+      const stack = [startId];
+      visited.add(startId);
+      while (stack.length) {
+        const id = stack.pop();
+        component.push(id);
+        for (const a of adj.get(id)) {
+          if (!visited.has(a.other)) {
+            visited.add(a.other);
+            stack.push(a.other);
+          }
+        }
+      }
+      let root = bridges.get(component[0]);
+      for (const id of component) {
+        const br = bridges.get(id);
+        if (cmpBridge(br, root) < 0) root = br;
+      }
+      roots++;
+      const rootIdStr = root.id;
+      for (const id of component) rootOf.set(id, rootIdStr);
+      const queue = [root.dev.id];
+      cost.set(root.dev.id, 0);
+      while (queue.length) {
+        const id = queue.shift();
+        const c = cost.get(id);
+        for (const a of adj.get(id)) {
+          if (!cost.has(a.other)) {
+            cost.set(a.other, c + 1);
+            queue.push(a.other);
+          }
+        }
+      }
+    }
+    const rootPortLink = /* @__PURE__ */ new Map();
+    for (const [id, br] of bridges) {
+      if (cost.get(id) === 0) continue;
+      const myCost = cost.get(id);
+      if (myCost == null) continue;
+      let best = null;
+      for (const a of adj.get(id)) {
+        if (cost.get(a.other) !== myCost - 1) continue;
+        if (!best) {
+          best = a;
+          continue;
+        }
+        const ob = bridges.get(a.other), bb = bridges.get(best.other);
+        const byBridge = cmpBridge(ob, bb);
+        if (byBridge < 0) {
+          best = a;
+          continue;
+        }
+        if (byBridge > 0) continue;
+        if (a.otherPort.num !== best.otherPort.num) {
+          if (a.otherPort.num < best.otherPort.num) best = a;
+          continue;
+        }
+        if (a.ownPort.num < best.ownPort.num) best = a;
+      }
+      if (best) rootPortLink.set(id, best.edge.linkId);
+    }
+    let blocked = 0;
+    for (const e of edges) {
+      const ca = cost.get(e.a), cb = cost.get(e.b);
+      const ba = bridges.get(e.a), bb = bridges.get(e.b);
+      let designated;
+      if (ca !== cb) designated = ca < cb ? "a" : "b";
+      else designated = cmpBridge(ba, bb) < 0 ? "a" : "b";
+      const desigId = designated === "a" ? e.a : e.b;
+      const desigPort = designated === "a" ? e.aPort : e.bPort;
+      const otherId = designated === "a" ? e.b : e.a;
+      const otherPort = designated === "a" ? e.bPort : e.aPort;
+      setPort(portsOut.get(desigId), desigPort.name, "designated", "forwarding");
+      if (rootPortLink.get(otherId) === e.linkId) {
+        setPort(portsOut.get(otherId), otherPort.name, "root", "forwarding");
+      } else {
+        setPort(portsOut.get(otherId), otherPort.name, "alternate", "blocking");
+        const link = state.links.find((l) => l.id === e.linkId);
+        if (link) link.stpBlocked = true;
+        blocked++;
+      }
+    }
+    for (const dev of participants) {
+      const br = bridges.get(dev.id);
+      if (!dev.config.stp) dev.config.stp = { enabled: true };
+      const stp = dev.config.stp;
+      stp.bridgeId = br.id;
+      stp.rootId = rootOf.get(dev.id) || br.id;
+      stp.rootCost = cost.get(dev.id) ?? 0;
+      stp.ports = portsOut.get(dev.id);
+    }
+    return { participants: participants.length, roots, blocked };
+  }
+  function isRootBridge(device) {
+    const stp = device.config?.stp;
+    return !!stp && !!stp.bridgeId && stp.bridgeId === stp.rootId;
+  }
+
   // src/frame.ts
   var frameCounter = 0;
   function nextFrameId() {
@@ -4500,6 +4725,11 @@ Full legal text: https://creativecommons.org/publicdomain/zero/1.0/legalcode</pr
     const payload = { type: "dot1x", subtype, ...identity ? { identity } : {} };
     return { id: nextFrameId(), srcMac, dstMac, etherType: 34958, vlanTag: null, payload };
   }
+  var BPDU_GROUP_MAC = "01:80:C2:00:00:00";
+  function createBpduFrame(srcMac, rootId, bridgeId, rootCost, portId, flavour = "config") {
+    const payload = { type: "bpdu", flavour, rootId, bridgeId, rootCost, portId };
+    return { id: nextFrameId(), srcMac, dstMac: BPDU_GROUP_MAC, etherType: 2050, vlanTag: null, payload };
+  }
   function dot11Info(subtype, ssid) {
     switch (subtype) {
       case "probe-req":
@@ -4595,6 +4825,11 @@ Full legal text: https://creativecommons.org/publicdomain/zero/1.0/legalcode</pr
       const bad = d.subtype === "radius-reject" || d.subtype === "eap-failure";
       return { src: frame.srcMac, dst: frame.dstMac, protocol, info, tone: bad ? "bad" : "dot11" };
     }
+    if (frame.payload.type === "bpdu") {
+      const b = frame.payload;
+      const info = b.flavour === "tcn" ? "Topology Change Notification" : `Conf. Root = ${b.rootId}  Cost = ${b.rootCost}  Bridge = ${b.bridgeId}  Port = ${b.portId}`;
+      return { src: frame.srcMac, dst: "Spanning-tree (bridges)", protocol: "STP", info, tone: "stp" };
+    }
     const ipv4 = frame.payload;
     const src = ipv4.srcIp;
     const dst = ipv4.dstIp;
@@ -4627,6 +4862,8 @@ Full legal text: https://creativecommons.org/publicdomain/zero/1.0/legalcode</pr
       label = dot11Label(frame.payload.subtype);
     } else if (frame.payload.type === "dot1x") {
       label = dot1xLabel(frame.payload.subtype);
+    } else if (frame.payload.type === "bpdu") {
+      label = frame.payload.flavour === "tcn" ? "STP TCN" : "BPDU";
     } else {
       const ipv4 = frame.payload;
       if (ipv4.payload.type === "dhcp") {
@@ -4654,6 +4891,7 @@ Full legal text: https://creativecommons.org/publicdomain/zero/1.0/legalcode</pr
       const bad = frame.payload.subtype === "radius-reject" || frame.payload.subtype === "eap-failure";
       return bad ? "#ef4444" : "#14b8a6";
     }
+    if (frame.payload.type === "bpdu") return "#818cf8";
     const ipv4 = frame.payload;
     if (ipv4.payload.type === "dhcp") return "#a78bfa";
     if (ipv4.payload.type === "dns") return ipv4.payload.op === "response" && !ipv4.payload.address ? "#ef4444" : "#22d3ee";
@@ -4672,7 +4910,7 @@ Full legal text: https://creativecommons.org/publicdomain/zero/1.0/legalcode</pr
       const sw = getDevice(switchId);
       if (!sw || sw.type !== "switch" || !sw.config?.managed) continue;
       const ports = linkedPortsFor(sw.id);
-      const portIdx = ports.findIndex((p) => p.peer.id === deviceId);
+      const portIdx = ports.findIndex((p) => p?.peer?.id === deviceId);
       if (portIdx === -1) continue;
       const portName = `Ethernet${portIdx + 1}`;
       const portVlans = memoPortVlans(sw.config.portVlans);
@@ -4918,6 +5156,32 @@ Full legal text: https://creativecommons.org/publicdomain/zero/1.0/legalcode</pr
     }
     return `${host.name} is not on an 802.1X-controlled port (set one with "portauth <switch> <EthN> auto").`;
   }
+  function stpRootOrigin() {
+    runStpConvergence();
+    const root = state.devices.find((d) => isStpParticipant(d) && !!d.config?.stp?.bridgeId && d.config.stp.bridgeId === d.config.stp.rootId);
+    return root?.id ?? null;
+  }
+  function buildStpEvents() {
+    runStpConvergence();
+    const participants = state.devices.filter(isStpParticipant);
+    if (participants.length === 0) return "No managed switch is running spanning tree (enable STP on a managed switch).";
+    const roots = participants.filter((s) => s.config?.stp?.bridgeId && s.config.stp.bridgeId === s.config.stp.rootId);
+    const events = [];
+    for (const root of roots) {
+      const srcMac = root.config?.macAddress || deriveMac(root.id);
+      const rootId = root.config.stp.rootId || "";
+      const bridgeId = root.config.stp.bridgeId || "";
+      const ports = linkedPortsFor(root.id);
+      ports.forEach((port, idx) => {
+        if (!port?.peer || !isStpParticipant(port.peer)) return;
+        const name = `Ethernet${idx + 1}`;
+        if (root.config?.stp?.ports?.[name]?.role !== "designated") return;
+        events.push({ type: "frame_arrive", frame: createBpduFrame(srcMac, rootId, bridgeId, 0, name), deviceId: port.peer.id, fromDeviceId: root.id, linkId: port.link.id });
+      });
+    }
+    if (events.length === 0) return "No inter-switch links for spanning tree to advertise on (a single switch, or no loop to resolve).";
+    return { events, pendingArp: {} };
+  }
   function findFirstHop(source) {
     for (const link of linksFor(source.id)) {
       if (link.hidden || link.shutdown) continue;
@@ -5020,13 +5284,15 @@ Full legal text: https://creativecommons.org/publicdomain/zero/1.0/legalcode</pr
     const shut = !!link.shutdown;
     const wireless = !!link.wireless;
     const unauth = wireless && !wifiLinkAuthenticated(link);
+    const blocked = !!link.stpBlocked && !shut && !unauth;
     const macsec = macsecState(link);
-    const linkColor = captureLink ? colors.selected : active ? cssColor("--link-active") : shut || unauth || macsec === "failed" ? cssColor("--danger") : macsec === "secured" ? "#14b8a6" : linkColorFor(from, to);
+    const linkColor = captureLink ? colors.selected : active ? cssColor("--link-active") : shut || unauth || macsec === "failed" ? cssColor("--danger") : blocked ? cssColor("--stp-block") : macsec === "secured" ? "#14b8a6" : linkColorFor(from, to);
     const dimmed = from.poweredOff || to.poweredOff;
     const trunk = isTrunkLink(from, to);
     ctx.save();
     if (dimmed) ctx.globalAlpha = 0.3;
     else if (shut) ctx.globalAlpha = 0.6;
+    else if (blocked) ctx.globalAlpha = 0.7;
     else if (wireless) ctx.globalAlpha = 0.85;
     if (captureLink) {
       ctx.shadowColor = colors.selected;
@@ -5035,6 +5301,7 @@ Full legal text: https://creativecommons.org/publicdomain/zero/1.0/legalcode</pr
     ctx.strokeStyle = linkColor;
     ctx.lineWidth = captureLink ? 4 : active ? 3 : 2;
     if (shut) ctx.setLineDash([6, 5]);
+    else if (blocked) ctx.setLineDash([11, 5]);
     else if (wireless) ctx.setLineDash([2, 6]);
     if (trunk) {
       const dx = to.x - from.x;
@@ -5069,12 +5336,13 @@ Full legal text: https://creativecommons.org/publicdomain/zero/1.0/legalcode</pr
     const labelParts = [];
     if (link.name) labelParts.push(link.name);
     if (shut) labelParts.push("down");
+    else if (blocked) labelParts.push("STP blocked");
     if (labelParts.length) {
       ctx.globalAlpha = 1;
       ctx.font = FONT_SMALL;
       ctx.textAlign = "center";
       ctx.textBaseline = "bottom";
-      ctx.fillStyle = shut ? cssColor("--danger") : cssColor("--muted");
+      ctx.fillStyle = shut ? cssColor("--danger") : blocked ? cssColor("--stp-block") : cssColor("--muted");
       ctx.fillText(labelParts.join(" \xB7 "), midX, midY - 8);
     }
     ctx.restore();
@@ -5146,6 +5414,24 @@ Full legal text: https://creativecommons.org/publicdomain/zero/1.0/legalcode</pr
     ctx.stroke();
     ctx.restore();
   }
+  function drawRootBridgeBadge(device) {
+    const x = device.x - device.width / 2 + 18;
+    const y = device.y - device.height / 2 + 18;
+    ctx.save();
+    ctx.fillStyle = "#818cf8";
+    ctx.strokeStyle = cssColor("--panel");
+    ctx.lineWidth = 1.6;
+    ctx.beginPath();
+    ctx.arc(x, y, 10, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.stroke();
+    ctx.fillStyle = "#ffffff";
+    ctx.font = "bold 12px system-ui, sans-serif";
+    ctx.textAlign = "center";
+    ctx.textBaseline = "middle";
+    ctx.fillText("R", x, y + 0.5);
+    ctx.restore();
+  }
   function drawDeviceIcon(device) {
     if (device.hidden) return;
     const selected = state.selectedId === device.id;
@@ -5169,6 +5455,7 @@ Full legal text: https://creativecommons.org/publicdomain/zero/1.0/legalcode</pr
     }
     drawIconDevice(device, palette);
     if (device.type === "switch" && device.config?.managed) drawManagedBadge(device, palette);
+    if (device.type === "switch" && isRootBridge(device)) drawRootBridgeBadge(device);
     ctx.restore();
   }
   function drawDevice(device) {
@@ -5549,6 +5836,7 @@ Full legal text: https://creativecommons.org/publicdomain/zero/1.0/legalcode</pr
   // src/engine.ts
   function startSimulation(setup, originDeviceId, targetIp, mode = "ping", targetPort = null) {
     runRipConvergence();
+    runStpConvergence();
     pushUndo();
     state.inspectedFrame = null;
     state.inspectedCapture = null;
@@ -5592,8 +5880,9 @@ Full legal text: https://creativecommons.org/publicdomain/zero/1.0/legalcode</pr
     sim.dhcpAssignedGateway = null;
     sim.wifiAssociated = false;
     sim.dot1xAuthorized = false;
+    sim.stormDetected = false;
     const target = setup.dns ? setup.dns.name : targetIp;
-    const label = mode === "dhcp" ? "Requesting DHCP lease..." : mode === "tcp" ? `Opening TCP connection to ${target}:${sim.tcpTargetPort ?? "?"}...` : mode === "dns" ? `Resolving ${target}...` : mode === "associate" ? `Associating to ${target || "WiFi"}...` : mode === "dot1x" ? `802.1X authenticating ${target || "supplicant"}...` : `Simulating ping to ${target}...`;
+    const label = mode === "dhcp" ? "Requesting DHCP lease..." : mode === "tcp" ? `Opening TCP connection to ${target}:${sim.tcpTargetPort ?? "?"}...` : mode === "dns" ? `Resolving ${target}...` : mode === "associate" ? `Associating to ${target || "WiFi"}...` : mode === "dot1x" ? `802.1X authenticating ${target || "supplicant"}...` : mode === "stp" ? "Spanning tree: advertising BPDUs from the root bridge..." : `Simulating ping to ${target}...`;
     state.terminal.lines.push({ kind: "sim", text: label });
     if (!state.dock.open) openDock("simlog");
     syncTerminal();
@@ -5642,6 +5931,7 @@ Full legal text: https://creativecommons.org/publicdomain/zero/1.0/legalcode</pr
   }
   function runSimulationHeadless(setup, originDeviceId, targetIp, mode = "ping", targetPort = null) {
     runRipConvergence();
+    runStpConvergence();
     const sim = state.simulation;
     sim.status = "running";
     sim.mode = mode;
@@ -5669,6 +5959,7 @@ Full legal text: https://creativecommons.org/publicdomain/zero/1.0/legalcode</pr
     sim.dhcpAssignedGateway = null;
     sim.wifiAssociated = false;
     sim.dot1xAuthorized = false;
+    sim.stormDetected = false;
     const MAX_STEPS = 1e4;
     let guard = 0;
     processNextStep();
@@ -5677,9 +5968,10 @@ Full legal text: https://creativecommons.org/publicdomain/zero/1.0/legalcode</pr
       deliverCompletedTransits();
       processNextStep();
     }
+    if (guard >= MAX_STEPS && (sim.transits.length > 0 || sim.events.length > 0)) sim.stormDetected = true;
     if (sim.status !== "done") finishSimulation();
     return {
-      success: mode === "dhcp" ? sim.dhcpSuccess : mode === "tcp" ? sim.tcpSuccess : mode === "dns" ? sim.dnsResolvedIp != null : mode === "associate" ? sim.wifiAssociated : mode === "dot1x" ? sim.dot1xAuthorized : sim.pingSuccess,
+      success: mode === "dhcp" ? sim.dhcpSuccess : mode === "tcp" ? sim.tcpSuccess : mode === "dns" ? sim.dnsResolvedIp != null : mode === "associate" ? sim.wifiAssociated : mode === "dot1x" ? sim.dot1xAuthorized : mode === "stp" ? !sim.stormDetected : sim.pingSuccess,
       refused: sim.tcpRefused,
       ttl: sim.pingTtl,
       responderIp: sim.pingResponderIp,
@@ -5762,6 +6054,8 @@ Full legal text: https://creativecommons.org/publicdomain/zero/1.0/legalcode</pr
     return { targetIp, hops, reached };
   }
   var animFrameId = null;
+  var STORM_STEP_CAP = 200;
+  var STORM_TRANSIT_CAP = 250;
   function startAnimationLoop() {
     if (animFrameId != null) return;
     animFrameId = requestAnimationFrame(animationTick);
@@ -5777,6 +6071,7 @@ Full legal text: https://creativecommons.org/publicdomain/zero/1.0/legalcode</pr
     const payload = frame.payload;
     if (payload.type === "arp") return opt.silentArp;
     if (payload.type === "dot11") return opt.silentWifi;
+    if (payload.type === "bpdu") return opt.silentStp;
     if (payload.type === "ipv4") {
       const inner = payload.payload;
       if (inner.type === "dhcp") return opt.silentDhcp;
@@ -5811,7 +6106,7 @@ Full legal text: https://creativecommons.org/publicdomain/zero/1.0/legalcode</pr
     for (const t of completed) {
       if (!sim.headless && !t.silent) {
         const wireLink = linkById(t.linkId);
-        const macsec = !!wireLink && t.frame.payload.type !== "dot11" && t.frame.payload.type !== "dot1x" && macsecState(wireLink) === "secured";
+        const macsec = !!wireLink && t.frame.payload.type !== "dot11" && t.frame.payload.type !== "dot1x" && t.frame.payload.type !== "bpdu" && macsecState(wireLink) === "secured";
         sim.capture.push({
           no: sim.capture.length + 1,
           step: sim.stepIndex,
@@ -5852,6 +6147,11 @@ Full legal text: https://creativecommons.org/publicdomain/zero/1.0/legalcode</pr
     }
     const event = sim.events.shift();
     sim.stepIndex++;
+    if (!sim.headless && (sim.stepIndex > STORM_STEP_CAP || sim.transits.length > STORM_TRANSIT_CAP)) {
+      sim.stormDetected = true;
+      finishSimulation();
+      return;
+    }
     const device = getDevice(event.deviceId);
     if (!device) return;
     const outgoing = PROCESSORS[device.type]?.(device, event.frame, event.fromDeviceId) ?? [];
@@ -5863,9 +6163,11 @@ Full legal text: https://creativecommons.org/publicdomain/zero/1.0/legalcode</pr
         logStep(device, "sim-drop", `${linkName(link)} is administratively down \u2014 frame dropped`);
         continue;
       }
-      const ctrl = out.frame.payload.type === "dot11" || out.frame.payload.type === "dot1x";
+      const ptype = out.frame.payload.type;
+      const ctrl = ptype === "dot11" || ptype === "dot1x" || ptype === "bpdu";
       if (!ctrl && !linkAuthorizedForData(link)) {
-        logStep(device, "sim-drop", `${linkName(link)} is not authenticated \u2014 frame dropped`);
+        const reason = link.stpBlocked ? "is spanning-tree blocked" : "is not authenticated";
+        logStep(device, "sim-drop", `${linkName(link)} ${reason} \u2014 frame dropped`);
         continue;
       }
       if (!sim.headless && Number(link.loss) > 0 && Math.random() * 100 < link.loss) {
@@ -6317,6 +6619,30 @@ Full legal text: https://creativecommons.org/publicdomain/zero/1.0/legalcode</pr
     }
     return null;
   }
+  function handleBpdu(device, frame, fromDeviceId) {
+    const stp = device.config?.stp;
+    if (!stp || !isStpParticipant(device)) return [];
+    const p = frame.payload;
+    const ports = linkedPortsFor(device.id);
+    const ingressIdx = fromDeviceId ? ports.findIndex((pt) => pt?.peer?.id === fromDeviceId) : -1;
+    const ingressPort = ingressIdx >= 0 ? `Ethernet${ingressIdx + 1}` : null;
+    const ingressRole = ingressPort ? stp.ports?.[ingressPort]?.role : void 0;
+    if (p.flavour !== "config" || ingressRole !== "root") {
+      const agree = p.rootId === stp.rootId ? "agrees on root" : "inferior";
+      logStep(device, "sim-stp", `BPDU on ${ingressPort || "?"} (${ingressRole || "edge"}) \u2014 ${agree}, not relayed`);
+      return [];
+    }
+    logStep(device, "sim-stp", `Root BPDU on root port ${ingressPort} \u2014 relaying toward designated ports (cost ${stp.rootCost ?? 0})`);
+    const srcMac = device.config?.macAddress || deriveMac(device.id);
+    const out = [];
+    ports.forEach((pt, idx) => {
+      if (!pt?.peer || !isStpParticipant(pt.peer)) return;
+      const name = `Ethernet${idx + 1}`;
+      if (stp.ports?.[name]?.role !== "designated") return;
+      out.push({ frame: createBpduFrame(srcMac, stp.rootId || "", stp.bridgeId || "", stp.rootCost ?? 0, name), toDeviceId: pt.peer.id });
+    });
+    return out;
+  }
   function processAtSwitch(device, frame, fromDeviceId) {
     const outgoing = [];
     if (device.poweredOff) return outgoing;
@@ -6324,9 +6650,10 @@ Full legal text: https://creativecommons.org/publicdomain/zero/1.0/legalcode</pr
     if (!config) return outgoing;
     if (device.type === "access-point" && frame.payload.type === "dot11") return handleDot11(device, frame, fromDeviceId);
     if (frame.payload.type === "dot1x") return handleDot1x(device, frame, fromDeviceId);
+    if (frame.payload.type === "bpdu") return handleBpdu(device, frame, fromDeviceId);
     frame = { ...frame, srcMac: normaliseMacAddress(frame.srcMac), dstMac: normaliseMacAddress(frame.dstMac) };
     const ports = linkedPortsFor(device.id);
-    const ingressIdx = fromDeviceId ? ports.findIndex((p) => p.peer.id === fromDeviceId) : -1;
+    const ingressIdx = fromDeviceId ? ports.findIndex((p) => p?.peer?.id === fromDeviceId) : -1;
     const ingressPortName = ingressIdx >= 0 ? `Ethernet${ingressIdx + 1}` : null;
     const managed = Boolean(config.managed);
     const portVlans = managed ? normalisePortVlans(config.portVlans || {}) : {};
@@ -6427,10 +6754,10 @@ Full legal text: https://creativecommons.org/publicdomain/zero/1.0/legalcode</pr
     const outgoing = [];
     if (device.poweredOff) return outgoing;
     const ports = linkedPortsFor(device.id);
-    const ingressIdx = fromDeviceId ? ports.findIndex((p) => p.peer.id === fromDeviceId) : -1;
+    const ingressIdx = fromDeviceId ? ports.findIndex((p) => p?.peer?.id === fromDeviceId) : -1;
     const repeated = [];
     ports.forEach((port, idx) => {
-      if (idx === ingressIdx) return;
+      if (idx === ingressIdx || !port?.peer) return;
       outgoing.push({ frame: { ...frame, id: `${frame.id}-${idx}` }, toDeviceId: port.peer.id });
       repeated.push(`Ethernet${idx + 1}`);
     });
@@ -6906,7 +7233,21 @@ Full legal text: https://creativecommons.org/publicdomain/zero/1.0/legalcode</pr
     const sim = state.simulation;
     const originSession = sessionFor(sim.originDeviceId);
     const out = (kind, text) => originSession ? terminalLineFor(originSession, kind, text) : terminalLine(kind, text);
-    if (sim.mode === "dhcp") {
+    if (sim.stormDetected) {
+      if (!sim.headless) {
+        out("error", "Broadcast storm: frames are looping endlessly \u2014 there's an L2 loop with no spanning tree to break it.\nEnable STP on the switches (it's on by default for managed switches), or remove the redundant link.");
+        dom.modeLabel.textContent = "Broadcast storm detected \u2014 an L2 loop with no spanning tree.";
+      }
+    } else if (sim.mode === "stp") {
+      if (!sim.headless) {
+        const blocked = state.links.filter((l) => l.stpBlocked).length;
+        const roots = state.devices.filter((d) => d.type === "switch" && d.config?.stp?.bridgeId && d.config.stp.bridgeId === d.config.stp.rootId);
+        const rootNames = roots.map((r) => r.name).join(", ") || "(none)";
+        out("", `Spanning tree converged.
+  Root bridge: ${rootNames}
+  Blocking ports: ${blocked} (${blocked === 1 ? "1 redundant link cut" : blocked === 0 ? "no loop to break" : blocked + " redundant links cut"})`);
+      }
+    } else if (sim.mode === "dhcp") {
       if (sim.dhcpSuccess) {
         if (!sim.headless) out("", `DHCP configured:
   IP address: ${sim.dhcpAssignedIp}
@@ -8260,6 +8601,9 @@ Address: ${sim.dnsResolvedIp}`);
     const interfaces = switchInterfacesWithNames(device);
     const trunkAllowed = normaliseTrunkAllowedVlans(device.config?.trunkAllowedVlans || {});
     const lines = [`hostname ${device.name}`];
+    const stp = device.config?.stp;
+    if (stp?.enabled === false) lines.push(`config spanning_tree disable`);
+    if (stp?.priority != null && stp.priority !== 32768) lines.push(`config spanning_tree priority ${stp.priority}`);
     for (const vlan of vlans) lines.push(`config vlan add ${vlan.id}`);
     for (const iface of interfaces) {
       if (iface.mode === "trunk") {
@@ -8271,6 +8615,44 @@ Address: ${sim.dnsResolvedIp}`);
     }
     return lines.length > 1 ? lines.join("\n") : `hostname ${device.name}
 (no VLAN configuration)`;
+  }
+  function showSwitchSpanningTree(device) {
+    if (!device.config?.managed) return "Spanning tree runs only on a managed switch.";
+    if (device.config.stp && device.config.stp.enabled === false) return "Spanning tree is administratively disabled on this bridge.";
+    runStpConvergence();
+    const s = device.config?.stp;
+    const isRoot = !!s?.bridgeId && s.bridgeId === s.rootId;
+    const ports = s?.ports || {};
+    const cap = (w) => w.charAt(0).toUpperCase() + w.slice(1);
+    return [
+      "Spanning tree (IEEE 802.1D)",
+      `  Bridge ID  ${s?.bridgeId || "-"}`,
+      `  Root ID    ${s?.rootId || "-"}${isRoot ? "  (this bridge is the root)" : `  root path cost ${s?.rootCost ?? "-"}`}`,
+      "",
+      "Interface   Role        State        Cost  Connected to",
+      ...switchInterfacesWithNames(device).filter((i) => i.peer).map((i) => {
+        const pi = ports[i.name];
+        return [
+          i.name.padEnd(12),
+          cap(pi?.role || "designated").padEnd(12),
+          cap(pi?.state || "forwarding").padEnd(13),
+          "1".padEnd(6),
+          i.peer?.name || "-"
+        ].join("");
+      })
+    ].join("\n");
+  }
+  function setSwitchStp(device, change) {
+    pushUndo();
+    ensureConfig(device);
+    const cfg = device.config;
+    cfg.stp = cfg.stp || { enabled: true };
+    if (change.enabled != null) cfg.stp.enabled = change.enabled;
+    if (change.priority != null) cfg.stp.priority = change.priority;
+    sync().recomputeStp();
+    sync().syncPanel();
+    if (change.priority != null) return `Bridge priority set to ${change.priority}.`;
+    return `Spanning tree ${change.enabled ? "enabled" : "disabled"}.`;
   }
   function addSwitchVlan(device, vlanId) {
     const id = normaliseVlanId(vlanId);
@@ -8469,6 +8851,9 @@ Address: ${sim.dnsResolvedIp}`);
         "config vlan member add <vlan-id> <EthernetN>      (untagged / access)",
         "config vlan member add -t <vlan-id> <EthernetN>   (tagged / trunk)",
         "config vlan member del <vlan-id> <EthernetN>",
+        "show spanning_tree",
+        "config spanning_tree enable | disable",
+        "config spanning_tree priority <0-61440>",
         "config hostname <name>",
         "clear"
       ].join("\n"));
@@ -8492,6 +8877,25 @@ Address: ${sim.dnsResolvedIp}`);
     }
     if (lower === "show runningconfiguration all" || lower === "show runningconfiguration") {
       terminalLine("", showSwitchRunningConfig(device));
+      return;
+    }
+    if (lower === "show spanning_tree" || lower === "show spanning-tree" || lower === "show stp") {
+      terminalLine("", showSwitchSpanningTree(device));
+      return;
+    }
+    const stpEnableMatch = command.match(/^(?:sudo\s+)?config\s+spanning_tree\s+(enable|disable)(?:\s+pvst)?$/i);
+    if (stpEnableMatch) {
+      terminalLine("", setSwitchStp(device, { enabled: stpEnableMatch[1].toLowerCase() === "enable" }));
+      return;
+    }
+    const stpPriorityMatch = command.match(/^(?:sudo\s+)?config\s+spanning_tree\s+priority\s+(\d+)$/i);
+    if (stpPriorityMatch) {
+      const n = Number(stpPriorityMatch[1]);
+      if (n < 0 || n > 61440 || n % 4096 !== 0) {
+        terminalLine("error", "% Priority must be 0-61440 in steps of 4096.");
+        return;
+      }
+      terminalLine("", setSwitchStp(device, { priority: n }));
       return;
     }
     const addVlanMatch = command.match(/^config\s+vlan\s+add\s+(\d+)$/i);
@@ -8817,6 +9221,7 @@ Address: ${sim.dnsResolvedIp}`);
     dom.optSilentDhcp.checked = state.options.silentDhcp;
     dom.optSilentDns.checked = state.options.silentDns;
     dom.optSilentWifi.checked = state.options.silentWifi;
+    dom.optSilentStp.checked = state.options.silentStp;
     dom.optInstantDns.checked = state.options.instantDns;
   }
   function ipSourceInfo(config) {
@@ -8901,10 +9306,14 @@ Address: ${sim.dnsResolvedIp}`);
   function renderSwitchPorts(device) {
     const interfaces = switchInterfacesWithNames(device);
     const isManaged = Boolean(device.config?.managed);
+    const stpOn = isManaged && (device.config?.stp ? device.config.stp.enabled !== false : true);
+    const stpPorts = stpOn ? device.config?.stp?.ports || {} : {};
     const ports = linkedPortsFor(device.id);
     return interfaces.map((iface, index) => {
       const port = ports[index];
       const peer = port?.peer;
+      const si = peer ? stpPorts[iface.name] : null;
+      const stpBadge = si ? `<span class="port-stp port-stp-${si.state === "blocking" ? "block" : si.role}" title="Spanning tree: ${si.role} port, ${si.state}">${si.state === "blocking" ? "Block" : si.role === "root" ? "Root" : "Desig"}</span>` : "";
       const removeButton = port ? `
       <button class="port-remove" data-link-id="${escapeHtml(port.link.id)}" title="Remove link to ${escapeHtml(peer.name)}" aria-label="Remove link to ${escapeHtml(peer.name)}">
         <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M18 6 6 18"></path><path d="m6 6 12 12"></path></svg>
@@ -8922,10 +9331,31 @@ Address: ${sim.dnsResolvedIp}`);
         <span class="port-id">eth${index + 1}</span>
         ${modeControl}
         <span class="port-peer ${peer ? "" : "empty"}">${escapeHtml(peer?.name || "Empty")}</span>
+        ${stpBadge}
         ${removeButton}
       </div>
     `;
     }).join("");
+  }
+  function renderStpSection(device) {
+    const stp = device.config?.stp;
+    const enabled = stp ? stp.enabled !== false : true;
+    const priority = stp?.priority ?? 32768;
+    const isRoot = enabled && !!stp?.bridgeId && stp.bridgeId === stp.rootId;
+    const status = !enabled ? "disabled" : isRoot ? "this switch is the root bridge" : stp?.rootId ? `root ${escapeHtml(stp.rootId)} \xB7 path cost ${stp?.rootCost ?? "?"}` : "no loop to resolve";
+    return `
+    <div class="field">
+      <label>Spanning tree</label>
+      <div class="stp-row">
+        <label class="stp-check"><input id="selectedStp" type="checkbox" ${enabled ? "checked" : ""}> Enabled</label>
+        <span class="stp-status">${status}</span>
+      </div>
+      ${enabled ? `<div class="stp-row">
+        <label class="stp-priolabel" for="selectedStpPriority">Bridge priority</label>
+        <input id="selectedStpPriority" class="stp-prio" type="number" min="0" max="61440" step="4096" value="${priority}">
+      </div>` : ""}
+    </div>
+  `;
   }
   function renderRouterInterfaces(device) {
     const interfaces = routerInterfacesWithNames(device);
@@ -9246,6 +9676,22 @@ Address: ${sim.dnsResolvedIp}`);
       });
     });
   }
+  function bindStpControls(device) {
+    const toggle = document.getElementById("selectedStp");
+    if (toggle) toggle.addEventListener("change", () => setSwitchStp(device, { enabled: toggle.checked }));
+    const prio = document.getElementById("selectedStpPriority");
+    if (prio) {
+      captureUndoOnFocus(prio);
+      prio.addEventListener("change", () => {
+        const n = Number(prio.value);
+        if (!Number.isInteger(n) || n < 0 || n > 61440 || n % 4096 !== 0) {
+          sync().syncPanel();
+          return;
+        }
+        setSwitchStp(device, { priority: n });
+      });
+    }
+  }
   function bindSwitchPortControls(device) {
     document.querySelectorAll(".port-mode-select").forEach((el) => {
       el.addEventListener("change", (event) => {
@@ -9454,11 +9900,17 @@ Address: ${sim.dnsResolvedIp}`);
     linkNumberField("selectedLinkLoss", "loss", 100);
   }
   function renderFramePanel(frame) {
+    const etherTypeLabel = {
+      2054: "0x0806 (ARP)",
+      2048: "0x0800 (IPv4)",
+      34958: "0x888e (802.1X / EAPOL / 802.11)",
+      2050: "0x0802 (Spanning Tree / BPDU)"
+    };
     const rows = [
       ["Frame id", frame.id],
       ["Src MAC", frame.srcMac],
       ["Dst MAC", frame.dstMac],
-      ["EtherType", frame.etherType === 2054 ? "0x0806 (ARP)" : "0x0800 (IPv4)"],
+      ["EtherType", etherTypeLabel[frame.etherType] || `0x${Number(frame.etherType).toString(16).padStart(4, "0")}`],
       ["802.1Q VLAN", frame.vlanTag != null ? String(frame.vlanTag) : "untagged"]
     ];
     const p = frame.payload;
@@ -9469,6 +9921,19 @@ Address: ${sim.dnsResolvedIp}`);
         ["Sender IP", p.senderIp],
         ["Target MAC", p.targetMac],
         ["Target IP", p.targetIp]
+      );
+    } else if (p.type === "dot11") {
+      rows.push(["802.11 subtype", p.subtype], ["SSID", p.ssid || "(none)"]);
+    } else if (p.type === "dot1x") {
+      rows.push(["802.1X subtype", p.subtype]);
+      if (p.identity) rows.push(["Identity", p.identity]);
+    } else if (p.type === "bpdu") {
+      rows.push(
+        ["BPDU", p.flavour === "tcn" ? "Topology Change Notification" : "Configuration"],
+        ["Root bridge id", p.rootId],
+        ["Sending bridge id", p.bridgeId],
+        ["Root path cost", String(p.rootCost)],
+        ["Sending port", p.portId]
       );
     } else if (p.type === "ipv4") {
       rows.push(
@@ -9602,6 +10067,7 @@ Address: ${sim.dnsResolvedIp}`);
           ${renderSwitchVlans(selected)}
         </div>
       </div>
+      ${renderStpSection(selected)}
       ` : ""}
       <div class="field">
         <label>Ports</label>
@@ -9873,6 +10339,7 @@ Address: ${sim.dnsResolvedIp}`);
       });
       bindPortRemoveButtons();
       bindSwitchPortControls(selected);
+      bindStpControls(selected);
       if (selected.type === "router") bindFirewallControls(selected, ["forward", "input"]);
       if (selected.type === "firewall") bindFirewallControls(selected, ["forward"]);
       const terminalButton = document.getElementById("openSelectedTerminal");
@@ -10481,6 +10948,31 @@ Address: ${sim.dnsResolvedIp}`);
       { kind: "ping", from: "PC-1", to: "PC-2", label: "PC-1 reaches PC-2 over the authenticated, encrypted link" }
     ]
   };
+  var spanningTree = {
+    id: "spanning-tree",
+    name: "Break the loop (spanning tree)",
+    objective: "SW-1, SW-2 and SW-3 are wired in a triangle for redundancy, but spanning tree has been switched off on all three. With no tree to block a redundant link, a broadcast loops forever \u2014 the network is in a broadcast storm and PC-A cannot reach PC-B. Turn spanning tree back on (it is on by default for managed switches) so the bridges elect a root and block one redundant port, clearing the storm.",
+    topology: {
+      version: 1,
+      devices: [
+        { id: "stp-pc-a", type: "computer", name: "PC-A", x: -300, y: -120, config: { ipv4Address: "10.0.0.10", gatewayIpv4Address: "", macAddress: "02:00:00:00:27:0A", arpTable: [] } },
+        { id: "stp-pc-b", type: "computer", name: "PC-B", x: 300, y: -120, config: { ipv4Address: "10.0.0.20", gatewayIpv4Address: "", macAddress: "02:00:00:00:27:0B", arpTable: [] } },
+        { id: "stp-sw1", type: "switch", name: "SW-1", x: -180, y: 40, config: { managed: true, ethernetPorts: 8, macTable: [], vlans: [], portVlans: {}, portModes: {}, stp: { enabled: false } } },
+        { id: "stp-sw2", type: "switch", name: "SW-2", x: 180, y: 40, config: { managed: true, ethernetPorts: 8, macTable: [], vlans: [], portVlans: {}, portModes: {}, stp: { enabled: false } } },
+        { id: "stp-sw3", type: "switch", name: "SW-3", x: 0, y: 220, config: { managed: true, ethernetPorts: 8, macTable: [], vlans: [], portVlans: {}, portModes: {}, stp: { enabled: false } } }
+      ],
+      links: [
+        { from: "stp-pc-a", to: "stp-sw1" },
+        { from: "stp-pc-b", to: "stp-sw2" },
+        { from: "stp-sw1", to: "stp-sw2" },
+        { from: "stp-sw2", to: "stp-sw3" },
+        { from: "stp-sw3", to: "stp-sw1" }
+      ]
+    },
+    checks: [
+      { kind: "ping", from: "PC-A", to: "PC-B", label: "PC-A can reach PC-B (the loop is broken)" }
+    ]
+  };
   var CURRICULUM = [
     vlanSegmentation,
     routerOnAStick,
@@ -10502,7 +10994,8 @@ Address: ${sim.dnsResolvedIp}`);
     wifiDhcp,
     portAuth8021x,
     macsecLink,
-    secureAccess
+    secureAccess,
+    spanningTree
   ];
 
   // src/scenarios.ts
@@ -11248,6 +11741,7 @@ Address: ${sim.dnsResolvedIp}`);
     bindOptionToggle(dom.optSilentDhcp, "silentDhcp");
     bindOptionToggle(dom.optSilentDns, "silentDns");
     bindOptionToggle(dom.optSilentWifi, "silentWifi");
+    bindOptionToggle(dom.optSilentStp, "silentStp");
     bindOptionToggle(dom.optInstantDns, "instantDns");
     window.addEventListener("resize", resizeCanvas);
     dom.simPlayPause.addEventListener("click", () => {
@@ -11331,6 +11825,9 @@ Address: ${sim.dnsResolvedIp}`);
               trunkNativeVlans: normalisePortVlans(config?.trunkNativeVlans || {})
             } : {},
             ...config?.portAuth && Object.keys(config.portAuth).length ? { portAuth: { ...config.portAuth } } : {},
+            // STP is on by default for managed switches — only persist a deviation
+            // (disabled, or a non-default bridge priority). Derived roles never persist.
+            ...config?.managed && config?.stp && (config.stp.enabled === false || typeof config.stp.priority === "number" && config.stp.priority !== 32768) ? { stp: normaliseStpConfig(config.stp) } : {},
             ...macsecPayload(config)
           }
         } : {},
@@ -11443,6 +11940,7 @@ Address: ${sim.dnsResolvedIp}`);
     state.activeScenarioId = null;
     setTool("select");
     fitNetwork();
+    runStpConvergence();
     syncPanel();
     syncTerminal();
     sync().syncScenarioPanel();
@@ -11488,6 +11986,7 @@ Address: ${sim.dnsResolvedIp}`);
     { param: "silentdhcp", key: "silentDhcp", def: false },
     { param: "silentdns", key: "silentDns", def: false },
     { param: "silentwifi", key: "silentWifi", def: false },
+    { param: "silentstp", key: "silentStp", def: false },
     { param: "instantdns", key: "instantDns", def: true }
   ];
   function parseBool(raw) {
@@ -11956,8 +12455,65 @@ Address: ${sim.dnsResolvedIp}`);
     startSimulation(setup, host.id, host.config?.dot1x?.identity || "", "dot1x");
     return ok(`802.1X authentication started for ${host.name}.`);
   }
+  function cmdManaged(args) {
+    const sw = resolveDevice(args[0]);
+    if (typeof sw === "string") return err(sw);
+    if (sw.type !== "switch") return err(`${sw.name} is not a switch.`);
+    const on = !args[1] || /^(on|true|yes|enable)$/i.test(args[1]);
+    ensureConfig(sw);
+    sw.config.managed = on;
+    sync().recomputeStp();
+    sync().syncPanel();
+    return ok(`${sw.name} is now ${on ? "managed" : "unmanaged"}.`);
+  }
+  function cmdStp(args) {
+    if (args.length === 0) {
+      const setup = buildStpEvents();
+      if (typeof setup === "string") return err(setup);
+      startSimulation(setup, stpRootOrigin() || "", "", "stp");
+      return ok("Spanning-tree BPDU exchange started.");
+    }
+    const sw = resolveDevice(args[0]);
+    if (typeof sw === "string") return err(sw);
+    if (sw.type !== "switch" || !sw.config?.managed) return err(`${sw.name} is not a managed switch (spanning tree runs on managed switches).`);
+    ensureConfig(sw);
+    const cfg = sw.config;
+    cfg.stp = cfg.stp || { enabled: true };
+    const sub = (args[1] || "").toLowerCase();
+    const after = (msg) => {
+      sync().recomputeStp();
+      sync().syncPanel();
+      return ok(msg);
+    };
+    if (sub === "on" || sub === "enable") {
+      cfg.stp.enabled = true;
+      return after(`${sw.name}: spanning tree enabled.`);
+    }
+    if (sub === "off" || sub === "disable") {
+      cfg.stp.enabled = false;
+      return after(`${sw.name}: spanning tree disabled.`);
+    }
+    if (sub === "priority") {
+      const n = Number(args[2]);
+      if (!Number.isInteger(n) || n < 0 || n > 61440 || n % 4096 !== 0) return err("stp priority: an integer 0\u201361440 in steps of 4096.");
+      cfg.stp.priority = n;
+      return after(`${sw.name}: bridge priority ${n}.`);
+    }
+    return err("Usage: stp [<switch> on|off | <switch> priority <n>]   (no args animates the BPDU exchange)");
+  }
   function cmdRun(args) {
     const mode = (args[0] || "").toLowerCase();
+    if (mode === "stp") {
+      const setup = buildStpEvents();
+      if (typeof setup === "string") return err(setup);
+      const r = runSimulationHeadless(setup, stpRootOrigin() || "", "", "stp");
+      const blocked = state.links.filter((l) => l.stpBlocked).length;
+      return {
+        ok: r.success,
+        data: r,
+        output: [r.success ? `stp: spanning tree converged \u2014 ${blocked} port(s) blocking (${r.steps} BPDUs)` : "stp: broadcast storm \u2014 no spanning tree to break the loop"]
+      };
+    }
     if (mode === "dot1x") {
       const host = resolveDevice(args[1]);
       if (typeof host === "string") return err(host);
@@ -12259,6 +12815,8 @@ Address: ${sim.dnsResolvedIp}`);
     macsec: cmdMacsec,
     vlan: cmdVlan,
     port: cmdPort,
+    managed: cmdManaged,
+    stp: cmdStp,
     cli: cmdCli,
     ping: cmdPing,
     dhcp: cmdDhcp,
@@ -12318,12 +12876,14 @@ Address: ${sim.dnsResolvedIp}`);
     route: "route <router> <net/prefix> <nextHop>",
     vlan: "vlan <switch> add|del <id>",
     port: "port <switch> <EthN> vlan|mode|native|allowed ...",
+    managed: "managed <switch> [on|off] (enable the switch's management plane: VLANs, STP, port security)",
+    stp: "stp (animate the BPDU exchange) | stp <switch> on|off | stp <switch> priority <n> (default on for managed switches)",
     cli: "cli <device> <raw CLI command>",
     ping: "ping <src> <dst> (animated)",
     dhcp: "dhcp <host> (animated)",
     connect: "connect <src> <dst> <port> (animated TCP handshake)",
     associate: "associate <laptop> (animate the 802.11 join: probe/auth/assoc + WPA2 if secured)",
-    run: "run ping <src> <dst> | run connect <src> <dst> <port> | run resolve <src> <name> | run dhcp <host> | run associate <laptop> (headless, returns result)",
+    run: "run ping <src> <dst> | run connect <src> <dst> <port> | run resolve <src> <name> | run dhcp <host> | run associate <laptop> | run dot1x <host> | run stp (headless, returns result)",
     traceroute: "traceroute <src> <dst> (hop-by-hop via TTL)",
     play: "resume",
     pause: "pause",
@@ -12390,6 +12950,7 @@ Address: ${sim.dnsResolvedIp}`);
         if (Array.isArray(c.openPorts) && c.openPorts.length) lines.push(`ports ${d.name} ${c.openPorts.join(",")}`);
       } else if (d.type === "switch") {
         if (c.managed) {
+          lines.push(`managed ${d.name}`);
           for (const v of c.vlans || []) if (v.id !== 1) lines.push(`vlan ${d.name} add ${v.id}`);
           for (const [port, mode] of Object.entries(c.portModes || {})) lines.push(`port ${d.name} ${port} mode ${mode}`);
           for (const [port, id] of Object.entries(c.portVlans || {})) lines.push(`port ${d.name} ${port} vlan ${id}`);
@@ -12399,6 +12960,10 @@ Address: ${sim.dnsResolvedIp}`);
           }
         }
         for (const [port, mode] of Object.entries(c.portAuth || {})) lines.push(`portauth ${d.name} ${port} ${mode}`);
+        if (c.managed && c.stp) {
+          if (c.stp.enabled === false) lines.push(`stp ${d.name} off`);
+          if (c.stp.priority != null && c.stp.priority !== DEFAULT_BRIDGE_PRIORITY) lines.push(`stp ${d.name} priority ${c.stp.priority}`);
+        }
       } else if (d.type === "router") {
         for (const i of c.interfaces || []) {
           const peer = idToName.get(i.peerId);
@@ -12508,7 +13073,13 @@ Address: ${sim.dnsResolvedIp}`);
     resizeCanvas,
     syncScenarioPanel,
     syncCoordReadout,
-    syncOptionControls
+    syncOptionControls,
+    // Recompute the spanning tree, then redraw so blocked links/roles show live
+    // (the sim path recomputes too — see startSimulation/runSimulationHeadless).
+    recomputeStp: () => {
+      runStpConvergence();
+      render();
+    }
   });
   registerDeviceCallbacks({
     setTool,

@@ -1,9 +1,10 @@
 import type { SimEvent, EthernetFrame } from "./types";
 import { state } from "./state";
 import { getDevice, linkedPortsFor, linksFor, linkAuthorizedForData, dot1xLinkInfo } from "./devices";
+import { runStpConvergence, isStpParticipant } from "./stp";
 import { normalisePortVlans, normalisePortModes, normaliseTrunkAllowedVlans, memoPortVlans } from "./normalise";
 import { isValidIpv4, sameSubnet, prefixOf, deriveMac } from "./utils";
-import { createArpRequest, createIcmpEchoRequest, createDhcpDiscover, createTcpSegment, createDnsQuery, createDot11Frame, createDot1xFrame } from "./frame";
+import { createArpRequest, createIcmpEchoRequest, createDhcpDiscover, createTcpSegment, createDnsQuery, createDot11Frame, createDot1xFrame, createBpduFrame } from "./frame";
 
 export interface PingSetup {
   events: SimEvent[];
@@ -36,8 +37,8 @@ export function l2Reachable(fromId: string, toId: string, vlanId: number | null)
         const portModes = normalisePortModes(next.config.portModes || {});
         const trunkAllowed = normaliseTrunkAllowedVlans(next.config.trunkAllowedVlans || {});
         const ports = linkedPortsFor(next.id);
-        const ingressIdx = ports.findIndex((p: any) => p.peer.id === id);
-        const egressIdx = ports.findIndex((p: any) => p.peer.id === nextId);
+        const ingressIdx = ports.findIndex((p: any) => p?.peer?.id === id);
+        const egressIdx = ports.findIndex((p: any) => p?.peer?.id === nextId);
         if (ingressIdx === -1 && id !== fromId) continue;
         const ingressPort = ingressIdx >= 0 ? `Ethernet${ingressIdx + 1}` : null;
         const egressPort = egressIdx >= 0 ? `Ethernet${egressIdx + 1}` : null;
@@ -77,7 +78,7 @@ export function getVlanForDevice(deviceId: string): number {
     const sw = getDevice(switchId);
     if (!sw || sw.type !== "switch" || !sw.config?.managed) continue;
     const ports = linkedPortsFor(sw.id);
-    const portIdx = ports.findIndex((p: any) => p.peer.id === deviceId);
+    const portIdx = ports.findIndex((p: any) => p?.peer?.id === deviceId);
     if (portIdx === -1) continue;
     const portName = `Ethernet${portIdx + 1}`;
     const portVlans = memoPortVlans(sw.config.portVlans); // read-only; recomputed on edit
@@ -400,6 +401,40 @@ export function buildDot1xEvents(host: any): PingSetup | string {
     }
   }
   return `${host.name} is not on an 802.1X-controlled port (set one with "portauth <switch> <EthN> auto").`;
+}
+
+// A converged root bridge id, used as the origin device for an animated BPDU
+// run (where the result lands). Null when no switch runs spanning tree.
+export function stpRootOrigin(): string | null {
+  runStpConvergence();
+  const root = state.devices.find(d =>
+    isStpParticipant(d) && !!d.config?.stp?.bridgeId && d.config.stp.bridgeId === d.config.stp.rootId);
+  return root?.id ?? null;
+}
+
+// Seed the animated spanning-tree run: each root bridge advertises a
+// Configuration BPDU out its designated ports toward neighbouring switches. The
+// engine's handleBpdu relays them down the tree (root path cost + 1 per hop).
+export function buildStpEvents(): PingSetup | string {
+  runStpConvergence();
+  const participants = state.devices.filter(isStpParticipant);
+  if (participants.length === 0) return "No managed switch is running spanning tree (enable STP on a managed switch).";
+  const roots = participants.filter(s => s.config?.stp?.bridgeId && s.config.stp.bridgeId === s.config.stp.rootId);
+  const events: SimEvent[] = [];
+  for (const root of roots) {
+    const srcMac = root.config?.macAddress || deriveMac(root.id);
+    const rootId = root.config!.stp!.rootId || "";
+    const bridgeId = root.config!.stp!.bridgeId || "";
+    const ports = linkedPortsFor(root.id);
+    ports.forEach((port: any, idx: number) => {
+      if (!port?.peer || !isStpParticipant(port.peer)) return;
+      const name = `Ethernet${idx + 1}`;
+      if (root.config?.stp?.ports?.[name]?.role !== "designated") return;
+      events.push({ type: "frame_arrive" as const, frame: createBpduFrame(srcMac, rootId, bridgeId, 0, name), deviceId: port.peer.id, fromDeviceId: root.id, linkId: port.link.id });
+    });
+  }
+  if (events.length === 0) return "No inter-switch links for spanning tree to advertise on (a single switch, or no loop to resolve).";
+  return { events, pendingArp: {} };
 }
 
 function findFirstHop(source: any): { peerId: string; linkId: string } | null {

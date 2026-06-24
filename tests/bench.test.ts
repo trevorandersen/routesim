@@ -12,7 +12,7 @@ import { state } from "../src/state";
 import { getDevice, linkedPortsFor, connectedIds, linkById } from "../src/devices";
 import { l2Reachable, getVlanForDevice } from "../src/simulation";
 import { isTrunkLink } from "../src/canvas";
-import { processAtSwitch, processAtRouter, processAtServer, buildRoutingTable, routingLookup, runRipConvergence, evaluateFirewall } from "../src/engine";
+import { processAtSwitch, processAtRouter, processAtServer, buildRoutingTable, routingLookup, runRipConvergence, runStpConvergence, evaluateFirewall } from "../src/engine";
 import { createArpRequest, createArpReply, createIcmpEchoRequest, createIcmpEchoReply, createTcpSegment, createDnsResponse, createDhcpDiscover, packetColumns, BROADCAST_MAC } from "../src/frame";
 import { registerNoopCallbacks, resetState } from "./helpers";
 import { bench, printResults, type BenchResult } from "./bench-harness";
@@ -634,6 +634,40 @@ describe("bench: RIP convergence", () => {
     }, { budget: 5000, warmup: 5, minTime: 3000 }));
     expect(results[results.length - 1].passed).toBe(true);
   });
+
+  it("prints results", () => {
+    if (results.length) printResults(results);
+  });
+});
+
+describe("bench: STP convergence", () => {
+  const results: BenchResult[] = [];
+  beforeEach(() => resetState());
+
+  // A ring of managed switches plus a chord every few hops — many L2 loops for
+  // the spanning tree to resolve. runStpConvergence runs before every sim.
+  function switchRing(n: number) {
+    const devices = Array.from({ length: n }, (_, i) => ({
+      id: `sw-${i}`, type: "switch", name: `SW-${i}`, x: i * 80, y: 0, width: 60, height: 60,
+      config: { managed: true, ethernetPorts: 8, macTable: [] },
+    }));
+    const links: any[] = [];
+    for (let i = 0; i < n; i++) links.push({ id: `r-${i}`, from: `sw-${i}`, to: `sw-${(i + 1) % n}` });
+    for (let i = 0; i < n; i += 4) links.push({ id: `c-${i}`, from: `sw-${i}`, to: `sw-${(i + 2) % n}` });
+    return { devices, links };
+  }
+
+  for (const [n, budget] of [[10, 500], [30, 2500]] as const) {
+    it(`runStpConvergence — ${n} switches`, () => {
+      const topo = switchRing(n);
+      state.devices = topo.devices as any;
+      state.links = topo.links as any;
+      results.push(bench(`runStpConvergence — ${n} switches`, () => {
+        runStpConvergence();
+      }, { budget, warmup: 10, minTime: 1500 }));
+      expect(results[results.length - 1].passed).toBe(true);
+    });
+  }
 
   it("prints results", () => {
     if (results.length) printResults(results);

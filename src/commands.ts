@@ -18,7 +18,8 @@ import {
   startSimulation, stopSimulation, pauseSimulation, resumeSimulation, stepOnce,
   runSimulationHeadless, runTraceroute,
 } from "./engine";
-import { buildPingEvents, buildDhcpEvents, buildConnectEvents, buildResolveEvents, buildAssociationEvents, buildDot1xEvents, associatedAp, findPingTarget } from "./simulation";
+import { buildPingEvents, buildDhcpEvents, buildConnectEvents, buildResolveEvents, buildAssociationEvents, buildDot1xEvents, buildStpEvents, stpRootOrigin, associatedAp, findPingTarget } from "./simulation";
+import { DEFAULT_BRIDGE_PRIORITY } from "./stp";
 import {
   setHostIp, setHostGateway, setHostDns, setRouterInterfaceIp, addSwitchVlan, removeSwitchVlan,
   setSwitchPortVlan, setSwitchPortMode, setSwitchTrunkNative, modifySwitchTrunkAllowed,
@@ -482,8 +483,59 @@ function cmdDot1x(args: string[]): CommandResult {
   return ok(`802.1X authentication started for ${host.name}.`);
 }
 
+// Turn a switch's management plane on/off (VLANs, STP, port security need it).
+// Mirrors the inspector toggle / the Managed-switch tool, and makes a managed
+// switch reproducible from a script (JSON already round-trips `managed`).
+function cmdManaged(args: string[]): CommandResult {
+  const sw = resolveDevice(args[0]);
+  if (typeof sw === "string") return err(sw);
+  if (sw.type !== "switch") return err(`${sw.name} is not a switch.`);
+  const on = !args[1] || /^(on|true|yes|enable)$/i.test(args[1]);
+  ensureConfig(sw);
+  (sw.config as any).managed = on;
+  sync().recomputeStp();
+  sync().syncPanel();
+  return ok(`${sw.name} is now ${on ? "managed" : "unmanaged"}.`);
+}
+
+// Spanning tree: no args animates the BPDU exchange; `stp <switch> on|off` or
+// `stp <switch> priority <n>` configures a managed switch.
+function cmdStp(args: string[]): CommandResult {
+  if (args.length === 0) {
+    const setup = buildStpEvents();
+    if (typeof setup === "string") return err(setup);
+    startSimulation(setup, stpRootOrigin() || "", "", "stp");
+    return ok("Spanning-tree BPDU exchange started.");
+  }
+  const sw = resolveDevice(args[0]);
+  if (typeof sw === "string") return err(sw);
+  if (sw.type !== "switch" || !sw.config?.managed) return err(`${sw.name} is not a managed switch (spanning tree runs on managed switches).`);
+  ensureConfig(sw);
+  const cfg: any = sw.config;
+  cfg.stp = cfg.stp || { enabled: true };
+  const sub = (args[1] || "").toLowerCase();
+  const after = (msg: string) => { sync().recomputeStp(); sync().syncPanel(); return ok(msg); };
+  if (sub === "on" || sub === "enable") { cfg.stp.enabled = true; return after(`${sw.name}: spanning tree enabled.`); }
+  if (sub === "off" || sub === "disable") { cfg.stp.enabled = false; return after(`${sw.name}: spanning tree disabled.`); }
+  if (sub === "priority") {
+    const n = Number(args[2]);
+    if (!Number.isInteger(n) || n < 0 || n > 61440 || n % 4096 !== 0) return err("stp priority: an integer 0–61440 in steps of 4096.");
+    cfg.stp.priority = n;
+    return after(`${sw.name}: bridge priority ${n}.`);
+  }
+  return err("Usage: stp [<switch> on|off | <switch> priority <n>]   (no args animates the BPDU exchange)");
+}
+
 function cmdRun(args: string[]): CommandResult {
   const mode = (args[0] || "").toLowerCase();
+  if (mode === "stp") {
+    const setup = buildStpEvents();
+    if (typeof setup === "string") return err(setup);
+    const r = runSimulationHeadless(setup, stpRootOrigin() || "", "", "stp");
+    const blocked = state.links.filter(l => l.stpBlocked).length;
+    return { ok: r.success, data: r,
+      output: [r.success ? `stp: spanning tree converged — ${blocked} port(s) blocking (${r.steps} BPDUs)` : "stp: broadcast storm — no spanning tree to break the loop"] };
+  }
   if (mode === "dot1x") {
     const host = resolveDevice(args[1]);
     if (typeof host === "string") return err(host);
@@ -754,7 +806,7 @@ const COMMANDS: Record<string, Handler> = {
   move: cmdMove, rename: cmdRename, clear: cmdClear, collapse: cmdCollapse, expand: cmdExpand,
   ip: cmdIp, gateway: cmdGateway, nameserver: cmdNameserver, mac: cmdMac, ssid: cmdSsid, interface: cmdInterface, route: cmdRoute,
   supplicant: cmdSupplicant, portauth: cmdPortAuth, radius: cmdRadius, ports: cmdPorts, dot1x: cmdDot1x, macsec: cmdMacsec,
-  vlan: cmdVlan, port: cmdPort, cli: cmdCli,
+  vlan: cmdVlan, port: cmdPort, managed: cmdManaged, stp: cmdStp, cli: cmdCli,
   ping: cmdPing, dhcp: cmdDhcp, connect: cmdConnect, associate: cmdAssociate, run: cmdRun, traceroute: cmdTraceroute, tracert: cmdTraceroute,
   play: cmdPlay, pause: cmdPause, step: cmdStep,
   stop: cmdStop, speed: cmdSpeed,
@@ -782,10 +834,12 @@ const HELP: Record<string, string> = {
   macsec: "macsec <device> <peer> <key|dot1x> [must|should] (802.1AE link encryption; 'dot1x' derives keys from 802.1X, 'off' clears)",
   interface: "interface <router> <peer> ip <addr> [vlan <tag>]", route: "route <router> <net/prefix> <nextHop>",
   vlan: "vlan <switch> add|del <id>", port: "port <switch> <EthN> vlan|mode|native|allowed ...",
+  managed: "managed <switch> [on|off] (enable the switch's management plane: VLANs, STP, port security)",
+  stp: "stp (animate the BPDU exchange) | stp <switch> on|off | stp <switch> priority <n> (default on for managed switches)",
   cli: "cli <device> <raw CLI command>",
   ping: "ping <src> <dst> (animated)", dhcp: "dhcp <host> (animated)", connect: "connect <src> <dst> <port> (animated TCP handshake)",
   associate: "associate <laptop> (animate the 802.11 join: probe/auth/assoc + WPA2 if secured)",
-  run: "run ping <src> <dst> | run connect <src> <dst> <port> | run resolve <src> <name> | run dhcp <host> | run associate <laptop> (headless, returns result)",
+  run: "run ping <src> <dst> | run connect <src> <dst> <port> | run resolve <src> <name> | run dhcp <host> | run associate <laptop> | run dot1x <host> | run stp (headless, returns result)",
   traceroute: "traceroute <src> <dst> (hop-by-hop via TTL)",
   play: "resume", pause: "pause", step: "advance one hop", stop: "stop", speed: "speed <ms-per-hop>",
   topology: "topology basic|vlan-roas|router-mesh|wifi-vlan", save: "save <name>", load: "load <name>",
@@ -855,6 +909,7 @@ export function exportTopologyScript(): string {
       if (Array.isArray(c.openPorts) && c.openPorts.length) lines.push(`ports ${d.name} ${c.openPorts.join(",")}`);
     } else if (d.type === "switch") {
       if (c.managed) {
+        lines.push(`managed ${d.name}`);   // a managed switch needs its management plane on before VLAN/STP config
         for (const v of (c.vlans || [])) if (v.id !== 1) lines.push(`vlan ${d.name} add ${v.id}`);
         for (const [port, mode] of Object.entries(c.portModes || {})) lines.push(`port ${d.name} ${port} mode ${mode}`);
         for (const [port, id] of Object.entries(c.portVlans || {})) lines.push(`port ${d.name} ${port} vlan ${id}`);
@@ -864,6 +919,11 @@ export function exportTopologyScript(): string {
         }
       }
       for (const [port, mode] of Object.entries(c.portAuth || {})) lines.push(`portauth ${d.name} ${port} ${mode}`);
+      // STP is on by default for managed switches — only emit a deviation.
+      if (c.managed && c.stp) {
+        if (c.stp.enabled === false) lines.push(`stp ${d.name} off`);
+        if (c.stp.priority != null && c.stp.priority !== DEFAULT_BRIDGE_PRIORITY) lines.push(`stp ${d.name} priority ${c.stp.priority}`);
+      }
     } else if (d.type === "router") {
       for (const i of (c.interfaces || [])) {
         const peer = idToName.get(i.peerId);

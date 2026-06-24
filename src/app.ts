@@ -8,6 +8,7 @@ import { syncConsole } from "./console";
 import { syncScenarioPanel } from "./scenario-ui";
 import { setupUI, setTool, setTheme, syncCoordReadout } from "./ui";
 import { loadDefaultConfig } from "./config";
+import { runStpConvergence } from "./stp";
 import { runConsoleCommand, runConsoleScript, exportTopologyScript } from "./commands";
 import { parseSettingsFromUrl, buildSettingsQuery } from "./settings-url";
 import * as io from "./io";
@@ -20,7 +21,10 @@ registerCallbacks({
   resizeCanvas,
   syncScenarioPanel,
   syncCoordReadout,
-  syncOptionControls
+  syncOptionControls,
+  // Recompute the spanning tree, then redraw so blocked links/roles show live
+  // (the sim path recomputes too — see startSimulation/runSimulationHeadless).
+  recomputeStp: () => { runStpConvergence(); render(); }
 });
 
 // Register UI callbacks that devices.ts needs without circular imports.

@@ -594,6 +594,32 @@ const secureAccess: Scenario = {
   ],
 };
 
+const spanningTree: Scenario = {
+  id: "spanning-tree",
+  name: "Break the loop (spanning tree)",
+  objective: "SW-1, SW-2 and SW-3 are wired in a triangle for redundancy, but spanning tree has been switched off on all three. With no tree to block a redundant link, a broadcast loops forever — the network is in a broadcast storm and PC-A cannot reach PC-B. Turn spanning tree back on (it is on by default for managed switches) so the bridges elect a root and block one redundant port, clearing the storm.",
+  topology: {
+    version: 1,
+    devices: [
+      { id: "stp-pc-a", type: "computer", name: "PC-A", x: -300, y: -120, config: { ipv4Address: "10.0.0.10", gatewayIpv4Address: "", macAddress: "02:00:00:00:27:0A", arpTable: [] } },
+      { id: "stp-pc-b", type: "computer", name: "PC-B", x: 300, y: -120, config: { ipv4Address: "10.0.0.20", gatewayIpv4Address: "", macAddress: "02:00:00:00:27:0B", arpTable: [] } },
+      { id: "stp-sw1", type: "switch", name: "SW-1", x: -180, y: 40, config: { managed: true, ethernetPorts: 8, macTable: [], vlans: [], portVlans: {}, portModes: {}, stp: { enabled: false } } },
+      { id: "stp-sw2", type: "switch", name: "SW-2", x: 180, y: 40, config: { managed: true, ethernetPorts: 8, macTable: [], vlans: [], portVlans: {}, portModes: {}, stp: { enabled: false } } },
+      { id: "stp-sw3", type: "switch", name: "SW-3", x: 0, y: 220, config: { managed: true, ethernetPorts: 8, macTable: [], vlans: [], portVlans: {}, portModes: {}, stp: { enabled: false } } },
+    ],
+    links: [
+      { from: "stp-pc-a", to: "stp-sw1" },
+      { from: "stp-pc-b", to: "stp-sw2" },
+      { from: "stp-sw1", to: "stp-sw2" },
+      { from: "stp-sw2", to: "stp-sw3" },
+      { from: "stp-sw3", to: "stp-sw1" },
+    ],
+  },
+  checks: [
+    { kind: "ping", from: "PC-A", to: "PC-B", label: "PC-A can reach PC-B (the loop is broken)" },
+  ],
+};
+
 export const CURRICULUM: Scenario[] = [
   vlanSegmentation,
   routerOnAStick,
@@ -616,4 +642,5 @@ export const CURRICULUM: Scenario[] = [
   portAuth8021x,
   macsecLink,
   secureAccess,
+  spanningTree,
 ];

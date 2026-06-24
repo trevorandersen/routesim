@@ -15,9 +15,12 @@ committed scope — it's a menu for "what next".
 > engine; the transparent firewall device stays FORWARD-only), and the
 > **server device with DNS + DHCP via dnsmasq** (A-records, UDP/53 frames,
 > resolve-then-ping/connect, `/etc/resolv.conf`, server `dhcp-range` leases
-> with nameserver option 6, DNS through NAT) — with the curriculum now at
-> **22 scenarios** (including WiFi joins, 802.1X port authentication, and MACsec
-> link encryption), every one carrying a tested reference solution. Plus the
+> with nameserver option 6, DNS through NAT), and **Spanning Tree (802.1D)**
+> (managed switches elect a root bridge, block one redundant port to break an
+> L2 loop, animate the BPDU exchange, and surface a bounded broadcast storm when
+> STP is off) — with the curriculum now at **23 scenarios** (including WiFi
+> joins, 802.1X port authentication, MACsec link encryption, and breaking an L2
+> loop with spanning tree), every one carrying a tested reference solution. Plus the
 > **unified bottom dock**: per-device terminal sessions as tabs (own
 > scrollback/history, the router's CLI mode survives switching), with the
 > console and the sim log as sibling panes and a drag-resizable height — the
@@ -37,11 +40,15 @@ a Wireshark display-filter expression like `dns || icmp && !arp`) and
 compared before/after. Effort: low–moderate, all renderer/filter-model work on
 data already captured.
 
-### 2. STP / L2 loop handling
-The last real correctness gap: a switching loop is only saved by the engine's
-step-cap — broadcast storms aren't modelled and spanning tree doesn't exist.
-Add Spanning Tree (block redundant links, elect a root) or at least loop
-detection + a visualised storm. Effort: moderate–high.
+> **STP / L2 loop handling — shipped (2026-06).** Managed switches run Spanning
+> Tree (802.1D) by default: `runStpConvergence` (`stp.ts`) elects a root bridge
+> per switch component, assigns port roles/states, and blocks one alternate port
+> to break a loop (folded into `linkAuthorizedForData`). A faithful BPDU frame
+> animates the exchange (`stp` / `run stp`), and with STP off a switching loop
+> now forms a **bounded, visualised broadcast storm** (`sim.stormDetected`)
+> rather than a silent step-cap. **Later:** per-VLAN trees (PVST/RSTP),
+> configurable per-link path cost, and an animated listening/learning state
+> machine with timers.
 
 ## Later
 

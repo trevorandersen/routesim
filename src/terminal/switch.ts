@@ -8,6 +8,7 @@ import { state, sync, pushUndo } from "../state";
 import { normaliseVlanId } from "../utils";
 import { normaliseMacTable, normaliseVlans, normalisePortVlans, normalisePortModes, normaliseTrunkAllowedVlans, ensureConfig } from "../normalise";
 import { switchInterfacesWithNames, switchIfaceByName, applyHostname } from "../devices";
+import { runStpConvergence } from "../stp";
 import { terminalLine } from "./core";
 
 export function showSwitchInterfaces(device: Device): string {
@@ -66,6 +67,9 @@ export function showSwitchRunningConfig(device: Device): string {
   const interfaces = switchInterfacesWithNames(device);
   const trunkAllowed = normaliseTrunkAllowedVlans(device.config?.trunkAllowedVlans || {});
   const lines: string[] = [`hostname ${device.name}`];
+  const stp = device.config?.stp;
+  if (stp?.enabled === false) lines.push(`config spanning_tree disable`);
+  if (stp?.priority != null && stp.priority !== 32768) lines.push(`config spanning_tree priority ${stp.priority}`);
   for (const vlan of vlans) lines.push(`config vlan add ${vlan.id}`);
   for (const iface of interfaces) {
     if (iface.mode === "trunk") {
@@ -76,6 +80,49 @@ export function showSwitchRunningConfig(device: Device): string {
     }
   }
   return lines.length > 1 ? lines.join("\n") : `hostname ${device.name}\n(no VLAN configuration)`;
+}
+
+// SONiC `show spanning_tree` — the bridge/root ids and per-port role/state/cost.
+export function showSwitchSpanningTree(device: Device): string {
+  if (!device.config?.managed) return "Spanning tree runs only on a managed switch.";
+  if (device.config.stp && device.config.stp.enabled === false) return "Spanning tree is administratively disabled on this bridge.";
+  runStpConvergence();   // reflect the current topology (idempotent)
+  const s = device.config?.stp;
+  const isRoot = !!s?.bridgeId && s.bridgeId === s.rootId;
+  const ports = s?.ports || {};
+  const cap = (w: string) => w.charAt(0).toUpperCase() + w.slice(1);
+  return [
+    "Spanning tree (IEEE 802.1D)",
+    `  Bridge ID  ${s?.bridgeId || "-"}`,
+    `  Root ID    ${s?.rootId || "-"}${isRoot ? "  (this bridge is the root)" : `  root path cost ${s?.rootCost ?? "-"}`}`,
+    "",
+    "Interface   Role        State        Cost  Connected to",
+    ...switchInterfacesWithNames(device).filter((i: any) => i.peer).map((i: any) => {
+      const pi = ports[i.name];
+      return [
+        i.name.padEnd(12),
+        cap(pi?.role || "designated").padEnd(12),
+        cap(pi?.state || "forwarding").padEnd(13),
+        "1".padEnd(6),
+        i.peer?.name || "-",
+      ].join("");
+    }),
+  ].join("\n");
+}
+
+// Enable/disable spanning tree or set the bridge priority (shared by the CLI and
+// the console `stp` command). Re-converges so blocked ports update live.
+export function setSwitchStp(device: Device, change: { enabled?: boolean; priority?: number }): string {
+  pushUndo();
+  ensureConfig(device);
+  const cfg: any = device.config;
+  cfg.stp = cfg.stp || { enabled: true };
+  if (change.enabled != null) cfg.stp.enabled = change.enabled;
+  if (change.priority != null) cfg.stp.priority = change.priority;
+  sync().recomputeStp();
+  sync().syncPanel();
+  if (change.priority != null) return `Bridge priority set to ${change.priority}.`;
+  return `Spanning tree ${change.enabled ? "enabled" : "disabled"}.`;
 }
 
 export function addSwitchVlan(device: Device, vlanId: string): string {
@@ -290,6 +337,9 @@ export function runSwitchTerminalCommand(device: Device, command: string): void 
       "config vlan member add <vlan-id> <EthernetN>      (untagged / access)",
       "config vlan member add -t <vlan-id> <EthernetN>   (tagged / trunk)",
       "config vlan member del <vlan-id> <EthernetN>",
+      "show spanning_tree",
+      "config spanning_tree enable | disable",
+      "config spanning_tree priority <0-61440>",
       "config hostname <name>",
       "clear"
     ].join("\n"));
@@ -313,6 +363,22 @@ export function runSwitchTerminalCommand(device: Device, command: string): void 
   }
   if (lower === "show runningconfiguration all" || lower === "show runningconfiguration") {
     terminalLine("", showSwitchRunningConfig(device));
+    return;
+  }
+  if (lower === "show spanning_tree" || lower === "show spanning-tree" || lower === "show stp") {
+    terminalLine("", showSwitchSpanningTree(device));
+    return;
+  }
+  const stpEnableMatch = command.match(/^(?:sudo\s+)?config\s+spanning_tree\s+(enable|disable)(?:\s+pvst)?$/i);
+  if (stpEnableMatch) {
+    terminalLine("", setSwitchStp(device, { enabled: stpEnableMatch[1].toLowerCase() === "enable" }));
+    return;
+  }
+  const stpPriorityMatch = command.match(/^(?:sudo\s+)?config\s+spanning_tree\s+priority\s+(\d+)$/i);
+  if (stpPriorityMatch) {
+    const n = Number(stpPriorityMatch[1]);
+    if (n < 0 || n > 61440 || n % 4096 !== 0) { terminalLine("error", "% Priority must be 0-61440 in steps of 4096."); return; }
+    terminalLine("", setSwitchStp(device, { priority: n }));
     return;
   }
   const addVlanMatch = command.match(/^config\s+vlan\s+add\s+(\d+)$/i);

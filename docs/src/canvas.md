@@ -12,10 +12,10 @@ All `<canvas>` drawing and the pan/zoom view transform. The entire scene is redr
 
 ### The render loop
 - **`render()`** — clears, applies the pan/zoom transform, then draws the grid, links, devices, and any in-flight transit dots. Called directly by interaction code and via `sync().render()` by everything else.
-- **`drawLink`, `drawDevice`, `drawIconDevice`, `drawTablerIcon`, `drawManagedBadge`** — the drawing primitives. Every device body/icon is drawn by `drawIconDevice` from its `DEVICE_SPECS` entry (`device-registry.ts`: size, corner radius, palette var, Tabler `Path2D` paths); managed switches add the badge.
+- **`drawLink`, `drawDevice`, `drawIconDevice`, `drawTablerIcon`, `drawManagedBadge`, `drawRootBridgeBadge`** — the drawing primitives. Every device body/icon is drawn by `drawIconDevice` from its `DEVICE_SPECS` entry (`device-registry.ts`: size, corner radius, palette var, Tabler `Path2D` paths); a managed switch adds the cog badge (top-right), and the spanning-tree root bridge (`isRootBridge`) adds an indigo "R" badge top-left, beside the managed badge — indigo ties it to the BPDU frame colour.
 - **`findTransitAt(world)`** — hit-tests a click against the in-flight transit dots (click-a-packet inspector); the inspected frame gets a selection ring.
 - **Packet-list cross-link** — when a packet-list row is selected (`state.inspectedCapture`), `drawLink` glows that wire amber (with a shadow) and `drawDeviceIcon` rings both endpoint devices, so the sim log and the canvas point at each other.
-- **Link state/labels** — `drawLink` renders an administratively-down link (`link.shutdown`) dashed, faint, and danger-coloured, and draws a midpoint label for an explicitly-named link (the name, plus a "down" marker when shut).
+- **Link state/labels** — `drawLink` renders an administratively-down link (`link.shutdown`) dashed, faint, and danger-coloured, and draws a midpoint label for an explicitly-named link (the name, plus a "down" marker when shut). A spanning-tree-blocked link (`link.stpBlocked`, an alternate port breaking a loop) draws dashed amber (`--stp-block`, faint, with a wider dash than shut's — distinct from the shutdown/failed red) and adds a "STP blocked" marker to the label.
 - **`linkColorFor`, `devicePalette`** — resolve themed colours; **`clampText`, `roundRect`** — drawing helpers.
 
 ## Performance

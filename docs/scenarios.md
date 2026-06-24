@@ -83,6 +83,7 @@ The curriculum is a progression from L2 basics to routing, services, security, a
 | `port-auth-8021x` | 802.1X port authentication | Configure the host's supplicant credentials and authenticate (`run dot1x`) so the switch's `auto` port opens and carries data. |
 | `macsec-link` | MACsec the inter-switch trunk | A must-secure trunk is down for want of a key — set the matching CAK on the other switch to bring the encrypted link up. |
 | `secure-access` | Secure access (802.1X + MACsec) | Capstone: one 802.1X exchange both authorises the port and derives its MACsec key (must-secure), bringing the encrypted link up. |
+| `spanning-tree` | Break the loop (spanning tree) | Three managed switches are wired in a triangle with STP disabled, so a redundant link loops broadcasts into a storm and PC-A can't reach PC-B — re-enable spanning tree on all three so the bridges block a port and clear the storm. |
 
 ## Solution scripts (answer key)
 

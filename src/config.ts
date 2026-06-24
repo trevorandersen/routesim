@@ -8,9 +8,10 @@ import { DEFAULT_SSID } from "./device-registry";
 import {
   normaliseArpTable, normaliseMacTable, normaliseVlans, normalisePortVlans,
   normalisePortModes, normaliseTrunkAllowedVlans, normaliseDnsRecords, normaliseDhcpLeases,
-  normaliseRouterInterfaces, normaliseFirewallRules, normaliseConfig
+  normaliseRouterInterfaces, normaliseFirewallRules, normaliseConfig, normaliseStpConfig
 } from "./normalise";
 import { connectedIds, clearNetwork, nextDeviceNumber } from "./devices";
+import { runStpConvergence } from "./stp";
 import { DEVICE_TYPES } from "./device-registry";
 import { render, fitNetwork } from "./canvas";
 import { syncPanel } from "./inspector";
@@ -69,6 +70,10 @@ export function buildConfigPayload(): SerialisedTopology {
             trunkNativeVlans: normalisePortVlans(config?.trunkNativeVlans || {})
           } : {}),
           ...(config?.portAuth && Object.keys(config.portAuth).length ? { portAuth: { ...config.portAuth } } : {}),
+          // STP is on by default for managed switches — only persist a deviation
+          // (disabled, or a non-default bridge priority). Derived roles never persist.
+          ...(config?.managed && config?.stp && (config.stp.enabled === false || (typeof config.stp.priority === "number" && config.stp.priority !== 32768))
+            ? { stp: normaliseStpConfig(config.stp) } : {}),
           ...macsecPayload(config)
         }
       } : {}),
@@ -199,6 +204,9 @@ export function applyConfigWithoutUndo(config: NormalisedConfig): void {
   state.activeScenarioId = null;
   setTool("select");
   fitNetwork();
+  // Converge the spanning tree so a loaded topology shows its blocked ports /
+  // root bridge immediately (without waiting for the first simulation).
+  runStpConvergence();
   syncPanel();
   syncTerminal();
   sync().syncScenarioPanel();

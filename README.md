@@ -46,13 +46,14 @@ routesim/
     ├── devices.ts      # Device/link CRUD, LAN collapse/expand
     ├── engine.ts       # Simulation engine: per-device frame processing
     ├── routing.ts      # Routing table, longest-prefix match, RIP convergence
+    ├── stp.ts          # Spanning Tree (802.1D): root election, port roles, loop-breaking
     ├── simulation.ts   # Event builders (ping/TCP/DNS/DHCP), L2 reachability
     ├── frame.ts        # Ethernet frame factories, labels, colours
     ├── terminal/       # Per-device CLIs: host, server (dnsmasq), router (FRR), switch (SONiC), firewall (iptables)
     ├── commands.ts     # Console command engine (also window.routesim + scripts)
     ├── console.ts      # Command console panel UI
     ├── scenarios.ts    # Scenario model, registry, goal checking
-    ├── scenario-library.ts # The built-in 22-scenario curriculum
+    ├── scenario-library.ts # The built-in 23-scenario curriculum
     ├── scenario-ui.ts  # Scenario goal banner
     ├── canvas.ts       # Canvas rendering (devices, links, labels, pan/zoom)
     ├── inspector.ts    # Right-side panel (device details, link history, options)
@@ -86,6 +87,7 @@ Modules are organized to keep concerns separate while producing a flat IIFE bund
 | `state.ts` | The single `state` object, undo/redo stacks, and a **callback registry** for breaking circular deps |
 | `devices.ts` | Add/remove/move devices and links, LAN group logic |
 | `engine.ts` + `routing.ts` | Frame-level simulation: per-device processors, headless runs, traceroute, routing/RIP |
+| `stp.ts` | Spanning Tree (802.1D): root election, port roles/states, loop-breaking + broadcast-storm detection |
 | `simulation.ts` | Event builders (`buildPingEvents`/`buildConnectEvents`/`buildResolveEvents`/`buildDhcpEvents`), L2 BFS reachability |
 | `terminal/` | Per-device-type CLIs (PC: Linux; server: dnsmasq; router: FRRouting; switch: SONiC; firewall: iptables) |
 | `canvas.ts` | `<canvas>` rendering loop — device icons, link lines, labels, transit dots, grid |
@@ -120,16 +122,17 @@ sync().render();
 - **Hostname = canvas name** — a CLI device's name on the canvas *is* its hostname (also its prompt and the name it resolves as). Set it the real way — `hostname <name>` / `hostnamectl set-hostname <name>` / `echo <name> > /etc/hostname` on a host, `hostname <name>` (config mode) on a router, `config hostname <name>` on a managed switch — or just edit the **Hostname** field in the inspector
 - **Server terminal** — Linux shell + dnsmasq (`/etc/dnsmasq.conf` directives, `systemctl`)
 - **Router terminal** — FRRouting (vtysh): `hostname`, interfaces, static routes, RIP, NAT/PAT, iptables INPUT/FORWARD
-- **Switch terminal** — SONiC: `config hostname`, VLANs, port membership, MAC tables
+- **Switch terminal** — SONiC: `config hostname`, VLANs, port membership, MAC tables, `show spanning_tree` / `config spanning_tree`
 - **DNS** — hosts resolve names via real UDP/53 frames before they ping/connect; NXDOMAIN, option 6 via DHCP. A DNS server **auto-resolves every device's hostname** (an automatic zone) on top of any manual `address=` records, so `ping PC-A1` / `nslookup PC-A1` issue a real, watchable query. The **Instant DNS** setting (on by default in topologies, off in scenarios) instead resolves a device name straight to its IP with no query — a built-in hosts file; turn it off to require real DNS, like the real world
 - **Subnet-aware ping** — same-subnet uses L2 BFS; cross-subnet routes through a gateway router
 - **VLAN enforcement** — managed switches enforce VLAN membership on L2 paths
+- **Spanning Tree (802.1D)** — managed switches run STP by default: they elect a root bridge (lowest priority + MAC), assign port roles, and **block one redundant port** to break an L2 loop (drawn dashed-amber "STP blocked"; the root carries an "R" badge). `stp` animates the BPDU exchange; turn it off (`stp <switch> off`) on a looped topology and watch the **broadcast storm** form instead. Bridge priority and per-port Root/Designated/Blocking roles show in the inspector and `show spanning_tree`
 - **ARP/MAC learning** — ping populates ARP tables on hosts and routers, MAC tables on switches
 - **Firewall editing** — add/delete iptables rules and set the chain policy from the Configure pane (routers: INPUT + FORWARD; firewall: FORWARD), or via the terminal
 - **802.1X port authentication** — `dot1x <host>` animates the supplicant → authenticator (switch `auto` port) → RADIUS server EAP/RADIUS exchange; an `auto` port blocks data until EAP-Success, and a bad credential gets Access-Reject → EAP-Failure
 - **MACsec (802.1AE)** — `macsec <device> <peer> <key>` encrypts a link with a pre-shared key; matching keys secure it (frames show encrypted in the packet list), a `must`-secure key mismatch drops traffic, and `should`-secure falls back to plaintext. `macsec <device> <peer> dot1x` instead **derives the key from 802.1X** (MKA): the link stays unsecured until the port authenticates, then auto-keys from the EAP exchange — the full enterprise "authenticate, then encrypt" story
 - **Silent protocols** — optionally resolve ARP/DHCP/DNS instantly with no animation or packet-list rows, to keep the higher-layer flow uncluttered
-- **Scenarios** — a 22-entry guided curriculum with goal checking, every entry solvable (tested) — including WiFi joins, 802.1X port authentication, and MACsec link encryption
+- **Scenarios** — a 23-entry guided curriculum with goal checking, every entry solvable (tested) — including WiFi joins, 802.1X port authentication, MACsec link encryption, and breaking an L2 loop with spanning tree
 - **Undo/redo** — snapshot-based history for topology and config changes
 - **Persistence** — import/export configs, scenarios, scripts, and logs as JSON files
 - **WiFi** — a WiFi-only **laptop** that associates to an **access point** (a transparent L2 bridge) over a matching **SSID** (with an optional password); the wireless link is drawn dotted, and ARP/DHCP/IP work through the AP onto the wired LAN. `associate <laptop>` animates the real **802.11 join** — probe / authentication / association, plus the WPA2 4-way (EAPOL) key handshake on a secured network. A **wrong password** still associates but fails the key handshake (the AP deauthenticates), leaving the link unauthenticated and carrying no data until the password is fixed

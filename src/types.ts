@@ -60,6 +60,7 @@ export interface DisplayOptions {
   silentDhcp: boolean;
   silentDns: boolean;
   silentWifi: boolean;   // suppress the 802.11 association/auth frame animation
+  silentStp: boolean;    // suppress the BPDU (spanning-tree) frame animation
   // When on, a device *name* used as a target (e.g. `ping PC-A1`) resolves
   // straight to its IP with no DNS query — a built-in hosts file. When off, a
   // name needs a reachable DNS server (which auto-resolves device hostnames).
@@ -185,6 +186,25 @@ export interface ServerConfig extends ComputerConfig {
   radius?: { users: { identity: string; password: string }[] };
 }
 
+// Spanning Tree (802.1D) per managed switch. `enabled` and `priority` are
+// configuration (persisted, round-tripped through JSON/script). Everything else
+// is *derived* by runStpConvergence (stp.ts) before each run and is NOT
+// serialised — it recomputes from the live topology, like RIP's learnedRoutes.
+export type StpRole = "root" | "designated" | "alternate" | "disabled";
+export type StpState = "forwarding" | "blocking";
+export interface StpPortInfo {
+  role: StpRole;
+  state: StpState;
+}
+export interface StpConfig {
+  enabled: boolean;
+  priority?: number;                     // bridge priority (default 32768); the high half of the bridge id
+  bridgeId?: string;                     // derived: "priority.baseMAC"
+  rootId?: string;                       // derived: the elected root's bridge id (=== bridgeId on the root)
+  rootCost?: number;                     // derived: this bridge's least-cost path to the root (hops)
+  ports?: Record<string, StpPortInfo>;   // derived: port name → role/state
+}
+
 export interface SwitchConfig {
   managed: boolean;
   ethernetPorts: number;
@@ -197,6 +217,8 @@ export interface SwitchConfig {
   // 802.1X port control per port (the authenticator role). Absent / "force-authorized"
   // = open (today's behaviour); "auto" = require 802.1X; "force-unauthorized" = closed.
   portAuth?: Record<string, "auto" | "force-authorized" | "force-unauthorized">;
+  // Spanning Tree on this managed switch (default enabled). See StpConfig.
+  stp?: StpConfig;
 }
 
 // One PAT (overload) translation: an inside flow mapped onto the router's
@@ -326,6 +348,7 @@ export interface Link {
   name?: string;       // user-given name; unnamed links derive "A ↔ B" (linkName in devices.ts)
   wireless?: boolean;  // a WiFi association (laptop ↔ access point) rather than a cable
   dot1xAuthorized?: boolean; // an 802.1X `auto` port that has authenticated its supplicant (data allowed)
+  stpBlocked?: boolean; // a Spanning Tree alternate port blocks data on this link (derived by stp.ts; not serialised)
   shutdown?: boolean;  // administratively down — present in the topology but carries no traffic
   bandwidth?: number;  // capacity in Mbps (the streams sim's input; metadata in packet mode)
   latency?: number;    // ms — slows this link's transit animation (a far/WAN link crawls)
@@ -466,13 +489,28 @@ export interface Dot1xPayload {
   identity?: string;   // the supplicant identity, carried through the exchange
 }
 
+// A Spanning Tree (802.1D) BPDU exchanged between bridges. A Configuration BPDU
+// carries the sender's view of the tree — the root it knows, its cost to that
+// root, and its own bridge + port id — which is how bridges elect a root and
+// settle port roles. Real BPDUs are LLC-encapsulated to the bridge group
+// address 01:80:C2:00:00:00 with no EtherType; we keep that faithful
+// destination MAC and tag the frame with a sentinel EtherType (0x0802).
+export interface BpduPayload {
+  type: "bpdu";
+  flavour: "config" | "tcn";   // Configuration BPDU, or a Topology Change Notification
+  rootId: string;              // the root bridge id this BPDU advertises
+  bridgeId: string;            // the sending bridge's id
+  rootCost: number;            // the sending bridge's cost to the root
+  portId: string;              // the sending port (e.g. "Ethernet2")
+}
+
 export interface EthernetFrame {
   id: string;
   srcMac: string;
   dstMac: string;
-  etherType: 0x0806 | 0x0800 | 0x888e;   // ARP, IPv4, or 802.11 mgmt / EAPOL / 802.1X
+  etherType: 0x0806 | 0x0800 | 0x888e | 0x0802;   // ARP, IPv4, 802.11/EAPOL/802.1X, or STP (BPDU sentinel)
   vlanTag: number | null;
-  payload: ArpPayload | Ipv4Payload | Dot11Payload | Dot1xPayload;
+  payload: ArpPayload | Ipv4Payload | Dot11Payload | Dot1xPayload | BpduPayload;
 }
 
 export interface SimEvent {
@@ -517,7 +555,7 @@ export interface CaptureEntry {
 
 export interface SimulationState {
   status: "idle" | "running" | "paused" | "done";
-  mode: "ping" | "dhcp" | "tcp" | "dns" | "associate" | "dot1x";
+  mode: "ping" | "dhcp" | "tcp" | "dns" | "associate" | "dot1x" | "stp";
   events: SimEvent[];
   log: SimLogEntry[];
   capture: CaptureEntry[];   // packet list (animated runs only; capped)
@@ -545,6 +583,7 @@ export interface SimulationState {
   dhcpAssignedGateway: string | null;
   wifiAssociated: boolean;           // the 802.11 association handshake completed (mode "associate")
   dot1xAuthorized: boolean;          // the 802.1X EAP exchange authorised the port (mode "dot1x")
+  stormDetected: boolean;            // a switching loop multiplied frames past the safety cap (no spanning tree)
 }
 
 export interface PortOption {

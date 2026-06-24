@@ -168,7 +168,7 @@ export const toolCopy: Record<string, [string, string]> = {
   "web-server": ["Add web server", "Click the canvas to place a web server (listening on TCP/80)."],
   switch: ["Add switch", "Click the canvas to place a switch."],
   "managed-switch": ["Add managed switch", "Click the canvas to place a managed switch."],
-  connect: ["Connect devices", "Click one device, then another device to connect them."],
+  connect: ["Connect devices", "Click one device, then another to cable them (auto-picks free ports; Shift-click the second to choose ports)."],
   router: ["Add router", "Click the canvas to place a router."],
   firewall: ["Add firewall", "Click the canvas to place a firewall."],
   hub: ["Add hub", "Click the canvas to place a hub (a layer-1 repeater)."],

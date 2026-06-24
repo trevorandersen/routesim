@@ -266,10 +266,18 @@ export function setupUI(): void {
       if (!state.linkStartId) {
         state.linkStartId = device.id;
         state.selectedId = device.id;
-        dom.modeLabel.textContent = `Connect ${device.name} to another device.`;
-      } else {
+        dom.modeLabel.textContent = `Connect ${device.name} to another device (Shift-click to choose ports).`;
+      } else if (event.shiftKey) {
+        // Shift-click: pick the exact ports by hand.
         openPortSelectionModal(state.linkStartId, device.id);
         dom.modeLabel.textContent = toolCopy.connect[1];
+      } else {
+        // Default: auto-pick the first available port on each end (addLink
+        // resolves them) — no dialog. A reject sets its own status message.
+        const from = getDevice(state.linkStartId);
+        const before = state.links.length;
+        addLink(state.linkStartId, device.id);
+        if (state.links.length > before) dom.modeLabel.textContent = `Linked ${from?.name} ↔ ${device.name}.`;
       }
       syncPanel();
       render();

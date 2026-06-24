@@ -3245,7 +3245,7 @@ Full legal text: https://creativecommons.org/publicdomain/zero/1.0/legalcode</pr
     "web-server": ["Add web server", "Click the canvas to place a web server (listening on TCP/80)."],
     switch: ["Add switch", "Click the canvas to place a switch."],
     "managed-switch": ["Add managed switch", "Click the canvas to place a managed switch."],
-    connect: ["Connect devices", "Click one device, then another device to connect them."],
+    connect: ["Connect devices", "Click one device, then another to cable them (auto-picks free ports; Shift-click the second to choose ports)."],
     router: ["Add router", "Click the canvas to place a router."],
     firewall: ["Add firewall", "Click the canvas to place a firewall."],
     hub: ["Add hub", "Click the canvas to place a hub (a layer-1 repeater)."],
@@ -11573,10 +11573,15 @@ Address: ${sim.dnsResolvedIp}`);
         if (!state.linkStartId) {
           state.linkStartId = device.id;
           state.selectedId = device.id;
-          dom.modeLabel.textContent = `Connect ${device.name} to another device.`;
-        } else {
+          dom.modeLabel.textContent = `Connect ${device.name} to another device (Shift-click to choose ports).`;
+        } else if (event.shiftKey) {
           openPortSelectionModal(state.linkStartId, device.id);
           dom.modeLabel.textContent = toolCopy.connect[1];
+        } else {
+          const from = getDevice(state.linkStartId);
+          const before = state.links.length;
+          addLink(state.linkStartId, device.id);
+          if (state.links.length > before) dom.modeLabel.textContent = `Linked ${from?.name} \u2194 ${device.name}.`;
         }
         syncPanel();
         render();

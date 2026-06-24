@@ -280,6 +280,25 @@ export function normaliseStpConfig(raw: unknown): { enabled: boolean; priority?:
   return { enabled, ...(priority != null ? { priority } : {}) };
 }
 
+// A SPAN (port-mirroring) session — keep it only when a valid destination
+// monitor port is named; sources default to "all" (empty list).
+export function normaliseMirror(raw: unknown): { name: string; dest: string; sources?: string[] } | undefined {
+  const r = (raw && typeof raw === "object") ? raw as any : null;
+  const dest = String(r?.dest || "").trim();
+  if (!/^Ethernet\d+$/i.test(dest)) return undefined;
+  const sources = Array.isArray(r?.sources)
+    ? r.sources.map((s: any) => String(s).trim()).filter((s: string) => /^Ethernet\d+$/i.test(s))
+    : [];
+  const name = String(r?.name || "MON").trim() || "MON";
+  return { name, dest, ...(sources.length ? { sources } : {}) };
+}
+
+// Snort IDS rules — keep only non-empty rule lines (raw Snort rule text).
+export function normaliseIdsRules(raw: unknown): string[] {
+  if (!Array.isArray(raw)) return [];
+  return raw.map(r => String(r).trim()).filter(Boolean);
+}
+
 // RADIUS user database (the authentication server back end).
 export function normaliseRadiusUsers(raw: unknown): { identity: string; password: string }[] {
   if (!Array.isArray(raw)) return [];
@@ -310,7 +329,9 @@ export function normaliseDeviceConfig(device: any): DeviceConfig {
       ...(device.config?.portAuth ? { portAuth: normalisePortAuth(device.config.portAuth) } : {}),
       // STP only matters on managed switches; keep it only when a config is present
       // (a managed switch with no stp config runs the default-on spanning tree).
-      ...(managed && device.config?.stp ? { stp: normaliseStpConfig(device.config.stp) } : {})
+      ...(managed && device.config?.stp ? { stp: normaliseStpConfig(device.config.stp) } : {}),
+      // SPAN port mirroring (managed switches only), kept only when it resolves.
+      ...((managed && normaliseMirror(device.config?.mirror)) ? { mirror: normaliseMirror(device.config?.mirror) } : {})
     };
   }
   if (device.type === "router") {
@@ -348,6 +369,11 @@ export function normaliseDeviceConfig(device: any): DeviceConfig {
       rules: normaliseFirewallRules(device.config?.rules || device.rules || []),
       policy: { forward: rawPolicy.forward === "drop" ? "drop" : "accept" }
     };
+  }
+  if (device.type === "ids") {
+    // A passive Snort sensor: just its rule set (raw Snort lines). Alerts are a
+    // runtime log, not config — start empty on load.
+    return { idsRules: normaliseIdsRules(device.config?.idsRules || device.idsRules || []), alerts: [] };
   }
   if (device.type === "lan") {
     return {

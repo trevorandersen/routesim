@@ -136,6 +136,22 @@ export const DEVICE_SPECS: Record<DeviceType, DeviceSpec> = {
     // only associate if its SSID — and password, if set — match).
     defaultConfig: () => ({ managed: false, ethernetPorts: 1, macTable: [], ssid: DEFAULT_SSID })
   },
+  ids: {
+    label: "IDS", namePrefix: "IDS", width: 92, height: 66,
+    paletteVar: "ids", iconRadius: 10, userAddable: true,
+    // An eye — a passive sensor that *watches* a mirrored copy of traffic.
+    iconPaths: [
+      "M10 12a2 2 0 1 0 4 0a2 2 0 1 0 -4 0",
+      "M21 12c-2.4 4 -5.4 6 -9 6c-3.6 0 -6.6 -2 -9 -6c2.4 -4 5.4 -6 9 -6c3.6 0 6.6 2 9 6"
+    ],
+    // A passive Snort sensor: cabled to a switch SPAN/monitor port, it inspects
+    // the mirrored traffic against rules and alerts. Two starter rules ship so a
+    // freshly placed sensor detects something out of the box (edit local.rules).
+    defaultConfig: () => ({ idsRules: [
+      `alert icmp any any -> any any (msg:"ICMP traffic detected"; itype:8; sid:1000001; rev:1;)`,
+      `alert tcp any any -> any 23 (msg:"Telnet connection attempt"; sid:1000002; rev:1;)`,
+    ], alerts: [] })
+  },
   lan: {
     label: "LAN", namePrefix: "LAN", width: 112, height: 72,
     paletteVar: "lan", iconRadius: 14, userAddable: false,

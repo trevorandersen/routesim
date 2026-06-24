@@ -8,7 +8,7 @@ import { DEFAULT_SSID } from "./device-registry";
 import {
   normaliseArpTable, normaliseMacTable, normaliseVlans, normalisePortVlans,
   normalisePortModes, normaliseTrunkAllowedVlans, normaliseDnsRecords, normaliseDhcpLeases,
-  normaliseRouterInterfaces, normaliseFirewallRules, normaliseConfig, normaliseStpConfig
+  normaliseRouterInterfaces, normaliseFirewallRules, normaliseConfig, normaliseStpConfig, normaliseIdsRules, normaliseMirror
 } from "./normalise";
 import { connectedIds, clearNetwork, nextDeviceNumber } from "./devices";
 import { runStpConvergence } from "./stp";
@@ -74,6 +74,7 @@ export function buildConfigPayload(): SerialisedTopology {
           // (disabled, or a non-default bridge priority). Derived roles never persist.
           ...(config?.managed && config?.stp && (config.stp.enabled === false || (typeof config.stp.priority === "number" && config.stp.priority !== 32768))
             ? { stp: normaliseStpConfig(config.stp) } : {}),
+          ...((config?.managed && normaliseMirror(config?.mirror)) ? { mirror: normaliseMirror(config?.mirror) } : {}),
           ...macsecPayload(config)
         }
       } : {}),
@@ -97,6 +98,11 @@ export function buildConfigPayload(): SerialisedTopology {
           policy: { forward: config?.policy?.forward === "drop" ? "drop" : "accept" },
           ...macsecPayload(config)
         }
+      } : {}),
+      ...(type === "ids" ? {
+        // A passive Snort sensor — persist only its rule set (raw Snort lines);
+        // the alert log is runtime, not config.
+        config: { idsRules: normaliseIdsRules(config?.idsRules || []) }
       } : {}),
       ...(type === "lan" ? {
         config: {

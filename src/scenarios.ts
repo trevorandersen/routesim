@@ -21,7 +21,10 @@ export type ScenarioCheck =
   | { kind: "tcp"; from: string; to: string; port: number; label: string }
   | { kind: "tcp-fail"; from: string; to: string; port: number; label: string }
   | { kind: "dns"; from: string; name: string; ip?: string; label: string }   // name resolves (optionally to a given address)
-  | { kind: "dhcp"; host: string; label: string };
+  | { kind: "dhcp"; host: string; label: string }
+  // An IDS sensor raises an alert containing `contains` for a flow from→to (TCP
+  // when `port` is given, otherwise a ping). Used for the IDS/SPAN scenario.
+  | { kind: "alert"; from: string; to: string; port?: number; contains: string; label: string };
 
 export interface Scenario {
   id: string;
@@ -144,6 +147,18 @@ function evaluate(check: ScenarioCheck): boolean {
     const setup = buildDhcpEvents(host);
     if (typeof setup === "string") return false;
     return runSimulationHeadless(setup, host.id, "", "dhcp").success;
+  }
+  if (check.kind === "alert") {
+    const from = resolve(check.from);
+    if (!from) return false;
+    const to = resolve(check.to)?.config?.ipv4Address || check.to;
+    // Clear prior alerts so the check only sees this flow's detections.
+    for (const d of state.devices) if (d.type === "ids") (d.config as any).alerts = [];
+    const setup = check.port != null ? buildConnectEvents(from, to, check.port) : buildPingEvents(from, to);
+    if (typeof setup === "string") return false;
+    runSimulationHeadless(setup, from.id, to, check.port != null ? "tcp" : "ping", check.port ?? null);
+    const needle = check.contains.toLowerCase();
+    return state.devices.some(d => d.type === "ids" && (d.config?.alerts || []).some((a: string) => a.toLowerCase().includes(needle)));
   }
   return false;
 }

@@ -10,6 +10,7 @@ import { buildPingEvents, buildResolveEvents, buildDhcpEvents, findPingTarget, h
 import type { PingSetup } from "./simulation";
 import { routingLookup, runRipConvergence, buildRoutingTable } from "./routing";
 import { runStpConvergence, isStpParticipant } from "./stp";
+import { runIdsRules } from "./snort";
 
 // Re-exported so existing imports (terminal, tests, benchmarks) keep working.
 export { buildRoutingTable, routingLookup, runRipConvergence } from "./routing";
@@ -71,6 +72,9 @@ export function startSimulation(setup: PingSetup, originDeviceId: string, target
   sim.wifiAssociated = false;
   sim.dot1xAuthorized = false;
   sim.stormDetected = false;
+  // Each run reports only its own detections — clear IDS sensors' alert logs
+  // (like sim.log / sim.capture) so they don't accumulate across consecutive runs.
+  for (const d of state.devices) if (d.type === "ids" && d.config) d.config.alerts = [];
   const target = setup.dns ? setup.dns.name : targetIp;
   const label = mode === "dhcp" ? "Requesting DHCP lease..."
     : mode === "tcp" ? `Opening TCP connection to ${target}:${sim.tcpTargetPort ?? "?"}...`
@@ -187,6 +191,9 @@ export function runSimulationHeadless(
   sim.wifiAssociated = false;
   sim.dot1xAuthorized = false;
   sim.stormDetected = false;
+  // Each run reports only its own detections — clear IDS sensors' alert logs
+  // (like sim.log / sim.capture) so they don't accumulate across consecutive runs.
+  for (const d of state.devices) if (d.type === "ids" && d.config) d.config.alerts = [];
 
   // Drain the event queue, completing each batch of transits instantly. processNextStep
   // recurses internally while status === "running" and events have no transits, and calls
@@ -557,6 +564,7 @@ const PROCESSORS: Partial<Record<DeviceType, (device: Device, frame: EthernetFra
   router: processAtRouter,
   firewall: processAtFirewall,
   hub: processAtHub,
+  ids: processAtIds,
 };
 
 // ─── 802.11 association handshake ────────────────────────────────────────────
@@ -1168,6 +1176,16 @@ export function processAtSwitch(device: Device, frame: EthernetFrame, fromDevice
     }
   }
 
+  // SPAN port mirroring: the monitor (destination) port carries only mirrored
+  // traffic — exclude it from normal forwarding here, then copy matching ingress
+  // frames to it below (where a passive IDS sensor listens).
+  const mirror = managed ? config.mirror : undefined;
+  let mirrorDestIdx = -1;
+  if (mirror?.dest) {
+    mirrorDestIdx = ports.findIndex((p: any, idx: number) => p?.peer && `Ethernet${idx + 1}` === mirror.dest);
+    if (mirrorDestIdx >= 0) forwardPorts = forwardPorts.filter(idx => idx !== mirrorDestIdx);
+  }
+
   // 802.1Q egress — tag/untag frames for each output port
   for (const idx of forwardPorts) {
     const peer = ports[idx]?.peer;
@@ -1186,6 +1204,19 @@ export function processAtSwitch(device: Device, frame: EthernetFrame, fromDevice
         }
       }
       outgoing.push({ frame: egressFrame, toDeviceId: peer.id });
+    }
+  }
+
+  // Mirror this ingress frame to the monitor port (rx SPAN). Sources empty/absent
+  // = mirror every port; otherwise only the listed source ports. The copy is the
+  // frame as it ingressed (the sensor sees the real traffic, untouched).
+  if (mirrorDestIdx >= 0 && ingressIdx !== mirrorDestIdx) {
+    const sources = mirror!.sources;
+    const srcOk = !sources || sources.length === 0 || (ingressPortName != null && sources.includes(ingressPortName));
+    const destPeer = ports[mirrorDestIdx]?.peer;
+    if (srcOk && destPeer) {
+      outgoing.push({ frame: { ...frame, id: frame.id + "-span" }, toDeviceId: destPeer.id });
+      logStep(device, "sim-forward", `SPAN: mirror ${frameLabel(frame)} → ${mirror!.dest} (monitor)`);
     }
   }
 
@@ -1209,6 +1240,27 @@ export function processAtHub(device: Device, frame: EthernetFrame, fromDeviceId:
   });
   logStep(device, "sim-forward", `Repeat ${frameLabel(frame)} → ${repeated.join(", ") || "(none)"}`);
   return outgoing;
+}
+
+// ─── IDS processing ──────────────────────────────────────────────────────────
+
+// A passive Snort sensor on a SPAN/monitor port: inspect the mirrored frame
+// against the rule set and raise an alert on a match. It never forwards — it's
+// not in the data path, so it can only watch, not block.
+export function processAtIds(device: Device, frame: EthernetFrame, _fromDeviceId: string | null): OutgoingFrame[] {
+  if (device.poweredOff) return [];
+  const cfg = device.config;
+  if (!cfg) return [];
+  const hits = runIdsRules(cfg.idsRules, frame);
+  if (hits.length) {
+    cfg.alerts = cfg.alerts || [];
+    for (const h of hits) {
+      cfg.alerts.push(h.alert);
+      logStep(device, "sim-ids", `Snort alert [${h.rule.gid}:${h.rule.sid}] ${h.rule.msg}`);
+    }
+    if (cfg.alerts.length > 500) cfg.alerts.splice(0, cfg.alerts.length - 500);   // FIFO cap (memory safety net for a single high-traffic run)
+  }
+  return [];   // passive sink — never forwards mirrored traffic
 }
 
 // ─── Router processing ──────────────────────────────────────────────────────

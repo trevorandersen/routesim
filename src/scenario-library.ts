@@ -620,6 +620,32 @@ const spanningTree: Scenario = {
   ],
 };
 
+const idsMonitor: Scenario = {
+  id: "ids-monitor",
+  name: "Catch the intruder (IDS + SPAN)",
+  objective: "PC-INTRUDER is telnetting to SRV (an insecure, monitored protocol). A Snort IDS sensor (IDS-1) is already wired into SW-1 and loaded with a Telnet-detection rule, but it isn't seeing any traffic — a passive sensor only watches a copy of the traffic it's fed. Configure port mirroring (SPAN) on SW-1 to mirror the LAN to the sensor's monitor port (Ethernet3) so it detects the attack. Try the console: `mirror SW-1 Ethernet3`.",
+  topology: {
+    version: 1,
+    devices: [
+      { id: "ids-sw", type: "switch", name: "SW-1", x: 0, y: 0, config: { managed: true, ethernetPorts: 8, macTable: [], vlans: [], portVlans: {}, portModes: {} } },
+      { id: "ids-atk", type: "computer", name: "PC-INTRUDER", x: -280, y: -120, config: { ipv4Address: "10.0.0.66", gatewayIpv4Address: "", macAddress: "02:00:00:00:28:66", arpTable: [] } },
+      { id: "ids-srv", type: "server", name: "SRV", x: 280, y: -120, config: { ipv4Address: "10.0.0.10", gatewayIpv4Address: "", macAddress: "02:00:00:00:28:10", arpTable: [], dnsmasqRunning: false, openPorts: [23] } },
+      { id: "ids-ids", type: "ids", name: "IDS-1", x: 0, y: 180, config: { idsRules: [
+        `alert tcp any any -> any 23 (msg:"Telnet connection attempt"; sid:1000002; rev:1;)`,
+        `alert icmp any any -> any any (msg:"ICMP traffic detected"; itype:8; sid:1000001; rev:1;)`,
+      ], alerts: [] } },
+    ],
+    links: [
+      { from: "ids-sw", to: "ids-atk", fromPort: 1 },
+      { from: "ids-sw", to: "ids-srv", fromPort: 2 },
+      { from: "ids-sw", to: "ids-ids", fromPort: 3 },
+    ],
+  },
+  checks: [
+    { kind: "alert", from: "PC-INTRUDER", to: "SRV", port: 23, contains: "Telnet", label: "IDS-1 detects the Telnet attempt" },
+  ],
+};
+
 export const CURRICULUM: Scenario[] = [
   vlanSegmentation,
   routerOnAStick,
@@ -643,4 +669,5 @@ export const CURRICULUM: Scenario[] = [
   macsecLink,
   secureAccess,
   spanningTree,
+  idsMonitor,
 ];

@@ -28,7 +28,8 @@ type ScenarioCheck =
   | { kind: "tcp";       from: string; to: string; port: number; label: string }   // a TCP connect succeeds
   | { kind: "tcp-fail";  from: string; to: string; port: number; label: string }   // the TCP connect must NOT succeed
   | { kind: "dns";       from: string; name: string; ip?: string; label: string }  // the name resolves (optionally to a given address)
-  | { kind: "dhcp";      host: string; label: string };                     // a DHCP request from host succeeds (headless)
+  | { kind: "dhcp";      host: string; label: string }                      // a DHCP request from host succeeds (headless)
+  | { kind: "alert";     from: string; to: string; port?: number; contains: string; label: string };  // a flow (tcp if port, else ping) makes an IDS raise an alert containing the substring
 ```
 
 Device references in checks/topology resolve by **name or id**. `checkScenario(scenario)` returns `{ id, name, passed, checks: [{ label, passed }] }` — `passed` is true when every check passes.
@@ -84,6 +85,7 @@ The curriculum is a progression from L2 basics to routing, services, security, a
 | `macsec-link` | MACsec the inter-switch trunk | A must-secure trunk is down for want of a key — set the matching CAK on the other switch to bring the encrypted link up. |
 | `secure-access` | Secure access (802.1X + MACsec) | Capstone: one 802.1X exchange both authorises the port and derives its MACsec key (must-secure), bringing the encrypted link up. |
 | `spanning-tree` | Break the loop (spanning tree) | Three managed switches are wired in a triangle with STP disabled, so a redundant link loops broadcasts into a storm and PC-A can't reach PC-B — re-enable spanning tree on all three so the bridges block a port and clear the storm. |
+| `ids-monitor` | Catch the intruder (IDS + SPAN) | An attacker telnets to a server and an IDS is cabled to SW-1, but no SPAN session feeds it — set the switch's monitor port (`mirror SW-1 Ethernet3`) so the mirrored traffic reaches the sensor and the `alert` check fires. |
 
 ## Solution scripts (answer key)
 

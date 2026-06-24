@@ -171,6 +171,7 @@ export const toolCopy: Record<string, [string, string]> = {
   connect: ["Connect devices", "Click one device, then another to cable them (auto-picks free ports; Shift-click the second to choose ports)."],
   router: ["Add router", "Click the canvas to place a router."],
   firewall: ["Add firewall", "Click the canvas to place a firewall."],
+  ids: ["Add IDS", "Click the canvas to place a Snort IDS sensor (cable it to a switch SPAN/monitor port)."],
   hub: ["Add hub", "Click the canvas to place a hub (a layer-1 repeater)."],
   "access-point": ["Add access point", "Click the canvas to place a WiFi access point (bridges associated laptops to the wired LAN)."],
   configure: ["Configure device", "Click a device to edit its static configuration."]

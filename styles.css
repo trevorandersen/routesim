@@ -58,6 +58,10 @@
       --fw-stroke: #c0564e;
       --fw-accent: #3a2020;
       --fw-icon: #e88a82;
+      --ids-fill: #1e1b33;
+      --ids-stroke: #8b7bd8;
+      --ids-accent: #272247;
+      --ids-icon: #b9aef5;
       --hub-fill: #2b2718;
       --hub-stroke: #b89a3a;
       --hub-accent: #38311d;
@@ -127,6 +131,10 @@
       --fw-stroke: #b5443c;
       --fw-accent: #f6dedb;
       --fw-icon: #8a3026;
+      --ids-fill: #f1eefb;
+      --ids-stroke: #6d5bc0;
+      --ids-accent: #e6e0f6;
+      --ids-icon: #4c3b9e;
       --shadow: 0 10px 28px rgba(60, 50, 35, 0.14);
     }
 
@@ -186,6 +194,10 @@
       --fw-stroke: #ff9a9a;
       --fw-accent: #1a4ea3;
       --fw-icon: #ffd0d0;
+      --ids-fill: #2d2a6e;
+      --ids-stroke: #c0b6ff;
+      --ids-accent: #38357e;
+      --ids-icon: #ded6ff;
       --hub-fill: #123f8f;
       --hub-stroke: #d8b24f;
       --hub-accent: #0e3170;
@@ -1085,6 +1097,22 @@
     .stp-status { color: var(--muted); font-size: 12px; }
     .stp-priolabel { color: var(--muted); font-size: 12px; flex: 0 0 auto; }
     .stp-prio { width: 90px; height: 26px; border-radius: 6px; border: 1px solid var(--line); background: var(--panel); color: var(--text); padding: 0 6px; }
+
+    /* IDS sensor panel + the switch SPAN selector. */
+    .mirror-select { width: 100%; height: 28px; border-radius: 6px; border: 1px solid var(--line); background: var(--panel); color: var(--text); padding: 0 6px; }
+    .ids-rules {
+      width: 100%; min-height: 110px; resize: vertical;
+      font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 11px; line-height: 1.5;
+      border: 1px solid var(--line); border-radius: 8px; padding: 8px;
+      background: var(--canvas-bg); color: var(--text);
+    }
+    .ids-alerts {
+      max-height: 150px; overflow: auto; margin: 0;
+      font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 10.5px; line-height: 1.5;
+      white-space: pre-wrap; word-break: break-word;
+      border: 1px solid var(--line); border-radius: 8px; padding: 8px;
+      background: var(--canvas-bg); color: #fb7185;
+    }
     .port-vlan-select, .port-native-select { max-width: 96px; }
 
     .vlan-list {
@@ -1492,6 +1520,7 @@
     .terminal-line.sim-nat   { color: #2dd4bf; }
     .terminal-line.sim-dns   { color: #22d3ee; }
     .terminal-line.sim-stp   { color: #a5b4fc; }
+    .terminal-line.sim-ids   { color: #fb7185; }
 
     /* ─── Simulation log (a dock pane) ────────────────────── */
 
@@ -1519,6 +1548,7 @@
     .sim-log-line.sim-drop    { color: #f87171; }
     .sim-log-line.sim-dhcp    { color: #a78bfa; }
     .sim-log-line.sim-stp     { color: #a5b4fc; }
+    .sim-log-line.sim-ids     { color: #fb7185; }
 
     /* ─── Packet list (Wireshark-style) ───────────────────── */
 

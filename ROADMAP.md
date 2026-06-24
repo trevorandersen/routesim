@@ -15,12 +15,15 @@ committed scope — it's a menu for "what next".
 > engine; the transparent firewall device stays FORWARD-only), and the
 > **server device with DNS + DHCP via dnsmasq** (A-records, UDP/53 frames,
 > resolve-then-ping/connect, `/etc/resolv.conf`, server `dhcp-range` leases
-> with nameserver option 6, DNS through NAT), and **Spanning Tree (802.1D)**
+> with nameserver option 6, DNS through NAT), **Spanning Tree (802.1D)**
 > (managed switches elect a root bridge, block one redundant port to break an
 > L2 loop, animate the BPDU exchange, and surface a bounded broadcast storm when
-> STP is off) — with the curriculum now at **23 scenarios** (including WiFi
-> joins, 802.1X port authentication, MACsec link encryption, and breaking an L2
-> loop with spanning tree), every one carrying a tested reference solution. Plus the
+> STP is off), and a **passive Snort IDS** fed by **SPAN port mirroring** (a
+> managed switch mirrors traffic to a monitor port; the sensor matches frames
+> against Snort rules and raises fast-alerts) — with the curriculum now at
+> **24 scenarios** (including WiFi joins, 802.1X port authentication, MACsec link
+> encryption, breaking an L2 loop with spanning tree, and catching an intruder
+> with an IDS), every one carrying a tested reference solution. Plus the
 > **unified bottom dock**: per-device terminal sessions as tabs (own
 > scrollback/history, the router's CLI mode survives switching), with the
 > console and the sim log as sibling panes and a drag-resizable height — the

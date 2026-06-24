@@ -14,6 +14,7 @@ import { l2Reachable, getVlanForDevice } from "../src/simulation";
 import { isTrunkLink } from "../src/canvas";
 import { processAtSwitch, processAtRouter, processAtServer, buildRoutingTable, routingLookup, runRipConvergence, runStpConvergence, evaluateFirewall } from "../src/engine";
 import { createArpRequest, createArpReply, createIcmpEchoRequest, createIcmpEchoReply, createTcpSegment, createDnsResponse, createDhcpDiscover, packetColumns, BROADCAST_MAC } from "../src/frame";
+import { runIdsRules } from "../src/snort";
 import { registerNoopCallbacks, resetState } from "./helpers";
 import { bench, printResults, type BenchResult } from "./bench-harness";
 import {
@@ -672,6 +673,24 @@ describe("bench: STP convergence", () => {
   it("prints results", () => {
     if (results.length) printResults(results);
   });
+});
+
+describe("bench: IDS rule matching", () => {
+  const results: BenchResult[] = [];
+
+  it("runIdsRules — 25 Snort rules per frame", () => {
+    // A realistic-ish rule set the sensor evaluates against every mirrored frame.
+    const rules = Array.from({ length: 25 }, (_, i) =>
+      `alert tcp any any -> any ${1000 + i} (msg:"rule ${i}"; sid:${2000 + i}; rev:1;)`);
+    rules.push(`alert tcp any any -> any 23 (msg:"Telnet"; sid:1000002; rev:1;)`);
+    const frame = createTcpSegment("02:00:00:00:00:01", "02:00:00:00:00:02", "10.0.0.1", "10.0.0.2", 40000, 23, "syn");
+    results.push(bench("runIdsRules — 25 rules", () => {
+      runIdsRules(rules, frame);
+    }, { budget: 200, warmup: 50, minTime: 1000 }));
+    expect(results[results.length - 1].passed).toBe(true);
+  });
+
+  it("prints results", () => { if (results.length) printResults(results); });
 });
 
 // ── Helper ──────────────────────────────────────────────────────────────────

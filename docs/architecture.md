@@ -20,6 +20,7 @@ app.ts (entry)
   ├── engine.ts      ← simulation engine: step loop, per-device frame processing
   ├── routing.ts     ← routing table, longest-match lookup, RIP convergence
   ├── stp.ts         ← Spanning Tree (802.1D) convergence: root election, blocked ports
+  ├── snort.ts       ← Snort rule parse/match/format for the passive IDS (fed by switch SPAN mirroring)
   ├── device-registry.ts ← per-type spec (label, prefix, size, palette, icon, defaults)
   ├── simulation.ts  ← buildPingEvents/buildDhcpEvents, L2 reachability, routing utils
   ├── frame.ts       ← EthernetFrame factories, frame labels/colours

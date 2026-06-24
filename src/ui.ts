@@ -202,6 +202,7 @@ export function handleGlobalKeydown(event: KeyboardEvent): void {
   if (event.key.toLowerCase() === "s") setTool("switch");
   if (event.key.toLowerCase() === "r") setTool("router");
   if (event.key.toLowerCase() === "f") setTool("firewall");
+  if (event.key.toLowerCase() === "i") setTool("ids");
   if (event.key.toLowerCase() === "h") setTool("hub");
   if (event.key.toLowerCase() === "l") setTool("connect");
   if (event.key.toLowerCase() === "w") setTool("configure");

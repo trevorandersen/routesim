@@ -19,6 +19,7 @@ import { runServerTerminalCommand } from "./server";
 import { runRouterTerminalCommand } from "./router";
 import { runSwitchTerminalCommand } from "./switch";
 import { runFirewallTerminalCommand } from "./firewall";
+import { runIdsTerminalCommand } from "./ids";
 
 // While true, lines pushed are flagged `injected` — the simulator typed them
 // (a GUI inspector edit driving the device CLI), not the user. See runDeviceCommand.
@@ -232,6 +233,7 @@ const CLI_DISPATCH: Partial<Record<DeviceType, (device: Device, command: string)
   router: runRouterTerminalCommand,
   switch: runSwitchTerminalCommand,
   firewall: runFirewallTerminalCommand,
+  ids: runIdsTerminalCommand,
 };
 
 export function hasTerminal(device: Device | undefined): boolean {

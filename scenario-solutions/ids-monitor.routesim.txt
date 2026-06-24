@@ -1,0 +1,14 @@
+# Catch the intruder (IDS + SPAN)  ·  scenario id: ids-monitor
+#
+# PC-INTRUDER is telnetting to SRV. A Snort IDS sensor (IDS-1) is wired into
+# SW-1 with a Telnet-detection rule, but a passive sensor only sees a copy of
+# the traffic it is fed. Configure port mirroring (SPAN) on SW-1 so the LAN is
+# mirrored to the sensor's monitor port (Ethernet3, where IDS-1 is cabled) — then
+# it detects the attack.
+#
+# Loads the scenario, applies the solution, and checks the goal. Paste into
+# the command console (the >_ toolbar button) or run with routesim.run(...).
+
+scenario load ids-monitor
+mirror SW-1 Ethernet3
+scenario check

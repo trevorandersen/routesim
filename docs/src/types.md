@@ -4,16 +4,16 @@ The single source of truth for the data model. No runtime code — only `interfa
 
 ## Device model
 
-- **`DeviceType`** = `"computer" | "server" | "switch" | "router" | "firewall" | "hub" | "lan"`.
+- **`DeviceType`** = `"computer" | "server" | "switch" | "router" | "firewall" | "ids" | "hub" | "lan"`.
 - **`Device`** — `id`, `type`, `name`, position/size, `config`, and optional flags (`hidden`, `poweredOff`, `collapsedBy`).
-- **Per-type configs** — `ComputerConfig`, `ServerConfig`, `SwitchConfig`, `RouterConfig`, `FirewallConfig`, `LanConfig` describe each device type's `config` shape (e.g. computer: `ipv4Address`/`ipSource` (static/dhcp/apipa)/`macAddress`/`arpTable`/`openPorts`/`dnsServerIp`; server **extends** the computer with the dnsmasq fields — `dnsmasqRunning`/`dnsRecords`/`dhcpRangeStart`/`dhcpRangeEnd`/`dhcpRouterIp`/`dhcpLeases`; switch: `managed`/`ethernetPorts`/`vlans`/`portVlans`/…; router: `interfaces`/`staticRoutes`/`rip`/`natTranslations`; firewall: `rules`/`policy`; hub: just `ethernetPorts` (a layer-1 repeater, no tables); lan: `anchorId`/`members`).
-- **`DeviceConfig`** = `Partial<ComputerConfig & ServerConfig & SwitchConfig & RouterConfig & FirewallConfig & HubConfig & LanConfig>` — a permissive superset where every field is optional. `Device.config` is typed as this.
+- **Per-type configs** — `ComputerConfig`, `ServerConfig`, `SwitchConfig`, `RouterConfig`, `FirewallConfig`, `IdsConfig`, `LanConfig` describe each device type's `config` shape (e.g. computer: `ipv4Address`/`ipSource` (static/dhcp/apipa)/`macAddress`/`arpTable`/`openPorts`/`dnsServerIp`; server **extends** the computer with the dnsmasq fields — `dnsmasqRunning`/`dnsRecords`/`dhcpRangeStart`/`dhcpRangeEnd`/`dhcpRouterIp`/`dhcpLeases`; switch: `managed`/`ethernetPorts`/`vlans`/`portVlans`/`mirror` (the SPAN session)/…; router: `interfaces`/`staticRoutes`/`rip`/`natTranslations`; firewall: `rules`/`policy`; ids: `idsRules` (raw Snort `local.rules` lines — named `idsRules`, not `rules`, to avoid colliding with `FirewallConfig.rules` in the superset) + `alerts` (the runtime fast-alert log, capped, **not serialised**); hub: just `ethernetPorts` (a layer-1 repeater, no tables); lan: `anchorId`/`members`).
+- **`DeviceConfig`** = `Partial<ComputerConfig & ServerConfig & SwitchConfig & RouterConfig & FirewallConfig & IdsConfig & HubConfig & LanConfig>` — a permissive superset where every field is optional. `Device.config` is typed as this.
 
 > **Why a superset, not a discriminated union?** Most code accesses `device.config?.field` generically (e.g. in `engine.ts`, `inspector.ts`). A discriminated union would require narrowing at ~200 call sites. The all-optional superset gives real type-safety (typos and wrong field types are caught; `arpTable` is `ArpEntry[]`, not `any`) with **zero** churn at access sites. Where strictness helps, narrow explicitly.
 
 ## Supporting element types
 
-`ArpEntry`, `MacTableEntry`, `Vlan`, `DhcpLease`, `RouterInterface`, `RouteEntry`, `StaticRoute`, `RipRoute`, `RipConfig`, `PortMode`, `DnsRecord`, `NatEntry`, `FirewallRule`.
+`ArpEntry`, `MacTableEntry`, `Vlan`, `DhcpLease`, `RouterInterface`, `RouteEntry`, `StaticRoute`, `RipRoute`, `RipConfig`, `PortMode`, `DnsRecord`, `NatEntry`, `FirewallRule`, `MirrorSession` (`SwitchConfig.mirror` — `name`/`dest`/`sources?`, a managed-switch SPAN session).
 
 ## Frames & simulation
 

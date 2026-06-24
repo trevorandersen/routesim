@@ -67,6 +67,10 @@
       --fw-stroke: #c0564e;
       --fw-accent: #3a2020;
       --fw-icon: #e88a82;
+      --ids-fill: #1e1b33;
+      --ids-stroke: #8b7bd8;
+      --ids-accent: #272247;
+      --ids-icon: #b9aef5;
       --hub-fill: #2b2718;
       --hub-stroke: #b89a3a;
       --hub-accent: #38311d;
@@ -136,6 +140,10 @@
       --fw-stroke: #b5443c;
       --fw-accent: #f6dedb;
       --fw-icon: #8a3026;
+      --ids-fill: #f1eefb;
+      --ids-stroke: #6d5bc0;
+      --ids-accent: #e6e0f6;
+      --ids-icon: #4c3b9e;
       --shadow: 0 10px 28px rgba(60, 50, 35, 0.14);
     }
 
@@ -195,6 +203,10 @@
       --fw-stroke: #ff9a9a;
       --fw-accent: #1a4ea3;
       --fw-icon: #ffd0d0;
+      --ids-fill: #2d2a6e;
+      --ids-stroke: #c0b6ff;
+      --ids-accent: #38357e;
+      --ids-icon: #ded6ff;
       --hub-fill: #123f8f;
       --hub-stroke: #d8b24f;
       --hub-accent: #0e3170;
@@ -1094,6 +1106,22 @@
     .stp-status { color: var(--muted); font-size: 12px; }
     .stp-priolabel { color: var(--muted); font-size: 12px; flex: 0 0 auto; }
     .stp-prio { width: 90px; height: 26px; border-radius: 6px; border: 1px solid var(--line); background: var(--panel); color: var(--text); padding: 0 6px; }
+
+    /* IDS sensor panel + the switch SPAN selector. */
+    .mirror-select { width: 100%; height: 28px; border-radius: 6px; border: 1px solid var(--line); background: var(--panel); color: var(--text); padding: 0 6px; }
+    .ids-rules {
+      width: 100%; min-height: 110px; resize: vertical;
+      font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 11px; line-height: 1.5;
+      border: 1px solid var(--line); border-radius: 8px; padding: 8px;
+      background: var(--canvas-bg); color: var(--text);
+    }
+    .ids-alerts {
+      max-height: 150px; overflow: auto; margin: 0;
+      font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 10.5px; line-height: 1.5;
+      white-space: pre-wrap; word-break: break-word;
+      border: 1px solid var(--line); border-radius: 8px; padding: 8px;
+      background: var(--canvas-bg); color: #fb7185;
+    }
     .port-vlan-select, .port-native-select { max-width: 96px; }
 
     .vlan-list {
@@ -1501,6 +1529,7 @@
     .terminal-line.sim-nat   { color: #2dd4bf; }
     .terminal-line.sim-dns   { color: #22d3ee; }
     .terminal-line.sim-stp   { color: #a5b4fc; }
+    .terminal-line.sim-ids   { color: #fb7185; }
 
     /* ─── Simulation log (a dock pane) ────────────────────── */
 
@@ -1528,6 +1557,7 @@
     .sim-log-line.sim-drop    { color: #f87171; }
     .sim-log-line.sim-dhcp    { color: #a78bfa; }
     .sim-log-line.sim-stp     { color: #a5b4fc; }
+    .sim-log-line.sim-ids     { color: #fb7185; }
 
     /* ─── Packet list (Wireshark-style) ───────────────────── */
 
@@ -2117,6 +2147,7 @@
             <button class="tool-caret" type="button" aria-label="Choose security device" aria-haspopup="true" aria-expanded="false"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M6 9l6 6l6 -6"></path></svg></button>
             <div class="tool-menu" hidden>
               <button class="tool-menu-item active" data-tool="firewall" type="button"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 3a12 12 0 0 0 8.5 3a12 12 0 0 1 -8.5 15a12 12 0 0 1 -8.5 -15a12 12 0 0 0 8.5 -3"></path><path d="M9 12l2 2l4 -4"></path></svg><span>Firewall</span></button>
+              <button class="tool-menu-item" data-tool="ids" type="button"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M10 12a2 2 0 1 0 4 0a2 2 0 1 0 -4 0"></path><path d="M21 12c-2.4 4 -5.4 6 -9 6c-3.6 0 -6.6 -2 -9 -6c2.4 -4 5.4 -6 9 -6c3.6 0 6.6 2 9 6"></path></svg><span>IDS (Snort)</span></button>
             </div>
           </div>
 
@@ -2665,6 +2696,27 @@ Full legal text: https://creativecommons.org/publicdomain/zero/1.0/legalcode</pr
       // only associate if its SSID — and password, if set — match).
       defaultConfig: () => ({ managed: false, ethernetPorts: 1, macTable: [], ssid: DEFAULT_SSID })
     },
+    ids: {
+      label: "IDS",
+      namePrefix: "IDS",
+      width: 92,
+      height: 66,
+      paletteVar: "ids",
+      iconRadius: 10,
+      userAddable: true,
+      // An eye — a passive sensor that *watches* a mirrored copy of traffic.
+      iconPaths: [
+        "M10 12a2 2 0 1 0 4 0a2 2 0 1 0 -4 0",
+        "M21 12c-2.4 4 -5.4 6 -9 6c-3.6 0 -6.6 -2 -9 -6c2.4 -4 5.4 -6 9 -6c3.6 0 6.6 2 9 6"
+      ],
+      // A passive Snort sensor: cabled to a switch SPAN/monitor port, it inspects
+      // the mirrored traffic against rules and alerts. Two starter rules ship so a
+      // freshly placed sensor detects something out of the box (edit local.rules).
+      defaultConfig: () => ({ idsRules: [
+        `alert icmp any any -> any any (msg:"ICMP traffic detected"; itype:8; sid:1000001; rev:1;)`,
+        `alert tcp any any -> any 23 (msg:"Telnet connection attempt"; sid:1000002; rev:1;)`
+      ], alerts: [] })
+    },
     lan: {
       label: "LAN",
       namePrefix: "LAN",
@@ -2913,6 +2965,18 @@ Full legal text: https://creativecommons.org/publicdomain/zero/1.0/legalcode</pr
     const priority = Number.isInteger(p) && p >= 0 && p <= 61440 && p % 4096 === 0 && p !== 32768 ? p : void 0;
     return { enabled, ...priority != null ? { priority } : {} };
   }
+  function normaliseMirror(raw) {
+    const r = raw && typeof raw === "object" ? raw : null;
+    const dest = String(r?.dest || "").trim();
+    if (!/^Ethernet\d+$/i.test(dest)) return void 0;
+    const sources = Array.isArray(r?.sources) ? r.sources.map((s) => String(s).trim()).filter((s) => /^Ethernet\d+$/i.test(s)) : [];
+    const name = String(r?.name || "MON").trim() || "MON";
+    return { name, dest, ...sources.length ? { sources } : {} };
+  }
+  function normaliseIdsRules(raw) {
+    if (!Array.isArray(raw)) return [];
+    return raw.map((r) => String(r).trim()).filter(Boolean);
+  }
   function normaliseRadiusUsers(raw) {
     if (!Array.isArray(raw)) return [];
     return raw.filter((u) => u && u.identity).map((u) => ({ identity: String(u.identity), password: String(u.password ?? "") }));
@@ -2938,7 +3002,9 @@ Full legal text: https://creativecommons.org/publicdomain/zero/1.0/legalcode</pr
         ...device.config?.portAuth ? { portAuth: normalisePortAuth(device.config.portAuth) } : {},
         // STP only matters on managed switches; keep it only when a config is present
         // (a managed switch with no stp config runs the default-on spanning tree).
-        ...managed && device.config?.stp ? { stp: normaliseStpConfig(device.config.stp) } : {}
+        ...managed && device.config?.stp ? { stp: normaliseStpConfig(device.config.stp) } : {},
+        // SPAN port mirroring (managed switches only), kept only when it resolves.
+        ...managed && normaliseMirror(device.config?.mirror) ? { mirror: normaliseMirror(device.config?.mirror) } : {}
       };
     }
     if (device.type === "router") {
@@ -2975,6 +3041,9 @@ Full legal text: https://creativecommons.org/publicdomain/zero/1.0/legalcode</pr
         rules: normaliseFirewallRules(device.config?.rules || device.rules || []),
         policy: { forward: rawPolicy.forward === "drop" ? "drop" : "accept" }
       };
+    }
+    if (device.type === "ids") {
+      return { idsRules: normaliseIdsRules(device.config?.idsRules || device.idsRules || []), alerts: [] };
     }
     if (device.type === "lan") {
       return {
@@ -3248,6 +3317,7 @@ Full legal text: https://creativecommons.org/publicdomain/zero/1.0/legalcode</pr
     connect: ["Connect devices", "Click one device, then another to cable them (auto-picks free ports; Shift-click the second to choose ports)."],
     router: ["Add router", "Click the canvas to place a router."],
     firewall: ["Add firewall", "Click the canvas to place a firewall."],
+    ids: ["Add IDS", "Click the canvas to place a Snort IDS sensor (cable it to a switch SPAN/monitor port)."],
     hub: ["Add hub", "Click the canvas to place a hub (a layer-1 repeater)."],
     "access-point": ["Add access point", "Click the canvas to place a WiFi access point (bridges associated laptops to the wired LAN)."],
     configure: ["Configure device", "Click a device to edit its static configuration."]
@@ -3720,7 +3790,7 @@ Full legal text: https://creativecommons.org/publicdomain/zero/1.0/legalcode</pr
   // src/devices.ts
   function hasHostname(device) {
     if (device.type === "switch") return !!device.config?.managed;
-    return ["computer", "laptop", "server", "router", "firewall"].includes(device.type);
+    return ["computer", "laptop", "server", "router", "firewall", "ids"].includes(device.type);
   }
   function applyHostname(device, name) {
     const next = String(name || "").trim();
@@ -3752,7 +3822,7 @@ Full legal text: https://creativecommons.org/publicdomain/zero/1.0/legalcode</pr
     sync().render();
     return device;
   }
-  var PLACEMENT_TOOLS = /* @__PURE__ */ new Set(["computer", "laptop", "server", "dns-server", "dhcp-server", "radius-server", "web-server", "switch", "managed-switch", "router", "firewall", "hub", "access-point"]);
+  var PLACEMENT_TOOLS = /* @__PURE__ */ new Set(["computer", "laptop", "server", "dns-server", "dhcp-server", "radius-server", "web-server", "switch", "managed-switch", "router", "firewall", "ids", "hub", "access-point"]);
   var SERVER_PRESETS = {
     "dns-server": { namePrefix: "DNS", config: () => ({ dnsmasqRunning: true, dnsRecords: [] }) },
     "dhcp-server": { namePrefix: "DHCP", config: () => ({ dnsmasqRunning: true, dnsRecords: [] }) },
@@ -3785,7 +3855,7 @@ Full legal text: https://creativecommons.org/publicdomain/zero/1.0/legalcode</pr
   }
   function hostNicTaken(deviceId) {
     const device = getDevice(deviceId);
-    if (!device || !["computer", "laptop", "server"].includes(device.type)) return null;
+    if (!device || !["computer", "laptop", "server", "ids"].includes(device.type)) return null;
     const cabled = state.links.some((l) => l.from === deviceId || l.to === deviceId);
     return cabled ? device.name : null;
   }
@@ -5913,6 +5983,158 @@ Full legal text: https://creativecommons.org/publicdomain/zero/1.0/legalcode</pr
     return { iterations, routesExchanged: totalExchanged };
   }
 
+  // src/snort.ts
+  var HEADER_RE = /^\s*(\w+)\s+(\w+)\s+(\S+)\s+(\S+)\s+(->|<>)\s+(\S+)\s+(\S+)\s*(?:\((.*)\)\s*)?$/;
+  function unquote(s) {
+    const t = s.trim();
+    return t.startsWith('"') && t.endsWith('"') ? t.slice(1, -1) : t;
+  }
+  function parseSnortRule(line) {
+    const text = (line || "").trim();
+    if (!text || text.startsWith("#")) return null;
+    const m = text.match(HEADER_RE);
+    if (!m) return null;
+    const [, action, proto, srcIp, srcPort, dir, dstIp, dstPort, optsRaw] = m;
+    const rule = {
+      raw: text,
+      action: action.toLowerCase(),
+      proto: proto.toLowerCase(),
+      srcIp,
+      srcPort,
+      dir,
+      dstIp,
+      dstPort,
+      msg: "",
+      gid: 1,
+      sid: 0,
+      rev: 0
+    };
+    for (const opt of (optsRaw || "").split(";")) {
+      const o = opt.trim();
+      if (!o) continue;
+      const ci = o.indexOf(":");
+      const key = (ci < 0 ? o : o.slice(0, ci)).trim().toLowerCase();
+      const val = ci < 0 ? "" : o.slice(ci + 1).trim();
+      switch (key) {
+        case "msg":
+          rule.msg = unquote(val);
+          break;
+        case "sid":
+          rule.sid = Number(val) || 0;
+          break;
+        case "rev":
+          rule.rev = Number(val) || 0;
+          break;
+        case "gid":
+          rule.gid = Number(val) || 1;
+          break;
+        case "priority":
+          rule.priority = Number(val) || void 0;
+          break;
+        case "itype": {
+          const n = Number(val);
+          if (Number.isFinite(n)) rule.itype = n;
+          break;
+        }
+        // keep itype:0 (echo reply); ignore non-numeric
+        case "flags":
+          rule.flags = unquote(val).replace(/[^SAFRPU]/gi, "").toUpperCase();
+          break;
+        case "content":
+          rule.content = unquote(val);
+          break;
+      }
+    }
+    return rule;
+  }
+  var TCP_FLAG_LETTERS = { "syn": "S", "syn-ack": "SA", "ack": "A", "rst": "R" };
+  function frameCtx(frame) {
+    const p = frame.payload;
+    if (p.type !== "ipv4") return null;
+    const ipv4 = p;
+    const inner = ipv4.payload;
+    const ctx2 = {
+      proto: ipv4.protocol === 1 ? "icmp" : ipv4.protocol === 6 ? "tcp" : ipv4.protocol === 17 ? "udp" : "ip",
+      srcIp: ipv4.srcIp,
+      dstIp: ipv4.dstIp,
+      srcPort: null,
+      dstPort: null
+    };
+    if (inner.type === "tcp") {
+      ctx2.srcPort = inner.srcPort;
+      ctx2.dstPort = inner.dstPort;
+      ctx2.flags = TCP_FLAG_LETTERS[inner.flags] || "";
+    } else if (inner.type === "icmp") {
+      ctx2.icmpType = inner.icmpType;
+    } else if (inner.type === "dns") {
+      ctx2.srcPort = 53;
+      ctx2.dstPort = 53;
+      ctx2.dnsName = inner.name;
+    } else if (inner.type === "dhcp") {
+      ctx2.srcPort = inner.messageType === "offer" || inner.messageType === "ack" ? 67 : 68;
+      ctx2.dstPort = inner.messageType === "offer" || inner.messageType === "ack" ? 68 : 67;
+    }
+    return ctx2;
+  }
+  function ipMatches(spec, ip) {
+    if (spec === "any") return true;
+    if (!ip) return false;
+    if (spec.includes("/")) return cidrContains(spec, ip);
+    return isValidIpv4(spec) ? spec === ip : false;
+  }
+  function portMatches(spec, port) {
+    if (spec === "any") return true;
+    const n = Number(spec);
+    return Number.isFinite(n) && port === n;
+  }
+  function protoMatches(rule, ctx2) {
+    if (rule.proto === "ip") return ctx2.proto !== "other";
+    return rule.proto === ctx2.proto;
+  }
+  function optionsMatch(rule, ctx2) {
+    if (rule.itype != null && ctx2.icmpType !== rule.itype) return false;
+    if (rule.flags && ![...rule.flags].every((f) => (ctx2.flags || "").includes(f))) return false;
+    if (rule.content && !(ctx2.dnsName || "").toLowerCase().includes(rule.content.toLowerCase())) return false;
+    return true;
+  }
+  function matchSnortRule(rule, frame) {
+    if (rule.action === "pass") return false;
+    const ctx2 = frameCtx(frame);
+    if (!ctx2) return false;
+    if (!protoMatches(rule, ctx2)) return false;
+    if (!optionsMatch(rule, ctx2)) return false;
+    const forward = ipMatches(rule.srcIp, ctx2.srcIp) && portMatches(rule.srcPort, ctx2.srcPort) && ipMatches(rule.dstIp, ctx2.dstIp) && portMatches(rule.dstPort, ctx2.dstPort);
+    if (forward) return true;
+    if (rule.dir === "<>") {
+      return ipMatches(rule.srcIp, ctx2.dstIp) && portMatches(rule.srcPort, ctx2.dstPort) && ipMatches(rule.dstIp, ctx2.srcIp) && portMatches(rule.dstPort, ctx2.srcPort);
+    }
+    return false;
+  }
+  function formatAlert(rule, frame) {
+    const ctx2 = frameCtx(frame);
+    const proto = ctx2.proto.toUpperCase();
+    const src = ctx2.srcPort != null ? `${ctx2.srcIp}:${ctx2.srcPort}` : ctx2.srcIp;
+    const dst = ctx2.dstPort != null ? `${ctx2.dstIp}:${ctx2.dstPort}` : ctx2.dstIp;
+    return `[**] [${rule.gid}:${rule.sid}:${rule.rev}] ${rule.msg} [**] [Priority: ${rule.priority ?? 3}] {${proto}} ${src} -> ${dst}`;
+  }
+  var _parsed = /* @__PURE__ */ new WeakMap();
+  function parseRules(lines) {
+    if (!Array.isArray(lines)) return [];
+    let hit = _parsed.get(lines);
+    if (!hit) {
+      hit = lines.map(parseSnortRule).filter((r) => r !== null);
+      _parsed.set(lines, hit);
+    }
+    return hit;
+  }
+  function runIdsRules(idsRules, frame) {
+    const out = [];
+    for (const rule of parseRules(idsRules || [])) {
+      if (matchSnortRule(rule, frame)) out.push({ rule, alert: formatAlert(rule, frame) });
+    }
+    return out;
+  }
+
   // src/engine.ts
   function startSimulation(setup, originDeviceId, targetIp, mode = "ping", targetPort = null) {
     runRipConvergence();
@@ -5961,6 +6183,7 @@ Full legal text: https://creativecommons.org/publicdomain/zero/1.0/legalcode</pr
     sim.wifiAssociated = false;
     sim.dot1xAuthorized = false;
     sim.stormDetected = false;
+    for (const d of state.devices) if (d.type === "ids" && d.config) d.config.alerts = [];
     const target = setup.dns ? setup.dns.name : targetIp;
     const label = mode === "dhcp" ? "Requesting DHCP lease..." : mode === "tcp" ? `Opening TCP connection to ${target}:${sim.tcpTargetPort ?? "?"}...` : mode === "dns" ? `Resolving ${target}...` : mode === "associate" ? `Associating to ${target || "WiFi"}...` : mode === "dot1x" ? `802.1X authenticating ${target || "supplicant"}...` : mode === "stp" ? "Spanning tree: advertising BPDUs from the root bridge..." : `Simulating ping to ${target}...`;
     state.terminal.lines.push({ kind: "sim", text: label });
@@ -6040,6 +6263,7 @@ Full legal text: https://creativecommons.org/publicdomain/zero/1.0/legalcode</pr
     sim.wifiAssociated = false;
     sim.dot1xAuthorized = false;
     sim.stormDetected = false;
+    for (const d of state.devices) if (d.type === "ids" && d.config) d.config.alerts = [];
     const MAX_STEPS = 1e4;
     let guard = 0;
     processNextStep();
@@ -6287,7 +6511,8 @@ Full legal text: https://creativecommons.org/publicdomain/zero/1.0/legalcode</pr
     // an AP bridges like an unmanaged switch
     router: processAtRouter,
     firewall: processAtFirewall,
-    hub: processAtHub
+    hub: processAtHub,
+    ids: processAtIds
   };
   function handleDot11(device, frame, fromDeviceId) {
     const payload = frame.payload;
@@ -6811,6 +7036,12 @@ Full legal text: https://creativecommons.org/publicdomain/zero/1.0/legalcode</pr
         logStep(device, "sim-forward", `Flood ${frameLabel(frame)} \u2192 ${portNames} (unknown unicast)`);
       }
     }
+    const mirror = managed ? config.mirror : void 0;
+    let mirrorDestIdx = -1;
+    if (mirror?.dest) {
+      mirrorDestIdx = ports.findIndex((p, idx) => p?.peer && `Ethernet${idx + 1}` === mirror.dest);
+      if (mirrorDestIdx >= 0) forwardPorts = forwardPorts.filter((idx) => idx !== mirrorDestIdx);
+    }
     for (const idx of forwardPorts) {
       const peer = ports[idx]?.peer;
       if (peer) {
@@ -6828,6 +7059,15 @@ Full legal text: https://creativecommons.org/publicdomain/zero/1.0/legalcode</pr
         outgoing.push({ frame: egressFrame, toDeviceId: peer.id });
       }
     }
+    if (mirrorDestIdx >= 0 && ingressIdx !== mirrorDestIdx) {
+      const sources = mirror.sources;
+      const srcOk = !sources || sources.length === 0 || ingressPortName != null && sources.includes(ingressPortName);
+      const destPeer = ports[mirrorDestIdx]?.peer;
+      if (srcOk && destPeer) {
+        outgoing.push({ frame: { ...frame, id: frame.id + "-span" }, toDeviceId: destPeer.id });
+        logStep(device, "sim-forward", `SPAN: mirror ${frameLabel(frame)} \u2192 ${mirror.dest} (monitor)`);
+      }
+    }
     return outgoing;
   }
   function processAtHub(device, frame, fromDeviceId) {
@@ -6843,6 +7083,21 @@ Full legal text: https://creativecommons.org/publicdomain/zero/1.0/legalcode</pr
     });
     logStep(device, "sim-forward", `Repeat ${frameLabel(frame)} \u2192 ${repeated.join(", ") || "(none)"}`);
     return outgoing;
+  }
+  function processAtIds(device, frame, _fromDeviceId) {
+    if (device.poweredOff) return [];
+    const cfg = device.config;
+    if (!cfg) return [];
+    const hits = runIdsRules(cfg.idsRules, frame);
+    if (hits.length) {
+      cfg.alerts = cfg.alerts || [];
+      for (const h of hits) {
+        cfg.alerts.push(h.alert);
+        logStep(device, "sim-ids", `Snort alert [${h.rule.gid}:${h.rule.sid}] ${h.rule.msg}`);
+      }
+      if (cfg.alerts.length > 500) cfg.alerts.splice(0, cfg.alerts.length - 500);
+    }
+    return [];
   }
   function processAtRouter(device, frame, fromDeviceId) {
     const outgoing = [];
@@ -8684,6 +8939,8 @@ Address: ${sim.dnsResolvedIp}`);
     const stp = device.config?.stp;
     if (stp?.enabled === false) lines.push(`config spanning_tree disable`);
     if (stp?.priority != null && stp.priority !== 32768) lines.push(`config spanning_tree priority ${stp.priority}`);
+    const mir = device.config?.mirror;
+    if (mir?.dest) lines.push(`config mirror_session span add ${mir.name || "MON"} ${mir.dest}${mir.sources?.length ? " " + mir.sources.join(",") : ""}`);
     for (const vlan of vlans) lines.push(`config vlan add ${vlan.id}`);
     for (const iface of interfaces) {
       if (iface.mode === "trunk") {
@@ -8721,6 +8978,35 @@ Address: ${sim.dnsResolvedIp}`);
         ].join("");
       })
     ].join("\n");
+  }
+  function showSwitchMirror(device) {
+    const m = device.config?.mirror;
+    if (!m?.dest) return "No mirror sessions configured.";
+    const src = m.sources && m.sources.length ? m.sources.join(",") : "all";
+    return [
+      "Name  Status  SRC Port  DST Port  Direction",
+      `${(m.name || "MON").padEnd(6)}${"active".padEnd(8)}${src.padEnd(10)}${m.dest.padEnd(10)}rx`
+    ].join("\n");
+  }
+  function setSwitchMirror(device, change) {
+    pushUndo();
+    ensureConfig(device);
+    const cfg = device.config;
+    if (change === null) {
+      delete cfg.mirror;
+      sync().syncPanel();
+      sync().render();
+      return "Mirror session removed.";
+    }
+    const valid = (p) => !!switchIfaceByName(device, p);
+    if (!valid(change.dest)) return `Unknown interface ${change.dest}.`;
+    const sources = (change.sources || []).filter(Boolean);
+    for (const s of sources) if (!valid(s)) return `Unknown interface ${s}.`;
+    cfg.mirror = { name: change.name || "MON", dest: switchIfaceByName(device, change.dest).name, ...sources.length ? { sources: sources.map((s) => switchIfaceByName(device, s).name) } : {} };
+    sync().syncPanel();
+    sync().render();
+    const srcLabel = sources.length ? sources.join(",") : "all ports";
+    return `Mirroring ${srcLabel} to ${cfg.mirror.dest}.`;
   }
   function setSwitchStp(device, change) {
     pushUndo();
@@ -8934,6 +9220,9 @@ Address: ${sim.dnsResolvedIp}`);
         "show spanning_tree",
         "config spanning_tree enable | disable",
         "config spanning_tree priority <0-61440>",
+        "show mirror_session",
+        "config mirror_session span add <name> <dst-port> [src-port]   (SPAN to a monitor port)",
+        "config mirror_session remove <name>",
         "config hostname <name>",
         "clear"
       ].join("\n"));
@@ -8961,6 +9250,21 @@ Address: ${sim.dnsResolvedIp}`);
     }
     if (lower === "show spanning_tree" || lower === "show spanning-tree" || lower === "show stp") {
       terminalLine("", showSwitchSpanningTree(device));
+      return;
+    }
+    if (lower === "show mirror_session" || lower === "show mirror") {
+      terminalLine("", showSwitchMirror(device));
+      return;
+    }
+    const mirrorAddMatch = command.match(/^(?:sudo\s+)?config\s+mirror_session\s+span\s+add\s+(\S+)\s+(\S+)(?:\s+(\S+))?(?:\s+\S+)*$/i);
+    if (mirrorAddMatch) {
+      const result = setSwitchMirror(device, { name: mirrorAddMatch[1], dest: mirrorAddMatch[2], sources: mirrorAddMatch[3] ? mirrorAddMatch[3].split(",") : [] });
+      terminalLine(/^Unknown/.test(result) ? "error" : "", result);
+      return;
+    }
+    const mirrorRemoveMatch = command.match(/^(?:sudo\s+)?config\s+mirror_session\s+remove\s+\S+$/i);
+    if (mirrorRemoveMatch) {
+      terminalLine("", setSwitchMirror(device, null));
       return;
     }
     const stpEnableMatch = command.match(/^(?:sudo\s+)?config\s+spanning_tree\s+(enable|disable)(?:\s+pvst)?$/i);
@@ -9033,6 +9337,103 @@ Address: ${sim.dnsResolvedIp}`);
     }
     if (runIptablesCommand(device, command, FIREWALL_CHAINS)) return;
     terminalLine("error", `${command}: command not found (try "iptables ..." or "help")`);
+  }
+
+  // src/terminal/ids.ts
+  var RULES_FILE = "/etc/snort/rules/local.rules";
+  var ALERT_FILE = "/var/log/snort/alert";
+  var SNORT_VERSION = [
+    "   ,,_     -*> Snort++ <*-",
+    '  o"  )~   Version 3.1.82.0',
+    "   ''''    By Martin Roesch & The Snort Team",
+    "           http://snort.org/contact#team",
+    "           Copyright (C) 2014-2024 Cisco and/or its affiliates. All rights reserved.",
+    "           Copyright (C) 1998-2013 Sourcefire, Inc., et al."
+  ].join("\n");
+  function showIdsRules(device) {
+    const rules = device.config?.idsRules || [];
+    return rules.length ? rules.join("\n") : "# local.rules is empty \u2014 add a rule with: echo 'alert ...' >> " + RULES_FILE;
+  }
+  function showIdsAlerts(device) {
+    const alerts = device.config?.alerts || [];
+    return alerts.length ? alerts.join("\n") : "(no alerts \u2014 run a simulation past the monitored switch)";
+  }
+  function addIdsRule(device, ruleText) {
+    const rule = parseSnortRule(ruleText);
+    if (!rule) return `ERROR: bad rule (expected: alert proto src sport -> dst dport (msg:"..."; sid:N;))`;
+    ensureConfig(device);
+    const cfg = device.config;
+    cfg.idsRules = [...Array.isArray(cfg.idsRules) ? cfg.idsRules : [], rule.raw];
+    return `Loaded rule sid:${rule.sid} (${cfg.idsRules.length} rule${cfg.idsRules.length === 1 ? "" : "s"} in ${RULES_FILE}).`;
+  }
+  function runIdsTerminalCommand(device, command) {
+    const lower = command.toLowerCase().trim();
+    if (lower === "?" || lower === "help") {
+      terminalLine("muted", [
+        "snort -V                                    (version)",
+        "snort -T                                    (test the configuration)",
+        `cat ${RULES_FILE}                           (list rules)`,
+        `echo 'alert ...' >> ${RULES_FILE}           (add a rule)`,
+        `echo -n > ${RULES_FILE}                     (clear rules)`,
+        `cat ${ALERT_FILE}                           (read the alert log)`,
+        `echo -n > ${ALERT_FILE}                     (clear alerts)`,
+        "hostname [<name>]",
+        "clear"
+      ].join("\n"));
+      return;
+    }
+    if (lower === "clear") {
+      state.terminal.lines = [];
+      return;
+    }
+    if (lower === "snort -v" || lower === "snort --version") {
+      terminalLine("", SNORT_VERSION);
+      return;
+    }
+    if (lower === "snort -t" || lower === "snort -t -c /etc/snort/snort.lua") {
+      const rules = device.config?.idsRules || [];
+      const bad = rules.filter((r) => !parseSnortRule(r)).length;
+      terminalLine(bad ? "error" : "", `Loaded ${rules.length - bad} rules${bad ? `, ${bad} with errors` : ""}.
+Snort successfully validated the configuration${bad ? " (with errors)" : "."}`);
+      return;
+    }
+    if (/^cat\s+\/etc\/snort\/rules\/local\.rules$/i.test(command)) {
+      terminalLine("", showIdsRules(device));
+      return;
+    }
+    if (/^cat\s+\/var\/log\/snort\/alert(\.fast)?$/i.test(command)) {
+      terminalLine("", showIdsAlerts(device));
+      return;
+    }
+    const appendMatch = command.match(/^echo\s+(?:-e\s+)?['"]?(.+?)['"]?\s*>>\s*\/etc\/snort\/rules\/local\.rules$/i);
+    if (appendMatch) {
+      const result = addIdsRule(device, appendMatch[1]);
+      terminalLine(result.startsWith("ERROR") ? "error" : "", result);
+      return;
+    }
+    const clearMatch = command.match(/^echo\s+(?:-n\s+)?>\s*(\/etc\/snort\/rules\/local\.rules|\/var\/log\/snort\/alert)$/i);
+    if (clearMatch) {
+      ensureConfig(device);
+      if (clearMatch[1].includes("local.rules")) {
+        device.config.idsRules = [];
+        terminalLine("", "Cleared local.rules.");
+      } else {
+        device.config.alerts = [];
+        terminalLine("", "Cleared the alert log.");
+      }
+      return;
+    }
+    if (lower === "hostname") {
+      terminalLine("", device.name);
+      return;
+    }
+    const hostnameMatch = command.match(/^(?:sudo\s+)?hostname\s+(\S+)$/i);
+    if (hostnameMatch) {
+      const error = applyHostname(device, hostnameMatch[1]);
+      if (error) terminalLine("error", error);
+      return;
+    }
+    terminalLine("error", `${command.split(/\s+/)[0]}: command not found`);
   }
 
   // src/terminal/core.ts
@@ -9197,7 +9598,8 @@ Address: ${sim.dnsResolvedIp}`);
     server: runServerTerminalCommand,
     router: runRouterTerminalCommand,
     switch: runSwitchTerminalCommand,
-    firewall: runFirewallTerminalCommand
+    firewall: runFirewallTerminalCommand,
+    ids: runIdsTerminalCommand
   };
   function hasTerminal(device) {
     return !!device && device.type in CLI_DISPATCH;
@@ -9756,6 +10158,54 @@ Address: ${sim.dnsResolvedIp}`);
       });
     });
   }
+  function renderMirrorSection(device) {
+    const dest = device.config?.mirror?.dest || "";
+    const ports = switchInterfacesWithNames(device);
+    return `
+    <div class="field">
+      <label for="selectedMirror">Port mirroring (SPAN)</label>
+      <select id="selectedMirror" class="mirror-select">
+        <option value="">off</option>
+        ${ports.map((p) => `<option value="${escapeHtml(p.name)}" ${p.name === dest ? "selected" : ""}>${escapeHtml(p.name)}${p.peer ? ` &rarr; ${escapeHtml(p.peer.name)}` : ""}</option>`).join("")}
+      </select>
+      <span class="field-note">Copy all traffic to this monitor port (cable an IDS sensor there).</span>
+    </div>
+  `;
+  }
+  function renderIdsSection(device) {
+    const rules = (device.config?.idsRules || []).join("\n");
+    const alerts = device.config?.alerts || [];
+    return `
+    <p class="field-note">A passive Snort sensor. Cable it to a switch SPAN/monitor port; it inspects the mirrored copy of traffic and raises alerts on rule matches. It is not in the data path, so it can watch but never block.</p>
+    <div class="field">
+      <label for="selectedIdsRules">Rules (/etc/snort/rules/local.rules)</label>
+      <textarea id="selectedIdsRules" class="ids-rules" spellcheck="false" rows="6">${escapeHtml(rules)}</textarea>
+      <span class="field-note">One Snort rule per line, e.g. <code>alert tcp any any -&gt; any 23 (msg:"Telnet"; sid:1000002;)</code></span>
+    </div>
+    <div class="field">
+      <label>Alerts (${alerts.length})</label>
+      <pre class="ids-alerts">${alerts.length ? escapeHtml(alerts.slice(-50).join("\n")) : "(none yet \u2014 run a simulation through the monitored switch)"}</pre>
+      ${alerts.length ? `<button class="wide-button" id="clearIdsAlerts">Clear alerts</button>` : ""}
+    </div>
+  `;
+  }
+  function bindIdsControls(device) {
+    const rules = document.getElementById("selectedIdsRules");
+    if (rules) {
+      captureUndoOnFocus(rules);
+      rules.addEventListener("change", () => {
+        device.config.idsRules = rules.value.split("\n").map((l) => l.trim()).filter(Boolean);
+      });
+    }
+    document.getElementById("clearIdsAlerts")?.addEventListener("click", () => {
+      device.config.alerts = [];
+      syncPanel();
+    });
+  }
+  function bindMirrorControl(device) {
+    const sel = document.getElementById("selectedMirror");
+    if (sel) sel.addEventListener("change", () => setSwitchMirror(device, sel.value ? { dest: sel.value } : null));
+  }
   function bindStpControls(device) {
     const toggle = document.getElementById("selectedStp");
     if (toggle) toggle.addEventListener("change", () => setSwitchStp(device, { enabled: toggle.checked }));
@@ -10148,6 +10598,7 @@ Address: ${sim.dnsResolvedIp}`);
         </div>
       </div>
       ${renderStpSection(selected)}
+      ${renderMirrorSection(selected)}
       ` : ""}
       <div class="field">
         <label>Ports</label>
@@ -10197,6 +10648,7 @@ Address: ${sim.dnsResolvedIp}`);
         ${renderFirewallControls(selected, ["forward"])}
       </div>
     ` : "";
+      const idsConfigFields = selected.type === "ids" ? renderIdsSection(selected) : "";
       const hubConfigFields = selected.type === "hub" ? `
       <p class="field-note">A hub is a layer-1 repeater: it copies every frame out all other ports (no MAC learning, one collision domain).</p>
       <div style="height: 10px"></div>
@@ -10231,7 +10683,7 @@ Address: ${sim.dnsResolvedIp}`);
         </button>
         <div style="height: 10px"></div>
       ` : ""}
-      ${isHost || selected.type === "router" || selected.type === "firewall" || selected.type === "switch" && selected.config?.managed ? `
+      ${isHost || selected.type === "router" || selected.type === "firewall" || selected.type === "ids" || selected.type === "switch" && selected.config?.managed ? `
         <button class="wide-button" id="openSelectedTerminal">
           <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 17l6 -6l-6 -6"></path><path d="M12 19h8"></path></svg>
           Terminal
@@ -10256,6 +10708,7 @@ Address: ${sim.dnsResolvedIp}`);
       ${switchConfigFields}
       ${routerConfigFields}
       ${firewallConfigFields}
+      ${idsConfigFields}
       ${hubConfigFields}
       <div class="pill-row">
         <span class="pill">${selectedType}</span>
@@ -10420,6 +10873,8 @@ Address: ${sim.dnsResolvedIp}`);
       bindPortRemoveButtons();
       bindSwitchPortControls(selected);
       bindStpControls(selected);
+      bindMirrorControl(selected);
+      if (selected.type === "ids") bindIdsControls(selected);
       if (selected.type === "router") bindFirewallControls(selected, ["forward", "input"]);
       if (selected.type === "firewall") bindFirewallControls(selected, ["forward"]);
       const terminalButton = document.getElementById("openSelectedTerminal");
@@ -11053,6 +11508,31 @@ Address: ${sim.dnsResolvedIp}`);
       { kind: "ping", from: "PC-A", to: "PC-B", label: "PC-A can reach PC-B (the loop is broken)" }
     ]
   };
+  var idsMonitor = {
+    id: "ids-monitor",
+    name: "Catch the intruder (IDS + SPAN)",
+    objective: "PC-INTRUDER is telnetting to SRV (an insecure, monitored protocol). A Snort IDS sensor (IDS-1) is already wired into SW-1 and loaded with a Telnet-detection rule, but it isn't seeing any traffic \u2014 a passive sensor only watches a copy of the traffic it's fed. Configure port mirroring (SPAN) on SW-1 to mirror the LAN to the sensor's monitor port (Ethernet3) so it detects the attack. Try the console: `mirror SW-1 Ethernet3`.",
+    topology: {
+      version: 1,
+      devices: [
+        { id: "ids-sw", type: "switch", name: "SW-1", x: 0, y: 0, config: { managed: true, ethernetPorts: 8, macTable: [], vlans: [], portVlans: {}, portModes: {} } },
+        { id: "ids-atk", type: "computer", name: "PC-INTRUDER", x: -280, y: -120, config: { ipv4Address: "10.0.0.66", gatewayIpv4Address: "", macAddress: "02:00:00:00:28:66", arpTable: [] } },
+        { id: "ids-srv", type: "server", name: "SRV", x: 280, y: -120, config: { ipv4Address: "10.0.0.10", gatewayIpv4Address: "", macAddress: "02:00:00:00:28:10", arpTable: [], dnsmasqRunning: false, openPorts: [23] } },
+        { id: "ids-ids", type: "ids", name: "IDS-1", x: 0, y: 180, config: { idsRules: [
+          `alert tcp any any -> any 23 (msg:"Telnet connection attempt"; sid:1000002; rev:1;)`,
+          `alert icmp any any -> any any (msg:"ICMP traffic detected"; itype:8; sid:1000001; rev:1;)`
+        ], alerts: [] } }
+      ],
+      links: [
+        { from: "ids-sw", to: "ids-atk", fromPort: 1 },
+        { from: "ids-sw", to: "ids-srv", fromPort: 2 },
+        { from: "ids-sw", to: "ids-ids", fromPort: 3 }
+      ]
+    },
+    checks: [
+      { kind: "alert", from: "PC-INTRUDER", to: "SRV", port: 23, contains: "Telnet", label: "IDS-1 detects the Telnet attempt" }
+    ]
+  };
   var CURRICULUM = [
     vlanSegmentation,
     routerOnAStick,
@@ -11075,7 +11555,8 @@ Address: ${sim.dnsResolvedIp}`);
     portAuth8021x,
     macsecLink,
     secureAccess,
-    spanningTree
+    spanningTree,
+    idsMonitor
   ];
 
   // src/scenarios.ts
@@ -11189,6 +11670,17 @@ Address: ${sim.dnsResolvedIp}`);
       const setup = buildDhcpEvents(host);
       if (typeof setup === "string") return false;
       return runSimulationHeadless(setup, host.id, "", "dhcp").success;
+    }
+    if (check.kind === "alert") {
+      const from = resolve(check.from);
+      if (!from) return false;
+      const to = resolve(check.to)?.config?.ipv4Address || check.to;
+      for (const d of state.devices) if (d.type === "ids") d.config.alerts = [];
+      const setup = check.port != null ? buildConnectEvents(from, to, check.port) : buildPingEvents(from, to);
+      if (typeof setup === "string") return false;
+      runSimulationHeadless(setup, from.id, to, check.port != null ? "tcp" : "ping", check.port ?? null);
+      const needle = check.contains.toLowerCase();
+      return state.devices.some((d) => d.type === "ids" && (d.config?.alerts || []).some((a) => a.toLowerCase().includes(needle)));
     }
     return false;
   }
@@ -11518,6 +12010,7 @@ Address: ${sim.dnsResolvedIp}`);
     if (event.key.toLowerCase() === "s") setTool("switch");
     if (event.key.toLowerCase() === "r") setTool("router");
     if (event.key.toLowerCase() === "f") setTool("firewall");
+    if (event.key.toLowerCase() === "i") setTool("ids");
     if (event.key.toLowerCase() === "h") setTool("hub");
     if (event.key.toLowerCase() === "l") setTool("connect");
     if (event.key.toLowerCase() === "w") setTool("configure");
@@ -11913,6 +12406,7 @@ Address: ${sim.dnsResolvedIp}`);
             // STP is on by default for managed switches — only persist a deviation
             // (disabled, or a non-default bridge priority). Derived roles never persist.
             ...config?.managed && config?.stp && (config.stp.enabled === false || typeof config.stp.priority === "number" && config.stp.priority !== 32768) ? { stp: normaliseStpConfig(config.stp) } : {},
+            ...config?.managed && normaliseMirror(config?.mirror) ? { mirror: normaliseMirror(config?.mirror) } : {},
             ...macsecPayload(config)
           }
         } : {},
@@ -11936,6 +12430,11 @@ Address: ${sim.dnsResolvedIp}`);
             policy: { forward: config?.policy?.forward === "drop" ? "drop" : "accept" },
             ...macsecPayload(config)
           }
+        } : {},
+        ...type === "ids" ? {
+          // A passive Snort sensor — persist only its rule set (raw Snort lines);
+          // the alert log is runtime, not config.
+          config: { idsRules: normaliseIdsRules(config?.idsRules || []) }
         } : {},
         ...type === "lan" ? {
           config: {
@@ -12551,6 +13050,30 @@ Address: ${sim.dnsResolvedIp}`);
     sync().syncPanel();
     return ok(`${sw.name} is now ${on ? "managed" : "unmanaged"}.`);
   }
+  function cmdMirror(args) {
+    const sw = resolveDevice(args[0]);
+    if (typeof sw === "string") return err(sw);
+    if (sw.type !== "switch" || !sw.config?.managed) return err(`${sw.name} is not a managed switch (port mirroring runs on managed switches).`);
+    const dst = args[1];
+    if (!dst || /^(off|none|remove|clear)$/i.test(dst)) return mutatorResult(setSwitchMirror(sw, null));
+    return mutatorResult(setSwitchMirror(sw, { dest: dst, sources: args.slice(2).filter(Boolean) }));
+  }
+  function cmdIdsRule(args, rest) {
+    const ids = resolveDevice(args[0]);
+    if (typeof ids === "string") return err(ids);
+    if (ids.type !== "ids") return err(`${ids.name} is not an IDS sensor.`);
+    const ruleText = rest.slice(rest.toLowerCase().indexOf(args[0].toLowerCase()) + args[0].length).trim();
+    if (!ruleText) return err("Usage: idsrule <ids> <snort rule>  |  idsrule <ids> clear");
+    if (/^(clear|flush)$/i.test(ruleText)) {
+      ensureConfig(ids);
+      ids.config.idsRules = [];
+      sync().syncPanel();
+      return ok(`${ids.name}: rules cleared.`);
+    }
+    const result = addIdsRule(ids, ruleText);
+    sync().syncPanel();
+    return result.startsWith("ERROR") ? err(result) : ok(result);
+  }
   function cmdStp(args) {
     if (args.length === 0) {
       const setup = buildStpEvents();
@@ -12902,6 +13425,8 @@ Address: ${sim.dnsResolvedIp}`);
     port: cmdPort,
     managed: cmdManaged,
     stp: cmdStp,
+    mirror: cmdMirror,
+    idsrule: cmdIdsRule,
     cli: cmdCli,
     ping: cmdPing,
     dhcp: cmdDhcp,
@@ -12963,6 +13488,8 @@ Address: ${sim.dnsResolvedIp}`);
     port: "port <switch> <EthN> vlan|mode|native|allowed ...",
     managed: "managed <switch> [on|off] (enable the switch's management plane: VLANs, STP, port security)",
     stp: "stp (animate the BPDU exchange) | stp <switch> on|off | stp <switch> priority <n> (default on for managed switches)",
+    mirror: "mirror <switch> <dst-port> [src-port\u2026] | mirror <switch> off (SPAN: copy traffic to a monitor port for an IDS)",
+    idsrule: "idsrule <ids> <snort rule> | idsrule <ids> clear (manage a Snort IDS sensor's rules)",
     cli: "cli <device> <raw CLI command>",
     ping: "ping <src> <dst> (animated)",
     dhcp: "dhcp <host> (animated)",
@@ -13049,6 +13576,10 @@ Address: ${sim.dnsResolvedIp}`);
           if (c.stp.enabled === false) lines.push(`stp ${d.name} off`);
           if (c.stp.priority != null && c.stp.priority !== DEFAULT_BRIDGE_PRIORITY) lines.push(`stp ${d.name} priority ${c.stp.priority}`);
         }
+        if (c.managed && c.mirror?.dest) lines.push(`mirror ${d.name} ${c.mirror.dest}${c.mirror.sources?.length ? " " + c.mirror.sources.join(" ") : ""}`);
+      } else if (d.type === "ids") {
+        lines.push(`idsrule ${d.name} clear`);
+        for (const rule of c.idsRules || []) lines.push(`idsrule ${d.name} ${rule}`);
       } else if (d.type === "router") {
         for (const i of c.interfaces || []) {
           const peer = idToName.get(i.peerId);

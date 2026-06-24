@@ -86,6 +86,8 @@ Param keys and boolean values are case-insensitive. Adding a setting is a one-ro
 | `port <switch> <EthN> mode <access\|trunk>` | Port mode. |
 | `port <switch> <EthN> native <id>` | Trunk native VLAN. |
 | `port <switch> <EthN> allowed add\|remove <id>` | Trunk allowed VLANs. |
+| `mirror <switch> <dst-port> [src…]` / `mirror <switch> off` | Set/clear a SPAN session on a managed switch: mirror ingress frames to the `dst-port` monitor port (no `src…` = all ports). Realistic equivalent `config mirror_session span add <name> <dst> [src]`. |
+| `idsrule <ids> <snort rule>` / `idsrule <ids> clear` | Append a raw Snort rule to an IDS sensor's `local.rules` / remove every rule. |
 | `cli <ref> <raw CLI…>` | Run a raw per-device CLI command (the device terminal language; mode persists across `cli` calls to the same device). |
 
 ### Simulation
@@ -180,7 +182,7 @@ routesim.exec("clear");
 routesim.run(script);               // recreates the identical topology
 ```
 
-This is the completeness guarantee — the command set can express everything the GUI can build. The export emits `managed <name>` (before a switch's VLAN/STP config) and only the STP deviations — `stp <name> off` or `stp <name> priority <n>` — since the default-on, default-priority spanning tree round-trips implicitly.
+This is the completeness guarantee — the command set can express everything the GUI can build. The export emits `managed <name>` (before a switch's VLAN/STP config) and only the STP deviations — `stp <name> off` or `stp <name> priority <n>` — since the default-on, default-priority spanning tree round-trips implicitly. A switch's SPAN session emits `mirror <name> <dst>`; an IDS sensor emits `idsrule <name> clear` followed by one `idsrule <name> <rule>` per rule (so the device's default rule set is re-established exactly).
 
 ## Headless vs animated
 

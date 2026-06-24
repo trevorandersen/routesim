@@ -9,7 +9,7 @@ import { DEVICE_SPECS, freshNameCounters } from "./device-registry";
 // they resolve as. (Unmanaged switches and hubs have no shell; LANs are groups.)
 export function hasHostname(device: Device): boolean {
   if (device.type === "switch") return !!device.config?.managed;
-  return ["computer", "laptop", "server", "router", "firewall"].includes(device.type);
+  return ["computer", "laptop", "server", "router", "firewall", "ids"].includes(device.type);
 }
 
 // Set a CLI device's hostname, which IS its canvas name. Validates against the
@@ -51,7 +51,7 @@ export function addDevice(type: DeviceType, x: number, y: number, name?: string)
 
 // Tools that place a device on a canvas click. "managed-switch" is a UI variant
 // of the switch tool (the Switch tool group), not a distinct device type.
-export const PLACEMENT_TOOLS = new Set(["computer", "laptop", "server", "dns-server", "dhcp-server", "radius-server", "web-server", "switch", "managed-switch", "router", "firewall", "hub", "access-point"]);
+export const PLACEMENT_TOOLS = new Set(["computer", "laptop", "server", "dns-server", "dhcp-server", "radius-server", "web-server", "switch", "managed-switch", "router", "firewall", "ids", "hub", "access-point"]);
 
 // The Server tool group places a `server` pre-configured for a role. They are all
 // the same `server` device type — so the inspector, frame processing, and
@@ -103,12 +103,12 @@ export function placeToolDevice(tool: string, x: number, y: number): Device {
   return addDevice(tool as DeviceType, x, y);
 }
 
-// Hosts (computer/server) model a single NIC (eth0), so they take at most one
-// cable. Returns the offending device's name when fully cabled, else null.
-// (Multi-NIC hosts are a future option — see ROADMAP.)
+// Hosts (computer/server) and the IDS sensor model a single NIC, so they take at
+// most one cable. Returns the offending device's name when fully cabled, else
+// null. (Multi-NIC hosts are a future option — see ROADMAP.)
 function hostNicTaken(deviceId: string): string | null {
   const device = getDevice(deviceId);
-  if (!device || !["computer", "laptop", "server"].includes(device.type)) return null;
+  if (!device || !["computer", "laptop", "server", "ids"].includes(device.type)) return null;
   // Count ANY link, including a hidden one: a host collapsed into a LAN still
   // holds its single cable, so it must not be linkable again (the console `link`
   // command resolves by name regardless of collapse state).

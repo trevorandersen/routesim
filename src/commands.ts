@@ -22,7 +22,7 @@ import { buildPingEvents, buildDhcpEvents, buildConnectEvents, buildResolveEvent
 import { DEFAULT_BRIDGE_PRIORITY } from "./stp";
 import {
   setHostIp, setHostGateway, setHostDns, setRouterInterfaceIp, addSwitchVlan, removeSwitchVlan,
-  setSwitchPortVlan, setSwitchPortMode, setSwitchTrunkNative, modifySwitchTrunkAllowed,
+  setSwitchPortVlan, setSwitchPortMode, setSwitchTrunkNative, modifySwitchTrunkAllowed, setSwitchMirror, addIdsRule,
   runTerminalCommand, ensureSession,
 } from "./terminal";
 import { buildConfigPayload, applyConfig, loadTopology } from "./config";
@@ -498,6 +498,30 @@ function cmdManaged(args: string[]): CommandResult {
   return ok(`${sw.name} is now ${on ? "managed" : "unmanaged"}.`);
 }
 
+// SPAN port mirroring on a managed switch: `mirror <switch> <dst> [src...]`,
+// or `mirror <switch> off` to remove. Copies traffic to a monitor port (IDS).
+function cmdMirror(args: string[]): CommandResult {
+  const sw = resolveDevice(args[0]);
+  if (typeof sw === "string") return err(sw);
+  if (sw.type !== "switch" || !sw.config?.managed) return err(`${sw.name} is not a managed switch (port mirroring runs on managed switches).`);
+  const dst = args[1];
+  if (!dst || /^(off|none|remove|clear)$/i.test(dst)) return mutatorResult(setSwitchMirror(sw, null));
+  return mutatorResult(setSwitchMirror(sw, { dest: dst, sources: args.slice(2).filter(Boolean) }));
+}
+
+// Add a Snort rule to an IDS sensor (or `idsrule <ids> clear` to flush).
+function cmdIdsRule(args: string[], rest: string): CommandResult {
+  const ids = resolveDevice(args[0]);
+  if (typeof ids === "string") return err(ids);
+  if (ids.type !== "ids") return err(`${ids.name} is not an IDS sensor.`);
+  const ruleText = rest.slice(rest.toLowerCase().indexOf(args[0].toLowerCase()) + args[0].length).trim();
+  if (!ruleText) return err("Usage: idsrule <ids> <snort rule>  |  idsrule <ids> clear");
+  if (/^(clear|flush)$/i.test(ruleText)) { ensureConfig(ids); (ids.config as any).idsRules = []; sync().syncPanel(); return ok(`${ids.name}: rules cleared.`); }
+  const result = addIdsRule(ids, ruleText);
+  sync().syncPanel();
+  return result.startsWith("ERROR") ? err(result) : ok(result);
+}
+
 // Spanning tree: no args animates the BPDU exchange; `stp <switch> on|off` or
 // `stp <switch> priority <n>` configures a managed switch.
 function cmdStp(args: string[]): CommandResult {
@@ -808,7 +832,7 @@ const COMMANDS: Record<string, Handler> = {
   move: cmdMove, rename: cmdRename, clear: cmdClear, collapse: cmdCollapse, expand: cmdExpand,
   ip: cmdIp, gateway: cmdGateway, nameserver: cmdNameserver, mac: cmdMac, ssid: cmdSsid, interface: cmdInterface, route: cmdRoute,
   supplicant: cmdSupplicant, portauth: cmdPortAuth, radius: cmdRadius, ports: cmdPorts, dot1x: cmdDot1x, macsec: cmdMacsec,
-  vlan: cmdVlan, port: cmdPort, managed: cmdManaged, stp: cmdStp, cli: cmdCli,
+  vlan: cmdVlan, port: cmdPort, managed: cmdManaged, stp: cmdStp, mirror: cmdMirror, idsrule: cmdIdsRule, cli: cmdCli,
   ping: cmdPing, dhcp: cmdDhcp, connect: cmdConnect, associate: cmdAssociate, run: cmdRun, traceroute: cmdTraceroute, tracert: cmdTraceroute,
   play: cmdPlay, pause: cmdPause, step: cmdStep,
   stop: cmdStop, speed: cmdSpeed,
@@ -838,6 +862,8 @@ const HELP: Record<string, string> = {
   vlan: "vlan <switch> add|del <id>", port: "port <switch> <EthN> vlan|mode|native|allowed ...",
   managed: "managed <switch> [on|off] (enable the switch's management plane: VLANs, STP, port security)",
   stp: "stp (animate the BPDU exchange) | stp <switch> on|off | stp <switch> priority <n> (default on for managed switches)",
+  mirror: "mirror <switch> <dst-port> [src-port…] | mirror <switch> off (SPAN: copy traffic to a monitor port for an IDS)",
+  idsrule: "idsrule <ids> <snort rule> | idsrule <ids> clear (manage a Snort IDS sensor's rules)",
   cli: "cli <device> <raw CLI command>",
   ping: "ping <src> <dst> (animated)", dhcp: "dhcp <host> (animated)", connect: "connect <src> <dst> <port> (animated TCP handshake)",
   associate: "associate <laptop> (animate the 802.11 join: probe/auth/assoc + WPA2 if secured)",
@@ -926,6 +952,12 @@ export function exportTopologyScript(): string {
         if (c.stp.enabled === false) lines.push(`stp ${d.name} off`);
         if (c.stp.priority != null && c.stp.priority !== DEFAULT_BRIDGE_PRIORITY) lines.push(`stp ${d.name} priority ${c.stp.priority}`);
       }
+      // SPAN port mirroring (the IDS link's explicit ports — emitted below — keep the dest valid).
+      if (c.managed && c.mirror?.dest) lines.push(`mirror ${d.name} ${c.mirror.dest}${c.mirror.sources?.length ? " " + c.mirror.sources.join(" ") : ""}`);
+    } else if (d.type === "ids") {
+      // Reset the default rule set, then re-add the exact local.rules contents.
+      lines.push(`idsrule ${d.name} clear`);
+      for (const rule of (c.idsRules || [])) lines.push(`idsrule ${d.name} ${rule}`);
     } else if (d.type === "router") {
       for (const i of (c.interfaces || [])) {
         const peer = idToName.get(i.peerId);

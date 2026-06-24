@@ -11,7 +11,7 @@ import {
 } from "./devices";
 import {
   openTerminalFor, syncTerminal, runDeviceCommand,
-  addSwitchVlan, removeSwitchVlan, setSwitchPortVlan, setSwitchPortMode, setSwitchTrunkNative, setSwitchStp
+  addSwitchVlan, removeSwitchVlan, setSwitchPortVlan, setSwitchPortMode, setSwitchTrunkNative, setSwitchStp, setSwitchMirror
 } from "./terminal";
 import { resizeCanvas } from "./canvas";
 import { frameLabel } from "./frame";
@@ -532,6 +532,64 @@ export function bindPortRemoveButtons(): void {
   });
 }
 
+// SPAN port mirroring control (managed switches): a dropdown to pick the monitor
+// port that an IDS listens on, or "off".
+export function renderMirrorSection(device: any): string {
+  const dest = device.config?.mirror?.dest || "";
+  const ports = switchInterfacesWithNames(device);
+  return `
+    <div class="field">
+      <label for="selectedMirror">Port mirroring (SPAN)</label>
+      <select id="selectedMirror" class="mirror-select">
+        <option value="">off</option>
+        ${ports.map((p: any) => `<option value="${escapeHtml(p.name)}" ${p.name === dest ? "selected" : ""}>${escapeHtml(p.name)}${p.peer ? ` &rarr; ${escapeHtml(p.peer.name)}` : ""}</option>`).join("")}
+      </select>
+      <span class="field-note">Copy all traffic to this monitor port (cable an IDS sensor there).</span>
+    </div>
+  `;
+}
+
+// The IDS sensor panel: the Snort rule set (editable as local.rules) and the
+// alert log. Wired by bindIdsControls.
+export function renderIdsSection(device: any): string {
+  const rules = (device.config?.idsRules || []).join("\n");
+  const alerts: string[] = device.config?.alerts || [];
+  return `
+    <p class="field-note">A passive Snort sensor. Cable it to a switch SPAN/monitor port; it inspects the mirrored copy of traffic and raises alerts on rule matches. It is not in the data path, so it can watch but never block.</p>
+    <div class="field">
+      <label for="selectedIdsRules">Rules (/etc/snort/rules/local.rules)</label>
+      <textarea id="selectedIdsRules" class="ids-rules" spellcheck="false" rows="6">${escapeHtml(rules)}</textarea>
+      <span class="field-note">One Snort rule per line, e.g. <code>alert tcp any any -&gt; any 23 (msg:"Telnet"; sid:1000002;)</code></span>
+    </div>
+    <div class="field">
+      <label>Alerts (${alerts.length})</label>
+      <pre class="ids-alerts">${alerts.length ? escapeHtml(alerts.slice(-50).join("\n")) : "(none yet — run a simulation through the monitored switch)"}</pre>
+      ${alerts.length ? `<button class="wide-button" id="clearIdsAlerts">Clear alerts</button>` : ""}
+    </div>
+  `;
+}
+
+// Wires the IDS rule editor (commit on blur) and the clear-alerts button.
+export function bindIdsControls(device: any): void {
+  const rules = document.getElementById("selectedIdsRules") as HTMLTextAreaElement | null;
+  if (rules) {
+    captureUndoOnFocus(rules as any);
+    rules.addEventListener("change", () => {
+      device.config.idsRules = rules.value.split("\n").map(l => l.trim()).filter(Boolean);
+    });
+  }
+  document.getElementById("clearIdsAlerts")?.addEventListener("click", () => {
+    device.config.alerts = [];
+    syncPanel();
+  });
+}
+
+// Wires the managed-switch SPAN mirror dropdown.
+export function bindMirrorControl(device: any): void {
+  const sel = document.getElementById("selectedMirror") as HTMLSelectElement | null;
+  if (sel) sel.addEventListener("change", () => setSwitchMirror(device, sel.value ? { dest: sel.value } : null));
+}
+
 // Wires the spanning-tree enable toggle and bridge-priority field (managed
 // switches). setSwitchStp pushUndo()s, reconverges, and re-syncs the panel.
 export function bindStpControls(device: any): void {
@@ -919,6 +977,7 @@ export function syncPanel(): void {
         </div>
       </div>
       ${renderStpSection(selected)}
+      ${renderMirrorSection(selected)}
       ` : ""}
       <div class="field">
         <label>Ports</label>
@@ -968,6 +1027,7 @@ export function syncPanel(): void {
         ${renderFirewallControls(selected, ["forward"])}
       </div>
     ` : "";
+    const idsConfigFields = selected.type === "ids" ? renderIdsSection(selected) : "";
     const hubConfigFields = selected.type === "hub" ? `
       <p class="field-note">A hub is a layer-1 repeater: it copies every frame out all other ports (no MAC learning, one collision domain).</p>
       <div style="height: 10px"></div>
@@ -1002,7 +1062,7 @@ export function syncPanel(): void {
         </button>
         <div style="height: 10px"></div>
       ` : ""}
-      ${(isHost || selected.type === "router" || selected.type === "firewall" || (selected.type === "switch" && selected.config?.managed)) ? `
+      ${(isHost || selected.type === "router" || selected.type === "firewall" || selected.type === "ids" || (selected.type === "switch" && selected.config?.managed)) ? `
         <button class="wide-button" id="openSelectedTerminal">
           <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 17l6 -6l-6 -6"></path><path d="M12 19h8"></path></svg>
           Terminal
@@ -1027,6 +1087,7 @@ export function syncPanel(): void {
       ${switchConfigFields}
       ${routerConfigFields}
       ${firewallConfigFields}
+      ${idsConfigFields}
       ${hubConfigFields}
       <div class="pill-row">
         <span class="pill">${selectedType}</span>
@@ -1197,6 +1258,8 @@ export function syncPanel(): void {
     bindPortRemoveButtons();
     bindSwitchPortControls(selected);
     bindStpControls(selected);
+    bindMirrorControl(selected);
+    if (selected.type === "ids") bindIdsControls(selected);
     if (selected.type === "router") bindFirewallControls(selected, ["forward", "input"]);
     if (selected.type === "firewall") bindFirewallControls(selected, ["forward"]);
     const terminalButton = document.getElementById("openSelectedTerminal");

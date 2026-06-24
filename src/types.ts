@@ -1,4 +1,4 @@
-export type DeviceType = "computer" | "laptop" | "server" | "switch" | "router" | "firewall" | "hub" | "access-point" | "lan";
+export type DeviceType = "computer" | "laptop" | "server" | "switch" | "router" | "firewall" | "hub" | "access-point" | "ids" | "lan";
 export type PortMode = "access" | "trunk";
 
 export interface Point {
@@ -219,6 +219,30 @@ export interface SwitchConfig {
   portAuth?: Record<string, "auto" | "force-authorized" | "force-unauthorized">;
   // Spanning Tree on this managed switch (default enabled). See StpConfig.
   stp?: StpConfig;
+  // Port mirroring (SPAN): copy traffic to a monitor port (where an IDS listens).
+  mirror?: MirrorSession;
+}
+
+// A SPAN (port-mirroring) session on a managed switch: copy traffic from the
+// source ports (or every port, when `sources` is empty/absent) to the `dest`
+// monitor port. The monitor port carries only mirrored traffic — it is excluded
+// from normal forwarding. Modelled on SONiC `config mirror_session span add`.
+export interface MirrorSession {
+  name: string;
+  dest: string;        // monitor port, e.g. "Ethernet8"
+  sources?: string[];  // mirrored source ports; empty/absent = all ports
+}
+
+// A passive Snort IDS sensor (network monitor). It attaches to a switch's SPAN
+// monitor port, watches the mirrored copy of traffic, and raises alerts when a
+// frame matches a rule — it is never in the data path, so it cannot drop. Rules
+// are stored as raw Snort rule text (the `local.rules` file); alerts are runtime
+// fast-format log lines (not serialised).
+export interface IdsConfig {
+  // `idsRules` (not `rules`) to avoid colliding with FirewallConfig.rules in the
+  // permissive DeviceConfig superset.
+  idsRules?: string[];   // Snort rule lines (local.rules)
+  alerts?: string[];     // fast-alert log lines (runtime; not persisted)
 }
 
 // One PAT (overload) translation: an inside flow mapped onto the router's
@@ -298,7 +322,7 @@ export interface MacsecConfig {
 // access sites compile unchanged, while typos and wrong field types are caught.
 // The strict per-type interfaces above type the normalise layer and the
 // asComputer/asSwitch/asRouter/asLan accessors.
-export type DeviceConfig = Partial<ComputerConfig & ServerConfig & SwitchConfig & RouterConfig & FirewallConfig & HubConfig & WifiConfig & MacsecConfig & LanConfig>;
+export type DeviceConfig = Partial<ComputerConfig & ServerConfig & SwitchConfig & RouterConfig & FirewallConfig & HubConfig & WifiConfig & MacsecConfig & IdsConfig & LanConfig>;
 
 export interface DragState {
   id: string;

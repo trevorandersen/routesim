@@ -70,6 +70,8 @@ export function showSwitchRunningConfig(device: Device): string {
   const stp = device.config?.stp;
   if (stp?.enabled === false) lines.push(`config spanning_tree disable`);
   if (stp?.priority != null && stp.priority !== 32768) lines.push(`config spanning_tree priority ${stp.priority}`);
+  const mir = device.config?.mirror;
+  if (mir?.dest) lines.push(`config mirror_session span add ${mir.name || "MON"} ${mir.dest}${mir.sources?.length ? " " + mir.sources.join(",") : ""}`);
   for (const vlan of vlans) lines.push(`config vlan add ${vlan.id}`);
   for (const iface of interfaces) {
     if (iface.mode === "trunk") {
@@ -108,6 +110,36 @@ export function showSwitchSpanningTree(device: Device): string {
       ].join("");
     }),
   ].join("\n");
+}
+
+// SONiC `show mirror_session` — the SPAN port-mirroring session, if any.
+export function showSwitchMirror(device: Device): string {
+  const m = device.config?.mirror;
+  if (!m?.dest) return "No mirror sessions configured.";
+  const src = m.sources && m.sources.length ? m.sources.join(",") : "all";
+  return [
+    "Name  Status  SRC Port  DST Port  Direction",
+    `${(m.name || "MON").padEnd(6)}${"active".padEnd(8)}${src.padEnd(10)}${m.dest.padEnd(10)}rx`,
+  ].join("\n");
+}
+
+// Configure (or clear) a SPAN session: mirror source ports (or all, when sources
+// is empty) to a monitor destination port. Shared by the CLI + the console
+// `mirror` command. Validates the ports against the switch's interface list.
+export function setSwitchMirror(device: Device, change: { name?: string; dest: string; sources?: string[] } | null): string {
+  pushUndo();
+  ensureConfig(device);
+  const cfg: any = device.config;
+  if (change === null) { delete cfg.mirror; sync().syncPanel(); sync().render(); return "Mirror session removed."; }
+  const valid = (p: string) => !!switchIfaceByName(device, p);
+  if (!valid(change.dest)) return `Unknown interface ${change.dest}.`;
+  const sources = (change.sources || []).filter(Boolean);
+  for (const s of sources) if (!valid(s)) return `Unknown interface ${s}.`;
+  cfg.mirror = { name: change.name || "MON", dest: switchIfaceByName(device, change.dest).name, ...(sources.length ? { sources: sources.map(s => switchIfaceByName(device, s).name) } : {}) };
+  sync().syncPanel();
+  sync().render();
+  const srcLabel = sources.length ? sources.join(",") : "all ports";
+  return `Mirroring ${srcLabel} to ${cfg.mirror.dest}.`;
 }
 
 // Enable/disable spanning tree or set the bridge priority (shared by the CLI and
@@ -340,6 +372,9 @@ export function runSwitchTerminalCommand(device: Device, command: string): void 
       "show spanning_tree",
       "config spanning_tree enable | disable",
       "config spanning_tree priority <0-61440>",
+      "show mirror_session",
+      "config mirror_session span add <name> <dst-port> [src-port]   (SPAN to a monitor port)",
+      "config mirror_session remove <name>",
       "config hostname <name>",
       "clear"
     ].join("\n"));
@@ -367,6 +402,22 @@ export function runSwitchTerminalCommand(device: Device, command: string): void 
   }
   if (lower === "show spanning_tree" || lower === "show spanning-tree" || lower === "show stp") {
     terminalLine("", showSwitchSpanningTree(device));
+    return;
+  }
+  if (lower === "show mirror_session" || lower === "show mirror") {
+    terminalLine("", showSwitchMirror(device));
+    return;
+  }
+  // SONiC `config mirror_session span add <name> <dst> [src] [dir]` (only dst + src used).
+  const mirrorAddMatch = command.match(/^(?:sudo\s+)?config\s+mirror_session\s+span\s+add\s+(\S+)\s+(\S+)(?:\s+(\S+))?(?:\s+\S+)*$/i);
+  if (mirrorAddMatch) {
+    const result = setSwitchMirror(device, { name: mirrorAddMatch[1], dest: mirrorAddMatch[2], sources: mirrorAddMatch[3] ? mirrorAddMatch[3].split(",") : [] });
+    terminalLine(/^Unknown/.test(result) ? "error" : "", result);
+    return;
+  }
+  const mirrorRemoveMatch = command.match(/^(?:sudo\s+)?config\s+mirror_session\s+remove\s+\S+$/i);
+  if (mirrorRemoveMatch) {
+    terminalLine("", setSwitchMirror(device, null));
     return;
   }
   const stpEnableMatch = command.match(/^(?:sudo\s+)?config\s+spanning_tree\s+(enable|disable)(?:\s+pvst)?$/i);

@@ -14,7 +14,8 @@ import { state } from "./state";
 import { dom } from "./dom";
 import { getDevice } from "./devices";
 import { worldToScreen, render } from "./canvas";
-import { closeDock } from "./terminal";
+import { closeDock, openTerminalFor, runTerminalCommand } from "./terminal";
+import { setNetworkPanel, syncPanel } from "./inspector";
 import { runConsoleCommand } from "./commands";
 
 // ── Timing (ms) ──────────────────────────────────────────────────────────────
@@ -36,15 +37,19 @@ export interface Step {
 }
 
 // ── Geometry helpers ─────────────────────────────────────────────────────────
-// Viewport position of a ribbon button by its data-tool / selector.
+// Viewport position of an element by selector (a ribbon button, an inspector
+// field, the terminal input). Returns null for a missing or unrendered (zero-
+// rect, e.g. on an inactive ribbon tab) element so the cursor stays put.
 function elPoint(selector: string): () => { x: number; y: number } | null {
   return () => {
     const el = document.querySelector(selector) as HTMLElement | null;
     if (!el) return null;
     const r = el.getBoundingClientRect();
+    if (r.width === 0 && r.height === 0) return null;
     return { x: r.left + r.width / 2, y: r.top + r.height / 2 };
   };
 }
+const fieldPoint = (id: string) => elPoint(`#${id}`);
 // Viewport position of a world coordinate (where a device will be / is).
 function worldPoint(x: number, y: number): () => { x: number; y: number } {
   return () => {
@@ -63,6 +68,18 @@ function devicePoint(name: string): () => { x: number; y: number } | null {
 }
 
 const exec = (line: string) => runConsoleCommand(line);
+
+// Select a device AND open the inspector, so its config fields are on screen.
+function inspect(name: string): void {
+  exec(`select ${name}`);
+  setNetworkPanel(true);
+  syncPanel();   // make sure the panel shows the selected device's fields
+}
+// Open a device's terminal in the dock (so the ping runs in a real shell).
+function openDeviceTerminal(name: string): void {
+  const d = state.devices.find(dev => dev.name === name);
+  if (d) openTerminalFor(d);
+}
 
 // ── The demo: two LANs joined by a router ────────────────────────────────────
 // Layout is centred on the world origin; startTutorial pins scale/pan so these
@@ -92,15 +109,21 @@ export function buildSteps(): Step[] {
     { caption: "Uplink the router to the right switch.", point: devicePoint("SW2"), action: () => exec("link R1 SW2") },
     { caption: "And cable PC-B to its switch.", point: devicePoint("PC-B"), action: () => exec("link SW2 PC-B") },
 
-    { caption: "Give the router an address on each LAN — these are the two gateways.", point: devicePoint("R1"), action: () => { exec("select R1"); exec("interface R1 SW1 ip 192.168.1.1/24"); } },
-    { caption: "192.168.1.1 faces the left LAN; 192.168.2.1 faces the right.", point: devicePoint("R1"), action: () => exec("interface R1 SW2 ip 192.168.2.1/24"), noClick: true },
+    { caption: "Select the router to open its settings on the right.", point: devicePoint("R1"), action: () => inspect("R1") },
+    { caption: "Give it an address on each LAN — 192.168.1.1 and 192.168.2.1, the two gateways. They fill into the inspector.", point: devicePoint("R1"), action: () => { exec("interface R1 SW1 ip 192.168.1.1/24"); exec("interface R1 SW2 ip 192.168.2.1/24"); syncPanel(); }, noClick: true, hold: HOLD_LONG },
 
-    { caption: "Configure PC-A: an address on the left subnet, with the router as its default gateway.", point: devicePoint("PC-A"), action: () => { exec("select PC-A"); exec("ip PC-A 192.168.1.10/24"); exec("gateway PC-A 192.168.1.1"); } },
-    { caption: "And PC-B on the right subnet, pointing at its own gateway.", point: devicePoint("PC-B"), action: () => { exec("select PC-B"); exec("ip PC-B 192.168.2.10/24"); exec("gateway PC-B 192.168.2.1"); } },
+    { caption: "Select PC-A — its settings open in the inspector.", point: devicePoint("PC-A"), action: () => inspect("PC-A") },
+    { caption: "Set its IPv4 address — 192.168.1.10 on the left subnet — and watch the inspector field fill in.", point: fieldPoint("selectedIpv4"), action: () => { exec("ip PC-A 192.168.1.10/24"); syncPanel(); } },
+    { caption: "And its default gateway — the router's address on this LAN.", point: fieldPoint("selectedGateway"), action: () => { exec("gateway PC-A 192.168.1.1"); syncPanel(); } },
 
-    { caption: "Now ping across the router. Watch the ARP and ICMP frames hop PC-A -> switch -> router -> switch -> PC-B.", point: devicePoint("PC-A"), action: () => { exec("speed 650"); exec("select PC-A"); exec("ping PC-A PC-B"); closeDock(); /* keep the canvas (not the packet list) in view */ }, waitForSim: true, hold: 400 },
+    { caption: "Now PC-B — select it.", point: devicePoint("PC-B"), action: () => inspect("PC-B") },
+    { caption: "Its address on the right subnet, 192.168.2.10.", point: fieldPoint("selectedIpv4"), action: () => { exec("ip PC-B 192.168.2.10/24"); syncPanel(); } },
+    { caption: "And its gateway, on the right LAN.", point: fieldPoint("selectedGateway"), action: () => { exec("gateway PC-B 192.168.2.1"); syncPanel(); } },
 
-    { caption: "Done — PC-A reached PC-B across the router. Replay to watch again, or exit and keep exploring this network.", noClick: true, hold: HOLD_LONG },
+    { caption: "Open PC-A's terminal to test the link — a real shell, like Linux.", point: devicePoint("PC-A"), action: () => openDeviceTerminal("PC-A") },
+    { caption: "Run \"ping PC-B\". Watch the ARP and ICMP frames hop PC-A -> switch -> router -> switch -> PC-B.", point: elPoint("#terminalInput"), action: () => { exec("speed 650"); runTerminalCommand("ping PC-B"); }, waitForSim: true, hold: 600 },
+
+    { caption: "Done — PC-A reached PC-B across the router, all by hand. Step back/forward to review, replay to watch again, or exit and keep exploring.", noClick: true, hold: HOLD_LONG },
   ];
 }
 

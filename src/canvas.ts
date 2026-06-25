@@ -34,6 +34,7 @@ const canvas = dom.canvas;
 const ctx = dom.ctx;
 
 export function resizeCanvas(): void {
+  if (!ctx) return;   // no 2D context (e.g. headless tests) — nothing to size or draw
   const rect = canvas.getBoundingClientRect();
   const dpr = Math.max(1, window.devicePixelRatio || 1);
   canvas.width = Math.floor(rect.width * dpr);

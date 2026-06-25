@@ -5602,6 +5602,7 @@ Full legal text: https://creativecommons.org/publicdomain/zero/1.0/legalcode</pr
   var canvas = dom.canvas;
   var ctx = dom.ctx;
   function resizeCanvas() {
+    if (!ctx) return;
     const rect = canvas.getBoundingClientRect();
     const dpr = Math.max(1, window.devicePixelRatio || 1);
     canvas.width = Math.floor(rect.width * dpr);
@@ -14465,9 +14466,11 @@ Snort successfully validated the configuration${bad ? " (with errors)" : "."}`);
       const el = document.querySelector(selector);
       if (!el) return null;
       const r = el.getBoundingClientRect();
+      if (r.width === 0 && r.height === 0) return null;
       return { x: r.left + r.width / 2, y: r.top + r.height / 2 };
     };
   }
+  var fieldPoint = (id) => elPoint(`#${id}`);
   function worldPoint(x, y) {
     return () => {
       const r = dom.canvas.getBoundingClientRect();
@@ -14483,6 +14486,15 @@ Snort successfully validated the configuration${bad ? " (with errors)" : "."}`);
     };
   }
   var exec = (line) => runConsoleCommand(line);
+  function inspect(name) {
+    exec(`select ${name}`);
+    setNetworkPanel(true);
+    syncPanel();
+  }
+  function openDeviceTerminal(name) {
+    const d = state.devices.find((dev) => dev.name === name);
+    if (d) openTerminalFor(d);
+  }
   var R = { x: 0, y: 0 };
   var SW1 = { x: -230, y: 95 };
   var SW2 = { x: 230, y: 95 };
@@ -14504,28 +14516,36 @@ Snort successfully validated the configuration${bad ? " (with errors)" : "."}`);
       { caption: "Uplink the left switch to the router.", point: devicePoint("R1"), action: () => exec("link SW1 R1") },
       { caption: "Uplink the router to the right switch.", point: devicePoint("SW2"), action: () => exec("link R1 SW2") },
       { caption: "And cable PC-B to its switch.", point: devicePoint("PC-B"), action: () => exec("link SW2 PC-B") },
-      { caption: "Give the router an address on each LAN \u2014 these are the two gateways.", point: devicePoint("R1"), action: () => {
-        exec("select R1");
+      { caption: "Select the router to open its settings on the right.", point: devicePoint("R1"), action: () => inspect("R1") },
+      { caption: "Give it an address on each LAN \u2014 192.168.1.1 and 192.168.2.1, the two gateways. They fill into the inspector.", point: devicePoint("R1"), action: () => {
         exec("interface R1 SW1 ip 192.168.1.1/24");
-      } },
-      { caption: "192.168.1.1 faces the left LAN; 192.168.2.1 faces the right.", point: devicePoint("R1"), action: () => exec("interface R1 SW2 ip 192.168.2.1/24"), noClick: true },
-      { caption: "Configure PC-A: an address on the left subnet, with the router as its default gateway.", point: devicePoint("PC-A"), action: () => {
-        exec("select PC-A");
+        exec("interface R1 SW2 ip 192.168.2.1/24");
+        syncPanel();
+      }, noClick: true, hold: HOLD_LONG },
+      { caption: "Select PC-A \u2014 its settings open in the inspector.", point: devicePoint("PC-A"), action: () => inspect("PC-A") },
+      { caption: "Set its IPv4 address \u2014 192.168.1.10 on the left subnet \u2014 and watch the inspector field fill in.", point: fieldPoint("selectedIpv4"), action: () => {
         exec("ip PC-A 192.168.1.10/24");
+        syncPanel();
+      } },
+      { caption: "And its default gateway \u2014 the router's address on this LAN.", point: fieldPoint("selectedGateway"), action: () => {
         exec("gateway PC-A 192.168.1.1");
+        syncPanel();
       } },
-      { caption: "And PC-B on the right subnet, pointing at its own gateway.", point: devicePoint("PC-B"), action: () => {
-        exec("select PC-B");
+      { caption: "Now PC-B \u2014 select it.", point: devicePoint("PC-B"), action: () => inspect("PC-B") },
+      { caption: "Its address on the right subnet, 192.168.2.10.", point: fieldPoint("selectedIpv4"), action: () => {
         exec("ip PC-B 192.168.2.10/24");
-        exec("gateway PC-B 192.168.2.1");
+        syncPanel();
       } },
-      { caption: "Now ping across the router. Watch the ARP and ICMP frames hop PC-A -> switch -> router -> switch -> PC-B.", point: devicePoint("PC-A"), action: () => {
+      { caption: "And its gateway, on the right LAN.", point: fieldPoint("selectedGateway"), action: () => {
+        exec("gateway PC-B 192.168.2.1");
+        syncPanel();
+      } },
+      { caption: "Open PC-A's terminal to test the link \u2014 a real shell, like Linux.", point: devicePoint("PC-A"), action: () => openDeviceTerminal("PC-A") },
+      { caption: 'Run "ping PC-B". Watch the ARP and ICMP frames hop PC-A -> switch -> router -> switch -> PC-B.', point: elPoint("#terminalInput"), action: () => {
         exec("speed 650");
-        exec("select PC-A");
-        exec("ping PC-A PC-B");
-        closeDock();
-      }, waitForSim: true, hold: 400 },
-      { caption: "Done \u2014 PC-A reached PC-B across the router. Replay to watch again, or exit and keep exploring this network.", noClick: true, hold: HOLD_LONG }
+        runTerminalCommand("ping PC-B");
+      }, waitForSim: true, hold: 600 },
+      { caption: "Done \u2014 PC-A reached PC-B across the router, all by hand. Step back/forward to review, replay to watch again, or exit and keep exploring.", noClick: true, hold: HOLD_LONG }
     ];
   }
   var steps = [];

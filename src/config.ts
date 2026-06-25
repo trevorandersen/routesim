@@ -104,6 +104,18 @@ export function buildConfigPayload(): SerialisedTopology {
         // the alert log is runtime, not config.
         config: { idsRules: normaliseIdsRules(config?.idsRules || []) }
       } : {}),
+      ...(type === "attacker" ? {
+        config: {
+          ...hostConfigForPayload(config),
+          ...(config?.attackTarget ? { attackTarget: config.attackTarget } : {}),
+          ...(config?.spoofIp ? { spoofIp: config.spoofIp } : {}),
+          attacks: Array.isArray(config?.attacks) ? config.attacks.filter((a: any) => ["scan", "sweep", "arp-spoof"].includes(a)) : ["scan"],
+        }
+      } : {}),
+      ...(type === "kali" ? {
+        // A Kali PC serialises exactly like a host — its attacks are issued by hand.
+        config: hostConfigForPayload(config)
+      } : {}),
       ...(type === "lan" ? {
         config: {
           anchorId: config?.anchorId || "",

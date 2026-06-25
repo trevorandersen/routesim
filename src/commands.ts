@@ -18,7 +18,7 @@ import {
   startSimulation, stopSimulation, pauseSimulation, resumeSimulation, stepOnce,
   runSimulationHeadless, runTraceroute,
 } from "./engine";
-import { buildPingEvents, buildDhcpEvents, buildConnectEvents, buildResolveEvents, buildAssociationEvents, buildDot1xEvents, buildStpEvents, associatedAp, findPingTarget } from "./simulation";
+import { buildPingEvents, buildDhcpEvents, buildConnectEvents, buildResolveEvents, buildAssociationEvents, buildDot1xEvents, buildStpEvents, buildScanEvents, buildSweepEvents, buildArpSpoofEvents, buildAttackEvents, associatedAp, findPingTarget } from "./simulation";
 import { DEFAULT_BRIDGE_PRIORITY } from "./stp";
 import {
   setHostIp, setHostGateway, setHostDns, setRouterInterfaceIp, addSwitchVlan, removeSwitchVlan,
@@ -384,7 +384,7 @@ function cmdAssociate(args: string[]): CommandResult {
 function cmdSupplicant(args: string[]): CommandResult {
   const host = resolveDevice(args[0]);
   if (typeof host === "string") return err(host);
-  if (!["computer", "laptop", "server"].includes(host.type)) return err(`${host.name} is not a host.`);
+  if (!["computer", "laptop", "kali", "server"].includes(host.type)) return err(`${host.name} is not a host.`);
   const identity = args[1], password = args[2];
   if (!identity || password == null) return err("Usage: supplicant <host> <identity> <password>");
   ensureConfig(host);
@@ -431,7 +431,7 @@ function cmdRadius(args: string[]): CommandResult {
 function cmdPorts(args: string[]): CommandResult {
   const host = resolveDevice(args[0]);
   if (typeof host === "string") return err(host);
-  if (!["computer", "laptop", "server"].includes(host.type)) return err(`${host.name} is not a host (only computers/laptops/servers listen on ports).`);
+  if (!["computer", "laptop", "kali", "server"].includes(host.type)) return err(`${host.name} is not a host (only computers/laptops/servers listen on ports).`);
   const spec = args.slice(1).join(" ").trim();
   ensureConfig(host);
   const cfg: any = host.config;
@@ -520,6 +520,47 @@ function cmdIdsRule(args: string[], rest: string): CommandResult {
   const result = addIdsRule(ids, ruleText);
   sync().syncPanel();
   return result.startsWith("ERROR") ? err(result) : ok(result);
+}
+
+// Launch a Kali PC's or Red Team actor's attacks. `attack <node>` runs all
+// enabled attacks; `attack <node> scan|sweep|arp-spoof [target]` runs one. A
+// scan/sweep target argument overrides (and remembers) the host's target.
+function cmdAttack(args: string[]): CommandResult {
+  const node = resolveDevice(args[0]);
+  if (typeof node === "string") return err(node);
+  if (node.type !== "attacker" && node.type !== "kali") return err(`${node.name} is not a Kali PC or Red Team host.`);
+  const kind = args[1] && /^(scan|sweep|arp-spoof)$/i.test(args[1]) ? args[1].toLowerCase() : undefined;
+  const targetArg = (kind ? args.slice(2) : args.slice(1)).join(" ").trim();
+  // A scan/sweep target argument overrides (and remembers) the configured
+  // target; for arp-spoof the argument is the IP to impersonate, not a target.
+  if (targetArg && kind !== "arp-spoof") (node.config as any).attackTarget = targetArg;
+  let setup: any;
+  if (kind === "scan") setup = buildScanEvents(node, targetArg || node.config?.attackTarget || "");
+  else if (kind === "sweep") setup = buildSweepEvents(node, targetArg || node.config?.attackTarget || "");
+  else if (kind === "arp-spoof") setup = buildArpSpoofEvents(node, targetArg || undefined);
+  else setup = buildAttackEvents(node);
+  if (typeof setup === "string") return err(setup);
+  startSimulation(setup, node.id, "", "attack");
+  return ok(`${node.name}: ${kind || "attacks"} launched.`);
+}
+
+// Configure a Red Team host: its target, enabled attacks, or ARP-spoof IP.
+function cmdRedteam(args: string[]): CommandResult {
+  const node = resolveDevice(args[0]);
+  if (typeof node === "string") return err(node);
+  if (node.type !== "attacker") return err(`${node.name} is not a Red Team host.`);
+  ensureConfig(node);
+  const cfg: any = node.config;
+  const sub = (args[1] || "").toLowerCase();
+  const after = (msg: string) => { sync().syncPanel(); return ok(msg); };
+  if (sub === "target") { cfg.attackTarget = args[2] || ""; return after(`${node.name}: target ${cfg.attackTarget || "(none)"}.`); }
+  if (sub === "spoof") { cfg.spoofIp = args[2] || ""; return after(`${node.name}: ARP-spoof target ${cfg.spoofIp || "(gateway)"}.`); }
+  if (sub === "attacks") {
+    const list = (args[2] || "").split(",").map(s => s.trim()).filter(a => ["scan", "sweep", "arp-spoof"].includes(a));
+    cfg.attacks = list;
+    return after(`${node.name}: attacks [${list.join(", ")}].`);
+  }
+  return err("Usage: redteam <node> target <ip> | attacks <scan,sweep,arp-spoof> | spoof <ip>");
 }
 
 // Spanning tree: no args animates the BPDU exchange; `stp <switch> on|off` or
@@ -704,7 +745,7 @@ function cmdShow(args: string[]): CommandResult {
   if (typeof device === "string") return err(device);
   const c: any = device.config || {};
   const lines = [`${device.name} (${device.type})`];
-  if (device.type === "computer" || device.type === "laptop" || device.type === "server") {
+  if (device.type === "computer" || device.type === "laptop" || device.type === "kali" || device.type === "server" || device.type === "attacker") {
     lines.push(
       `  ip: ${c.ipv4Address ? `${c.ipv4Address}/${prefixOf(c)} (subnet ${networkOf(c.ipv4Address, prefixOf(c))})` : "(unset)"}`,
       `  gateway: ${c.gatewayIpv4Address || "(unset)"}`,
@@ -832,7 +873,7 @@ const COMMANDS: Record<string, Handler> = {
   move: cmdMove, rename: cmdRename, clear: cmdClear, collapse: cmdCollapse, expand: cmdExpand,
   ip: cmdIp, gateway: cmdGateway, nameserver: cmdNameserver, mac: cmdMac, ssid: cmdSsid, interface: cmdInterface, route: cmdRoute,
   supplicant: cmdSupplicant, portauth: cmdPortAuth, radius: cmdRadius, ports: cmdPorts, dot1x: cmdDot1x, macsec: cmdMacsec,
-  vlan: cmdVlan, port: cmdPort, managed: cmdManaged, stp: cmdStp, mirror: cmdMirror, idsrule: cmdIdsRule, cli: cmdCli,
+  vlan: cmdVlan, port: cmdPort, managed: cmdManaged, stp: cmdStp, mirror: cmdMirror, idsrule: cmdIdsRule, attack: cmdAttack, redteam: cmdRedteam, cli: cmdCli,
   ping: cmdPing, dhcp: cmdDhcp, connect: cmdConnect, associate: cmdAssociate, run: cmdRun, traceroute: cmdTraceroute, tracert: cmdTraceroute,
   play: cmdPlay, pause: cmdPause, step: cmdStep,
   stop: cmdStop, speed: cmdSpeed,
@@ -864,6 +905,8 @@ const HELP: Record<string, string> = {
   stp: "stp (animate the BPDU exchange) | stp <switch> on|off | stp <switch> priority <n> (default on for managed switches)",
   mirror: "mirror <switch> <dst-port> [src-port…] | mirror <switch> off (SPAN: copy traffic to a monitor port for an IDS)",
   idsrule: "idsrule <ids> <snort rule> | idsrule <ids> clear (manage a Snort IDS sensor's rules)",
+  attack: "attack <redteam> [scan|sweep|arp-spoof] [target] (launch a Red Team host's simulated attacks)",
+  redteam: "redteam <node> target <ip> | attacks <scan,sweep,arp-spoof> | spoof <ip> (configure a Red Team host)",
   cli: "cli <device> <raw CLI command>",
   ping: "ping <src> <dst> (animated)", dhcp: "dhcp <host> (animated)", connect: "connect <src> <dst> <port> (animated TCP handshake)",
   associate: "associate <laptop> (animate the 802.11 join: probe/auth/assoc + WPA2 if secured)",
@@ -921,7 +964,7 @@ export function exportTopologyScript(): string {
 
   for (const d of payload.devices) {
     const c = d.config || {};
-    if (d.type === "computer" || d.type === "laptop" || d.type === "server") {
+    if (d.type === "computer" || d.type === "laptop" || d.type === "kali" || d.type === "server") {
       if (c.ipv4Address) lines.push(`ip ${d.name} ${c.ipv4Address}/${prefixOf(c)}`);
       if (c.gatewayIpv4Address) lines.push(`gateway ${d.name} ${c.gatewayIpv4Address}`);
       if (c.macAddress) lines.push(`mac ${d.name} ${c.macAddress}`);
@@ -958,6 +1001,14 @@ export function exportTopologyScript(): string {
       // Reset the default rule set, then re-add the exact local.rules contents.
       lines.push(`idsrule ${d.name} clear`);
       for (const rule of (c.idsRules || [])) lines.push(`idsrule ${d.name} ${rule}`);
+    } else if (d.type === "attacker") {
+      if (c.ipv4Address) lines.push(`ip ${d.name} ${c.ipv4Address}/${prefixOf(c)}`);
+      if (c.gatewayIpv4Address) lines.push(`gateway ${d.name} ${c.gatewayIpv4Address}`);
+      if (c.macAddress) lines.push(`mac ${d.name} ${c.macAddress}`);
+      if (c.dnsServerIp) lines.push(`nameserver ${d.name} ${c.dnsServerIp}`);
+      if (Array.isArray(c.attacks)) lines.push(`redteam ${d.name} attacks ${c.attacks.join(",")}`);
+      if (c.attackTarget) lines.push(`redteam ${d.name} target ${c.attackTarget}`);
+      if (c.spoofIp) lines.push(`redteam ${d.name} spoof ${c.spoofIp}`);
     } else if (d.type === "router") {
       for (const i of (c.interfaces || [])) {
         const peer = idToName.get(i.peerId);

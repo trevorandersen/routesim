@@ -10,6 +10,7 @@ import { linkedPortsFor } from "../src/devices";
 import { parseSnortRule, matchSnortRule, runIdsRules } from "../src/snort";
 import { runSwitchTerminalCommand, showSwitchMirror } from "../src/terminal/switch";
 import { showIdsRules, addIdsRule, runIdsTerminalCommand } from "../src/terminal/ids";
+import { renderMirrorSection } from "../src/inspector";
 import { buildConfigPayload } from "../src/config";
 import { normaliseConfig } from "../src/normalise";
 import { createIcmpEchoRequest, createIcmpEchoReply, createTcpSegment, createArpRequest, createDnsQuery } from "../src/frame";
@@ -163,6 +164,24 @@ describe("IDS — console, CLI, and round-trip", () => {
     runSwitchTerminalCommand(sw, "config mirror_session span add MON Ethernet2 Ethernet1");
     expect(sw.config.mirror).toEqual({ name: "MON", dest: "Ethernet2", sources: ["Ethernet1"] });
     expect(showSwitchMirror(sw)).toContain("Ethernet2");
+  });
+
+  it("the inspector mirror GUI renders source-port checkboxes (all ticked = whole switch; a subset ticks only those, and the monitor port is excluded)", () => {
+    const { sw } = spanTopology();   // PC1=Ethernet1, PC2=Ethernet2, IDS1=Ethernet3 (the dest)
+    const cbState = (html: string, port: string) => {
+      const m = html.match(new RegExp(`data-port="${port}"([^>]*)>`));
+      return { present: !!m, checked: !!m && m[1].includes("checked") };
+    };
+    // No sources stored → mirror everything: both source ports ticked, dest excluded.
+    let html = renderMirrorSection(sw);
+    expect(cbState(html, "Ethernet1")).toEqual({ present: true, checked: true });
+    expect(cbState(html, "Ethernet2")).toEqual({ present: true, checked: true });
+    expect(cbState(html, "Ethernet3").present).toBe(false);   // the monitor port can't mirror itself
+    // Narrow the session to only Ethernet1 → Ethernet1 ticked, Ethernet2 unticked.
+    exec("mirror SW1 Ethernet3 Ethernet1");
+    html = renderMirrorSection(sw);
+    expect(cbState(html, "Ethernet1").checked).toBe(true);
+    expect(cbState(html, "Ethernet2").checked).toBe(false);
   });
 
   it("the Snort terminal CLI views/edits local.rules and reports a version", () => {

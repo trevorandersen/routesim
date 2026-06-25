@@ -122,7 +122,10 @@ export const state: AppState = {
     dhcpAssignedGateway: null,
     wifiAssociated: false,
     dot1xAuthorized: false,
-    stormDetected: false
+    stormDetected: false,
+    scanOpen: [],
+    scanClosed: [],
+    sweepLive: []
   },
   portSelection: null
 };
@@ -161,6 +164,7 @@ export const toolCopy: Record<string, [string, string]> = {
   select: ["Select and move devices", "Drag devices to arrange the network."],
   computer: ["Add client PC", "Click the canvas to place a client PC."],
   laptop: ["Add laptop", "Click the canvas to place a WiFi laptop (associate it to an access point)."],
+  kali: ["Add Kali PC", "Click the canvas to place a Kali Linux workstation — drive nmap / arpspoof by hand from its terminal."],
   server: ["Add server", "Click the canvas to place a server (DNS/DHCP via dnsmasq)."],
   "dns-server": ["Add DNS server", "Click the canvas to place a DNS server (dnsmasq — add A-records to resolve names)."],
   "dhcp-server": ["Add DHCP server", "Click the canvas to place a DHCP server (dnsmasq — set a dhcp-range to hand out addresses)."],
@@ -172,6 +176,7 @@ export const toolCopy: Record<string, [string, string]> = {
   router: ["Add router", "Click the canvas to place a router."],
   firewall: ["Add firewall", "Click the canvas to place a firewall."],
   ids: ["Add IDS", "Click the canvas to place a Snort IDS sensor (cable it to a switch SPAN/monitor port)."],
+  attacker: ["Add Red Team host", "Click the canvas to place a Red Team (Kali) host that launches simulated attacks against a target."],
   hub: ["Add hub", "Click the canvas to place a hub (a layer-1 repeater)."],
   "access-point": ["Add access point", "Click the canvas to place a WiFi access point (bridges associated laptops to the wired LAN)."],
   configure: ["Configure device", "Click a device to edit its static configuration."]

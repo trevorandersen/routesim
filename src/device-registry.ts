@@ -67,6 +67,23 @@ export const DEVICE_SPECS: Record<DeviceType, DeviceSpec> = {
     // it carries the SSID (+ optional password) of the network it wants to join.
     defaultConfig: () => ({ ipv4Address: "", gatewayIpv4Address: "", macAddress: "", arpTable: [], ssid: DEFAULT_SSID })
   },
+  kali: {
+    label: "Kali PC", namePrefix: "KALI", width: 92, height: 68,
+    paletteVar: "kali", iconRadius: 10, userAddable: true,
+    // A monitor with a shell prompt — a pentest workstation you drive by hand
+    // (the Kali terminal: nmap, arpspoof). Distinct from the plain Client PC.
+    iconPaths: [
+      "M3 5a1 1 0 0 1 1 -1h16a1 1 0 0 1 1 1v10a1 1 0 0 1 -1 1h-16a1 1 0 0 1 -1 -1v-10",
+      "M7 20h10",
+      "M9 16v4",
+      "M15 16v4",
+      "M6.5 8l2 2l-2 2",
+      "M11 12h3.5"
+    ],
+    // A normal single-NIC host that runs Kali Linux; the user issues the attacks
+    // manually from its terminal, so it carries no autonomous attack config.
+    defaultConfig: () => ({ ipv4Address: "", gatewayIpv4Address: "", macAddress: "", arpTable: [] })
+  },
   switch: {
     label: "Switch", namePrefix: "SW", width: 104, height: 58,
     paletteVar: "switch", iconRadius: 8, userAddable: true,
@@ -151,6 +168,21 @@ export const DEVICE_SPECS: Record<DeviceType, DeviceSpec> = {
       `alert icmp any any -> any any (msg:"ICMP traffic detected"; itype:8; sid:1000001; rev:1;)`,
       `alert tcp any any -> any 23 (msg:"Telnet connection attempt"; sid:1000002; rev:1;)`,
     ], alerts: [] })
+  },
+  attacker: {
+    label: "Red Team", namePrefix: "RT", width: 92, height: 68,
+    paletteVar: "attacker", iconRadius: 10, userAddable: true,
+    // A skull — the universal "adversary" glyph.
+    iconPaths: [
+      "M12 4c4.418 0 8 3.358 8 7.5c0 1.737 -.62 3.34 -1.668 4.628c-.184 .226 -.332 .48 -.332 .755v1.617a1 1 0 0 1 -1 1h-10a1 1 0 0 1 -1 -1v-1.617c0 -.275 -.148 -.529 -.332 -.755a7.287 7.287 0 0 1 -1.668 -4.628c0 -4.142 3.582 -7.5 8 -7.5z",
+      "M10 17v3",
+      "M14 17v3",
+      "M9 11m-1 0a1 1 0 1 0 2 0a1 1 0 1 0 -2 0",
+      "M15 11m-1 0a1 1 0 1 0 2 0a1 1 0 1 0 -2 0"
+    ],
+    // A real host (IP/MAC/ARP) that launches attacks. Defaults: scan enabled so
+    // a freshly placed box does something once a target is set.
+    defaultConfig: () => ({ ipv4Address: "", gatewayIpv4Address: "", macAddress: "", arpTable: [], attacks: ["scan"], attackLog: [] })
   },
   lan: {
     label: "LAN", namePrefix: "LAN", width: 112, height: 72,

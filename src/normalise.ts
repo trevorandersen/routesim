@@ -375,6 +375,22 @@ export function normaliseDeviceConfig(device: any): DeviceConfig {
     // runtime log, not config — start empty on load.
     return { idsRules: normaliseIdsRules(device.config?.idsRules || device.idsRules || []), alerts: [] };
   }
+  if (device.type === "attacker") {
+    // The autonomous Red Team actor: a full host (so its IP/prefix/gateway/DNS/MAC
+    // round-trip like any other) that also carries its target + enabled attack
+    // behaviours. Findings (attackLog) are a runtime log, not config — start empty.
+    const c = device.config || {};
+    const attacks = Array.isArray(c.attacks)
+      ? c.attacks.filter((a: any) => ["scan", "sweep", "arp-spoof"].includes(a))
+      : ["scan"];
+    return {
+      ...normaliseHostFields(device),
+      ...(c.attackTarget ? { attackTarget: String(c.attackTarget) } : {}),
+      ...(c.spoofIp ? { spoofIp: String(c.spoofIp) } : {}),
+      attacks,
+      attackLog: [],
+    };
+  }
   if (device.type === "lan") {
     return {
       anchorId: String(device.config?.anchorId || device.anchorId || ""),
@@ -415,7 +431,9 @@ export function normaliseDeviceConfig(device: any): DeviceConfig {
     // A WiFi-only host: host fields plus the SSID (+ optional password) it joins.
     return { ...normaliseHostFields(device), ...normaliseWifiFields(device) };
   }
-  if (device.type !== "computer") return {};
+  // A Kali PC is an ordinary host that happens to run Kali Linux (its attacks are
+  // driven by hand from the terminal — no autonomous config to normalise).
+  if (device.type !== "computer" && device.type !== "kali") return {};
   return normaliseHostFields(device);
 }
 

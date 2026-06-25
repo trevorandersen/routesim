@@ -6,4 +6,5 @@ export * from "./router";
 export * from "./switch";
 export * from "./firewall";
 export * from "./ids";
+export * from "./attacker";
 export * from "./iptables";

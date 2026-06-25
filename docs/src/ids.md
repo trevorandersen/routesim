@@ -16,7 +16,7 @@ A managed switch can carry one SPAN session: `{ name, dest, sources? }` (sources
 1. The **monitor port** (`dest`) is **excluded from normal forwarding** — a SPAN destination carries only mirrored traffic (faithful to real switches).
 2. Each **ingress** frame whose source port matches the session is **copied** to the monitor port's peer (the frame as it ingressed; `id` suffixed `-span`). One copy per frame, regardless of the normal forwarding outcome.
 
-Control frames terminated earlier in the switch (BPDU / 802.11 / EAPOL) aren't mirrored — a documented simplification; the sensor's rules target IP traffic anyway. Configure via the SONiC CLI (`config mirror_session span add <name> <dst> [src]`, `show mirror_session`), the console (`mirror <switch> <dst> [src…]` / `mirror <switch> off`), or the managed-switch inspector dropdown. Round-trips through JSON + the script (`mirror <name> <dst>`).
+Control frames terminated earlier in the switch (BPDU / 802.11 / EAPOL) aren't mirrored — a documented simplification; the sensor's rules target IP traffic anyway. Configure via the SONiC CLI (`config mirror_session span add <name> <dst> [src]`, `show mirror_session`), the console (`mirror <switch> <dst> [src…]` / `mirror <switch> off`), or the managed-switch inspector — a monitor-port dropdown plus per-port **source checkboxes** (all ticked = mirror the whole switch; untick to mirror a subset). Round-trips through JSON + the script (`mirror <name> <dst>`).
 
 ## The Snort rule engine (`snort.ts`)
 
@@ -35,7 +35,7 @@ A passive sink: it runs the rule set against the mirrored frame (`runIdsRules`),
 ## CLI, inspector, console
 
 - **Terminal** ([terminal/ids.ts](terminal.md)) — Snort 3 on Linux: `snort -V`, `snort -T` (validate), `cat`/`echo …>>`/`echo -n >` on `/etc/snort/rules/local.rules`, and `cat /var/log/snort/alert`. (Snort isn't an interactive CLI; you edit rule files and run the sensor.)
-- **Inspector** ([inspector.md](inspector.md)) — `renderIdsSection`: a `local.rules` textarea + the alert log (with a Clear button). Managed switches get `renderMirrorSection`: a monitor-port dropdown.
+- **Inspector** ([inspector.md](inspector.md)) — `renderIdsSection`: a `local.rules` textarea + the alert log (with a Clear button). Managed switches get `renderMirrorSection`: a monitor-port dropdown plus per-port source checkboxes (which ports' traffic to mirror).
 - **Console** ([scripting.md](../scripting.md)) — `idsrule <ids> <rule>` / `idsrule <ids> clear`, and `mirror <switch> <dst> [src…]` / `mirror <switch> off`.
 
 ## Scenario

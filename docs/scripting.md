@@ -88,6 +88,7 @@ Param keys and boolean values are case-insensitive. Adding a setting is a one-ro
 | `port <switch> <EthN> allowed add\|remove <id>` | Trunk allowed VLANs. |
 | `mirror <switch> <dst-port> [src…]` / `mirror <switch> off` | Set/clear a SPAN session on a managed switch: mirror ingress frames to the `dst-port` monitor port (no `src…` = all ports). Realistic equivalent `config mirror_session span add <name> <dst> [src]`. |
 | `idsrule <ids> <snort rule>` / `idsrule <ids> clear` | Append a raw Snort rule to an IDS sensor's `local.rules` / remove every rule. |
+| `redteam <node> target <ip>` / `attacks <scan,sweep,arp-spoof>` / `spoof <ip>` | Configure a **Red Team actor**'s (`type: "attacker"`) stored plan: `target` sets the scan/sweep target, `attacks` sets the enabled-attack list (comma-separated; invalid kinds are filtered out), `spoof` sets the ARP-spoof IP to impersonate. A Kali PC (`type: "kali"`) is hand-driven and carries no stored plan, so it has nothing to configure here. |
 | `cli <ref> <raw CLI…>` | Run a raw per-device CLI command (the device terminal language; mode persists across `cli` calls to the same device). |
 
 ### Simulation
@@ -99,6 +100,7 @@ Param keys and boolean values are case-insensitive. Adding a setting is a one-ro
 | `associate <laptop>` | Animate the **802.11 join** to the laptop's access point: probe / open-system auth / association, plus the WPA2 4-way key handshake when the AP is secured. |
 | `dot1x <host>` | Animate the **802.1X** port authentication: EAPOL-Start → EAP-Identity → RADIUS Access-Request → Accept/Reject → EAP-Success/Failure. An `auto` port carries no data until it succeeds. |
 | `stp` | Animate the **spanning-tree** BPDU flood: each root bridge floods Configuration BPDUs out its designated ports toward the other switches. |
+| `attack <node> [scan\|sweep\|arp-spoof] [target]` | Launch an offensive host's simulated **attack(s)** (sim mode `"attack"`). Works on **both** a Kali PC (`kali`) and a Red Team actor (`attacker`); any other type is rejected with "is not a Kali PC or Red Team host". With an explicit kind, run just that one — for `scan`/`sweep` an optional `target` overrides **and remembers** `config.attackTarget`; for `arp-spoof` the argument is the IP to impersonate (not a target). With no kind, a bare `target` sets `config.attackTarget`, then **all enabled attacks** run (`buildAttackEvents`). The nmap-style report lands in the node's terminal session. |
 | `run ping <src> <dst>` | **Headless** ping → returns reachable/unreachable + TTL + step count. |
 | `run dhcp <host>` | **Headless** DHCP → returns the assigned lease (or no response). |
 | `run resolve <src> <name>` | **Headless** DNS lookup → returns the resolved IP (or NXDOMAIN). Alias: `run dns`. |
@@ -182,7 +184,7 @@ routesim.exec("clear");
 routesim.run(script);               // recreates the identical topology
 ```
 
-This is the completeness guarantee — the command set can express everything the GUI can build. The export emits `managed <name>` (before a switch's VLAN/STP config) and only the STP deviations — `stp <name> off` or `stp <name> priority <n>` — since the default-on, default-priority spanning tree round-trips implicitly. A switch's SPAN session emits `mirror <name> <dst>`; an IDS sensor emits `idsrule <name> clear` followed by one `idsrule <name> <rule>` per rule (so the device's default rule set is re-established exactly).
+This is the completeness guarantee — the command set can express everything the GUI can build. The export emits `managed <name>` (before a switch's VLAN/STP config) and only the STP deviations — `stp <name> off` or `stp <name> priority <n>` — since the default-on, default-priority spanning tree round-trips implicitly. A switch's SPAN session emits `mirror <name> <dst>`; an IDS sensor emits `idsrule <name> clear` followed by one `idsrule <name> <rule>` per rule (so the device's default rule set is re-established exactly). A Kali PC (`kali`) exports as a plain host — its `ip`/`gateway`/`mac`/`nameserver` lines, with **no** `redteam` lines (it is hand-driven and carries no stored plan). A Red Team actor (`attacker`) emits those host lines too, then `redteam <name> attacks <list>`, `redteam <name> target <t>`, and `redteam <name> spoof <ip>` (only the non-empty ones) — its runtime `attackLog` is not exported. Both serialise via the shared host helpers, so a non-/24 prefix and the nameserver survive the round-trip (a prior bug dropped them for the attacker).
 
 ## Headless vs animated
 

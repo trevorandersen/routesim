@@ -13,7 +13,7 @@ import { openConsole, consoleLine, submitConsoleCommand, handleConsoleKeydown } 
 import { loadScenario } from "./scenarios";
 import { runActiveScenarioCheck, dismissScenario } from "./scenario-ui";
 import { loadTopology } from "./config";
-import { pauseSimulation, resumeSimulation, stepOnce, stopSimulation, syncSimLog, startNetworkBoot } from "./engine";
+import { pauseSimulation, resumeSimulation, stepOnce, stopSimulation, syncSimLog, startNetworkBoot, launchRedTeam } from "./engine";
 import { setupRibbon, renderScenarioOptions } from "./ribbon";
 import * as io from "./io";
 
@@ -203,6 +203,8 @@ export function handleGlobalKeydown(event: KeyboardEvent): void {
   if (event.key.toLowerCase() === "r") setTool("router");
   if (event.key.toLowerCase() === "f") setTool("firewall");
   if (event.key.toLowerCase() === "i") setTool("ids");
+  if (event.key.toLowerCase() === "a") setTool("attacker");
+  if (event.key.toLowerCase() === "k") setTool("kali");
   if (event.key.toLowerCase() === "h") setTool("hub");
   if (event.key.toLowerCase() === "l") setTool("connect");
   if (event.key.toLowerCase() === "w") setTool("configure");
@@ -551,9 +553,10 @@ export function setupUI(): void {
     const sim = state.simulation;
     if (sim.status === "running") pauseSimulation();
     else if (sim.status === "paused") resumeSimulation();
-    // Idle: starting the sim boots any unconfigured cabled hosts (animated DHCP);
-    // startNetworkBoot sets the status hint (incl. when auto-DHCP is off).
-    else startNetworkBoot();
+    // Idle: boot any unconfigured cabled hosts (animated DHCP); if there's
+    // nothing to boot, a configured Red Team host autonomously launches its
+    // attacks (the "not user controlled" part). startNetworkBoot sets the hint.
+    else if (!startNetworkBoot()) launchRedTeam();
   });
   dom.simStep.addEventListener("click", stepOnce);
   dom.simStop.addEventListener("click", () => {

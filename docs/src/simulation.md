@@ -10,6 +10,15 @@ Turns a user request (`ping <target>` or `dhcp`) into the initial queue of simul
 - **`buildConnectEvents(source, targetText, port)`** — validates a TCP connect (`nc`) and returns the SYN setup (or an error string).
 - **`buildResolveEvents(source, name, …)`** — builds a headless DNS lookup (the real UDP/53 frames) used by resolve-then-act flows and `run resolve`.
 
+### Red Team attack builders
+
+These build offensive flows the same way the ping builders do: each returns a `PingSetup` (seeded frames plus a deferred `pendingArp`) or an error string, so an attack animates on the canvas and runs headless exactly like a ping. Each takes any **offensive host** as its first argument and reads that host's config — they don't care which type, so the hand-driven **Kali PC** (`type: "kali"`, Computer group) and the autonomous **Red Team actor** (`type: "attacker"`, Security group) share the same builders. They ARP-resolve the next hop first — direct if the target is same-subnet, otherwise the gateway (`attackNextHop`) — and resolve a target argument (a device name or a bare IP) via `attackTargetIp`. See [red-team.md](red-team.md) for the full Red Team story.
+
+- **`buildScanEvents(host, targetText)`** — an `nmap -sS` SYN scan: a TCP SYN to each of `SCAN_PORTS` (`21,22,23,25,53,80,110,143,443,445,3306,3389,8080`) on the target, all from one ephemeral source port. An open port answers SYN-ACK, a closed one RST.
+- **`buildSweepEvents(host, subnetText)`** — an `nmap -sn` ping sweep: an ICMP echo to each of the first `SWEEP_HOSTS` (20) addresses of a subnet (the argument, else the host's own subnet). Each probe is **routed like a real ping** via `attackNextHop` — a same-subnet target directly, a target in a **remote** subnet via the **gateway** (one shared ARP, all echoes buffered under the gateway's next-hop key) — so sweeping *another* subnet across a router works. (Previously it ARP-resolved every remote host directly on the local wire, so a sweep of another subnet found nothing.) If no gateway is set for a remote sweep, it returns `"nmap: nothing to sweep"`. Live hosts reply; the rest time out.
+- **`buildArpSpoofEvents(host, spoofText?)`** — a single **gratuitous ARP reply** broadcasting "spoofIp is at <our MAC>" (spoofIp = the argument, else `config.spoofIp`, else the gateway), poisoning every host's ARP cache for a man-in-the-middle. The poisoning itself is ordinary host ARP learning at each victim.
+- **`buildAttackEvents(host, only?)`** — merges the enabled `config.attacks` (or one named kind) into a single run, concatenating each builder's events and `pendingArp` (arrays merged on key collision). The scan/sweep target is `config.attackTarget` (sweep falls back to the host's own subnet).
+
 ### Reachability & routing helpers
 - **`l2Reachable(fromId, toId, vlanId)`** — VLAN-aware BFS across switches: does a frame on `vlanId` reach `toId` at layer 2? Stops at routers and respects access/trunk port membership. Runs on every ping/DHCP validation, so it goes through the `linksFor` adjacency index and is **benchmarked**.
 - **`getVlanForDevice(deviceId)`** — the VLAN a host sits in (via its switch's access-port assignment).

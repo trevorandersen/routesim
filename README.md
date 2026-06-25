@@ -48,9 +48,9 @@ routesim/
     ├── routing.ts      # Routing table, longest-prefix match, RIP convergence
     ├── stp.ts          # Spanning Tree (802.1D): root election, port roles, loop-breaking
     ├── snort.ts        # Snort rule parse/match for the passive IDS sensor
-    ├── simulation.ts   # Event builders (ping/TCP/DNS/DHCP), L2 reachability
+    ├── simulation.ts   # Event builders (ping/TCP/DNS/DHCP, Red Team attacks), L2 reachability
     ├── frame.ts        # Ethernet frame factories, labels, colours
-    ├── terminal/       # Per-device CLIs: host, server (dnsmasq), router (FRR), switch (SONiC), firewall (iptables)
+    ├── terminal/       # Per-device CLIs: host, server (dnsmasq), router (FRR), switch (SONiC), firewall (iptables), IDS (Snort), attacker (Kali)
     ├── commands.ts     # Console command engine (also window.routesim + scripts)
     ├── console.ts      # Command console panel UI
     ├── scenarios.ts    # Scenario model, registry, goal checking
@@ -118,7 +118,7 @@ sync().render();
 ## Features
 
 - **Canvas editor** — pan, zoom, drag devices, auto-grid snapping
-- **Device types** — computers (PC/laptop), servers, switches (managed/unmanaged), routers, firewalls (transparent inline iptables filter), hubs (layer-1 repeater)
+- **Device types** — computers (PC/laptop), servers, switches (managed/unmanaged), routers, firewalls (transparent inline iptables filter), hubs (layer-1 repeater), IDS sensors, Kali PCs (a hand-driven pentest box), Red Team actors (an autonomous Kali attacker)
 - **Server tool** — its own ribbon group with role-preset entries: a generic **Server** (dnsmasq: DNS + DHCP), a **DNS server**, a **DHCP server**, a **RADIUS server** (the 802.1X back-end), and a **Web server** (listening on TCP/80). All are the one `server` type, pre-named (`DNS-1`, `RAD-1`, …) and role-flagged; configure DNS records, the DHCP range, **RADIUS users**, and **listening ports** in the inspector
 - **PC terminal** — `ip addr`, `ip route`, `ping`, `traceroute`, `nslookup`, `nc -z`, `arp -n`, `/etc/resolv.conf`, `hostname` / `hostnamectl set-hostname`
 - **Hostname = canvas name** — a CLI device's name on the canvas *is* its hostname (also its prompt and the name it resolves as). Set it the real way — `hostname <name>` / `hostnamectl set-hostname <name>` / `echo <name> > /etc/hostname` on a host, `hostname <name>` (config mode) on a router, `config hostname <name>` on a managed switch — or just edit the **Hostname** field in the inspector
@@ -126,6 +126,7 @@ sync().render();
 - **Router terminal** — FRRouting (vtysh): `hostname`, interfaces, static routes, RIP, NAT/PAT, iptables INPUT/FORWARD
 - **Switch terminal** — SONiC: `config hostname`, VLANs, port membership, MAC tables, `show spanning_tree` / `config spanning_tree`, `config mirror_session span add` (SPAN)
 - **IDS terminal** — Snort 3 on Linux: `snort -V` / `snort -T`, edit `/etc/snort/rules/local.rules`, read `/var/log/snort/alert`
+- **Kali terminal** — Kali Linux (the Kali PC and the Red Team actor): `nmap -sS <target>` (SYN scan), `nmap -sn <subnet>` (ping sweep), `arpspoof [-t <victim>] <gateway>` (ARP poisoning); falls through to the standard Linux net tools (`ip`, `ping`, `traceroute`, `nc`)
 - **DNS** — hosts resolve names via real UDP/53 frames before they ping/connect; NXDOMAIN, option 6 via DHCP. A DNS server **auto-resolves every device's hostname** (an automatic zone) on top of any manual `address=` records, so `ping PC-A1` / `nslookup PC-A1` issue a real, watchable query. The **Instant DNS** setting (on by default in topologies, off in scenarios) instead resolves a device name straight to its IP with no query — a built-in hosts file; turn it off to require real DNS, like the real world
 - **Subnet-aware ping** — same-subnet uses L2 BFS; cross-subnet routes through a gateway router
 - **VLAN enforcement** — managed switches enforce VLAN membership on L2 paths
@@ -135,9 +136,10 @@ sync().render();
 - **802.1X port authentication** — `dot1x <host>` animates the supplicant → authenticator (switch `auto` port) → RADIUS server EAP/RADIUS exchange; an `auto` port blocks data until EAP-Success, and a bad credential gets Access-Reject → EAP-Failure
 - **MACsec (802.1AE)** — `macsec <device> <peer> <key>` encrypts a link with a pre-shared key; matching keys secure it (frames show encrypted in the packet list), a `must`-secure key mismatch drops traffic, and `should`-secure falls back to plaintext. `macsec <device> <peer> dot1x` instead **derives the key from 802.1X** (MKA): the link stays unsecured until the port authenticates, then auto-keys from the EAP exchange — the full enterprise "authenticate, then encrypt" story
 - **IDS (Snort) + port mirroring** — a passive **Snort** sensor watches a copy of traffic from a managed switch's **SPAN/monitor port** (`mirror <switch> <port>`) and raises alerts on Snort rule matches (`alert tcp any any -> any 23 (msg:"Telnet"; sid:…)`) — a real `local.rules` editor + a fast-alert log in the inspector and the `snort` CLI. Passive, so it watches but never blocks
+- **Offensive hosts (Kali PC + Red Team actor)** — two **Kali Linux** boxes sharing one attack engine. A **Kali PC** (Computer group, monitor-with-prompt icon) is a pentest workstation you drive by hand; a **Red Team actor** (Security group, skull icon) is an autonomous adversary that launches its plan on Play. Both run an **nmap SYN port scan** (a SYN to each common port; open answers SYN-ACK, closed RST), a **ping sweep** (host discovery across a subnet, routed via the gateway for a remote one), and **ARP spoofing** (a gratuitous reply that poisons victims' ARP caches — MITM), reporting an nmap-style `PORT STATE SERVICE` table. Run `attack <host> scan <target>` or use the terminal; pair with an IDS to practise detection (red vs blue)
 - **Silent protocols** — optionally resolve ARP/DHCP/DNS instantly with no animation or packet-list rows, to keep the higher-layer flow uncluttered
 - **Tutorial mode** — Help -> Tutorial plays a hands-off demo: a faux cursor builds two LANs joined by a router, configures the addresses and gateways, and pings across it, narrating each step with pause / skip / replay controls. It drives the real UI underneath, so it shows exactly what you would do by hand
-- **Scenarios** — a 24-entry guided curriculum with goal checking, every entry solvable (tested) — including WiFi joins, 802.1X port authentication, MACsec link encryption, breaking an L2 loop with spanning tree, and catching an intruder with an IDS
+- **Scenarios** — a 24-entry guided curriculum with goal checking, every entry solvable (tested) — including WiFi joins, 802.1X port authentication, MACsec link encryption, breaking an L2 loop with spanning tree, catching an intruder with an IDS, and writing a Snort rule to detect a Red Team port scan
 - **Undo/redo** — snapshot-based history for topology and config changes
 - **Persistence** — import/export configs, scenarios, scripts, and logs as JSON files
 - **WiFi** — a WiFi-only **laptop** that associates to an **access point** (a transparent L2 bridge) over a matching **SSID** (with an optional password); the wireless link is drawn dotted, and ARP/DHCP/IP work through the AP onto the wired LAN. `associate <laptop>` animates the real **802.11 join** — probe / authentication / association, plus the WPA2 4-way (EAPOL) key handshake on a secured network. A **wrong password** still associates but fails the key handshake (the AP deauthenticates), leaving the link unauthenticated and carrying no data until the password is fixed

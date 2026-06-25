@@ -9,7 +9,7 @@ import { state, sync } from "./state";
 import { getDevice } from "./devices";
 import { applyConfig } from "./config";
 import { normaliseConfig, shiftToPositive } from "./normalise";
-import { buildPingEvents, buildDhcpEvents, buildConnectEvents, buildResolveEvents } from "./simulation";
+import { buildPingEvents, buildDhcpEvents, buildConnectEvents, buildResolveEvents, buildScanEvents } from "./simulation";
 import { CURRICULUM } from "./scenario-library";
 import { runSimulationHeadless } from "./engine";
 
@@ -154,9 +154,18 @@ function evaluate(check: ScenarioCheck): boolean {
     const to = resolve(check.to)?.config?.ipv4Address || check.to;
     // Clear prior alerts so the check only sees this flow's detections.
     for (const d of state.devices) if (d.type === "ids") (d.config as any).alerts = [];
-    const setup = check.port != null ? buildConnectEvents(from, to, check.port) : buildPingEvents(from, to);
-    if (typeof setup === "string") return false;
-    runSimulationHeadless(setup, from.id, to, check.port != null ? "tcp" : "ping", check.port ?? null);
+    // A Red Team source launches its port scan against the target — the burst of
+    // SYN probes is what an IDS rule matches. Any other source uses a TCP connect
+    // (when a port is given) or a ping.
+    if (from.type === "attacker") {
+      const setup = buildScanEvents(from, check.to);
+      if (typeof setup === "string") return false;
+      runSimulationHeadless(setup, from.id, "", "attack");
+    } else {
+      const setup = check.port != null ? buildConnectEvents(from, to, check.port) : buildPingEvents(from, to);
+      if (typeof setup === "string") return false;
+      runSimulationHeadless(setup, from.id, to, check.port != null ? "tcp" : "ping", check.port ?? null);
+    }
     const needle = check.contains.toLowerCase();
     return state.devices.some(d => d.type === "ids" && (d.config?.alerts || []).some((a: string) => a.toLowerCase().includes(needle)));
   }

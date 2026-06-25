@@ -29,13 +29,14 @@ type ScenarioCheck =
   | { kind: "tcp-fail";  from: string; to: string; port: number; label: string }   // the TCP connect must NOT succeed
   | { kind: "dns";       from: string; name: string; ip?: string; label: string }  // the name resolves (optionally to a given address)
   | { kind: "dhcp";      host: string; label: string }                      // a DHCP request from host succeeds (headless)
-  | { kind: "alert";     from: string; to: string; port?: number; contains: string; label: string };  // a flow (tcp if port, else ping) makes an IDS raise an alert containing the substring
+  | { kind: "alert";     from: string; to: string; port?: number; contains: string; label: string };  // a flow makes an IDS raise an alert containing the substring — an attacker `from` launches its port scan, otherwise a tcp connect (if port) or ping
 ```
 
 Device references in checks/topology resolve by **name or id**. `checkScenario(scenario)` returns `{ id, name, passed, checks: [{ label, passed }] }` — `passed` is true when every check passes.
 
 - `loadScenario(id)` → `applyConfig(normaliseConfig(topology))` + sets `state.activeScenarioId` + refreshes the banner. Loading a plain topology or clearing the network drops the active scenario.
 - `ping`/`dns`/`dhcp` checks reuse `buildPingEvents`/`buildResolveEvents`/`buildDhcpEvents` (simulation.ts) + `runSimulationHeadless` (engine.ts). A `ping`/`tcp` check whose `to` is neither a device nor an IP is a real hostname — the headless run performs the DNS resolution first, so name-based goals exercise the full resolver path.
+- An `alert` check branches on its source. When `from` is an **attacker** (a Red Team host) it launches that host's **port scan** against `to` (`buildScanEvents(from, check.to)`, sim mode `"attack"`) — the burst of SYN probes is what an IDS rule matches; for any other source it falls back to a TCP connect when a `port` is given, else a ping. Either way the check first clears every sensor's runtime `alerts`, runs the flow headless, and passes when some IDS raised an alert containing `contains`.
 
 ## Adding a scenario
 
@@ -86,6 +87,7 @@ The curriculum is a progression from L2 basics to routing, services, security, a
 | `secure-access` | Secure access (802.1X + MACsec) | Capstone: one 802.1X exchange both authorises the port and derives its MACsec key (must-secure), bringing the encrypted link up. |
 | `spanning-tree` | Break the loop (spanning tree) | Three managed switches are wired in a triangle with STP disabled, so a redundant link loops broadcasts into a storm and PC-A can't reach PC-B — re-enable spanning tree on all three so the bridges block a port and clear the storm. |
 | `ids-monitor` | Catch the intruder (IDS + SPAN) | An attacker telnets to a server and an IDS is cabled to SW-1, but no SPAN session feeds it — set the switch's monitor port (`mirror SW-1 Ethernet3`) so the mirrored traffic reaches the sensor and the `alert` check fires. |
+| `red-team-scan` | Detect the Red Team scan (IDS rule) | Red Team host RT-1 is set to port-scan SRV through SW-1, whose SPAN session already mirrors to IDS-1's monitor port (Ethernet3) — but the Snort sensor's rule set is empty, so the scan slips past. Author a Snort rule that flags the scan's Telnet probe (TCP 23) so IDS-1 alerts. Where `ids-monitor` teaches wiring the SPAN session, this teaches writing the detection rule. See [red-team.md](src/red-team.md). |
 
 ## Solution scripts (answer key)
 

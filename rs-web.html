@@ -71,6 +71,14 @@
       --ids-stroke: #8b7bd8;
       --ids-accent: #272247;
       --ids-icon: #b9aef5;
+      --attacker-fill: #2e1117;
+      --attacker-stroke: #f43f5e;
+      --attacker-accent: #3e1620;
+      --attacker-icon: #fda4af;
+      --kali-fill: #1c1b2e;
+      --kali-stroke: #a78bfa;
+      --kali-accent: #2b2942;
+      --kali-icon: #ddd6fe;
       --hub-fill: #2b2718;
       --hub-stroke: #b89a3a;
       --hub-accent: #38311d;
@@ -144,6 +152,14 @@
       --ids-stroke: #6d5bc0;
       --ids-accent: #e6e0f6;
       --ids-icon: #4c3b9e;
+      --attacker-fill: #fdeef1;
+      --attacker-stroke: #be123c;
+      --attacker-accent: #f8d7de;
+      --attacker-icon: #9f1239;
+      --kali-fill: #efecfb;
+      --kali-stroke: #6d28d9;
+      --kali-accent: #ddd6fe;
+      --kali-icon: #5b21b6;
       --shadow: 0 10px 28px rgba(60, 50, 35, 0.14);
     }
 
@@ -207,6 +223,14 @@
       --ids-stroke: #c0b6ff;
       --ids-accent: #38357e;
       --ids-icon: #ded6ff;
+      --attacker-fill: #5a1c39;
+      --attacker-stroke: #ff8fb0;
+      --attacker-accent: #6b264a;
+      --attacker-icon: #ffd2e0;
+      --kali-fill: #2e2a5a;
+      --kali-stroke: #b3a8ff;
+      --kali-accent: #3a3570;
+      --kali-icon: #ddd6ff;
       --hub-fill: #123f8f;
       --hub-stroke: #d8b24f;
       --hub-accent: #0e3170;
@@ -1109,12 +1133,17 @@
 
     /* IDS sensor panel + the switch SPAN selector. */
     .mirror-select { width: 100%; height: 28px; border-radius: 6px; border: 1px solid var(--line); background: var(--panel); color: var(--text); padding: 0 6px; }
+    .mirror-sources { display: flex; flex-direction: column; gap: 4px; }
+    .mirror-source { display: flex; align-items: center; gap: 7px; font-size: 12px; color: var(--text); cursor: pointer; }
+    .mirror-source input { margin: 0; flex: none; }
     .ids-rules {
       width: 100%; min-height: 110px; resize: vertical;
       font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 11px; line-height: 1.5;
       border: 1px solid var(--line); border-radius: 8px; padding: 8px;
       background: var(--canvas-bg); color: var(--text);
     }
+    .attack-checks { display: flex; flex-direction: column; gap: 5px; }
+    .attack-log { color: var(--text) !important; }
     .ids-alerts {
       max-height: 150px; overflow: auto; margin: 0;
       font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 10.5px; line-height: 1.5;
@@ -1530,6 +1559,7 @@
     .terminal-line.sim-dns   { color: #22d3ee; }
     .terminal-line.sim-stp   { color: #a5b4fc; }
     .terminal-line.sim-ids   { color: #fb7185; }
+    .terminal-line.sim-attack { color: #f43f5e; }
 
     /* ─── Simulation log (a dock pane) ────────────────────── */
 
@@ -1558,6 +1588,7 @@
     .sim-log-line.sim-dhcp    { color: #a78bfa; }
     .sim-log-line.sim-stp     { color: #a5b4fc; }
     .sim-log-line.sim-ids     { color: #fb7185; }
+    .sim-log-line.sim-attack  { color: #f43f5e; }
 
     /* ─── Packet list (Wireshark-style) ───────────────────── */
 
@@ -2114,6 +2145,7 @@
             <div class="tool-menu" hidden>
               <button class="tool-menu-item active" data-tool="computer" type="button"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M3 5a1 1 0 0 1 1 -1h16a1 1 0 0 1 1 1v10a1 1 0 0 1 -1 1h-16a1 1 0 0 1 -1 -1v-10"></path><path d="M7 20h10"></path><path d="M9 16v4"></path><path d="M15 16v4"></path></svg><span>Client PC</span></button>
               <button class="tool-menu-item" data-tool="laptop" type="button"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M3 19l18 0"></path><path d="M5 5h14a1 1 0 0 1 1 1v9a1 1 0 0 1 -1 1h-14a1 1 0 0 1 -1 -1v-9a1 1 0 0 1 1 -1z"></path></svg><span>Laptop</span></button>
+              <button class="tool-menu-item" data-tool="kali" type="button"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M3 5a1 1 0 0 1 1 -1h16a1 1 0 0 1 1 1v10a1 1 0 0 1 -1 1h-16a1 1 0 0 1 -1 -1v-10"></path><path d="M7 20h10"></path><path d="M9 16v4"></path><path d="M15 16v4"></path><path d="M6.5 8l2 2l-2 2"></path><path d="M11 12h3.5"></path></svg><span>Kali PC</span></button>
             </div>
           </div>
 
@@ -2148,6 +2180,7 @@
             <div class="tool-menu" hidden>
               <button class="tool-menu-item active" data-tool="firewall" type="button"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 3a12 12 0 0 0 8.5 3a12 12 0 0 1 -8.5 15a12 12 0 0 1 -8.5 -15a12 12 0 0 0 8.5 -3"></path><path d="M9 12l2 2l4 -4"></path></svg><span>Firewall</span></button>
               <button class="tool-menu-item" data-tool="ids" type="button"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M10 12a2 2 0 1 0 4 0a2 2 0 1 0 -4 0"></path><path d="M21 12c-2.4 4 -5.4 6 -9 6c-3.6 0 -6.6 -2 -9 -6c2.4 -4 5.4 -6 9 -6c3.6 0 6.6 2 9 6"></path></svg><span>IDS (Snort)</span></button>
+              <button class="tool-menu-item" data-tool="attacker" type="button"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 4c4.418 0 8 3.358 8 7.5c0 1.737 -.62 3.34 -1.668 4.628c-.184 .226 -.332 .48 -.332 .755v1.617a1 1 0 0 1 -1 1h-10a1 1 0 0 1 -1 -1v-1.617c0 -.275 -.148 -.529 -.332 -.755a7.287 7.287 0 0 1 -1.668 -4.628c0 -4.142 3.582 -7.5 8 -7.5z"></path><path d="M10 17v3"></path><path d="M14 17v3"></path><path d="M9 11m-1 0a1 1 0 1 0 2 0a1 1 0 1 0 -2 0"></path><path d="M15 11m-1 0a1 1 0 1 0 2 0a1 1 0 1 0 -2 0"></path></svg><span>Red Team</span></button>
             </div>
           </div>
 
@@ -2601,6 +2634,28 @@ Full legal text: https://creativecommons.org/publicdomain/zero/1.0/legalcode</pr
       // it carries the SSID (+ optional password) of the network it wants to join.
       defaultConfig: () => ({ ipv4Address: "", gatewayIpv4Address: "", macAddress: "", arpTable: [], ssid: DEFAULT_SSID })
     },
+    kali: {
+      label: "Kali PC",
+      namePrefix: "KALI",
+      width: 92,
+      height: 68,
+      paletteVar: "kali",
+      iconRadius: 10,
+      userAddable: true,
+      // A monitor with a shell prompt — a pentest workstation you drive by hand
+      // (the Kali terminal: nmap, arpspoof). Distinct from the plain Client PC.
+      iconPaths: [
+        "M3 5a1 1 0 0 1 1 -1h16a1 1 0 0 1 1 1v10a1 1 0 0 1 -1 1h-16a1 1 0 0 1 -1 -1v-10",
+        "M7 20h10",
+        "M9 16v4",
+        "M15 16v4",
+        "M6.5 8l2 2l-2 2",
+        "M11 12h3.5"
+      ],
+      // A normal single-NIC host that runs Kali Linux; the user issues the attacks
+      // manually from its terminal, so it carries no autonomous attack config.
+      defaultConfig: () => ({ ipv4Address: "", gatewayIpv4Address: "", macAddress: "", arpTable: [] })
+    },
     switch: {
       label: "Switch",
       namePrefix: "SW",
@@ -2716,6 +2771,26 @@ Full legal text: https://creativecommons.org/publicdomain/zero/1.0/legalcode</pr
         `alert icmp any any -> any any (msg:"ICMP traffic detected"; itype:8; sid:1000001; rev:1;)`,
         `alert tcp any any -> any 23 (msg:"Telnet connection attempt"; sid:1000002; rev:1;)`
       ], alerts: [] })
+    },
+    attacker: {
+      label: "Red Team",
+      namePrefix: "RT",
+      width: 92,
+      height: 68,
+      paletteVar: "attacker",
+      iconRadius: 10,
+      userAddable: true,
+      // A skull — the universal "adversary" glyph.
+      iconPaths: [
+        "M12 4c4.418 0 8 3.358 8 7.5c0 1.737 -.62 3.34 -1.668 4.628c-.184 .226 -.332 .48 -.332 .755v1.617a1 1 0 0 1 -1 1h-10a1 1 0 0 1 -1 -1v-1.617c0 -.275 -.148 -.529 -.332 -.755a7.287 7.287 0 0 1 -1.668 -4.628c0 -4.142 3.582 -7.5 8 -7.5z",
+        "M10 17v3",
+        "M14 17v3",
+        "M9 11m-1 0a1 1 0 1 0 2 0a1 1 0 1 0 -2 0",
+        "M15 11m-1 0a1 1 0 1 0 2 0a1 1 0 1 0 -2 0"
+      ],
+      // A real host (IP/MAC/ARP) that launches attacks. Defaults: scan enabled so
+      // a freshly placed box does something once a target is set.
+      defaultConfig: () => ({ ipv4Address: "", gatewayIpv4Address: "", macAddress: "", arpTable: [], attacks: ["scan"], attackLog: [] })
     },
     lan: {
       label: "LAN",
@@ -3045,6 +3120,17 @@ Full legal text: https://creativecommons.org/publicdomain/zero/1.0/legalcode</pr
     if (device.type === "ids") {
       return { idsRules: normaliseIdsRules(device.config?.idsRules || device.idsRules || []), alerts: [] };
     }
+    if (device.type === "attacker") {
+      const c = device.config || {};
+      const attacks = Array.isArray(c.attacks) ? c.attacks.filter((a) => ["scan", "sweep", "arp-spoof"].includes(a)) : ["scan"];
+      return {
+        ...normaliseHostFields(device),
+        ...c.attackTarget ? { attackTarget: String(c.attackTarget) } : {},
+        ...c.spoofIp ? { spoofIp: String(c.spoofIp) } : {},
+        attacks,
+        attackLog: []
+      };
+    }
     if (device.type === "lan") {
       return {
         anchorId: String(device.config?.anchorId || device.anchorId || ""),
@@ -3078,7 +3164,7 @@ Full legal text: https://creativecommons.org/publicdomain/zero/1.0/legalcode</pr
     if (device.type === "laptop") {
       return { ...normaliseHostFields(device), ...normaliseWifiFields(device) };
     }
-    if (device.type !== "computer") return {};
+    if (device.type !== "computer" && device.type !== "kali") return {};
     return normaliseHostFields(device);
   }
   function normaliseWifiFields(device) {
@@ -3278,7 +3364,10 @@ Full legal text: https://creativecommons.org/publicdomain/zero/1.0/legalcode</pr
       dhcpAssignedGateway: null,
       wifiAssociated: false,
       dot1xAuthorized: false,
-      stormDetected: false
+      stormDetected: false,
+      scanOpen: [],
+      scanClosed: [],
+      sweepLive: []
     },
     portSelection: null
   };
@@ -3307,6 +3396,7 @@ Full legal text: https://creativecommons.org/publicdomain/zero/1.0/legalcode</pr
     select: ["Select and move devices", "Drag devices to arrange the network."],
     computer: ["Add client PC", "Click the canvas to place a client PC."],
     laptop: ["Add laptop", "Click the canvas to place a WiFi laptop (associate it to an access point)."],
+    kali: ["Add Kali PC", "Click the canvas to place a Kali Linux workstation \u2014 drive nmap / arpspoof by hand from its terminal."],
     server: ["Add server", "Click the canvas to place a server (DNS/DHCP via dnsmasq)."],
     "dns-server": ["Add DNS server", "Click the canvas to place a DNS server (dnsmasq \u2014 add A-records to resolve names)."],
     "dhcp-server": ["Add DHCP server", "Click the canvas to place a DHCP server (dnsmasq \u2014 set a dhcp-range to hand out addresses)."],
@@ -3318,6 +3408,7 @@ Full legal text: https://creativecommons.org/publicdomain/zero/1.0/legalcode</pr
     router: ["Add router", "Click the canvas to place a router."],
     firewall: ["Add firewall", "Click the canvas to place a firewall."],
     ids: ["Add IDS", "Click the canvas to place a Snort IDS sensor (cable it to a switch SPAN/monitor port)."],
+    attacker: ["Add Red Team host", "Click the canvas to place a Red Team (Kali) host that launches simulated attacks against a target."],
     hub: ["Add hub", "Click the canvas to place a hub (a layer-1 repeater)."],
     "access-point": ["Add access point", "Click the canvas to place a WiFi access point (bridges associated laptops to the wired LAN)."],
     configure: ["Configure device", "Click a device to edit its static configuration."]
@@ -3790,7 +3881,7 @@ Full legal text: https://creativecommons.org/publicdomain/zero/1.0/legalcode</pr
   // src/devices.ts
   function hasHostname(device) {
     if (device.type === "switch") return !!device.config?.managed;
-    return ["computer", "laptop", "server", "router", "firewall", "ids"].includes(device.type);
+    return ["computer", "laptop", "kali", "server", "router", "firewall", "ids", "attacker"].includes(device.type);
   }
   function applyHostname(device, name) {
     const next = String(name || "").trim();
@@ -3815,14 +3906,14 @@ Full legal text: https://creativecommons.org/publicdomain/zero/1.0/legalcode</pr
       height: deviceSize(type).height,
       config: defaultDeviceConfig(type)
     };
-    if (type === "computer" || type === "laptop" || type === "server") device.config.macAddress = randomMac();
+    if (type === "computer" || type === "laptop" || type === "kali" || type === "server" || type === "attacker") device.config.macAddress = randomMac();
     state.devices.push(device);
     state.selectedId = device.id;
     sync().syncPanel();
     sync().render();
     return device;
   }
-  var PLACEMENT_TOOLS = /* @__PURE__ */ new Set(["computer", "laptop", "server", "dns-server", "dhcp-server", "radius-server", "web-server", "switch", "managed-switch", "router", "firewall", "ids", "hub", "access-point"]);
+  var PLACEMENT_TOOLS = /* @__PURE__ */ new Set(["computer", "laptop", "kali", "server", "dns-server", "dhcp-server", "radius-server", "web-server", "switch", "managed-switch", "router", "firewall", "ids", "attacker", "hub", "access-point"]);
   var SERVER_PRESETS = {
     "dns-server": { namePrefix: "DNS", config: () => ({ dnsmasqRunning: true, dnsRecords: [] }) },
     "dhcp-server": { namePrefix: "DHCP", config: () => ({ dnsmasqRunning: true, dnsRecords: [] }) },
@@ -3855,7 +3946,7 @@ Full legal text: https://creativecommons.org/publicdomain/zero/1.0/legalcode</pr
   }
   function hostNicTaken(deviceId) {
     const device = getDevice(deviceId);
-    if (!device || !["computer", "laptop", "server", "ids"].includes(device.type)) return null;
+    if (!device || !["computer", "laptop", "kali", "server", "ids", "attacker"].includes(device.type)) return null;
     const cabled = state.links.some((l) => l.from === deviceId || l.to === deviceId);
     return cabled ? device.name : null;
   }
@@ -4436,7 +4527,7 @@ Full legal text: https://creativecommons.org/publicdomain/zero/1.0/legalcode</pr
   function buildPortList(deviceId) {
     const device = getDevice(deviceId);
     if (!device) return [];
-    if (device.type === "computer" || device.type === "laptop" || device.type === "server") {
+    if (device.type === "computer" || device.type === "laptop" || device.type === "kali" || device.type === "server" || device.type === "attacker") {
       const linked = linkedPortsFor(deviceId);
       const occupied = linked.length > 0;
       return [{
@@ -4475,8 +4566,8 @@ Full legal text: https://creativecommons.org/publicdomain/zero/1.0/legalcode</pr
       addLink(fromId, toId);
       return;
     }
-    const showFromPicker = !["computer", "laptop", "server"].includes(fromDevice.type);
-    const showToPicker = !["computer", "laptop", "server"].includes(toDevice.type);
+    const showFromPicker = !["computer", "laptop", "kali", "server", "attacker"].includes(fromDevice.type);
+    const showToPicker = !["computer", "laptop", "kali", "server", "attacker"].includes(toDevice.type);
     if (!showFromPicker && !showToPicker) {
       addLink(fromId, toId, 1, 1);
       return;
@@ -5067,15 +5158,16 @@ Full legal text: https://creativecommons.org/publicdomain/zero/1.0/legalcode</pr
     }
     return 1;
   }
+  var PING_TARGET_TYPES = /* @__PURE__ */ new Set(["computer", "laptop", "kali", "server", "attacker"]);
   function findPingTarget(value) {
     const target = String(value || "").trim().toLowerCase();
     return state.devices.find(
-      (device) => (device.type === "computer" || device.type === "laptop" || device.type === "server") && (String(device.config?.ipv4Address || "").toLowerCase() === target || device.name.toLowerCase() === target)
+      (device) => PING_TARGET_TYPES.has(device.type) && (String(device.config?.ipv4Address || "").toLowerCase() === target || device.name.toLowerCase() === target)
     );
   }
   function hostnameToIp(name) {
     const n = String(name || "").trim().toLowerCase();
-    const d = state.devices.find((dev) => (dev.type === "computer" || dev.type === "laptop" || dev.type === "server") && dev.name.toLowerCase() === n);
+    const d = state.devices.find((dev) => (dev.type === "computer" || dev.type === "laptop" || dev.type === "kali" || dev.type === "server" || dev.type === "attacker") && dev.name.toLowerCase() === n);
     return d?.config?.ipv4Address || null;
   }
   function buildPingEvents(source, targetText, options = {}) {
@@ -5326,6 +5418,108 @@ Full legal text: https://creativecommons.org/publicdomain/zero/1.0/legalcode</pr
     if (events.length === 0) return "No inter-switch links for spanning tree to advertise on (a single switch, or no loop to resolve).";
     return { events, pendingArp: {} };
   }
+  var SCAN_PORTS = [21, 22, 23, 25, 53, 80, 110, 143, 443, 445, 3306, 3389, 8080];
+  var SWEEP_HOSTS = 20;
+  function attackNextHop(attacker, dstIp) {
+    const cfg = attacker.config;
+    if (sameSubnet(cfg.ipv4Address, dstIp, prefixOf(cfg))) return { nextHopIp: dstIp };
+    const gw = cfg.gatewayIpv4Address;
+    if (!gw || !sameSubnet(gw, cfg.ipv4Address, prefixOf(cfg))) return null;
+    return { nextHopIp: gw };
+  }
+  function attackTargetIp(text) {
+    const t = String(text || "").trim();
+    if (isValidIpv4(t)) return t;
+    const dev = findPingTarget(t);
+    return dev?.config?.ipv4Address || null;
+  }
+  function buildScanEvents(attacker, targetText) {
+    const cfg = attacker.config;
+    if (!cfg?.ipv4Address || !cfg?.macAddress) return `${attacker.name}: eth0 has no address.`;
+    const dstIp = attackTargetIp(targetText);
+    if (!dstIp) return `nmap: cannot resolve ${targetText}`;
+    const firstHop = findFirstHop(attacker);
+    if (!firstHop) return `nmap: network is unreachable (no link)`;
+    const hop = attackNextHop(attacker, dstIp);
+    if (!hop) return `nmap: no route to ${dstIp}`;
+    const srcPort = 4e4 + Math.floor(Math.random() * 2e4);
+    const syn = (port, dstMac) => createTcpSegment(cfg.macAddress, dstMac, cfg.ipv4Address, dstIp, srcPort, port, "syn");
+    const arpEntry = (cfg.arpTable || []).find((e) => e.ipv4Address === hop.nextHopIp);
+    const seed = (frame) => ({ type: "frame_arrive", frame, deviceId: firstHop.peerId, fromDeviceId: attacker.id, linkId: firstHop.linkId });
+    if (arpEntry) {
+      return { events: SCAN_PORTS.map((p) => seed(syn(p, arpEntry.macAddress))), pendingArp: {} };
+    }
+    return {
+      events: [seed(createArpRequest(cfg.macAddress, cfg.ipv4Address, hop.nextHopIp))],
+      pendingArp: { [`${attacker.id}:${hop.nextHopIp}`]: SCAN_PORTS.map((p) => syn(p, "00:00:00:00:00:00")) }
+    };
+  }
+  function buildSweepEvents(attacker, subnetText) {
+    const cfg = attacker.config;
+    if (!cfg?.ipv4Address || !cfg?.macAddress) return `${attacker.name}: eth0 has no address.`;
+    const firstHop = findFirstHop(attacker);
+    if (!firstHop) return `nmap: network is unreachable (no link)`;
+    const t = String(subnetText || "").trim();
+    const base = t && (t.includes("/") || isValidIpv4(t)) ? t : `${cfg.ipv4Address}/${prefixOf(cfg)}`;
+    const cidr = base.includes("/") ? base : `${base}/${prefixOf(cfg)}`;
+    const network = networkOf(cidr.split("/")[0], prefixLengthOfCidr(cidr));
+    const netInt = ipv4ToInt(network.split("/")[0]);
+    const events = [];
+    const pendingArp = {};
+    for (let i = 1; i <= SWEEP_HOSTS; i++) {
+      const hostIp = intToIpv4(netInt + i);
+      if (hostIp === cfg.ipv4Address) continue;
+      const hop = attackNextHop(attacker, hostIp);
+      if (!hop) continue;
+      const echo = createIcmpEchoRequest(cfg.macAddress, "00:00:00:00:00:00", cfg.ipv4Address, hostIp, 64);
+      const arpEntry = (cfg.arpTable || []).find((e) => e.ipv4Address === hop.nextHopIp);
+      if (arpEntry) {
+        echo.dstMac = arpEntry.macAddress;
+        events.push({ type: "frame_arrive", frame: echo, deviceId: firstHop.peerId, fromDeviceId: attacker.id, linkId: firstHop.linkId });
+      } else {
+        const key = `${attacker.id}:${hop.nextHopIp}`;
+        if (!pendingArp[key]) {
+          events.push({ type: "frame_arrive", frame: createArpRequest(cfg.macAddress, cfg.ipv4Address, hop.nextHopIp), deviceId: firstHop.peerId, fromDeviceId: attacker.id, linkId: firstHop.linkId });
+          pendingArp[key] = [];
+        }
+        pendingArp[key].push(echo);
+      }
+    }
+    if (!events.length) return `nmap: nothing to sweep`;
+    return { events, pendingArp };
+  }
+  function buildArpSpoofEvents(attacker, spoofText) {
+    const cfg = attacker.config;
+    if (!cfg?.macAddress) return `${attacker.name}: eth0 has no MAC address.`;
+    const spoofIp = String(spoofText || cfg.spoofIp || cfg.gatewayIpv4Address || "").trim();
+    if (!isValidIpv4(spoofIp)) return `arpspoof: no valid IP to impersonate (set a gateway, or "arp-spoof <ip>").`;
+    const firstHop = findFirstHop(attacker);
+    if (!firstHop) return `arpspoof: network is unreachable (no link)`;
+    const gratuitous = createArpReply(cfg.macAddress, spoofIp, BROADCAST_MAC, spoofIp);
+    return { events: [{ type: "frame_arrive", frame: gratuitous, deviceId: firstHop.peerId, fromDeviceId: attacker.id, linkId: firstHop.linkId }], pendingArp: {} };
+  }
+  function buildAttackEvents(attacker, only) {
+    const kinds = only ? [only] : attacker.config?.attacks || ["scan"];
+    const target = attacker.config?.attackTarget || "";
+    const events = [];
+    const pendingArp = {};
+    const errors = [];
+    const merge = (r) => {
+      if (typeof r === "string") {
+        errors.push(r);
+        return;
+      }
+      events.push(...r.events);
+      for (const [k, v] of Object.entries(r.pendingArp)) pendingArp[k] = [...pendingArp[k] || [], ...v];
+    };
+    for (const kind of kinds) {
+      if (kind === "scan") merge(target ? buildScanEvents(attacker, target) : `nmap: no scan target set`);
+      else if (kind === "sweep") merge(buildSweepEvents(attacker, target));
+      else if (kind === "arp-spoof") merge(buildArpSpoofEvents(attacker));
+    }
+    if (!events.length) return errors[0] || `${attacker.name}: no attacks to launch`;
+    return { events, pendingArp };
+  }
   function findFirstHop(source) {
     for (const link of linksFor(source.id)) {
       if (link.hidden || link.shutdown) continue;
@@ -5396,7 +5590,7 @@ Full legal text: https://creativecommons.org/publicdomain/zero/1.0/legalcode</pr
   function syncZoomLevel() {
     dom.zoomLevel.textContent = `${Math.round(state.scale * 100)}%`;
   }
-  var HOST_TYPES = /* @__PURE__ */ new Set(["computer", "laptop", "server"]);
+  var HOST_TYPES = /* @__PURE__ */ new Set(["computer", "laptop", "kali", "server", "attacker"]);
   function linkColorFor(from, to) {
     if (from.type === "router" && to.type === "router") return cssColor("--link-router");
     if (from.type === "switch" || to.type === "switch") {
@@ -6183,9 +6377,15 @@ Full legal text: https://creativecommons.org/publicdomain/zero/1.0/legalcode</pr
     sim.wifiAssociated = false;
     sim.dot1xAuthorized = false;
     sim.stormDetected = false;
-    for (const d of state.devices) if (d.type === "ids" && d.config) d.config.alerts = [];
+    sim.scanOpen = [];
+    sim.scanClosed = [];
+    sim.sweepLive = [];
+    for (const d of state.devices) {
+      if (d.type === "ids" && d.config) d.config.alerts = [];
+      if ((d.type === "attacker" || d.type === "kali") && d.config) d.config.attackLog = [];
+    }
     const target = setup.dns ? setup.dns.name : targetIp;
-    const label = mode === "dhcp" ? "Requesting DHCP lease..." : mode === "tcp" ? `Opening TCP connection to ${target}:${sim.tcpTargetPort ?? "?"}...` : mode === "dns" ? `Resolving ${target}...` : mode === "associate" ? `Associating to ${target || "WiFi"}...` : mode === "dot1x" ? `802.1X authenticating ${target || "supplicant"}...` : mode === "stp" ? "Spanning tree: advertising BPDUs from the root bridge..." : `Simulating ping to ${target}...`;
+    const label = mode === "dhcp" ? "Requesting DHCP lease..." : mode === "tcp" ? `Opening TCP connection to ${target}:${sim.tcpTargetPort ?? "?"}...` : mode === "dns" ? `Resolving ${target}...` : mode === "associate" ? `Associating to ${target || "WiFi"}...` : mode === "dot1x" ? `802.1X authenticating ${target || "supplicant"}...` : mode === "stp" ? "Spanning tree: advertising BPDUs from the root bridge..." : mode === "attack" ? "Red Team: launching attacks..." : `Simulating ping to ${target}...`;
     state.terminal.lines.push({ kind: "sim", text: label });
     if (!state.dock.open) openDock("simlog");
     syncTerminal();
@@ -6263,7 +6463,13 @@ Full legal text: https://creativecommons.org/publicdomain/zero/1.0/legalcode</pr
     sim.wifiAssociated = false;
     sim.dot1xAuthorized = false;
     sim.stormDetected = false;
-    for (const d of state.devices) if (d.type === "ids" && d.config) d.config.alerts = [];
+    sim.scanOpen = [];
+    sim.scanClosed = [];
+    sim.sweepLive = [];
+    for (const d of state.devices) {
+      if (d.type === "ids" && d.config) d.config.alerts = [];
+      if ((d.type === "attacker" || d.type === "kali") && d.config) d.config.attackLog = [];
+    }
     const MAX_STEPS = 1e4;
     let guard = 0;
     processNextStep();
@@ -6275,7 +6481,7 @@ Full legal text: https://creativecommons.org/publicdomain/zero/1.0/legalcode</pr
     if (guard >= MAX_STEPS && (sim.transits.length > 0 || sim.events.length > 0)) sim.stormDetected = true;
     if (sim.status !== "done") finishSimulation();
     return {
-      success: mode === "dhcp" ? sim.dhcpSuccess : mode === "tcp" ? sim.tcpSuccess : mode === "dns" ? sim.dnsResolvedIp != null : mode === "associate" ? sim.wifiAssociated : mode === "dot1x" ? sim.dot1xAuthorized : mode === "stp" ? !sim.stormDetected : sim.pingSuccess,
+      success: mode === "dhcp" ? sim.dhcpSuccess : mode === "tcp" ? sim.tcpSuccess : mode === "dns" ? sim.dnsResolvedIp != null : mode === "associate" ? sim.wifiAssociated : mode === "dot1x" ? sim.dot1xAuthorized : mode === "stp" ? !sim.stormDetected : mode === "attack" ? sim.scanOpen.length > 0 || sim.sweepLive.length > 0 : sim.pingSuccess,
       refused: sim.tcpRefused,
       ttl: sim.pingTtl,
       responderIp: sim.pingResponderIp,
@@ -6289,10 +6495,24 @@ Full legal text: https://creativecommons.org/publicdomain/zero/1.0/legalcode</pr
   }
   var bootQueue = [];
   function hostNeedsBoot(device) {
-    return !!device && (device.type === "computer" || device.type === "laptop" || device.type === "server") && !device.poweredOff && !device.config?.ipv4Address && state.links.some((l) => !l.hidden && !l.shutdown && (l.from === device.id || l.to === device.id));
+    return !!device && (device.type === "computer" || device.type === "laptop" || device.type === "kali" || device.type === "server") && !device.poweredOff && !device.config?.ipv4Address && state.links.some((l) => !l.hidden && !l.shutdown && (l.from === device.id || l.to === device.id));
   }
   function unconfiguredBootableHosts() {
     return state.devices.filter(hostNeedsBoot);
+  }
+  function launchRedTeam() {
+    const sim = state.simulation;
+    if (sim.status === "running" || sim.status === "paused") return false;
+    const attacker = state.devices.find((d) => d.type === "attacker" && !d.poweredOff && d.config?.ipv4Address && (d.config?.attacks?.length ?? 0) > 0);
+    if (!attacker) return false;
+    const setup = buildAttackEvents(attacker);
+    if (typeof setup === "string") {
+      dom.modeLabel.textContent = setup;
+      return false;
+    }
+    dom.modeLabel.textContent = `${attacker.name}: launching attacks...`;
+    startSimulation(setup, attacker.id, "", "attack");
+    return true;
   }
   function startNetworkBoot() {
     const sim = state.simulation;
@@ -6360,6 +6580,21 @@ Full legal text: https://creativecommons.org/publicdomain/zero/1.0/legalcode</pr
   var animFrameId = null;
   var STORM_STEP_CAP = 200;
   var STORM_TRANSIT_CAP = 250;
+  var SERVICE_NAMES = {
+    21: "ftp",
+    22: "ssh",
+    23: "telnet",
+    25: "smtp",
+    53: "domain",
+    80: "http",
+    110: "pop3",
+    143: "imap",
+    443: "https",
+    445: "microsoft-ds",
+    3306: "mysql",
+    3389: "ms-wbt-server",
+    8080: "http-proxy"
+  };
   function startAnimationLoop() {
     if (animFrameId != null) return;
     animFrameId = requestAnimationFrame(animationTick);
@@ -6512,7 +6747,10 @@ Full legal text: https://creativecommons.org/publicdomain/zero/1.0/legalcode</pr
     router: processAtRouter,
     firewall: processAtFirewall,
     hub: processAtHub,
-    ids: processAtIds
+    ids: processAtIds,
+    attacker: processAtAttacker,
+    kali: processAtAttacker
+    // a Kali PC tallies its own hand-run attacks
   };
   function handleDot11(device, frame, fromDeviceId) {
     const payload = frame.payload;
@@ -6587,7 +6825,7 @@ Full legal text: https://creativecommons.org/publicdomain/zero/1.0/legalcode</pr
     for (const link of linksFor(sw.id)) {
       if (link.hidden || link.shutdown || link.wireless) continue;
       const host = getDevice(link.from === sw.id ? link.to : link.from);
-      if (host && (host.type === "computer" || host.type === "laptop" || host.type === "server") && host.config?.dot1x?.identity === identity) {
+      if (host && (host.type === "computer" || host.type === "laptop" || host.type === "kali" || host.type === "server") && host.config?.dot1x?.identity === identity) {
         return { host, link };
       }
     }
@@ -7099,6 +7337,35 @@ Full legal text: https://creativecommons.org/publicdomain/zero/1.0/legalcode</pr
     }
     return [];
   }
+  function processAtAttacker(device, frame, fromDeviceId) {
+    if (device.poweredOff) return [];
+    const sim = state.simulation;
+    if (sim.mode === "attack" && device.id === sim.originDeviceId && frame.payload.type === "ipv4") {
+      const ipv4 = frame.payload;
+      if (ipv4.dstIp === device.config?.ipv4Address) {
+        const inner = ipv4.payload;
+        if (inner.type === "tcp" && inner.flags === "syn-ack") {
+          if (!sim.scanOpen.includes(inner.srcPort)) {
+            sim.scanOpen.push(inner.srcPort);
+            logStep(device, "sim-attack", `${ipv4.srcIp}:${inner.srcPort} open (SYN-ACK)`);
+          }
+          return [];
+        }
+        if (inner.type === "tcp" && inner.flags === "rst") {
+          if (!sim.scanClosed.includes(inner.srcPort)) sim.scanClosed.push(inner.srcPort);
+          return [];
+        }
+        if (inner.type === "icmp" && inner.icmpType === 0) {
+          if (!sim.sweepLive.includes(ipv4.srcIp)) {
+            sim.sweepLive.push(ipv4.srcIp);
+            logStep(device, "sim-attack", `host up: ${ipv4.srcIp}`);
+          }
+          return [];
+        }
+      }
+    }
+    return processAtComputer(device, frame, fromDeviceId);
+  }
   function processAtRouter(device, frame, fromDeviceId) {
     const outgoing = [];
     if (device.poweredOff) return outgoing;
@@ -7582,6 +7849,18 @@ Full legal text: https://creativecommons.org/publicdomain/zero/1.0/legalcode</pr
   Root bridge: ${rootNames}
   Blocking ports: ${blocked} (${blocked === 1 ? "1 redundant link cut" : blocked === 0 ? "no loop to break" : blocked + " redundant links cut"})`);
       }
+    } else if (sim.mode === "attack") {
+      const open = [...sim.scanOpen].sort((a, b) => a - b);
+      const lines = [];
+      if (open.length) {
+        lines.push("PORT      STATE  SERVICE");
+        for (const p of open) lines.push(`${String(p + "/tcp").padEnd(10)}open   ${SERVICE_NAMES[p] || "unknown"}`);
+      }
+      if (sim.sweepLive.length) lines.push(`Hosts up: ${sim.sweepLive.length} (${[...sim.sweepLive].sort().join(", ")})`);
+      if (!lines.length) lines.push("No open ports or live hosts found (target unreachable, filtered, or no attack target set).");
+      const origin = getDevice(sim.originDeviceId);
+      if (origin?.config) origin.config.attackLog = lines;
+      if (!sim.headless) out("", lines.join("\n"));
     } else if (sim.mode === "dhcp") {
       if (sim.dhcpSuccess) {
         if (!sim.headless) out("", `DHCP configured:
@@ -9436,6 +9715,66 @@ Snort successfully validated the configuration${bad ? " (with errors)" : "."}`);
     terminalLine("error", `${command.split(/\s+/)[0]}: command not found`);
   }
 
+  // src/terminal/attacker.ts
+  var NMAP_VERSION = [
+    "Nmap version 7.94 ( https://nmap.org )",
+    "Platform: x86_64-pc-linux-gnu",
+    "Compiled with: liblua-5.4.6 openssl-3.0.13 libpcap-1.10.4 libz-1.3",
+    "Compiled without:",
+    "Available nsock engines: epoll poll select"
+  ].join("\n");
+  function launch(device, setup, kind) {
+    if (typeof setup === "string") {
+      terminalLine("error", setup);
+      return;
+    }
+    if (state.simulation.status === "running") {
+      terminalLine("error", "A simulation is already running \u2014 stop it first.");
+      return;
+    }
+    startSimulation(setup, device.id, "", "attack");
+    terminalLine("", `Starting Nmap-style ${kind}... (results appear here when the run finishes).`);
+  }
+  function runAttackerTerminalCommand(device, command) {
+    const lower = command.toLowerCase().trim();
+    if (lower === "?" || lower === "help") {
+      terminalLine("muted", [
+        "nmap -sS <target>          TCP SYN port scan",
+        "nmap -sn <subnet>          ping sweep (host discovery)",
+        "arpspoof [-t <victim>] <gateway-ip>   ARP cache poisoning (MITM)",
+        "nmap -V                    version",
+        "hostname [<name>]",
+        "clear",
+        "(standard Linux net tools also work: ip addr, ip route, ping, traceroute, nc, arp)"
+      ].join("\n"));
+      return;
+    }
+    if (lower === "clear") {
+      state.terminal.lines = [];
+      return;
+    }
+    if (lower === "nmap -v" || lower === "nmap --version") {
+      terminalLine("", NMAP_VERSION);
+      return;
+    }
+    const sweep = command.match(/^(?:sudo\s+)?nmap\s+-sn\s+(\S+)\s*$/i);
+    if (sweep) {
+      launch(device, buildSweepEvents(device, sweep[1]), `ping sweep of ${sweep[1]}`);
+      return;
+    }
+    const scan = command.match(/^(?:sudo\s+)?nmap\s+(?:-sS\s+)?(\S+)\s*$/i);
+    if (scan) {
+      launch(device, buildScanEvents(device, scan[1]), `SYN scan of ${scan[1]}`);
+      return;
+    }
+    const spoof = command.match(/^(?:sudo\s+)?arpspoof\s+(?:-t\s+\S+\s+)?(\S+)\s*$/i);
+    if (spoof) {
+      launch(device, buildArpSpoofEvents(device, spoof[1]), `ARP spoof of ${spoof[1]}`);
+      return;
+    }
+    runHostTerminalCommand(device, command);
+  }
+
   // src/terminal/core.ts
   var injectedMode = false;
   function terminalLineFor(session, kind, text) {
@@ -9582,7 +9921,7 @@ Snort successfully validated the configuration${bad ? " (with errors)" : "."}`);
     requestAnimationFrame(() => sync().resizeCanvas());
   }
   function terminalPromptText(device) {
-    if (device.type === "computer" || device.type === "laptop") return `${device.name}$`;
+    if (device.type === "computer" || device.type === "laptop" || device.type === "kali" || device.type === "attacker") return `${device.name}$`;
     if (device.type === "server") return `root@${device.name}:~#`;
     if (device.type === "switch") return `${device.name}#`;
     if (device.type === "firewall") return `root@${device.name}#`;
@@ -9599,7 +9938,10 @@ Snort successfully validated the configuration${bad ? " (with errors)" : "."}`);
     router: runRouterTerminalCommand,
     switch: runSwitchTerminalCommand,
     firewall: runFirewallTerminalCommand,
-    ids: runIdsTerminalCommand
+    ids: runIdsTerminalCommand,
+    attacker: runAttackerTerminalCommand,
+    kali: runAttackerTerminalCommand
+    // a Kali PC: the same Kali shell, driven by hand
   };
   function hasTerminal(device) {
     return !!device && device.type in CLI_DISPATCH;
@@ -10159,18 +10501,34 @@ Snort successfully validated the configuration${bad ? " (with errors)" : "."}`);
     });
   }
   function renderMirrorSection(device) {
-    const dest = device.config?.mirror?.dest || "";
+    const mirror = device.config?.mirror;
+    const dest = mirror?.dest || "";
     const ports = switchInterfacesWithNames(device);
-    return `
+    const destField = `
     <div class="field">
       <label for="selectedMirror">Port mirroring (SPAN)</label>
       <select id="selectedMirror" class="mirror-select">
         <option value="">off</option>
         ${ports.map((p) => `<option value="${escapeHtml(p.name)}" ${p.name === dest ? "selected" : ""}>${escapeHtml(p.name)}${p.peer ? ` &rarr; ${escapeHtml(p.peer.name)}` : ""}</option>`).join("")}
       </select>
-      <span class="field-note">Copy all traffic to this monitor port (cable an IDS sensor there).</span>
-    </div>
-  `;
+      <span class="field-note">Copy traffic to this monitor port (cable an IDS sensor there).</span>
+    </div>`;
+    if (!dest) return destField;
+    const sources = mirror?.sources;
+    const eligible = ports.filter((p) => p.peer && p.name !== dest);
+    const sourceField = eligible.length ? `
+    <div class="field">
+      <label>Mirror sources</label>
+      <div class="mirror-sources">
+        ${eligible.map((p) => {
+      const checked = !sources || sources.includes(p.name);
+      return `<label class="mirror-source"><input type="checkbox" class="mirror-source-cb" data-port="${escapeHtml(p.name)}"${checked ? " checked" : ""}> <span>${escapeHtml(p.name)} &rarr; ${escapeHtml(p.peer.name)}</span></label>`;
+    }).join("")}
+      </div>
+      <span class="field-note">All ticked mirrors the whole switch; untick to mirror only specific ports.</span>
+    </div>` : `
+    <div class="field"><span class="field-note">No other cabled ports to mirror \u2014 cable a host to mirror its traffic.</span></div>`;
+    return destField + sourceField;
   }
   function renderIdsSection(device) {
     const rules = (device.config?.idsRules || []).join("\n");
@@ -10202,9 +10560,64 @@ Snort successfully validated the configuration${bad ? " (with errors)" : "."}`);
       syncPanel();
     });
   }
+  function renderAttackerSection(device) {
+    const cfg = device.config || {};
+    const has = (k) => (cfg.attacks || []).includes(k);
+    const log = cfg.attackLog || [];
+    return `
+    <p class="field-note">A Red Team (Kali) host. Set a target, choose attacks, then Launch (or just press Play). It generates real attack traffic an IDS can detect; a passive victim can't steer it.</p>
+    <div class="field">
+      <label for="selectedAttackTarget">Target (IP or device)</label>
+      <input id="selectedAttackTarget" value="${escapeHtml(cfg.attackTarget || "")}" placeholder="e.g. 10.0.0.10 or SRV" autocomplete="off">
+    </div>
+    <div class="field">
+      <label>Attacks</label>
+      <div class="attack-checks">
+        <label class="stp-check"><input type="checkbox" class="attack-check" data-attack="scan" ${has("scan") ? "checked" : ""}> Port scan</label>
+        <label class="stp-check"><input type="checkbox" class="attack-check" data-attack="sweep" ${has("sweep") ? "checked" : ""}> Ping sweep</label>
+        <label class="stp-check"><input type="checkbox" class="attack-check" data-attack="arp-spoof" ${has("arp-spoof") ? "checked" : ""}> ARP spoof</label>
+      </div>
+    </div>
+    <button class="wide-button" id="launchAttack">Launch attacks</button>
+    ${log.length ? `<div class="field"><label>Last run</label><pre class="ids-alerts attack-log">${escapeHtml(log.join("\n"))}</pre></div>` : ""}
+  `;
+  }
+  function bindAttackerControls(device) {
+    const target = document.getElementById("selectedAttackTarget");
+    if (target) {
+      captureUndoOnFocus(target);
+      target.addEventListener("change", () => {
+        device.config.attackTarget = target.value.trim();
+      });
+    }
+    document.querySelectorAll(".attack-check").forEach((el) => el.addEventListener("change", () => {
+      device.config.attacks = Array.from(document.querySelectorAll(".attack-check")).filter((c) => c.checked).map((c) => c.dataset.attack);
+    }));
+    document.getElementById("launchAttack")?.addEventListener("click", () => {
+      if (target) device.config.attackTarget = target.value.trim();
+      const setup = buildAttackEvents(device);
+      if (typeof setup === "string") {
+        dom.modeLabel.textContent = setup;
+        return;
+      }
+      startSimulation(setup, device.id, "", "attack");
+    });
+  }
   function bindMirrorControl(device) {
+    const name = device.config?.mirror?.name;
     const sel = document.getElementById("selectedMirror");
-    if (sel) sel.addEventListener("change", () => setSwitchMirror(device, sel.value ? { dest: sel.value } : null));
+    if (sel) sel.addEventListener("change", () => setSwitchMirror(device, sel.value ? { name, dest: sel.value } : null));
+    const dest = device.config?.mirror?.dest;
+    const cbs = Array.from(document.querySelectorAll(".mirror-source-cb"));
+    if (dest && cbs.length) {
+      const apply = () => {
+        const all = cbs.map((cb) => cb.dataset.port);
+        const checked = cbs.filter((cb) => cb.checked).map((cb) => cb.dataset.port);
+        const sources = checked.length === all.length ? void 0 : checked;
+        setSwitchMirror(device, { name, dest, sources });
+      };
+      cbs.forEach((cb) => cb.addEventListener("change", apply));
+    }
   }
   function bindStpControls(device) {
     const toggle = document.getElementById("selectedStp");
@@ -10534,7 +10947,7 @@ Snort successfully validated the configuration${bad ? " (with errors)" : "."}`);
     } else {
       const neighbors = connectedIds(selected.id).map((id) => getDevice(id)).filter(isVisibleDevice);
       const selectedType = DEVICE_SPECS[selected.type]?.label ?? "Device";
-      const isHost = selected.type === "computer" || selected.type === "laptop" || selected.type === "server";
+      const isHost = selected.type === "computer" || selected.type === "laptop" || selected.type === "kali" || selected.type === "server" || selected.type === "attacker";
       const pcConfigFields = isHost ? `
       <div class="field">
         <label class="label-with-badge" for="selectedIpv4">IPv4 address / prefix ${ipSourceBadge(selected.config)}</label>
@@ -10649,6 +11062,7 @@ Snort successfully validated the configuration${bad ? " (with errors)" : "."}`);
       </div>
     ` : "";
       const idsConfigFields = selected.type === "ids" ? renderIdsSection(selected) : "";
+      const attackerConfigFields = selected.type === "attacker" ? renderAttackerSection(selected) : "";
       const hubConfigFields = selected.type === "hub" ? `
       <p class="field-note">A hub is a layer-1 repeater: it copies every frame out all other ports (no MAC learning, one collision domain).</p>
       <div style="height: 10px"></div>
@@ -10709,6 +11123,7 @@ Snort successfully validated the configuration${bad ? " (with errors)" : "."}`);
       ${routerConfigFields}
       ${firewallConfigFields}
       ${idsConfigFields}
+      ${attackerConfigFields}
       ${hubConfigFields}
       <div class="pill-row">
         <span class="pill">${selectedType}</span>
@@ -10875,6 +11290,7 @@ Snort successfully validated the configuration${bad ? " (with errors)" : "."}`);
       bindStpControls(selected);
       bindMirrorControl(selected);
       if (selected.type === "ids") bindIdsControls(selected);
+      if (selected.type === "attacker") bindAttackerControls(selected);
       if (selected.type === "router") bindFirewallControls(selected, ["forward", "input"]);
       if (selected.type === "firewall") bindFirewallControls(selected, ["forward"]);
       const terminalButton = document.getElementById("openSelectedTerminal");
@@ -11533,6 +11949,28 @@ Snort successfully validated the configuration${bad ? " (with errors)" : "."}`);
       { kind: "alert", from: "PC-INTRUDER", to: "SRV", port: 23, contains: "Telnet", label: "IDS-1 detects the Telnet attempt" }
     ]
   };
+  var redTeamScan = {
+    id: "red-team-scan",
+    name: "Detect the Red Team scan (IDS rule)",
+    objective: "RT-1 is a Red Team host (Kali Linux) port-scanning SRV with nmap. IDS-1 is wired into SW-1's monitor port and SPAN mirroring is already configured \u2014 but its rule set is empty, so the scan slips past unnoticed. Load a Snort rule on IDS-1 that flags the scan's Telnet probe (TCP port 23). Try the console: `idsrule IDS-1 alert tcp any any -> any 23 (msg:\"Telnet scan\"; sid:1000010; rev:1;)` \u2014 then `attack RT-1` to watch it, or just check the goal.",
+    topology: {
+      version: 1,
+      devices: [
+        { id: "rt-sw", type: "switch", name: "SW-1", x: 0, y: 0, config: { managed: true, ethernetPorts: 8, macTable: [], vlans: [], portVlans: {}, portModes: {}, mirror: { name: "MON", dest: "Ethernet3" } } },
+        { id: "rt-atk", type: "attacker", name: "RT-1", x: -280, y: -120, config: { ipv4Address: "10.0.0.66", gatewayIpv4Address: "", macAddress: "02:00:00:00:2A:66", arpTable: [], attacks: ["scan"], attackTarget: "SRV" } },
+        { id: "rt-srv", type: "server", name: "SRV", x: 280, y: -120, config: { ipv4Address: "10.0.0.10", gatewayIpv4Address: "", macAddress: "02:00:00:00:2A:10", arpTable: [], dnsmasqRunning: false, openPorts: [22, 80, 3306] } },
+        { id: "rt-ids", type: "ids", name: "IDS-1", x: 0, y: 180, config: { idsRules: [], alerts: [] } }
+      ],
+      links: [
+        { from: "rt-sw", to: "rt-atk", fromPort: 1 },
+        { from: "rt-sw", to: "rt-srv", fromPort: 2 },
+        { from: "rt-sw", to: "rt-ids", fromPort: 3 }
+      ]
+    },
+    checks: [
+      { kind: "alert", from: "RT-1", to: "SRV", contains: "Telnet", label: "IDS-1 detects the Red Team port scan" }
+    ]
+  };
   var CURRICULUM = [
     vlanSegmentation,
     routerOnAStick,
@@ -11556,7 +11994,8 @@ Snort successfully validated the configuration${bad ? " (with errors)" : "."}`);
     macsecLink,
     secureAccess,
     spanningTree,
-    idsMonitor
+    idsMonitor,
+    redTeamScan
   ];
 
   // src/scenarios.ts
@@ -11676,9 +12115,15 @@ Snort successfully validated the configuration${bad ? " (with errors)" : "."}`);
       if (!from) return false;
       const to = resolve(check.to)?.config?.ipv4Address || check.to;
       for (const d of state.devices) if (d.type === "ids") d.config.alerts = [];
-      const setup = check.port != null ? buildConnectEvents(from, to, check.port) : buildPingEvents(from, to);
-      if (typeof setup === "string") return false;
-      runSimulationHeadless(setup, from.id, to, check.port != null ? "tcp" : "ping", check.port ?? null);
+      if (from.type === "attacker") {
+        const setup = buildScanEvents(from, check.to);
+        if (typeof setup === "string") return false;
+        runSimulationHeadless(setup, from.id, "", "attack");
+      } else {
+        const setup = check.port != null ? buildConnectEvents(from, to, check.port) : buildPingEvents(from, to);
+        if (typeof setup === "string") return false;
+        runSimulationHeadless(setup, from.id, to, check.port != null ? "tcp" : "ping", check.port ?? null);
+      }
       const needle = check.contains.toLowerCase();
       return state.devices.some((d) => d.type === "ids" && (d.config?.alerts || []).some((a) => a.toLowerCase().includes(needle)));
     }
@@ -12011,6 +12456,8 @@ Snort successfully validated the configuration${bad ? " (with errors)" : "."}`);
     if (event.key.toLowerCase() === "r") setTool("router");
     if (event.key.toLowerCase() === "f") setTool("firewall");
     if (event.key.toLowerCase() === "i") setTool("ids");
+    if (event.key.toLowerCase() === "a") setTool("attacker");
+    if (event.key.toLowerCase() === "k") setTool("kali");
     if (event.key.toLowerCase() === "h") setTool("hub");
     if (event.key.toLowerCase() === "l") setTool("connect");
     if (event.key.toLowerCase() === "w") setTool("configure");
@@ -12326,7 +12773,7 @@ Snort successfully validated the configuration${bad ? " (with errors)" : "."}`);
       const sim = state.simulation;
       if (sim.status === "running") pauseSimulation();
       else if (sim.status === "paused") resumeSimulation();
-      else startNetworkBoot();
+      else if (!startNetworkBoot()) launchRedTeam();
     });
     dom.simStep.addEventListener("click", stepOnce);
     dom.simStop.addEventListener("click", () => {
@@ -12435,6 +12882,18 @@ Snort successfully validated the configuration${bad ? " (with errors)" : "."}`);
           // A passive Snort sensor — persist only its rule set (raw Snort lines);
           // the alert log is runtime, not config.
           config: { idsRules: normaliseIdsRules(config?.idsRules || []) }
+        } : {},
+        ...type === "attacker" ? {
+          config: {
+            ...hostConfigForPayload(config),
+            ...config?.attackTarget ? { attackTarget: config.attackTarget } : {},
+            ...config?.spoofIp ? { spoofIp: config.spoofIp } : {},
+            attacks: Array.isArray(config?.attacks) ? config.attacks.filter((a) => ["scan", "sweep", "arp-spoof"].includes(a)) : ["scan"]
+          }
+        } : {},
+        ...type === "kali" ? {
+          // A Kali PC serialises exactly like a host — its attacks are issued by hand.
+          config: hostConfigForPayload(config)
         } : {},
         ...type === "lan" ? {
           config: {
@@ -12950,7 +13409,7 @@ Snort successfully validated the configuration${bad ? " (with errors)" : "."}`);
   function cmdSupplicant(args) {
     const host = resolveDevice(args[0]);
     if (typeof host === "string") return err(host);
-    if (!["computer", "laptop", "server"].includes(host.type)) return err(`${host.name} is not a host.`);
+    if (!["computer", "laptop", "kali", "server"].includes(host.type)) return err(`${host.name} is not a host.`);
     const identity = args[1], password = args[2];
     if (!identity || password == null) return err("Usage: supplicant <host> <identity> <password>");
     ensureConfig(host);
@@ -12991,7 +13450,7 @@ Snort successfully validated the configuration${bad ? " (with errors)" : "."}`);
   function cmdPorts(args) {
     const host = resolveDevice(args[0]);
     if (typeof host === "string") return err(host);
-    if (!["computer", "laptop", "server"].includes(host.type)) return err(`${host.name} is not a host (only computers/laptops/servers listen on ports).`);
+    if (!["computer", "laptop", "kali", "server"].includes(host.type)) return err(`${host.name} is not a host (only computers/laptops/servers listen on ports).`);
     const spec = args.slice(1).join(" ").trim();
     ensureConfig(host);
     const cfg = host.config;
@@ -13073,6 +13532,48 @@ Snort successfully validated the configuration${bad ? " (with errors)" : "."}`);
     const result = addIdsRule(ids, ruleText);
     sync().syncPanel();
     return result.startsWith("ERROR") ? err(result) : ok(result);
+  }
+  function cmdAttack(args) {
+    const node = resolveDevice(args[0]);
+    if (typeof node === "string") return err(node);
+    if (node.type !== "attacker" && node.type !== "kali") return err(`${node.name} is not a Kali PC or Red Team host.`);
+    const kind = args[1] && /^(scan|sweep|arp-spoof)$/i.test(args[1]) ? args[1].toLowerCase() : void 0;
+    const targetArg = (kind ? args.slice(2) : args.slice(1)).join(" ").trim();
+    if (targetArg && kind !== "arp-spoof") node.config.attackTarget = targetArg;
+    let setup;
+    if (kind === "scan") setup = buildScanEvents(node, targetArg || node.config?.attackTarget || "");
+    else if (kind === "sweep") setup = buildSweepEvents(node, targetArg || node.config?.attackTarget || "");
+    else if (kind === "arp-spoof") setup = buildArpSpoofEvents(node, targetArg || void 0);
+    else setup = buildAttackEvents(node);
+    if (typeof setup === "string") return err(setup);
+    startSimulation(setup, node.id, "", "attack");
+    return ok(`${node.name}: ${kind || "attacks"} launched.`);
+  }
+  function cmdRedteam(args) {
+    const node = resolveDevice(args[0]);
+    if (typeof node === "string") return err(node);
+    if (node.type !== "attacker") return err(`${node.name} is not a Red Team host.`);
+    ensureConfig(node);
+    const cfg = node.config;
+    const sub = (args[1] || "").toLowerCase();
+    const after = (msg) => {
+      sync().syncPanel();
+      return ok(msg);
+    };
+    if (sub === "target") {
+      cfg.attackTarget = args[2] || "";
+      return after(`${node.name}: target ${cfg.attackTarget || "(none)"}.`);
+    }
+    if (sub === "spoof") {
+      cfg.spoofIp = args[2] || "";
+      return after(`${node.name}: ARP-spoof target ${cfg.spoofIp || "(gateway)"}.`);
+    }
+    if (sub === "attacks") {
+      const list = (args[2] || "").split(",").map((s) => s.trim()).filter((a) => ["scan", "sweep", "arp-spoof"].includes(a));
+      cfg.attacks = list;
+      return after(`${node.name}: attacks [${list.join(", ")}].`);
+    }
+    return err("Usage: redteam <node> target <ip> | attacks <scan,sweep,arp-spoof> | spoof <ip>");
   }
   function cmdStp(args) {
     if (args.length === 0) {
@@ -13286,7 +13787,7 @@ Snort successfully validated the configuration${bad ? " (with errors)" : "."}`);
     if (typeof device === "string") return err(device);
     const c = device.config || {};
     const lines = [`${device.name} (${device.type})`];
-    if (device.type === "computer" || device.type === "laptop" || device.type === "server") {
+    if (device.type === "computer" || device.type === "laptop" || device.type === "kali" || device.type === "server" || device.type === "attacker") {
       lines.push(
         `  ip: ${c.ipv4Address ? `${c.ipv4Address}/${prefixOf(c)} (subnet ${networkOf(c.ipv4Address, prefixOf(c))})` : "(unset)"}`,
         `  gateway: ${c.gatewayIpv4Address || "(unset)"}`,
@@ -13427,6 +13928,8 @@ Snort successfully validated the configuration${bad ? " (with errors)" : "."}`);
     stp: cmdStp,
     mirror: cmdMirror,
     idsrule: cmdIdsRule,
+    attack: cmdAttack,
+    redteam: cmdRedteam,
     cli: cmdCli,
     ping: cmdPing,
     dhcp: cmdDhcp,
@@ -13490,6 +13993,8 @@ Snort successfully validated the configuration${bad ? " (with errors)" : "."}`);
     stp: "stp (animate the BPDU exchange) | stp <switch> on|off | stp <switch> priority <n> (default on for managed switches)",
     mirror: "mirror <switch> <dst-port> [src-port\u2026] | mirror <switch> off (SPAN: copy traffic to a monitor port for an IDS)",
     idsrule: "idsrule <ids> <snort rule> | idsrule <ids> clear (manage a Snort IDS sensor's rules)",
+    attack: "attack <redteam> [scan|sweep|arp-spoof] [target] (launch a Red Team host's simulated attacks)",
+    redteam: "redteam <node> target <ip> | attacks <scan,sweep,arp-spoof> | spoof <ip> (configure a Red Team host)",
     cli: "cli <device> <raw CLI command>",
     ping: "ping <src> <dst> (animated)",
     dhcp: "dhcp <host> (animated)",
@@ -13547,7 +14052,7 @@ Snort successfully validated the configuration${bad ? " (with errors)" : "."}`);
     }
     for (const d of payload.devices) {
       const c = d.config || {};
-      if (d.type === "computer" || d.type === "laptop" || d.type === "server") {
+      if (d.type === "computer" || d.type === "laptop" || d.type === "kali" || d.type === "server") {
         if (c.ipv4Address) lines.push(`ip ${d.name} ${c.ipv4Address}/${prefixOf(c)}`);
         if (c.gatewayIpv4Address) lines.push(`gateway ${d.name} ${c.gatewayIpv4Address}`);
         if (c.macAddress) lines.push(`mac ${d.name} ${c.macAddress}`);
@@ -13580,6 +14085,14 @@ Snort successfully validated the configuration${bad ? " (with errors)" : "."}`);
       } else if (d.type === "ids") {
         lines.push(`idsrule ${d.name} clear`);
         for (const rule of c.idsRules || []) lines.push(`idsrule ${d.name} ${rule}`);
+      } else if (d.type === "attacker") {
+        if (c.ipv4Address) lines.push(`ip ${d.name} ${c.ipv4Address}/${prefixOf(c)}`);
+        if (c.gatewayIpv4Address) lines.push(`gateway ${d.name} ${c.gatewayIpv4Address}`);
+        if (c.macAddress) lines.push(`mac ${d.name} ${c.macAddress}`);
+        if (c.dnsServerIp) lines.push(`nameserver ${d.name} ${c.dnsServerIp}`);
+        if (Array.isArray(c.attacks)) lines.push(`redteam ${d.name} attacks ${c.attacks.join(",")}`);
+        if (c.attackTarget) lines.push(`redteam ${d.name} target ${c.attackTarget}`);
+        if (c.spoofIp) lines.push(`redteam ${d.name} spoof ${c.spoofIp}`);
       } else if (d.type === "router") {
         for (const i of c.interfaces || []) {
           const peer = idToName.get(i.peerId);

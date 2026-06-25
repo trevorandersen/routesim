@@ -3,8 +3,8 @@ import { state } from "./state";
 import { getDevice, linkedPortsFor, linksFor, linkAuthorizedForData, dot1xLinkInfo } from "./devices";
 import { runStpConvergence, isStpParticipant } from "./stp";
 import { normalisePortVlans, normalisePortModes, normaliseTrunkAllowedVlans, memoPortVlans } from "./normalise";
-import { isValidIpv4, sameSubnet, prefixOf, deriveMac } from "./utils";
-import { createArpRequest, createIcmpEchoRequest, createDhcpDiscover, createTcpSegment, createDnsQuery, createDot11Frame, createDot1xFrame, createBpduFrame } from "./frame";
+import { isValidIpv4, sameSubnet, prefixOf, deriveMac, networkOf, prefixLengthOfCidr, ipv4ToInt, intToIpv4 } from "./utils";
+import { createArpRequest, createArpReply, createIcmpEchoRequest, createDhcpDiscover, createTcpSegment, createDnsQuery, createDot11Frame, createDot1xFrame, createBpduFrame, BROADCAST_MAC } from "./frame";
 
 export interface PingSetup {
   events: SimEvent[];
@@ -87,10 +87,11 @@ export function getVlanForDevice(deviceId: string): number {
   return 1;
 }
 
+const PING_TARGET_TYPES = new Set(["computer", "laptop", "kali", "server", "attacker"]);
 export function findPingTarget(value: string): any {
   const target = String(value || "").trim().toLowerCase();
   return state.devices.find(device =>
-    (device.type === "computer" || device.type === "laptop" || device.type === "server") && (
+    PING_TARGET_TYPES.has(device.type) && (
       String(device.config?.ipv4Address || "").toLowerCase() === target ||
       device.name.toLowerCase() === target
     )
@@ -103,7 +104,7 @@ export function findPingTarget(value: string): any {
 export function hostnameToIp(name: string): string | null {
   const n = String(name || "").trim().toLowerCase();
   const d = state.devices.find(dev =>
-    (dev.type === "computer" || dev.type === "laptop" || dev.type === "server") &&
+    (dev.type === "computer" || dev.type === "laptop" || dev.type === "kali" || dev.type === "server" || dev.type === "attacker") &&
     dev.name.toLowerCase() === n);
   return d?.config?.ipv4Address || null;
 }
@@ -426,6 +427,135 @@ export function buildStpEvents(): PingSetup | string {
   }
   if (events.length === 0) return "No inter-switch links for spanning tree to advertise on (a single switch, or no loop to resolve).";
   return { events, pendingArp: {} };
+}
+
+// ─── Red Team attacks ────────────────────────────────────────────────────────
+
+// A small, recognisable set of common service ports the scan probes.
+const SCAN_PORTS = [21, 22, 23, 25, 53, 80, 110, 143, 443, 445, 3306, 3389, 8080];
+const SWEEP_HOSTS = 20;   // how many addresses a ping sweep probes (bounded)
+
+// The next-hop IP + a deferred-or-direct send for an attack frame addressed to
+// dstIp (same-subnet → the host; else the gateway). Returns null if unroutable.
+function attackNextHop(attacker: any, dstIp: string): { nextHopIp: string } | null {
+  const cfg = attacker.config;
+  if (sameSubnet(cfg.ipv4Address, dstIp, prefixOf(cfg))) return { nextHopIp: dstIp };
+  const gw = cfg.gatewayIpv4Address;
+  if (!gw || !sameSubnet(gw, cfg.ipv4Address, prefixOf(cfg))) return null;
+  return { nextHopIp: gw };
+}
+
+// Resolve a scan/sweep target text to an IP (a device name or a bare IP).
+function attackTargetIp(text: string): string | null {
+  const t = String(text || "").trim();
+  if (isValidIpv4(t)) return t;
+  const dev = findPingTarget(t);
+  return dev?.config?.ipv4Address || null;
+}
+
+// nmap -sS: a TCP SYN to each common port on the target. Open ports answer
+// SYN-ACK, closed ones RST — the sensor (if a SPAN port mirrors the segment)
+// sees a burst of SYNs. ARP-resolves the next hop first (like nc).
+export function buildScanEvents(attacker: any, targetText: string): PingSetup | string {
+  const cfg = attacker.config;
+  if (!cfg?.ipv4Address || !cfg?.macAddress) return `${attacker.name}: eth0 has no address.`;
+  const dstIp = attackTargetIp(targetText);
+  if (!dstIp) return `nmap: cannot resolve ${targetText}`;
+  const firstHop = findFirstHop(attacker);
+  if (!firstHop) return `nmap: network is unreachable (no link)`;
+  const hop = attackNextHop(attacker, dstIp);
+  if (!hop) return `nmap: no route to ${dstIp}`;
+
+  const srcPort = 40000 + Math.floor(Math.random() * 20000);
+  const syn = (port: number, dstMac: string) => createTcpSegment(cfg.macAddress, dstMac, cfg.ipv4Address, dstIp, srcPort, port, "syn");
+  const arpEntry = (cfg.arpTable || []).find((e: any) => e.ipv4Address === hop.nextHopIp);
+  const seed = (frame: EthernetFrame) => ({ type: "frame_arrive" as const, frame, deviceId: firstHop.peerId, fromDeviceId: attacker.id, linkId: firstHop.linkId });
+
+  if (arpEntry) {
+    return { events: SCAN_PORTS.map(p => seed(syn(p, arpEntry.macAddress))), pendingArp: {} };
+  }
+  return {
+    events: [seed(createArpRequest(cfg.macAddress, cfg.ipv4Address, hop.nextHopIp))],
+    pendingArp: { [`${attacker.id}:${hop.nextHopIp}`]: SCAN_PORTS.map(p => syn(p, "00:00:00:00:00:00")) },
+  };
+}
+
+// nmap -sn: a ping sweep across the subnet — an ICMP echo to each of the first
+// SWEEP_HOSTS addresses (ARP-resolved). Live hosts reply; the rest time out.
+export function buildSweepEvents(attacker: any, subnetText: string): PingSetup | string {
+  const cfg = attacker.config;
+  if (!cfg?.ipv4Address || !cfg?.macAddress) return `${attacker.name}: eth0 has no address.`;
+  const firstHop = findFirstHop(attacker);
+  if (!firstHop) return `nmap: network is unreachable (no link)`;
+  // The subnet to sweep: an explicit CIDR/IP, else the attacker's own subnet.
+  const t = String(subnetText || "").trim();
+  const base = t && (t.includes("/") || isValidIpv4(t)) ? t : `${cfg.ipv4Address}/${prefixOf(cfg)}`;
+  const cidr = base.includes("/") ? base : `${base}/${prefixOf(cfg)}`;
+  const network = networkOf(cidr.split("/")[0], prefixLengthOfCidr(cidr));
+  const netInt = ipv4ToInt(network.split("/")[0]);
+
+  const events: SimEvent[] = [];
+  const pendingArp: Record<string, EthernetFrame[]> = {};
+  for (let i = 1; i <= SWEEP_HOSTS; i++) {
+    const hostIp = intToIpv4(netInt + i);
+    if (hostIp === cfg.ipv4Address) continue;   // don't ping ourselves
+    // Route each probe like a real ping: a same-subnet target is reached
+    // directly, a remote one (a sweep of another subnet) goes via the gateway —
+    // so every off-subnet echo shares one ARP for the gateway's MAC.
+    const hop = attackNextHop(attacker, hostIp);
+    if (!hop) continue;                         // unroutable (remote subnet, no gateway)
+    const echo = createIcmpEchoRequest(cfg.macAddress, "00:00:00:00:00:00", cfg.ipv4Address, hostIp, 64);
+    const arpEntry = (cfg.arpTable || []).find((e: any) => e.ipv4Address === hop.nextHopIp);
+    if (arpEntry) {
+      echo.dstMac = arpEntry.macAddress;
+      events.push({ type: "frame_arrive", frame: echo, deviceId: firstHop.peerId, fromDeviceId: attacker.id, linkId: firstHop.linkId });
+    } else {
+      const key = `${attacker.id}:${hop.nextHopIp}`;
+      if (!pendingArp[key]) {
+        events.push({ type: "frame_arrive", frame: createArpRequest(cfg.macAddress, cfg.ipv4Address, hop.nextHopIp), deviceId: firstHop.peerId, fromDeviceId: attacker.id, linkId: firstHop.linkId });
+        pendingArp[key] = [];
+      }
+      pendingArp[key].push(echo);
+    }
+  }
+  if (!events.length) return `nmap: nothing to sweep`;
+  return { events, pendingArp };
+}
+
+// arpspoof: a gratuitous ARP reply broadcasting "spoofIp is at <our MAC>",
+// poisoning every host's ARP cache so traffic to the spoofed IP (the gateway)
+// is redirected to the attacker — a classic MITM.
+export function buildArpSpoofEvents(attacker: any, spoofText?: string): PingSetup | string {
+  const cfg = attacker.config;
+  if (!cfg?.macAddress) return `${attacker.name}: eth0 has no MAC address.`;
+  const spoofIp = String(spoofText || cfg.spoofIp || cfg.gatewayIpv4Address || "").trim();
+  if (!isValidIpv4(spoofIp)) return `arpspoof: no valid IP to impersonate (set a gateway, or "arp-spoof <ip>").`;
+  const firstHop = findFirstHop(attacker);
+  if (!firstHop) return `arpspoof: network is unreachable (no link)`;
+  const gratuitous = createArpReply(cfg.macAddress, spoofIp, BROADCAST_MAC, spoofIp);
+  return { events: [{ type: "frame_arrive", frame: gratuitous, deviceId: firstHop.peerId, fromDeviceId: attacker.id, linkId: firstHop.linkId }], pendingArp: {} };
+}
+
+// Merge the enabled attacks (or a specific one) into a single run. The scan/
+// sweep targets come from config.attackTarget (sweep falls back to own subnet).
+export function buildAttackEvents(attacker: any, only?: string): PingSetup | string {
+  const kinds: string[] = only ? [only] : (attacker.config?.attacks || ["scan"]);
+  const target = attacker.config?.attackTarget || "";
+  const events: SimEvent[] = [];
+  const pendingArp: Record<string, EthernetFrame[]> = {};
+  const errors: string[] = [];
+  const merge = (r: PingSetup | string) => {
+    if (typeof r === "string") { errors.push(r); return; }
+    events.push(...r.events);
+    for (const [k, v] of Object.entries(r.pendingArp)) pendingArp[k] = [...(pendingArp[k] || []), ...v];
+  };
+  for (const kind of kinds) {
+    if (kind === "scan") merge(target ? buildScanEvents(attacker, target) : `nmap: no scan target set`);
+    else if (kind === "sweep") merge(buildSweepEvents(attacker, target));
+    else if (kind === "arp-spoof") merge(buildArpSpoofEvents(attacker));
+  }
+  if (!events.length) return errors[0] || `${attacker.name}: no attacks to launch`;
+  return { events, pendingArp };
 }
 
 function findFirstHop(source: any): { peerId: string; linkId: string } | null {

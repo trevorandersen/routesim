@@ -10,7 +10,8 @@
 import { describe, it, expect, beforeAll, beforeEach } from "bun:test";
 import { state } from "../src/state";
 import { getDevice, linkedPortsFor, connectedIds, linkById } from "../src/devices";
-import { l2Reachable, getVlanForDevice } from "../src/simulation";
+import { l2Reachable, getVlanForDevice, buildScanEvents } from "../src/simulation";
+import { runConsoleScript } from "../src/commands";
 import { isTrunkLink } from "../src/canvas";
 import { processAtSwitch, processAtRouter, processAtServer, buildRoutingTable, routingLookup, runRipConvergence, runStpConvergence, evaluateFirewall } from "../src/engine";
 import { createArpRequest, createArpReply, createIcmpEchoRequest, createIcmpEchoReply, createTcpSegment, createDnsResponse, createDhcpDiscover, packetColumns, BROADCAST_MAC } from "../src/frame";
@@ -687,6 +688,34 @@ describe("bench: IDS rule matching", () => {
     results.push(bench("runIdsRules — 25 rules", () => {
       runIdsRules(rules, frame);
     }, { budget: 200, warmup: 50, minTime: 1000 }));
+    expect(results[results.length - 1].passed).toBe(true);
+  });
+
+  it("prints results", () => { if (results.length) printResults(results); });
+});
+
+describe("bench: Red Team attack building", () => {
+  const results: BenchResult[] = [];
+
+  beforeEach(() => resetState());
+
+  it("buildScanEvents — SYN scan setup", () => {
+    // A Red Team host scanning a server across a switch — the per-launch work of
+    // resolving the next hop and seeding a SYN to every common port.
+    runConsoleScript(`
+      add switch SW1 at 0 0
+      add attacker RT1 at -150 0
+      add server SRV at 150 0
+      ip RT1 10.0.0.66/24
+      ip SRV 10.0.0.10/24
+      link RT1 SW1
+      link SRV SW1
+    `);
+    const rt = state.devices.find(d => d.name === "RT1")!;
+    rt.config.arpTable = [{ ipv4Address: "10.0.0.10", macAddress: "02:00:00:00:00:10" }];
+    results.push(bench("buildScanEvents — 13-port scan", () => {
+      buildScanEvents(rt, "SRV");
+    }, { budget: 80, warmup: 50, minTime: 1000 }));
     expect(results[results.length - 1].passed).toBe(true);
   });
 

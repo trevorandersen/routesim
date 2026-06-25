@@ -1,0 +1,14 @@
+# Detect the Red Team scan (IDS rule)  ·  scenario id: red-team-scan
+#
+# RT-1 is a Red Team host (Kali Linux) port-scanning SRV with nmap. IDS-1 is
+# wired into SW-1's monitor port and SPAN mirroring is already configured, but
+# its rule set is empty, so the scan slips past. Load a Snort rule on IDS-1 that
+# flags the scan's Telnet probe (TCP port 23) — the sensor then alerts on the
+# burst of SYN probes the scan mirrors to it.
+#
+# Loads the scenario, applies the solution, and checks the goal. Paste into
+# the command console (the >_ toolbar button) or run with routesim.run(...).
+
+scenario load red-team-scan
+idsrule IDS-1 alert tcp any any -> any 23 (msg:"Telnet scan"; sid:1000010; rev:1;)
+scenario check

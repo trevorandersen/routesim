@@ -20,6 +20,7 @@ import { runRouterTerminalCommand } from "./router";
 import { runSwitchTerminalCommand } from "./switch";
 import { runFirewallTerminalCommand } from "./firewall";
 import { runIdsTerminalCommand } from "./ids";
+import { runAttackerTerminalCommand } from "./attacker";
 
 // While true, lines pushed are flagged `injected` — the simulator typed them
 // (a GUI inspector edit driving the device CLI), not the user. See runDeviceCommand.
@@ -215,7 +216,7 @@ export function stopDockResize(): void {
 }
 
 export function terminalPromptText(device: Device): string {
-  if (device.type === "computer" || device.type === "laptop") return `${device.name}$`;
+  if (device.type === "computer" || device.type === "laptop" || device.type === "kali" || device.type === "attacker") return `${device.name}$`;
   if (device.type === "server") return `root@${device.name}:~#`;
   if (device.type === "switch") return `${device.name}#`;
   if (device.type === "firewall") return `root@${device.name}#`;
@@ -234,6 +235,8 @@ const CLI_DISPATCH: Partial<Record<DeviceType, (device: Device, command: string)
   switch: runSwitchTerminalCommand,
   firewall: runFirewallTerminalCommand,
   ids: runIdsTerminalCommand,
+  attacker: runAttackerTerminalCommand,
+  kali: runAttackerTerminalCommand,     // a Kali PC: the same Kali shell, driven by hand
 };
 
 export function hasTerminal(device: Device | undefined): boolean {

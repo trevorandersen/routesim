@@ -6,7 +6,7 @@ import { normalisePortVlans, normalisePortModes, normaliseTrunkAllowedVlans, nor
 import { sameSubnet, prefixOf, isValidIpv4, escapeHtml, ipv4ToInt, intToIpv4, normaliseMacAddress, deriveMac } from "./utils";
 import { createArpRequest, createArpReply, createIcmpEchoRequest, createIcmpEchoReply, createIcmpTimeExceeded, createDhcpOffer, createDhcpRequest, createDhcpAck, createTcpSegment, createDnsResponse, createDot11Frame, createDot1xFrame, createBpduFrame, BROADCAST_MAC, frameLabel, packetColumns } from "./frame";
 import { terminalLine, terminalLineFor, sessionFor, syncTerminal, openDock, syncSimLogBadge } from "./terminal";
-import { buildPingEvents, buildResolveEvents, buildDhcpEvents, findPingTarget, hostnameToIp } from "./simulation";
+import { buildPingEvents, buildResolveEvents, buildDhcpEvents, buildAttackEvents, findPingTarget, hostnameToIp } from "./simulation";
 import type { PingSetup } from "./simulation";
 import { routingLookup, runRipConvergence, buildRoutingTable } from "./routing";
 import { runStpConvergence, isStpParticipant } from "./stp";
@@ -18,7 +18,7 @@ export { runStpConvergence } from "./stp";
 
 // ─── Public API ──────────────────────────────────────────────────────────────
 
-export function startSimulation(setup: PingSetup, originDeviceId: string, targetIp: string, mode: "ping" | "dhcp" | "tcp" | "dns" | "associate" | "dot1x" | "stp" = "ping", targetPort: number | null = null): void {
+export function startSimulation(setup: PingSetup, originDeviceId: string, targetIp: string, mode: "ping" | "dhcp" | "tcp" | "dns" | "associate" | "dot1x" | "stp" | "attack" = "ping", targetPort: number | null = null): void {
   // Converge routing (RIP) and the spanning tree before the run, so frames route
   // correctly and loops are already broken (blocked ports) before the first hop.
   runRipConvergence();
@@ -72,9 +72,13 @@ export function startSimulation(setup: PingSetup, originDeviceId: string, target
   sim.wifiAssociated = false;
   sim.dot1xAuthorized = false;
   sim.stormDetected = false;
-  // Each run reports only its own detections — clear IDS sensors' alert logs
-  // (like sim.log / sim.capture) so they don't accumulate across consecutive runs.
-  for (const d of state.devices) if (d.type === "ids" && d.config) d.config.alerts = [];
+  sim.scanOpen = []; sim.scanClosed = []; sim.sweepLive = [];
+  // Each run reports only its own detections/findings — clear IDS alert logs and
+  // attacker findings (like sim.log / sim.capture) so they don't accumulate.
+  for (const d of state.devices) {
+    if (d.type === "ids" && d.config) d.config.alerts = [];
+    if ((d.type === "attacker" || d.type === "kali") && d.config) (d.config as any).attackLog = [];
+  }
   const target = setup.dns ? setup.dns.name : targetIp;
   const label = mode === "dhcp" ? "Requesting DHCP lease..."
     : mode === "tcp" ? `Opening TCP connection to ${target}:${sim.tcpTargetPort ?? "?"}...`
@@ -82,6 +86,7 @@ export function startSimulation(setup: PingSetup, originDeviceId: string, target
     : mode === "associate" ? `Associating to ${target || "WiFi"}...`
     : mode === "dot1x" ? `802.1X authenticating ${target || "supplicant"}...`
     : mode === "stp" ? "Spanning tree: advertising BPDUs from the root bridge..."
+    : mode === "attack" ? "Red Team: launching attacks..."
     : `Simulating ping to ${target}...`;
   state.terminal.lines.push({ kind: "sim", text: label });
   // Surface the hop-by-hop log: open the dock on the Sim Log pane if nothing
@@ -157,7 +162,7 @@ export interface SimResult {
 // and returns the result plus the hop-by-hop log. Reuses the same process handlers as
 // the animated path; powers the console `run` command, window.routesim, and tests.
 export function runSimulationHeadless(
-  setup: PingSetup, originDeviceId: string, targetIp: string, mode: "ping" | "dhcp" | "tcp" | "dns" | "associate" | "dot1x" | "stp" = "ping", targetPort: number | null = null
+  setup: PingSetup, originDeviceId: string, targetIp: string, mode: "ping" | "dhcp" | "tcp" | "dns" | "associate" | "dot1x" | "stp" | "attack" = "ping", targetPort: number | null = null
 ): SimResult {
   runRipConvergence();
   runStpConvergence();
@@ -191,9 +196,13 @@ export function runSimulationHeadless(
   sim.wifiAssociated = false;
   sim.dot1xAuthorized = false;
   sim.stormDetected = false;
-  // Each run reports only its own detections — clear IDS sensors' alert logs
-  // (like sim.log / sim.capture) so they don't accumulate across consecutive runs.
-  for (const d of state.devices) if (d.type === "ids" && d.config) d.config.alerts = [];
+  sim.scanOpen = []; sim.scanClosed = []; sim.sweepLive = [];
+  // Each run reports only its own detections/findings — clear IDS alert logs and
+  // attacker findings (like sim.log / sim.capture) so they don't accumulate.
+  for (const d of state.devices) {
+    if (d.type === "ids" && d.config) d.config.alerts = [];
+    if ((d.type === "attacker" || d.type === "kali") && d.config) (d.config as any).attackLog = [];
+  }
 
   // Drain the event queue, completing each batch of transits instantly. processNextStep
   // recurses internally while status === "running" and events have no transits, and calls
@@ -221,6 +230,7 @@ export function runSimulationHeadless(
       : mode === "associate" ? sim.wifiAssociated
       : mode === "dot1x" ? sim.dot1xAuthorized
       : mode === "stp" ? !sim.stormDetected
+      : mode === "attack" ? (sim.scanOpen.length > 0 || sim.sweepLive.length > 0)
       : sim.pingSuccess,
     refused: sim.tcpRefused,
     ttl: sim.pingTtl,
@@ -245,7 +255,7 @@ export function runSimulationHeadless(
 let bootQueue: string[] = [];
 
 function hostNeedsBoot(device: Device | undefined): boolean {
-  return !!device && (device.type === "computer" || device.type === "laptop" || device.type === "server")
+  return !!device && (device.type === "computer" || device.type === "laptop" || device.type === "kali" || device.type === "server")
     && !device.poweredOff && !device.config?.ipv4Address
     && state.links.some(l => !l.hidden && !l.shutdown && (l.from === device.id || l.to === device.id));
 }
@@ -259,6 +269,20 @@ export function unconfiguredBootableHosts(): Device[] {
 // flight — setting an explanatory status hint in each case. The two toggles are
 // independent: auto-DHCP on → animated DHCP (APIPA on failure if enabled);
 // auto-DHCP off but APIPA on → the host self-assigns link-local directly.
+// Autonomous Red Team: when Play is pressed and there's nothing to boot, launch
+// the first ready attacker's enabled attacks. Returns whether one launched.
+export function launchRedTeam(): boolean {
+  const sim = state.simulation;
+  if (sim.status === "running" || sim.status === "paused") return false;
+  const attacker = state.devices.find(d => d.type === "attacker" && !d.poweredOff && d.config?.ipv4Address && (d.config?.attacks?.length ?? 0) > 0);
+  if (!attacker) return false;
+  const setup = buildAttackEvents(attacker);
+  if (typeof setup === "string") { dom.modeLabel.textContent = setup; return false; }
+  dom.modeLabel.textContent = `${attacker.name}: launching attacks...`;
+  startSimulation(setup, attacker.id, "", "attack");
+  return true;
+}
+
 export function startNetworkBoot(): boolean {
   const sim = state.simulation;
   if (sim.status === "running" || sim.status === "paused") return false;
@@ -354,6 +378,13 @@ let animFrameId: number | null = null;
 // far above any legitimate single run; the headless path caps via MAX_STEPS.)
 const STORM_STEP_CAP = 200;
 const STORM_TRANSIT_CAP = 250;
+
+// Service names for the Red Team scan report (nmap-style PORT/SERVICE column).
+const SERVICE_NAMES: Record<number, string> = {
+  21: "ftp", 22: "ssh", 23: "telnet", 25: "smtp", 53: "domain", 80: "http",
+  110: "pop3", 143: "imap", 443: "https", 445: "microsoft-ds", 3306: "mysql",
+  3389: "ms-wbt-server", 8080: "http-proxy",
+};
 
 function startAnimationLoop(): void {
   if (animFrameId != null) return;
@@ -565,6 +596,8 @@ const PROCESSORS: Partial<Record<DeviceType, (device: Device, frame: EthernetFra
   firewall: processAtFirewall,
   hub: processAtHub,
   ids: processAtIds,
+  attacker: processAtAttacker,
+  kali: processAtAttacker,              // a Kali PC tallies its own hand-run attacks
 };
 
 // ─── 802.11 association handshake ────────────────────────────────────────────
@@ -642,7 +675,7 @@ function supplicantByIdentity(sw: Device, identity: string): { host: Device; lin
   for (const link of linksFor(sw.id)) {
     if (link.hidden || link.shutdown || link.wireless) continue;
     const host = getDevice(link.from === sw.id ? link.to : link.from);
-    if (host && (host.type === "computer" || host.type === "laptop" || host.type === "server") && host.config?.dot1x?.identity === identity) {
+    if (host && (host.type === "computer" || host.type === "laptop" || host.type === "kali" || host.type === "server") && host.config?.dot1x?.identity === identity) {
       return { host, link };
     }
   }
@@ -1263,6 +1296,37 @@ export function processAtIds(device: Device, frame: EthernetFrame, _fromDeviceId
   return [];   // passive sink — never forwards mirrored traffic
 }
 
+// ─── Red Team (attacker) processing ──────────────────────────────────────────
+
+// A Red Team host is a normal host that also tallies attack results: during an
+// "attack" run, replies addressed to it record open ports (SYN-ACK), closed
+// ports (RST), and live hosts (ICMP echo reply). Everything else — ARP
+// resolution that flushes the deferred scan/sweep frames, being pinged — is
+// ordinary host behaviour (processAtComputer).
+export function processAtAttacker(device: Device, frame: EthernetFrame, fromDeviceId: string | null): OutgoingFrame[] {
+  if (device.poweredOff) return [];
+  const sim = state.simulation;
+  if (sim.mode === "attack" && device.id === sim.originDeviceId && frame.payload.type === "ipv4") {
+    const ipv4 = frame.payload as Ipv4Payload;
+    if (ipv4.dstIp === device.config?.ipv4Address) {
+      const inner = ipv4.payload;
+      if (inner.type === "tcp" && inner.flags === "syn-ack") {
+        if (!sim.scanOpen.includes(inner.srcPort)) { sim.scanOpen.push(inner.srcPort); logStep(device, "sim-attack", `${ipv4.srcIp}:${inner.srcPort} open (SYN-ACK)`); }
+        return [];   // half-open scan: don't complete the handshake
+      }
+      if (inner.type === "tcp" && inner.flags === "rst") {
+        if (!sim.scanClosed.includes(inner.srcPort)) sim.scanClosed.push(inner.srcPort);
+        return [];
+      }
+      if (inner.type === "icmp" && inner.icmpType === 0) {
+        if (!sim.sweepLive.includes(ipv4.srcIp)) { sim.sweepLive.push(ipv4.srcIp); logStep(device, "sim-attack", `host up: ${ipv4.srcIp}`); }
+        return [];
+      }
+    }
+  }
+  return processAtComputer(device, frame, fromDeviceId);
+}
+
 // ─── Router processing ──────────────────────────────────────────────────────
 
 export function processAtRouter(device: Device, frame: EthernetFrame, fromDeviceId: string | null): OutgoingFrame[] {
@@ -1868,6 +1932,17 @@ function finishSimulation(): void {
       const rootNames = roots.map(r => r.name).join(", ") || "(none)";
       out("", `Spanning tree converged.\n  Root bridge: ${rootNames}\n  Blocking ports: ${blocked} (${blocked === 1 ? "1 redundant link cut" : blocked === 0 ? "no loop to break" : blocked + " redundant links cut"})`);
     }
+  } else if (sim.mode === "attack") {
+    // nmap-style report of what the Red Team run found; also stash it on the
+    // attacker for the inspector.
+    const open = [...sim.scanOpen].sort((a, b) => a - b);
+    const lines: string[] = [];
+    if (open.length) { lines.push("PORT      STATE  SERVICE"); for (const p of open) lines.push(`${String(p + "/tcp").padEnd(10)}open   ${SERVICE_NAMES[p] || "unknown"}`); }
+    if (sim.sweepLive.length) lines.push(`Hosts up: ${sim.sweepLive.length} (${[...sim.sweepLive].sort().join(", ")})`);
+    if (!lines.length) lines.push("No open ports or live hosts found (target unreachable, filtered, or no attack target set).");
+    const origin = getDevice(sim.originDeviceId);
+    if (origin?.config) (origin.config as any).attackLog = lines;
+    if (!sim.headless) out("", lines.join("\n"));
   } else if (sim.mode === "dhcp") {
     if (sim.dhcpSuccess) {
       if (!sim.headless) out("", `DHCP configured:\n  IP address: ${sim.dhcpAssignedIp}\n  Default gateway: ${sim.dhcpAssignedGateway}`);

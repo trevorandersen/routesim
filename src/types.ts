@@ -1,4 +1,4 @@
-export type DeviceType = "computer" | "laptop" | "server" | "switch" | "router" | "firewall" | "hub" | "access-point" | "ids" | "lan";
+export type DeviceType = "computer" | "laptop" | "kali" | "server" | "switch" | "router" | "firewall" | "hub" | "access-point" | "ids" | "attacker" | "lan";
 export type PortMode = "access" | "trunk";
 
 export interface Point {
@@ -245,6 +245,18 @@ export interface IdsConfig {
   alerts?: string[];     // fast-alert log lines (runtime; not persisted)
 }
 
+// A "Red Team" host — a Kali Linux box that, when run, launches simulated
+// attacks against a target: a TCP SYN port scan, an ICMP/ARP ping sweep, and
+// gratuitous-ARP cache poisoning (MITM). It is a real host (IP/MAC/ARP), so it
+// extends ComputerConfig; the attack behaviour is generated, not user-typed.
+export type AttackKind = "scan" | "sweep" | "arp-spoof";
+export interface AttackerConfig extends ComputerConfig {
+  attackTarget?: string;   // scan target IP, or a sweep subnet/host
+  attacks?: AttackKind[];  // which behaviours are enabled (autonomous on Play)
+  spoofIp?: string;        // the IP to impersonate in an ARP-spoof (default: the gateway)
+  attackLog?: string[];    // last run's findings (runtime; not persisted)
+}
+
 // One PAT (overload) translation: an inside flow mapped onto the router's
 // outside interface address. `insidePort`/`outsidePort` hold the TCP source
 // port, the ICMP sequence, or the DNS transaction id used as the flow identifier.
@@ -322,7 +334,7 @@ export interface MacsecConfig {
 // access sites compile unchanged, while typos and wrong field types are caught.
 // The strict per-type interfaces above type the normalise layer and the
 // asComputer/asSwitch/asRouter/asLan accessors.
-export type DeviceConfig = Partial<ComputerConfig & ServerConfig & SwitchConfig & RouterConfig & FirewallConfig & HubConfig & WifiConfig & MacsecConfig & IdsConfig & LanConfig>;
+export type DeviceConfig = Partial<ComputerConfig & ServerConfig & SwitchConfig & RouterConfig & FirewallConfig & HubConfig & WifiConfig & MacsecConfig & IdsConfig & AttackerConfig & LanConfig>;
 
 export interface DragState {
   id: string;
@@ -579,7 +591,7 @@ export interface CaptureEntry {
 
 export interface SimulationState {
   status: "idle" | "running" | "paused" | "done";
-  mode: "ping" | "dhcp" | "tcp" | "dns" | "associate" | "dot1x" | "stp";
+  mode: "ping" | "dhcp" | "tcp" | "dns" | "associate" | "dot1x" | "stp" | "attack";
   events: SimEvent[];
   log: SimLogEntry[];
   capture: CaptureEntry[];   // packet list (animated runs only; capped)
@@ -608,6 +620,11 @@ export interface SimulationState {
   wifiAssociated: boolean;           // the 802.11 association handshake completed (mode "associate")
   dot1xAuthorized: boolean;          // the 802.1X EAP exchange authorised the port (mode "dot1x")
   stormDetected: boolean;            // a switching loop multiplied frames past the safety cap (no spanning tree)
+  // Red-team attack run (mode "attack") findings: open/closed scanned ports and
+  // live hosts a sweep discovered. Reset each run; reported in finishSimulation.
+  scanOpen: number[];
+  scanClosed: number[];
+  sweepLive: string[];
 }
 
 export interface PortOption {

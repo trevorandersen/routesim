@@ -73,7 +73,7 @@ export function syncZoomLevel(): void {
   dom.zoomLevel.textContent = `${Math.round(state.scale * 100)}%`;
 }
 
-const HOST_TYPES = new Set(["computer", "laptop", "server"]);
+const HOST_TYPES = new Set(["computer", "laptop", "kali", "server", "attacker"]);
 
 export function linkColorFor(from: any, to: any): string {
   if (from.type === "router" && to.type === "router") return cssColor("--link-router");

@@ -62,6 +62,14 @@
       --ids-stroke: #8b7bd8;
       --ids-accent: #272247;
       --ids-icon: #b9aef5;
+      --attacker-fill: #2e1117;
+      --attacker-stroke: #f43f5e;
+      --attacker-accent: #3e1620;
+      --attacker-icon: #fda4af;
+      --kali-fill: #1c1b2e;
+      --kali-stroke: #a78bfa;
+      --kali-accent: #2b2942;
+      --kali-icon: #ddd6fe;
       --hub-fill: #2b2718;
       --hub-stroke: #b89a3a;
       --hub-accent: #38311d;
@@ -135,6 +143,14 @@
       --ids-stroke: #6d5bc0;
       --ids-accent: #e6e0f6;
       --ids-icon: #4c3b9e;
+      --attacker-fill: #fdeef1;
+      --attacker-stroke: #be123c;
+      --attacker-accent: #f8d7de;
+      --attacker-icon: #9f1239;
+      --kali-fill: #efecfb;
+      --kali-stroke: #6d28d9;
+      --kali-accent: #ddd6fe;
+      --kali-icon: #5b21b6;
       --shadow: 0 10px 28px rgba(60, 50, 35, 0.14);
     }
 
@@ -198,6 +214,14 @@
       --ids-stroke: #c0b6ff;
       --ids-accent: #38357e;
       --ids-icon: #ded6ff;
+      --attacker-fill: #5a1c39;
+      --attacker-stroke: #ff8fb0;
+      --attacker-accent: #6b264a;
+      --attacker-icon: #ffd2e0;
+      --kali-fill: #2e2a5a;
+      --kali-stroke: #b3a8ff;
+      --kali-accent: #3a3570;
+      --kali-icon: #ddd6ff;
       --hub-fill: #123f8f;
       --hub-stroke: #d8b24f;
       --hub-accent: #0e3170;
@@ -1100,12 +1124,17 @@
 
     /* IDS sensor panel + the switch SPAN selector. */
     .mirror-select { width: 100%; height: 28px; border-radius: 6px; border: 1px solid var(--line); background: var(--panel); color: var(--text); padding: 0 6px; }
+    .mirror-sources { display: flex; flex-direction: column; gap: 4px; }
+    .mirror-source { display: flex; align-items: center; gap: 7px; font-size: 12px; color: var(--text); cursor: pointer; }
+    .mirror-source input { margin: 0; flex: none; }
     .ids-rules {
       width: 100%; min-height: 110px; resize: vertical;
       font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 11px; line-height: 1.5;
       border: 1px solid var(--line); border-radius: 8px; padding: 8px;
       background: var(--canvas-bg); color: var(--text);
     }
+    .attack-checks { display: flex; flex-direction: column; gap: 5px; }
+    .attack-log { color: var(--text) !important; }
     .ids-alerts {
       max-height: 150px; overflow: auto; margin: 0;
       font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 10.5px; line-height: 1.5;
@@ -1521,6 +1550,7 @@
     .terminal-line.sim-dns   { color: #22d3ee; }
     .terminal-line.sim-stp   { color: #a5b4fc; }
     .terminal-line.sim-ids   { color: #fb7185; }
+    .terminal-line.sim-attack { color: #f43f5e; }
 
     /* ─── Simulation log (a dock pane) ────────────────────── */
 
@@ -1549,6 +1579,7 @@
     .sim-log-line.sim-dhcp    { color: #a78bfa; }
     .sim-log-line.sim-stp     { color: #a5b4fc; }
     .sim-log-line.sim-ids     { color: #fb7185; }
+    .sim-log-line.sim-attack  { color: #f43f5e; }
 
     /* ─── Packet list (Wireshark-style) ───────────────────── */
 

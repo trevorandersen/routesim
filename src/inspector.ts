@@ -16,7 +16,7 @@ import {
 import { resizeCanvas } from "./canvas";
 import { frameLabel } from "./frame";
 import { syncSimLog, startSimulation } from "./engine";
-import { buildAssociationEvents } from "./simulation";
+import { buildAssociationEvents, buildAttackEvents } from "./simulation";
 
 export function syncOptionControls(): void {
   dom.showDeviceNames.checked = state.options.showDeviceNames;
@@ -533,20 +533,41 @@ export function bindPortRemoveButtons(): void {
 }
 
 // SPAN port mirroring control (managed switches): a dropdown to pick the monitor
-// port that an IDS listens on, or "off".
+// port that an IDS listens on (or "off"), plus per-port source checkboxes to
+// choose which ports' traffic is mirrored (all ticked = the whole switch).
 export function renderMirrorSection(device: any): string {
-  const dest = device.config?.mirror?.dest || "";
+  const mirror = device.config?.mirror;
+  const dest = mirror?.dest || "";
   const ports = switchInterfacesWithNames(device);
-  return `
+  const destField = `
     <div class="field">
       <label for="selectedMirror">Port mirroring (SPAN)</label>
       <select id="selectedMirror" class="mirror-select">
         <option value="">off</option>
         ${ports.map((p: any) => `<option value="${escapeHtml(p.name)}" ${p.name === dest ? "selected" : ""}>${escapeHtml(p.name)}${p.peer ? ` &rarr; ${escapeHtml(p.peer.name)}` : ""}</option>`).join("")}
       </select>
-      <span class="field-note">Copy all traffic to this monitor port (cable an IDS sensor there).</span>
-    </div>
-  `;
+      <span class="field-note">Copy traffic to this monitor port (cable an IDS sensor there).</span>
+    </div>`;
+  if (!dest) return destField;
+  // Source-port selection: which cabled ports get mirrored. All ticked = the
+  // whole switch (sources omitted); untick to mirror only specific ports.
+  const sources: string[] | undefined = mirror?.sources;
+  const eligible = ports.filter((p: any) => p.peer && p.name !== dest);
+  const sourceField = eligible.length
+    ? `
+    <div class="field">
+      <label>Mirror sources</label>
+      <div class="mirror-sources">
+        ${eligible.map((p: any) => {
+          const checked = !sources || sources.includes(p.name);
+          return `<label class="mirror-source"><input type="checkbox" class="mirror-source-cb" data-port="${escapeHtml(p.name)}"${checked ? " checked" : ""}> <span>${escapeHtml(p.name)} &rarr; ${escapeHtml(p.peer.name)}</span></label>`;
+        }).join("")}
+      </div>
+      <span class="field-note">All ticked mirrors the whole switch; untick to mirror only specific ports.</span>
+    </div>`
+    : `
+    <div class="field"><span class="field-note">No other cabled ports to mirror — cable a host to mirror its traffic.</span></div>`;
+  return destField + sourceField;
 }
 
 // The IDS sensor panel: the Snort rule set (editable as local.rules) and the
@@ -584,10 +605,69 @@ export function bindIdsControls(device: any): void {
   });
 }
 
-// Wires the managed-switch SPAN mirror dropdown.
+// The Red Team panel: a target, the enabled attacks, a Launch button, and the
+// last run's findings. Wired by bindAttackerControls.
+export function renderAttackerSection(device: any): string {
+  const cfg = device.config || {};
+  const has = (k: string) => (cfg.attacks || []).includes(k);
+  const log: string[] = cfg.attackLog || [];
+  return `
+    <p class="field-note">A Red Team (Kali) host. Set a target, choose attacks, then Launch (or just press Play). It generates real attack traffic an IDS can detect; a passive victim can't steer it.</p>
+    <div class="field">
+      <label for="selectedAttackTarget">Target (IP or device)</label>
+      <input id="selectedAttackTarget" value="${escapeHtml(cfg.attackTarget || "")}" placeholder="e.g. 10.0.0.10 or SRV" autocomplete="off">
+    </div>
+    <div class="field">
+      <label>Attacks</label>
+      <div class="attack-checks">
+        <label class="stp-check"><input type="checkbox" class="attack-check" data-attack="scan" ${has("scan") ? "checked" : ""}> Port scan</label>
+        <label class="stp-check"><input type="checkbox" class="attack-check" data-attack="sweep" ${has("sweep") ? "checked" : ""}> Ping sweep</label>
+        <label class="stp-check"><input type="checkbox" class="attack-check" data-attack="arp-spoof" ${has("arp-spoof") ? "checked" : ""}> ARP spoof</label>
+      </div>
+    </div>
+    <button class="wide-button" id="launchAttack">Launch attacks</button>
+    ${log.length ? `<div class="field"><label>Last run</label><pre class="ids-alerts attack-log">${escapeHtml(log.join("\n"))}</pre></div>` : ""}
+  `;
+}
+
+// Wires the Red Team target field, attack checkboxes, and Launch button.
+export function bindAttackerControls(device: any): void {
+  const target = document.getElementById("selectedAttackTarget") as HTMLInputElement | null;
+  if (target) {
+    captureUndoOnFocus(target);
+    target.addEventListener("change", () => { device.config.attackTarget = target.value.trim(); });
+  }
+  document.querySelectorAll(".attack-check").forEach(el => el.addEventListener("change", () => {
+    device.config.attacks = Array.from(document.querySelectorAll<HTMLInputElement>(".attack-check"))
+      .filter(c => c.checked).map(c => c.dataset.attack);
+  }));
+  document.getElementById("launchAttack")?.addEventListener("click", () => {
+    if (target) device.config.attackTarget = target.value.trim();   // commit before launching
+    const setup = buildAttackEvents(device);
+    if (typeof setup === "string") { dom.modeLabel.textContent = setup; return; }
+    startSimulation(setup, device.id, "", "attack");
+  });
+}
+
+// Wires the managed-switch SPAN mirror dropdown + the source-port checkboxes.
 export function bindMirrorControl(device: any): void {
+  const name = device.config?.mirror?.name;
   const sel = document.getElementById("selectedMirror") as HTMLSelectElement | null;
-  if (sel) sel.addEventListener("change", () => setSwitchMirror(device, sel.value ? { dest: sel.value } : null));
+  // Changing the monitor port resets the mirror to the whole switch (the new
+  // dest can't also be a source); pick specific ports with the checkboxes below.
+  if (sel) sel.addEventListener("change", () => setSwitchMirror(device, sel.value ? { name, dest: sel.value } : null));
+  const dest = device.config?.mirror?.dest;
+  const cbs = Array.from(document.querySelectorAll<HTMLInputElement>(".mirror-source-cb"));
+  if (dest && cbs.length) {
+    const apply = () => {
+      const all = cbs.map(cb => cb.dataset.port!);
+      const checked = cbs.filter(cb => cb.checked).map(cb => cb.dataset.port!);
+      // All ticked → mirror the whole switch (omit sources); a subset → that list.
+      const sources = checked.length === all.length ? undefined : checked;
+      setSwitchMirror(device, { name, dest, sources });
+    };
+    cbs.forEach(cb => cb.addEventListener("change", apply));
+  }
 }
 
 // Wires the spanning-tree enable toggle and bridge-priority field (managed
@@ -913,7 +993,7 @@ export function syncPanel(): void {
   } else {
     const neighbors = connectedIds(selected.id).map((id: string) => getDevice(id)).filter(isVisibleDevice);
     const selectedType = DEVICE_SPECS[selected.type]?.label ?? "Device";
-    const isHost = selected.type === "computer" || selected.type === "laptop" || selected.type === "server";
+    const isHost = selected.type === "computer" || selected.type === "laptop" || selected.type === "kali" || selected.type === "server" || selected.type === "attacker";
     const pcConfigFields = isHost ? `
       <div class="field">
         <label class="label-with-badge" for="selectedIpv4">IPv4 address / prefix ${ipSourceBadge(selected.config)}</label>
@@ -1028,6 +1108,7 @@ export function syncPanel(): void {
       </div>
     ` : "";
     const idsConfigFields = selected.type === "ids" ? renderIdsSection(selected) : "";
+    const attackerConfigFields = selected.type === "attacker" ? renderAttackerSection(selected) : "";
     const hubConfigFields = selected.type === "hub" ? `
       <p class="field-note">A hub is a layer-1 repeater: it copies every frame out all other ports (no MAC learning, one collision domain).</p>
       <div style="height: 10px"></div>
@@ -1088,6 +1169,7 @@ export function syncPanel(): void {
       ${routerConfigFields}
       ${firewallConfigFields}
       ${idsConfigFields}
+      ${attackerConfigFields}
       ${hubConfigFields}
       <div class="pill-row">
         <span class="pill">${selectedType}</span>
@@ -1260,6 +1342,7 @@ export function syncPanel(): void {
     bindStpControls(selected);
     bindMirrorControl(selected);
     if (selected.type === "ids") bindIdsControls(selected);
+    if (selected.type === "attacker") bindAttackerControls(selected);
     if (selected.type === "router") bindFirewallControls(selected, ["forward", "input"]);
     if (selected.type === "firewall") bindFirewallControls(selected, ["forward"]);
     const terminalButton = document.getElementById("openSelectedTerminal");

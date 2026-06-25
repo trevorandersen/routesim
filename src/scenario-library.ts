@@ -646,6 +646,29 @@ const idsMonitor: Scenario = {
   ],
 };
 
+const redTeamScan: Scenario = {
+  id: "red-team-scan",
+  name: "Detect the Red Team scan (IDS rule)",
+  objective: "RT-1 is a Red Team host (Kali Linux) port-scanning SRV with nmap. IDS-1 is wired into SW-1's monitor port and SPAN mirroring is already configured — but its rule set is empty, so the scan slips past unnoticed. Load a Snort rule on IDS-1 that flags the scan's Telnet probe (TCP port 23). Try the console: `idsrule IDS-1 alert tcp any any -> any 23 (msg:\"Telnet scan\"; sid:1000010; rev:1;)` — then `attack RT-1` to watch it, or just check the goal.",
+  topology: {
+    version: 1,
+    devices: [
+      { id: "rt-sw", type: "switch", name: "SW-1", x: 0, y: 0, config: { managed: true, ethernetPorts: 8, macTable: [], vlans: [], portVlans: {}, portModes: {}, mirror: { name: "MON", dest: "Ethernet3" } } },
+      { id: "rt-atk", type: "attacker", name: "RT-1", x: -280, y: -120, config: { ipv4Address: "10.0.0.66", gatewayIpv4Address: "", macAddress: "02:00:00:00:2A:66", arpTable: [], attacks: ["scan"], attackTarget: "SRV" } },
+      { id: "rt-srv", type: "server", name: "SRV", x: 280, y: -120, config: { ipv4Address: "10.0.0.10", gatewayIpv4Address: "", macAddress: "02:00:00:00:2A:10", arpTable: [], dnsmasqRunning: false, openPorts: [22, 80, 3306] } },
+      { id: "rt-ids", type: "ids", name: "IDS-1", x: 0, y: 180, config: { idsRules: [], alerts: [] } },
+    ],
+    links: [
+      { from: "rt-sw", to: "rt-atk", fromPort: 1 },
+      { from: "rt-sw", to: "rt-srv", fromPort: 2 },
+      { from: "rt-sw", to: "rt-ids", fromPort: 3 },
+    ],
+  },
+  checks: [
+    { kind: "alert", from: "RT-1", to: "SRV", contains: "Telnet", label: "IDS-1 detects the Red Team port scan" },
+  ],
+};
+
 export const CURRICULUM: Scenario[] = [
   vlanSegmentation,
   routerOnAStick,
@@ -670,4 +693,5 @@ export const CURRICULUM: Scenario[] = [
   secureAccess,
   spanningTree,
   idsMonitor,
+  redTeamScan,
 ];

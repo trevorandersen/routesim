@@ -14,7 +14,7 @@ app.ts (entry)
   ├── ui.ts          ← event listeners, tool switching, keyboard, theme
   ├── canvas.ts      ← render loop, pan/zoom, device/link/transit drawing
   ├── inspector.ts   ← right panel: device details, link frame history
-  ├── terminal/      ← bottom panel CLI: core dispatch/UI + host/router/switch/firewall
+  ├── terminal/      ← bottom panel CLI: core dispatch/UI + host/router/switch/firewall/attacker (the Kali CLI, shared by the Kali PC and the Red Team actor)
   ├── devices.ts     ← device/link CRUD, hit testing, lookup indexes, LAN collapse
   ├── config.ts      ← topology serialise/apply + built-in topologies (no fetch)
   ├── engine.ts      ← simulation engine: step loop, per-device frame processing

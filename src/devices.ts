@@ -9,7 +9,7 @@ import { DEVICE_SPECS, freshNameCounters } from "./device-registry";
 // they resolve as. (Unmanaged switches and hubs have no shell; LANs are groups.)
 export function hasHostname(device: Device): boolean {
   if (device.type === "switch") return !!device.config?.managed;
-  return ["computer", "laptop", "server", "router", "firewall", "ids"].includes(device.type);
+  return ["computer", "laptop", "kali", "server", "router", "firewall", "ids", "attacker"].includes(device.type);
 }
 
 // Set a CLI device's hostname, which IS its canvas name. Validates against the
@@ -40,8 +40,8 @@ export function addDevice(type: DeviceType, x: number, y: number, name?: string)
     height: deviceSize(type).height,
     config: defaultDeviceConfig(type)
   };
-  // A new host (computer/laptop/server) gets a NIC MAC so it can communicate immediately.
-  if (type === "computer" || type === "laptop" || type === "server") (device.config as any).macAddress = randomMac();
+  // A new host (computer/laptop/Kali PC/server/red-team) gets a NIC MAC so it can communicate immediately.
+  if (type === "computer" || type === "laptop" || type === "kali" || type === "server" || type === "attacker") (device.config as any).macAddress = randomMac();
   state.devices.push(device as any);
   state.selectedId = device.id;
   sync().syncPanel();
@@ -51,7 +51,7 @@ export function addDevice(type: DeviceType, x: number, y: number, name?: string)
 
 // Tools that place a device on a canvas click. "managed-switch" is a UI variant
 // of the switch tool (the Switch tool group), not a distinct device type.
-export const PLACEMENT_TOOLS = new Set(["computer", "laptop", "server", "dns-server", "dhcp-server", "radius-server", "web-server", "switch", "managed-switch", "router", "firewall", "ids", "hub", "access-point"]);
+export const PLACEMENT_TOOLS = new Set(["computer", "laptop", "kali", "server", "dns-server", "dhcp-server", "radius-server", "web-server", "switch", "managed-switch", "router", "firewall", "ids", "attacker", "hub", "access-point"]);
 
 // The Server tool group places a `server` pre-configured for a role. They are all
 // the same `server` device type — so the inspector, frame processing, and
@@ -108,7 +108,7 @@ export function placeToolDevice(tool: string, x: number, y: number): Device {
 // null. (Multi-NIC hosts are a future option — see ROADMAP.)
 function hostNicTaken(deviceId: string): string | null {
   const device = getDevice(deviceId);
-  if (!device || !["computer", "laptop", "server", "ids"].includes(device.type)) return null;
+  if (!device || !["computer", "laptop", "kali", "server", "ids", "attacker"].includes(device.type)) return null;
   // Count ANY link, including a hidden one: a host collapsed into a LAN still
   // holds its single cable, so it must not be linkable again (the console `link`
   // command resolves by name regardless of collapse state).
@@ -843,7 +843,7 @@ function buildPortList(deviceId: string): PortOption[] {
   const device = getDevice(deviceId);
   if (!device) return [];
 
-  if (device.type === "computer" || device.type === "laptop" || device.type === "server") {
+  if (device.type === "computer" || device.type === "laptop" || device.type === "kali" || device.type === "server" || device.type === "attacker") {
     // Hosts have a single port — auto-select it
     const linked = linkedPortsFor(deviceId);
     const occupied = linked.length > 0;
@@ -891,8 +891,8 @@ export function openPortSelectionModal(fromId: string, toId: string): void {
   const { reject, wireless } = classifyLink(fromId, toId);
   if (reject || wireless) { addLink(fromId, toId); return; }
 
-  const showFromPicker = !["computer", "laptop", "server"].includes(fromDevice.type);
-  const showToPicker = !["computer", "laptop", "server"].includes(toDevice.type);
+  const showFromPicker = !["computer", "laptop", "kali", "server", "attacker"].includes(fromDevice.type);
+  const showToPicker = !["computer", "laptop", "kali", "server", "attacker"].includes(toDevice.type);
 
   // If both are single-port hosts, skip modal entirely
   if (!showFromPicker && !showToPicker) {

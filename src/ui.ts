@@ -52,6 +52,14 @@ function closeToolMenus(): void {
   document.querySelectorAll<HTMLElement>(".tool-caret").forEach(c => c.setAttribute("aria-expanded", "false"));
 }
 
+// Close the scenario flyout (the top menu and any open submenu).
+function closeScenarioMenu(): void {
+  dom.scenarioMenu.hidden = true;
+  dom.scenarioMenu.querySelectorAll<HTMLElement>(".scenario-submenu").forEach(s => { s.hidden = true; });
+  dom.scenarioMenu.querySelectorAll<HTMLElement>(".scenario-group").forEach(g => g.setAttribute("aria-expanded", "false"));
+  dom.scenarioMenuButton.setAttribute("aria-expanded", "false");
+}
+
 // Bottom-right readout: cursor world coords (while over the canvas) plus the
 // selected device's coords.
 export function updateCoordReadout(world: { x: number; y: number } | null): void {
@@ -187,6 +195,7 @@ export function handleGlobalKeydown(event: KeyboardEvent): void {
       return;
     }
     closeToolMenus();
+    closeScenarioMenu();
     (document.activeElement as HTMLElement)?.blur?.();
     state.configuringId = null;
     state.linkStartId = null;
@@ -244,7 +253,7 @@ export function setupUI(): void {
       closeToolMenus();
     });
   });
-  document.addEventListener("click", () => closeToolMenus());
+  document.addEventListener("click", () => { closeToolMenus(); closeScenarioMenu(); });
 
   dom.canvas.addEventListener("pointerdown", (event: PointerEvent) => {
     // Synthetic events (UI automation/tests) carry pointer ids the browser
@@ -481,11 +490,50 @@ export function setupUI(): void {
     dom.topologySelect.value = ""; // reset to the placeholder
   });
 
-  // Scenarios dropdown (File tab).
-  dom.scenarioSelect.addEventListener("change", () => {
-    const id = dom.scenarioSelect.value;
-    if (id) loadScenario(id);
-    dom.scenarioSelect.value = ""; // reset to the placeholder
+  // Scenarios chooser (File tab): the button opens a fixed-position menu of group
+  // rows (escaping the ribbon's scroll clip); hovering or clicking a group flies
+  // out its submenu of scenarios; a scenario loads on click. The rows/items are
+  // rebuilt by renderScenarioOptions, so the handlers are delegated on the static
+  // container/button to survive a rebuild.
+  dom.scenarioMenuButton.addEventListener("click", (event) => {
+    event.stopPropagation();
+    const willOpen = dom.scenarioMenu.hidden;
+    closeToolMenus();
+    closeScenarioMenu();
+    if (willOpen) {
+      const rect = dom.scenarioMenuButton.getBoundingClientRect();
+      dom.scenarioMenu.style.left = `${rect.left}px`;
+      dom.scenarioMenu.style.top = `${rect.bottom + 4}px`;
+      dom.scenarioMenu.hidden = false;
+      dom.scenarioMenuButton.setAttribute("aria-expanded", "true");
+    }
+  });
+  const openScenarioSubmenu = (group: HTMLElement): void => {
+    dom.scenarioMenu.querySelectorAll<HTMLElement>(".scenario-submenu").forEach(s => { s.hidden = true; });
+    dom.scenarioMenu.querySelectorAll<HTMLElement>(".scenario-group").forEach(g => g.setAttribute("aria-expanded", "false"));
+    const sub = group.nextElementSibling as HTMLElement | null;
+    if (!sub || !sub.classList.contains("scenario-submenu")) return;
+    const rect = group.getBoundingClientRect();
+    sub.style.left = `${rect.right - 2}px`;
+    sub.style.top = `${rect.top}px`;
+    sub.hidden = false;
+    group.setAttribute("aria-expanded", "true");
+    // Flip left / clamp up if the submenu would overflow the viewport.
+    const sr = sub.getBoundingClientRect();
+    if (sr.right > window.innerWidth - 8) sub.style.left = `${Math.max(8, rect.left - sr.width + 2)}px`;
+    if (sr.bottom > window.innerHeight - 8) sub.style.top = `${Math.max(8, window.innerHeight - 8 - sr.height)}px`;
+  };
+  dom.scenarioMenu.addEventListener("click", (event) => {
+    event.stopPropagation();
+    const target = event.target as HTMLElement;
+    const item = target.closest<HTMLElement>(".scenario-item");
+    if (item) { loadScenario(item.dataset.id!); closeScenarioMenu(); return; }
+    const group = target.closest<HTMLElement>(".scenario-group");
+    if (group) openScenarioSubmenu(group);
+  });
+  dom.scenarioMenu.addEventListener("mouseover", (event) => {
+    const group = (event.target as HTMLElement).closest<HTMLElement>(".scenario-group");
+    if (group && group.getAttribute("aria-expanded") !== "true") openScenarioSubmenu(group);
   });
 
   // Scenario goal banner.

@@ -19,22 +19,28 @@ export function setupRibbon(): void {
 }
 
 // Rebuilds the File-tab scenario chooser from the (possibly imported) registry,
-// grouped into <optgroup>s by category (SCENARIO_GROUPS order). A scenario that
-// isn't in any group — e.g. an imported one, or its self-declared `group` — falls
-// into that group, or "Other", rather than being dropped.
+// as a flyout menu: each category (SCENARIO_GROUPS order) is a group row that
+// opens a submenu of its scenarios. A scenario not in any curated group — an
+// imported one, or its self-declared `group` — falls into that group, or
+// "Other", rather than being dropped. The open/close + submenu wiring lives in
+// ui.ts (delegated on #scenarioMenu, so it survives this rebuild).
+const RIGHT_CHEVRON = `<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M9 6l6 6l-6 6"></path></svg>`;
+
 export function renderScenarioOptions(): void {
   const byId = new Map(SCENARIOS.map(s => [s.id, s]));
   const placed = new Set<string>();
-  const option = (s: { id: string; name: string }) =>
-    `<option value="${escapeHtml(s.id)}">${escapeHtml(s.name)}</option>`;
-  const optgroup = (label: string, scenarios: { id: string; name: string }[]) =>
-    scenarios.length ? `<optgroup label="${escapeHtml(label)}">${scenarios.map(option).join("")}</optgroup>` : "";
+  const groupBlock = (label: string, scenarios: { id: string; name: string }[]) => scenarios.length ? (
+    `<button class="scenario-group" type="button" aria-haspopup="true" aria-expanded="false"><span>${escapeHtml(label)}</span>${RIGHT_CHEVRON}</button>` +
+    `<div class="scenario-submenu" hidden>${scenarios.map(s =>
+      `<button class="scenario-item" type="button" data-id="${escapeHtml(s.id)}">${escapeHtml(s.name)}</button>`
+    ).join("")}</div>`
+  ) : "";
 
   // The curated groups, in order.
   let html = SCENARIO_GROUPS.map(g => {
     const scenarios = g.ids.map(id => byId.get(id)).filter(Boolean) as { id: string; name: string }[];
     scenarios.forEach(s => placed.add(s.id));
-    return optgroup(g.label, scenarios);
+    return groupBlock(g.label, scenarios);
   }).join("");
 
   // Anything not in a curated group (imported scenarios, or a new one not yet
@@ -46,7 +52,7 @@ export function renderScenarioOptions(): void {
     if (!extraGroups.has(label)) extraGroups.set(label, []);
     extraGroups.get(label)!.push(s);
   }
-  for (const [label, scenarios] of extraGroups) html += optgroup(label, scenarios);
+  for (const [label, scenarios] of extraGroups) html += groupBlock(label, scenarios);
 
-  dom.scenarioSelect.innerHTML = `<option value="">Load scenario…</option>` + html;
+  dom.scenarioMenu.innerHTML = html;
 }

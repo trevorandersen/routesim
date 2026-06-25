@@ -426,6 +426,30 @@
     .tool-menu-item:hover { background: var(--panel-soft); border-color: var(--line); }
     .tool-menu-item.active { color: var(--accent); background: var(--accent-soft); border-color: rgba(20, 116, 111, 0.35); }
 
+    /* Scenario chooser: a button + a two-level flyout menu (groups → submenu of
+       scenarios). Both levels are position:fixed to escape the ribbon's scroll
+       clip (JS anchors them via getBoundingClientRect). */
+    .scenario-menu-button { text-align: left; min-width: 152px; align-self: center; }
+    .scenario-menu, .scenario-submenu {
+      position: fixed; z-index: 40; min-width: 196px; max-width: 320px; padding: 5px;
+      display: flex; flex-direction: column; gap: 2px;
+      border: 1px solid var(--line); border-radius: 10px;
+      background: var(--panel); box-shadow: 0 10px 28px rgba(19, 33, 46, 0.16);
+      max-height: 74vh; overflow-y: auto;
+    }
+    .scenario-menu[hidden], .scenario-submenu[hidden] { display: none; }
+    .scenario-group, .scenario-item {
+      display: flex; align-items: center; gap: 8px; width: 100%;
+      padding: 7px 9px; border: 1px solid transparent; border-radius: 7px;
+      background: transparent; color: var(--text); font: inherit; font-size: 12px;
+      text-align: left; cursor: pointer;
+    }
+    .scenario-group { justify-content: space-between; gap: 14px; font-weight: 500; }
+    .scenario-item { white-space: normal; }
+    .scenario-group:hover, .scenario-item:hover { background: var(--panel-soft); border-color: var(--line); }
+    .scenario-group[aria-expanded="true"] { background: var(--panel-soft); border-color: var(--line); }
+    .scenario-group svg { width: 13px; height: 13px; flex: none; color: var(--muted); stroke: currentColor; stroke-width: 2; stroke-linecap: round; stroke-linejoin: round; fill: none; }
+
     .ribbon-check { display: inline-flex; align-items: center; gap: 7px; font-size: 12px; color: var(--text); cursor: pointer; padding: 2px 0; white-space: nowrap; }
     .ribbon-speed { display: flex; flex-direction: column; gap: 5px; font-size: 11px; color: var(--muted); justify-content: center; }
     .ribbon-speed input { width: 140px; }
@@ -2117,9 +2141,7 @@
           </select>
         </div><span class="ribbon-label">Topologies</span></div>
         <div class="ribbon-group"><div class="ribbon-items">
-          <select class="ribbon-select" id="scenarioSelect" aria-label="Load a scenario">
-            <option value="">Load scenario…</option>
-          </select>
+          <button class="ribbon-select scenario-menu-button" id="scenarioMenuButton" type="button" aria-haspopup="true" aria-expanded="false" aria-label="Load a scenario">Load scenario…</button>
         </div><span class="ribbon-label">Scenarios</span></div>
         <div class="ribbon-group"><div class="ribbon-items">
           <button class="ribbon-btn" data-action="import-config" type="button"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 3v12"></path><path d="M7 10l5 5 5-5"></path><path d="M5 21h14"></path></svg><span>Config</span></button>
@@ -2445,6 +2467,11 @@ Full legal text: https://creativecommons.org/publicdomain/zero/1.0/legalcode</pr
       </div>
     </div>
   </div>
+
+  <!-- The scenario chooser flyout lives at body level (a sibling of the overlays)
+       so its z-index escapes the ribbon's stacking context — otherwise the goal
+       banner would paint over it. JS anchors it under #scenarioMenuButton. -->
+  <div class="scenario-menu" id="scenarioMenu" hidden></div>
 
   <script>
 "use strict";
@@ -3865,7 +3892,8 @@ Full legal text: https://creativecommons.org/publicdomain/zero/1.0/legalcode</pr
     scenarioCheckButton: document.getElementById("scenarioCheckButton"),
     scenarioCloseButton: document.getElementById("scenarioCloseButton"),
     themeButtons: Array.from(document.querySelectorAll("[data-theme-id]")),
-    scenarioSelect: document.getElementById("scenarioSelect"),
+    scenarioMenu: document.getElementById("scenarioMenu"),
+    scenarioMenuButton: document.getElementById("scenarioMenuButton"),
     topologySelect: document.getElementById("topologySelect"),
     coordReadout: document.getElementById("coordReadout"),
     simPlayPause: document.getElementById("simPlayPause"),
@@ -12324,15 +12352,17 @@ Snort successfully validated the configuration${bad ? " (with errors)" : "."}`);
     tabs.forEach((t) => t.addEventListener("click", () => activate(t.dataset.tab)));
     renderScenarioOptions();
   }
+  var RIGHT_CHEVRON = `<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M9 6l6 6l-6 6"></path></svg>`;
   function renderScenarioOptions() {
     const byId = new Map(SCENARIOS.map((s) => [s.id, s]));
     const placed = /* @__PURE__ */ new Set();
-    const option = (s) => `<option value="${escapeHtml(s.id)}">${escapeHtml(s.name)}</option>`;
-    const optgroup = (label, scenarios) => scenarios.length ? `<optgroup label="${escapeHtml(label)}">${scenarios.map(option).join("")}</optgroup>` : "";
+    const groupBlock = (label, scenarios) => scenarios.length ? `<button class="scenario-group" type="button" aria-haspopup="true" aria-expanded="false"><span>${escapeHtml(label)}</span>${RIGHT_CHEVRON}</button><div class="scenario-submenu" hidden>${scenarios.map(
+      (s) => `<button class="scenario-item" type="button" data-id="${escapeHtml(s.id)}">${escapeHtml(s.name)}</button>`
+    ).join("")}</div>` : "";
     let html = SCENARIO_GROUPS.map((g) => {
       const scenarios = g.ids.map((id) => byId.get(id)).filter(Boolean);
       scenarios.forEach((s) => placed.add(s.id));
-      return optgroup(g.label, scenarios);
+      return groupBlock(g.label, scenarios);
     }).join("");
     const leftovers = SCENARIOS.filter((s) => !placed.has(s.id));
     const extraGroups = /* @__PURE__ */ new Map();
@@ -12341,8 +12371,8 @@ Snort successfully validated the configuration${bad ? " (with errors)" : "."}`);
       if (!extraGroups.has(label)) extraGroups.set(label, []);
       extraGroups.get(label).push(s);
     }
-    for (const [label, scenarios] of extraGroups) html += optgroup(label, scenarios);
-    dom.scenarioSelect.innerHTML = `<option value="">Load scenario\u2026</option>` + html;
+    for (const [label, scenarios] of extraGroups) html += groupBlock(label, scenarios);
+    dom.scenarioMenu.innerHTML = html;
   }
 
   // src/io.ts
@@ -12491,6 +12521,14 @@ Snort successfully validated the configuration${bad ? " (with errors)" : "."}`);
     });
     document.querySelectorAll(".tool-caret").forEach((c) => c.setAttribute("aria-expanded", "false"));
   }
+  function closeScenarioMenu() {
+    dom.scenarioMenu.hidden = true;
+    dom.scenarioMenu.querySelectorAll(".scenario-submenu").forEach((s) => {
+      s.hidden = true;
+    });
+    dom.scenarioMenu.querySelectorAll(".scenario-group").forEach((g) => g.setAttribute("aria-expanded", "false"));
+    dom.scenarioMenuButton.setAttribute("aria-expanded", "false");
+  }
   function updateCoordReadout(world) {
     const parts = [];
     if (world) parts.push(`\u2316 ${Math.round(world.x)}, ${Math.round(world.y)}`);
@@ -12601,6 +12639,7 @@ Snort successfully validated the configuration${bad ? " (with errors)" : "."}`);
         return;
       }
       closeToolMenus();
+      closeScenarioMenu();
       document.activeElement?.blur?.();
       state.configuringId = null;
       state.linkStartId = null;
@@ -12651,7 +12690,10 @@ Snort successfully validated the configuration${bad ? " (with errors)" : "."}`);
         closeToolMenus();
       });
     });
-    document.addEventListener("click", () => closeToolMenus());
+    document.addEventListener("click", () => {
+      closeToolMenus();
+      closeScenarioMenu();
+    });
     dom.canvas.addEventListener("pointerdown", (event) => {
       try {
         dom.canvas.setPointerCapture(event.pointerId);
@@ -12875,10 +12917,50 @@ Snort successfully validated the configuration${bad ? " (with errors)" : "."}`);
       if (name) loadTopology(name);
       dom.topologySelect.value = "";
     });
-    dom.scenarioSelect.addEventListener("change", () => {
-      const id = dom.scenarioSelect.value;
-      if (id) loadScenario(id);
-      dom.scenarioSelect.value = "";
+    dom.scenarioMenuButton.addEventListener("click", (event) => {
+      event.stopPropagation();
+      const willOpen = dom.scenarioMenu.hidden;
+      closeToolMenus();
+      closeScenarioMenu();
+      if (willOpen) {
+        const rect = dom.scenarioMenuButton.getBoundingClientRect();
+        dom.scenarioMenu.style.left = `${rect.left}px`;
+        dom.scenarioMenu.style.top = `${rect.bottom + 4}px`;
+        dom.scenarioMenu.hidden = false;
+        dom.scenarioMenuButton.setAttribute("aria-expanded", "true");
+      }
+    });
+    const openScenarioSubmenu = (group) => {
+      dom.scenarioMenu.querySelectorAll(".scenario-submenu").forEach((s) => {
+        s.hidden = true;
+      });
+      dom.scenarioMenu.querySelectorAll(".scenario-group").forEach((g) => g.setAttribute("aria-expanded", "false"));
+      const sub = group.nextElementSibling;
+      if (!sub || !sub.classList.contains("scenario-submenu")) return;
+      const rect = group.getBoundingClientRect();
+      sub.style.left = `${rect.right - 2}px`;
+      sub.style.top = `${rect.top}px`;
+      sub.hidden = false;
+      group.setAttribute("aria-expanded", "true");
+      const sr = sub.getBoundingClientRect();
+      if (sr.right > window.innerWidth - 8) sub.style.left = `${Math.max(8, rect.left - sr.width + 2)}px`;
+      if (sr.bottom > window.innerHeight - 8) sub.style.top = `${Math.max(8, window.innerHeight - 8 - sr.height)}px`;
+    };
+    dom.scenarioMenu.addEventListener("click", (event) => {
+      event.stopPropagation();
+      const target = event.target;
+      const item = target.closest(".scenario-item");
+      if (item) {
+        loadScenario(item.dataset.id);
+        closeScenarioMenu();
+        return;
+      }
+      const group = target.closest(".scenario-group");
+      if (group) openScenarioSubmenu(group);
+    });
+    dom.scenarioMenu.addEventListener("mouseover", (event) => {
+      const group = event.target.closest(".scenario-group");
+      if (group && group.getAttribute("aria-expanded") !== "true") openScenarioSubmenu(group);
     });
     dom.scenarioCheckButton.addEventListener("click", runActiveScenarioCheck);
     dom.scenarioCloseButton.addEventListener("click", dismissScenario);

@@ -35,9 +35,7 @@
           </select>
         </div><span class="ribbon-label">Topologies</span></div>
         <div class="ribbon-group"><div class="ribbon-items">
-          <select class="ribbon-select" id="scenarioSelect" aria-label="Load a scenario">
-            <option value="">Load scenario…</option>
-          </select>
+          <button class="ribbon-select scenario-menu-button" id="scenarioMenuButton" type="button" aria-haspopup="true" aria-expanded="false" aria-label="Load a scenario">Load scenario…</button>
         </div><span class="ribbon-label">Scenarios</span></div>
         <div class="ribbon-group"><div class="ribbon-items">
           <button class="ribbon-btn" data-action="import-config" type="button"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 3v12"></path><path d="M7 10l5 5 5-5"></path><path d="M5 21h14"></path></svg><span>Config</span></button>
@@ -363,6 +361,11 @@ Full legal text: https://creativecommons.org/publicdomain/zero/1.0/legalcode</pr
       </div>
     </div>
   </div>
+
+  <!-- The scenario chooser flyout lives at body level (a sibling of the overlays)
+       so its z-index escapes the ribbon's stacking context — otherwise the goal
+       banner would paint over it. JS anchors it under #scenarioMenuButton. -->
+  <div class="scenario-menu" id="scenarioMenu" hidden></div>
 
   <script>
 {{SCRIPT}}

@@ -14,6 +14,7 @@ import { normaliseConfig } from "../src/normalise";
 import { linkedPortsFor } from "../src/devices";
 import { registerNoopCallbacks, resetState } from "./helpers";
 import { freshNameCounters } from "../src/device-registry";
+import { routedTopology } from "./fixtures";
 
 beforeAll(() => registerNoopCallbacks());
 
@@ -382,5 +383,22 @@ describe("Red Team — cross-subnet sweep routing (regression)", () => {
     exec("link RT1 SW1");
     const setup = buildSweepEvents(dev("RT1"), "10.0.9.0/24");
     expect(setup).toBe("nmap: nothing to sweep");                // unroutable, not a silent void
+  });
+
+  it("end to end: a cross-subnet sweep routes through the router and discovers the far host", () => {
+    // routedTopology: PC-A 192.168.10.10 / SW-A / RTR-1 (.10.1 + .20.1) / SW-B / PC-B 192.168.20.10
+    const topo = normaliseConfig(routedTopology() as any);
+    state.devices = topo.devices as any;
+    state.links = topo.links as any;
+    // A Red Team host on the .10 subnet, gateway = the router's near interface.
+    exec("add attacker RT1 at -500 0");
+    exec("ip RT1 192.168.10.66/24");
+    exec("gateway RT1 192.168.10.1");
+    exec("link RT1 SW-A");
+
+    const setup = buildSweepEvents(dev("RT1"), "192.168.20.0/24");   // the OTHER subnet
+    expect(typeof setup).not.toBe("string");
+    runSimulationHeadless(setup as any, dev("RT1").id, "", "attack");
+    expect(state.simulation.sweepLive).toContain("192.168.20.10");   // PC-B, found across the router
   });
 });

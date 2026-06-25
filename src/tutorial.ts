@@ -133,6 +133,17 @@ function moveCursor(p: { x: number; y: number }): void {
   if (c) c.style.transform = `translate(${p.x}px, ${p.y}px)`;
 }
 
+// Jump the cursor without the glide transition (initial park + manual stepping).
+function moveCursorInstant(p: { x: number; y: number }): void {
+  const c = cursorEl();
+  if (!c) return;
+  const prev = c.style.transition;
+  c.style.transition = "none";
+  c.style.transform = `translate(${p.x}px, ${p.y}px)`;
+  void c.offsetWidth;            // reflow so the next animated move starts from here
+  c.style.transition = prev;
+}
+
 function clickPulse(): void {
   const c = cursorEl();
   if (!c) return;
@@ -161,10 +172,6 @@ async function play(from: number): Promise<void> {
   const token = ++runToken;
   for (let i = from; i < steps.length; i++) {
     if (token !== runToken) return;
-    stepIndex = i;
-    await gate();
-    if (token !== runToken) return;
-
     const step = steps[i];
     setCaption(step.caption);
     const p = step.point?.();
@@ -175,7 +182,10 @@ async function play(from: number): Promise<void> {
 
     step.action?.();
     if (step.waitForSim) await waitForSimDone(token);
+    stepIndex = i;                    // mark this step complete (its caption is showing)
     await sleep(step.hold ?? HOLD);
+    await gate();                     // pause AFTER a step, so stepIndex = last done
+    if (token !== runToken) return;
   }
   if (token === runToken) finish();
 }
@@ -187,10 +197,21 @@ function finish(): void {
 }
 
 // ── Controls ─────────────────────────────────────────────────────────────────
+// The tool steps point at ribbon buttons (`[data-tool=…]`) — these only have a
+// real on-screen rect when the Main ribbon tab is showing (an inactive panel is
+// display:none, so getBoundingClientRect() is all-zero and the cursor would fly
+// to the top-left corner). The tutorial is usually launched from the Help tab,
+// so force Main active for the whole run.
+function activateMainTab(): void {
+  document.querySelectorAll<HTMLElement>(".ribbon-tab").forEach(t => t.classList.toggle("active", t.dataset.tab === "main"));
+  document.querySelectorAll<HTMLElement>(".ribbon-panel").forEach(p => p.classList.toggle("active", p.dataset.tab === "main"));
+}
+
 function clearTopologyAndView(): void {
   exec("stop");
   exec("clear");
   closeDock();   // the demo plays on the canvas, not the packet list
+  activateMainTab();   // so the ribbon tool buttons have valid rects to point at
   // Pin a stable view so the world coords above land on screen and the cursor
   // maths stay valid for the whole run. Sit the layout a touch above centre so
   // the bottom caption bar stays clear of the devices.
@@ -213,35 +234,70 @@ export function startTutorial(): void {
   if (l) { l.hidden = false; l.classList.remove("tutorial-finished"); }
   syncControls();
   clearTopologyAndView();
-  // Park the cursor centre-screen to start.
+  // Park the cursor centre-screen to start (instant, so it doesn't streak in
+  // from the top-left corner on the first move).
   const r = dom.canvas.getBoundingClientRect();
-  moveCursor({ x: r.left + r.width / 2, y: r.top + r.height / 2 });
+  moveCursorInstant({ x: r.left + r.width / 2, y: r.top + r.height / 2 });
+  stepIndex = -1;
   play(0);
 }
+
+// Abort the in-flight auto-play loop and release any paused waiter so it exits.
+function abortRun(): void {
+  runToken++;
+  const w = resumeWaiters; resumeWaiters = [];
+  w.forEach(fn => fn());
+}
+
+// Jump to a step deterministically: rebuild the topology by replaying every
+// action up to and including `target` instantly (no cursor glide / dwell), then
+// show that step's caption + cursor. This is how Back works (rebuild without the
+// undone step) and Forward (apply the next step). Leaves the tutorial paused.
+function goToStep(target: number): void {
+  if (!active || !steps.length) return;
+  abortRun();
+  paused = true;
+  target = Math.max(0, Math.min(target, steps.length - 1));
+  const l = layer(); if (l) l.classList.remove("tutorial-finished");
+  clearTopologyAndView();
+  for (let i = 0; i <= target; i++) steps[i].action?.();   // rebuild state (the ping just replays)
+  render();
+  stepIndex = target;
+  setCaption(steps[target].caption);
+  const p = steps[target].point?.();
+  if (p) moveCursorInstant(p);
+  syncControls();
+}
+
+function back(): void { goToStep(stepIndex - 1); }
+function forward(): void { goToStep(stepIndex + 1); }
 
 function togglePause(): void {
   paused = !paused;
   syncControls();
-  if (!paused) { const w = resumeWaiters; resumeWaiters = []; w.forEach(fn => fn()); }
-}
-
-function skip(): void {
-  paused = false; resumeWaiters = []; syncControls();
-  const next = Math.min(stepIndex + 1, steps.length - 1);
-  const l = layer(); if (l) l.classList.remove("tutorial-finished");
-  play(next);
+  if (!paused) {
+    if (resumeWaiters.length) {                 // an auto-play loop is waiting at a gate
+      const w = resumeWaiters; resumeWaiters = []; w.forEach(fn => fn());
+    } else {                                    // resumed after a manual step: continue from the next
+      const l = layer(); if (l) l.classList.remove("tutorial-finished");
+      play(stepIndex + 1);
+    }
+  }
 }
 
 function replay(): void {
-  paused = false; resumeWaiters = []; syncControls();
+  if (!active) return;
+  abortRun();
+  paused = false; syncControls();
   const l = layer(); if (l) l.classList.remove("tutorial-finished");
   clearTopologyAndView();
+  stepIndex = -1;
   play(0);
 }
 
 function exitTutorial(): void {
-  runToken++;            // abort any in-flight run
-  paused = false; resumeWaiters = [];
+  abortRun();            // abort any in-flight run + release waiters
+  paused = false;
   active = false;
   exec("stop");
   const l = layer();
@@ -251,10 +307,16 @@ function exitTutorial(): void {
 // Wire the control bar once (idempotent). Called from app.ts after setupUI.
 export function setupTutorial(): void {
   document.getElementById("startTutorial")?.addEventListener("click", startTutorial);
+  document.getElementById("tutorialBack")?.addEventListener("click", back);
   document.getElementById("tutorialPause")?.addEventListener("click", togglePause);
-  document.getElementById("tutorialSkip")?.addEventListener("click", skip);
+  document.getElementById("tutorialForward")?.addEventListener("click", forward);
   document.getElementById("tutorialReplay")?.addEventListener("click", replay);
   document.getElementById("tutorialExit")?.addEventListener("click", exitTutorial);
-  // Esc exits the tutorial.
-  document.addEventListener("keydown", (e) => { if (active && e.key === "Escape") exitTutorial(); });
+  // Esc exits the tutorial; arrow keys step back/forward.
+  document.addEventListener("keydown", (e) => {
+    if (!active) return;
+    if (e.key === "Escape") exitTutorial();
+    else if (e.key === "ArrowLeft") back();
+    else if (e.key === "ArrowRight") forward();
+  });
 }

@@ -2460,10 +2460,11 @@ Full legal text: https://creativecommons.org/publicdomain/zero/1.0/legalcode</pr
     <div class="tutorial-bar">
       <span class="tutorial-caption" id="tutorialCaption"></span>
       <div class="tutorial-controls">
+        <button class="tutorial-ctl" id="tutorialBack" type="button" title="Previous step (Left arrow)" aria-label="Previous step">&#x23EE;</button>
         <button class="tutorial-ctl" id="tutorialPause" type="button" title="Pause / resume" aria-label="Pause or resume">&#x23F8;</button>
-        <button class="tutorial-ctl" id="tutorialSkip" type="button" title="Skip this step" aria-label="Skip step">&#x23ED;</button>
+        <button class="tutorial-ctl" id="tutorialForward" type="button" title="Next step (Right arrow)" aria-label="Next step">&#x23ED;</button>
         <button class="tutorial-ctl" id="tutorialReplay" type="button" title="Replay from the start" aria-label="Replay">&#x21BB;</button>
-        <button class="tutorial-ctl tutorial-exit" id="tutorialExit" type="button" title="Exit (Esc)" aria-label="Exit tutorial">Exit</button>
+        <button class="tutorial-ctl tutorial-exit" id="tutorialExit" type="button" title="Exit the tutorial (Esc)" aria-label="Exit tutorial">Exit</button>
       </div>
     </div>
   </div>
@@ -6338,8 +6339,8 @@ Full legal text: https://creativecommons.org/publicdomain/zero/1.0/legalcode</pr
     if (!ctx2) return false;
     if (!protoMatches(rule, ctx2)) return false;
     if (!optionsMatch(rule, ctx2)) return false;
-    const forward = ipMatches(rule.srcIp, ctx2.srcIp) && portMatches(rule.srcPort, ctx2.srcPort) && ipMatches(rule.dstIp, ctx2.dstIp) && portMatches(rule.dstPort, ctx2.dstPort);
-    if (forward) return true;
+    const forward2 = ipMatches(rule.srcIp, ctx2.srcIp) && portMatches(rule.srcPort, ctx2.srcPort) && ipMatches(rule.dstIp, ctx2.dstIp) && portMatches(rule.dstPort, ctx2.dstPort);
+    if (forward2) return true;
     if (rule.dir === "<>") {
       return ipMatches(rule.srcIp, ctx2.dstIp) && portMatches(rule.srcPort, ctx2.dstPort) && ipMatches(rule.dstIp, ctx2.srcIp) && portMatches(rule.dstPort, ctx2.srcPort);
     }
@@ -6877,15 +6878,15 @@ Full legal text: https://creativecommons.org/publicdomain/zero/1.0/legalcode</pr
   function handleDot1x(device, frame, fromDeviceId) {
     const p = frame.payload;
     const identity = p.identity || "";
-    const back = (subtype, id) => fromDeviceId ? [{ frame: createDot1xFrame(frame.dstMac, frame.srcMac, subtype, id), toDeviceId: fromDeviceId }] : [];
+    const back2 = (subtype, id) => fromDeviceId ? [{ frame: createDot1xFrame(frame.dstMac, frame.srcMac, subtype, id), toDeviceId: fromDeviceId }] : [];
     switch (p.subtype) {
       case "eapol-start":
         logStep(device, "sim-dot1x", `EAPOL-Start \u2014 requesting the supplicant's identity`);
-        return back("eap-req-id");
+        return back2("eap-req-id");
       case "eap-req-id": {
         const id = device.config?.dot1x?.identity || "";
         logStep(device, "sim-dot1x", `EAP Identity request \u2014 responding "${id}"`);
-        return back("eap-resp-id", id);
+        return back2("eap-resp-id", id);
       }
       case "eap-resp-id": {
         const server = radiusServerFor(device);
@@ -6901,7 +6902,7 @@ Full legal text: https://creativecommons.org/publicdomain/zero/1.0/legalcode</pr
         const supPw = state.devices.find((d) => d.config?.dot1x?.identity === identity)?.config?.dot1x?.password;
         const ok2 = users.some((u) => u.identity === identity && u.password === supPw);
         logStep(device, "sim-dot1x", `RADIUS Access-Request "${identity}" \u2014 ${ok2 ? "Access-Accept" : "Access-Reject"}`);
-        return back(ok2 ? "radius-accept" : "radius-reject", identity);
+        return back2(ok2 ? "radius-accept" : "radius-reject", identity);
       }
       case "radius-accept": {
         const sup = supplicantByIdentity(device, identity);
@@ -14557,6 +14558,15 @@ Snort successfully validated the configuration${bad ? " (with errors)" : "."}`);
     const c = cursorEl();
     if (c) c.style.transform = `translate(${p.x}px, ${p.y}px)`;
   }
+  function moveCursorInstant(p) {
+    const c = cursorEl();
+    if (!c) return;
+    const prev = c.style.transition;
+    c.style.transition = "none";
+    c.style.transform = `translate(${p.x}px, ${p.y}px)`;
+    void c.offsetWidth;
+    c.style.transition = prev;
+  }
   function clickPulse() {
     const c = cursorEl();
     if (!c) return;
@@ -14580,9 +14590,6 @@ Snort successfully validated the configuration${bad ? " (with errors)" : "."}`);
     const token = ++runToken;
     for (let i = from; i < steps.length; i++) {
       if (token !== runToken) return;
-      stepIndex = i;
-      await gate();
-      if (token !== runToken) return;
       const step = steps[i];
       setCaption(step.caption);
       const p = step.point?.();
@@ -14598,7 +14605,10 @@ Snort successfully validated the configuration${bad ? " (with errors)" : "."}`);
       if (token !== runToken) return;
       step.action?.();
       if (step.waitForSim) await waitForSimDone(token);
+      stepIndex = i;
       await sleep(step.hold ?? HOLD);
+      await gate();
+      if (token !== runToken) return;
     }
     if (token === runToken) finish();
   }
@@ -14606,10 +14616,15 @@ Snort successfully validated the configuration${bad ? " (with errors)" : "."}`);
     const l = layer();
     if (l) l.classList.add("tutorial-finished");
   }
+  function activateMainTab() {
+    document.querySelectorAll(".ribbon-tab").forEach((t) => t.classList.toggle("active", t.dataset.tab === "main"));
+    document.querySelectorAll(".ribbon-panel").forEach((p) => p.classList.toggle("active", p.dataset.tab === "main"));
+  }
   function clearTopologyAndView() {
     exec("stop");
     exec("clear");
     closeDock();
+    activateMainTab();
     const r = dom.canvas.getBoundingClientRect();
     const span = 1e3;
     state.scale = Math.max(0.28, Math.min(0.95, (r.width - 60) / span));
@@ -14630,40 +14645,67 @@ Snort successfully validated the configuration${bad ? " (with errors)" : "."}`);
     syncControls();
     clearTopologyAndView();
     const r = dom.canvas.getBoundingClientRect();
-    moveCursor({ x: r.left + r.width / 2, y: r.top + r.height / 2 });
+    moveCursorInstant({ x: r.left + r.width / 2, y: r.top + r.height / 2 });
+    stepIndex = -1;
     play(0);
+  }
+  function abortRun() {
+    runToken++;
+    const w = resumeWaiters;
+    resumeWaiters = [];
+    w.forEach((fn) => fn());
+  }
+  function goToStep(target) {
+    if (!active || !steps.length) return;
+    abortRun();
+    paused = true;
+    target = Math.max(0, Math.min(target, steps.length - 1));
+    const l = layer();
+    if (l) l.classList.remove("tutorial-finished");
+    clearTopologyAndView();
+    for (let i = 0; i <= target; i++) steps[i].action?.();
+    render();
+    stepIndex = target;
+    setCaption(steps[target].caption);
+    const p = steps[target].point?.();
+    if (p) moveCursorInstant(p);
+    syncControls();
+  }
+  function back() {
+    goToStep(stepIndex - 1);
+  }
+  function forward() {
+    goToStep(stepIndex + 1);
   }
   function togglePause() {
     paused = !paused;
     syncControls();
     if (!paused) {
-      const w = resumeWaiters;
-      resumeWaiters = [];
-      w.forEach((fn) => fn());
+      if (resumeWaiters.length) {
+        const w = resumeWaiters;
+        resumeWaiters = [];
+        w.forEach((fn) => fn());
+      } else {
+        const l = layer();
+        if (l) l.classList.remove("tutorial-finished");
+        play(stepIndex + 1);
+      }
     }
   }
-  function skip() {
-    paused = false;
-    resumeWaiters = [];
-    syncControls();
-    const next = Math.min(stepIndex + 1, steps.length - 1);
-    const l = layer();
-    if (l) l.classList.remove("tutorial-finished");
-    play(next);
-  }
   function replay() {
+    if (!active) return;
+    abortRun();
     paused = false;
-    resumeWaiters = [];
     syncControls();
     const l = layer();
     if (l) l.classList.remove("tutorial-finished");
     clearTopologyAndView();
+    stepIndex = -1;
     play(0);
   }
   function exitTutorial() {
-    runToken++;
+    abortRun();
     paused = false;
-    resumeWaiters = [];
     active = false;
     exec("stop");
     const l = layer();
@@ -14674,12 +14716,16 @@ Snort successfully validated the configuration${bad ? " (with errors)" : "."}`);
   }
   function setupTutorial() {
     document.getElementById("startTutorial")?.addEventListener("click", startTutorial);
+    document.getElementById("tutorialBack")?.addEventListener("click", back);
     document.getElementById("tutorialPause")?.addEventListener("click", togglePause);
-    document.getElementById("tutorialSkip")?.addEventListener("click", skip);
+    document.getElementById("tutorialForward")?.addEventListener("click", forward);
     document.getElementById("tutorialReplay")?.addEventListener("click", replay);
     document.getElementById("tutorialExit")?.addEventListener("click", exitTutorial);
     document.addEventListener("keydown", (e) => {
-      if (active && e.key === "Escape") exitTutorial();
+      if (!active) return;
+      if (e.key === "Escape") exitTutorial();
+      else if (e.key === "ArrowLeft") back();
+      else if (e.key === "ArrowRight") forward();
     });
   }
 

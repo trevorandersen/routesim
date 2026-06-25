@@ -32,6 +32,7 @@ export interface Scenario {
   objective: string;
   topology: any;            // { version, devices, links } — same shape as built-in topologies
   checks: ScenarioCheck[];
+  group?: string;           // chooser category; built-ins are grouped via SCENARIO_GROUPS
 }
 
 export interface CheckResult { label: string; passed: boolean }

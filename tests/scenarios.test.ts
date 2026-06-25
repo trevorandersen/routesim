@@ -6,6 +6,7 @@ import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import { state, defaultConfig, vlanRoasConfig, routerMeshConfig, wifiVlanConfig } from "../src/state";
 import { SCENARIOS, getScenario, loadScenario, checkScenario } from "../src/scenarios";
+import { SCENARIO_GROUPS } from "../src/scenario-library";
 import { addLink } from "../src/devices";
 import { runConsoleCommand as exec, runConsoleScript } from "../src/commands";
 import { registerNoopCallbacks, resetState } from "./helpers";
@@ -27,6 +28,25 @@ describe("built-in topologies & scenarios — positive coordinates", () => {
 });
 
 beforeAll(() => registerNoopCallbacks());
+
+describe("scenarios — chooser grouping", () => {
+  const grouped = SCENARIO_GROUPS.flatMap(g => g.ids);
+
+  it("every scenario id in a group exists", () => {
+    const ids = new Set(SCENARIOS.map(s => s.id));
+    for (const id of grouped) expect(ids.has(id)).toBe(true);
+  });
+
+  it("every scenario belongs to exactly one group (no orphans, no duplicates)", () => {
+    const seen = new Set<string>();
+    for (const id of grouped) {
+      expect(seen.has(id)).toBe(false);   // no scenario listed in two groups
+      seen.add(id);
+    }
+    const ungrouped = SCENARIOS.filter(s => !seen.has(s.id)).map(s => s.id);
+    expect(ungrouped).toEqual([]);         // every built-in scenario is grouped
+  });
+});
 
 describe("scenarios — Connect a LAN", () => {
   beforeEach(() => resetState());

@@ -12134,6 +12134,15 @@ Snort successfully validated the configuration${bad ? " (with errors)" : "."}`);
     redTeamScan,
     statefulFirewall
   ];
+  var SCENARIO_GROUPS = [
+    { label: "Getting started", ids: ["connect-lan"] },
+    { label: "Switching & VLANs", ids: ["vlan-segmentation", "router-on-a-stick", "spanning-tree"] },
+    { label: "Routing", ids: ["static-routes", "rip-convergence", "nat-gateway"] },
+    { label: "Services (DHCP & DNS)", ids: ["dhcp-service", "dns-service", "server-dhcp"] },
+    { label: "Wireless", ids: ["wifi-join", "wifi-dhcp"] },
+    { label: "Security", ids: ["firewall-guard", "harden-gateway", "stateful-firewall", "port-auth-8021x", "macsec-link", "secure-access", "ids-monitor", "red-team-scan"] },
+    { label: "Troubleshooting", ids: ["troubleshoot-gateway", "troubleshoot-vlan", "troubleshoot-static-route", "troubleshoot-firewall", "troubleshoot-dns", "troubleshoot-wifi"] }
+  ];
 
   // src/scenarios.ts
   var connectLan = {
@@ -12316,9 +12325,24 @@ Snort successfully validated the configuration${bad ? " (with errors)" : "."}`);
     renderScenarioOptions();
   }
   function renderScenarioOptions() {
-    dom.scenarioSelect.innerHTML = `<option value="">Load scenario\u2026</option>` + SCENARIOS.map(
-      (s) => `<option value="${escapeHtml(s.id)}">${escapeHtml(s.name)}</option>`
-    ).join("");
+    const byId = new Map(SCENARIOS.map((s) => [s.id, s]));
+    const placed = /* @__PURE__ */ new Set();
+    const option = (s) => `<option value="${escapeHtml(s.id)}">${escapeHtml(s.name)}</option>`;
+    const optgroup = (label, scenarios) => scenarios.length ? `<optgroup label="${escapeHtml(label)}">${scenarios.map(option).join("")}</optgroup>` : "";
+    let html = SCENARIO_GROUPS.map((g) => {
+      const scenarios = g.ids.map((id) => byId.get(id)).filter(Boolean);
+      scenarios.forEach((s) => placed.add(s.id));
+      return optgroup(g.label, scenarios);
+    }).join("");
+    const leftovers = SCENARIOS.filter((s) => !placed.has(s.id));
+    const extraGroups = /* @__PURE__ */ new Map();
+    for (const s of leftovers) {
+      const label = s.group || "Other";
+      if (!extraGroups.has(label)) extraGroups.set(label, []);
+      extraGroups.get(label).push(s);
+    }
+    for (const [label, scenarios] of extraGroups) html += optgroup(label, scenarios);
+    dom.scenarioSelect.innerHTML = `<option value="">Load scenario\u2026</option>` + html;
   }
 
   // src/io.ts
@@ -14004,7 +14028,24 @@ Snort successfully validated the configuration${bad ? " (with errors)" : "."}`);
   function cmdScenario(args) {
     const sub = (args[0] || "").toLowerCase();
     if (sub === "list") {
-      return ok(...SCENARIOS.map((s) => `${s.id} \u2014 ${s.name}`));
+      const byId = new Map(SCENARIOS.map((s) => [s.id, s]));
+      const placed = /* @__PURE__ */ new Set();
+      const lines = [];
+      for (const g of SCENARIO_GROUPS) {
+        const items = g.ids.map((id) => byId.get(id)).filter(Boolean);
+        if (!items.length) continue;
+        lines.push(`${g.label}:`);
+        for (const s of items) {
+          lines.push(`  ${s.id} \u2014 ${s.name}`);
+          placed.add(s.id);
+        }
+      }
+      const other = SCENARIOS.filter((s) => !placed.has(s.id));
+      if (other.length) {
+        lines.push("Other:");
+        for (const s of other) lines.push(`  ${s.id} \u2014 ${s.name}`);
+      }
+      return ok(...lines);
     }
     if (sub === "load") {
       return loadScenario(args[1]) ? ok(`Loaded scenario "${args[1]}".`) : err(`No scenario "${args[1]}".`);

@@ -4,7 +4,7 @@ A **scenario** is a guided challenge: an initial topology + config and a **goal*
 
 ## Using scenarios
 
-- **GUI**: the **Scenarios** toolbar button (flag icon) opens a chooser. Loading a scenario resets the canvas to its initial state and shows a **goal banner** (top-left) with the objective and a checklist. Edit the network, then click **Check goal** — each check turns ✓/✗ and a "Scenario complete" message appears when all pass. The × dismisses the scenario.
+- **GUI**: the File-tab **Scenarios** chooser, grouped into categories (Getting started, Switching & VLANs, Routing, Services, Wireless, Security, Troubleshooting) via `<optgroup>`s. Loading a scenario resets the canvas to its initial state and shows a **goal banner** (top-left) with the objective and a checklist. Edit the network, then click **Check goal** — each check turns ✓/✗ and a "Scenario complete" message appears when all pass. The × dismisses the scenario.
 - **Console / API**: `scenario list`, `scenario load <id>`, `scenario goal`, `scenario check` — available in the console panel, `window.routesim`, and scripts. `scenario check`'s `data` is the `ScenarioResult`.
 
 > Checking the goal runs the real headless simulation, so a `ping` check populates ARP/MAC tables and the Simulation Log — useful feedback on *how* the packet flowed.
@@ -18,6 +18,7 @@ interface Scenario {
   objective: string;          // shown in the banner
   topology: any;              // { version, devices, links } — same shape as built-in topologies
   checks: ScenarioCheck[];    // the goal
+  group?: string;             // chooser category (built-ins are grouped via SCENARIO_GROUPS)
 }
 
 type ScenarioCheck =
@@ -40,7 +41,7 @@ Device references in checks/topology resolve by **name or id**. `checkScenario(s
 
 ## Adding a scenario
 
-Add a `Scenario` to `src/scenario-library.ts` (data only) and it joins `SCENARIOS` automatically — or register one at runtime via JSON import (`registerScenario`). Every built-in scenario has a runnable reference solution in [`scenario-solutions/`](../scenario-solutions/) (`<id>.routesim.txt`); `tests/scenarios.test.ts` runs each one to prove the scenario starts unsolved and is solvable, so add one for yours too.
+Add a `Scenario` to `src/scenario-library.ts` (data only), append it to `CURRICULUM`, and add its id to a group in `SCENARIO_GROUPS` (the ordered grouping that drives the chooser's `<optgroup>`s and `scenario list`) — a `tests/scenarios.test.ts` check enforces that every scenario is grouped exactly once, so an ungrouped one is caught (it would otherwise show under "Other"). It joins `SCENARIOS` automatically — or register one at runtime via JSON import (`registerScenario`), where an imported scenario's own `group` field (or "Other") places it. Every built-in scenario has a runnable reference solution in [`scenario-solutions/`](../scenario-solutions/) (`<id>.routesim.txt`); `tests/scenarios.test.ts` runs each one to prove the scenario starts unsolved and is solvable, so add one for yours too.
 
 ```ts
 {

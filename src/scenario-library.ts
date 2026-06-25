@@ -722,3 +722,17 @@ export const CURRICULUM: Scenario[] = [
   redTeamScan,
   statefulFirewall,
 ];
+
+// How the curriculum is grouped in the scenario chooser (and `scenario list`).
+// Ordered: each group becomes an <optgroup>, scenarios in the listed order. Every
+// CURRICULUM scenario should appear in exactly one group (a test enforces this);
+// any that slips through is shown under "Other" rather than lost.
+export const SCENARIO_GROUPS: { label: string; ids: string[] }[] = [
+  { label: "Getting started", ids: ["connect-lan"] },
+  { label: "Switching & VLANs", ids: ["vlan-segmentation", "router-on-a-stick", "spanning-tree"] },
+  { label: "Routing", ids: ["static-routes", "rip-convergence", "nat-gateway"] },
+  { label: "Services (DHCP & DNS)", ids: ["dhcp-service", "dns-service", "server-dhcp"] },
+  { label: "Wireless", ids: ["wifi-join", "wifi-dhcp"] },
+  { label: "Security", ids: ["firewall-guard", "harden-gateway", "stateful-firewall", "port-auth-8021x", "macsec-link", "secure-access", "ids-monitor", "red-team-scan"] },
+  { label: "Troubleshooting", ids: ["troubleshoot-gateway", "troubleshoot-vlan", "troubleshoot-static-route", "troubleshoot-firewall", "troubleshoot-dns", "troubleshoot-wifi"] },
+];

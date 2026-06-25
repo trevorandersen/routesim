@@ -5,7 +5,7 @@ The MS-Office-style ribbon: a row of tabs (**Main · File · View · Help**) tha
 ## Key exports
 
 - **`setupRibbon()`** — called from `setupUI()`. Wires tab switching: clicking a `.ribbon-tab` toggles the matching `.ribbon-panel` active and deactivates the others.
-- **`renderScenarioOptions()`** — (re)builds the File-tab scenario chooser (`#scenarioSelect`) from the `SCENARIOS` registry (scenarios.ts), so imported scenarios appear. Called at setup and after a scenario import.
+- **`renderScenarioOptions()`** — (re)builds the File-tab scenario chooser (`#scenarioSelect`) from the `SCENARIOS` registry (scenarios.ts), so imported scenarios appear. Scenarios are grouped into `<optgroup>`s by category in the curated order of `SCENARIO_GROUPS` (scenario-library.ts); anything not in a curated group (an imported scenario, or its own `Scenario.group`) falls under that label or "Other" rather than being dropped. Called at setup and after a scenario import.
 
 ## How it fits
 

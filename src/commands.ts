@@ -31,6 +31,7 @@ import { setTool, setTheme } from "./ui";
 import { setZoom, fitNetwork } from "./canvas";
 import { isValidMac, normaliseMacAddress, prefixOf, networkOf, normaliseSsid, normaliseWifiPassword } from "./utils";
 import { SCENARIOS, getScenario, loadScenario, checkScenario } from "./scenarios";
+import { SCENARIO_GROUPS } from "./scenario-library";
 import { SPEED_MIN, SPEED_MAX } from "./settings-url";
 
 export interface CommandResult {
@@ -833,7 +834,20 @@ function cmdFit(): CommandResult { fitNetwork(); return ok("Fit to view."); }
 function cmdScenario(args: string[]): CommandResult {
   const sub = (args[0] || "").toLowerCase();
   if (sub === "list") {
-    return ok(...SCENARIOS.map(s => `${s.id} — ${s.name}`));
+    // Grouped by category (SCENARIO_GROUPS), matching the chooser; anything not
+    // in a curated group is shown under "Other" so nothing is hidden.
+    const byId = new Map(SCENARIOS.map(s => [s.id, s]));
+    const placed = new Set<string>();
+    const lines: string[] = [];
+    for (const g of SCENARIO_GROUPS) {
+      const items = g.ids.map(id => byId.get(id)).filter(Boolean) as typeof SCENARIOS;
+      if (!items.length) continue;
+      lines.push(`${g.label}:`);
+      for (const s of items) { lines.push(`  ${s.id} — ${s.name}`); placed.add(s.id); }
+    }
+    const other = SCENARIOS.filter(s => !placed.has(s.id));
+    if (other.length) { lines.push("Other:"); for (const s of other) lines.push(`  ${s.id} — ${s.name}`); }
+    return ok(...lines);
   }
   if (sub === "load") {
     return loadScenario(args[1]) ? ok(`Loaded scenario "${args[1]}".`) : err(`No scenario "${args[1]}".`);

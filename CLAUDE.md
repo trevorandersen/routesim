@@ -61,6 +61,10 @@ bun test-server.ts 8765     # custom port
 
 Open `http://localhost:8767/rs-web.html` for the app (`/` redirects there), `/test.html` for the test runner, `/benchmark.html` for benchmarks.
 
+## Git workflow
+
+**Commit and push automatically** when a unit of work is complete and green — you do **not** need to wait to be asked (this is a standing, project-specific authorisation that overrides the default "commit only when asked"). "Complete and green" means `bunx tsc --noEmit` is clean, the relevant `bun test` suites pass, and `bash build.sh` succeeds (so `rs-web.html` is rebuilt and committed). Keep each commit scoped to one logical change with a clear message; if a turn spans unrelated changes, split them into separate commits. End every commit message with the `Co-Authored-By: Claude Opus 4.8 <noreply@anthropic.com>` trailer, and push to `origin main` (the working branch for this repo). Never commit broken, half-finished, or unverified work, and keep docs/tests in lockstep within the same commit (see Goals & principles).
+
 ## Architecture
 
 Single-page canvas app. All state lives in one `AppState` object (`state.ts`). Modules communicate through a callback registry (`sync()`) to avoid circular imports. No framework, no virtual DOM — imperative `render()` redraws the full canvas, `syncPanel()` rebuilds inspector HTML, `syncTerminal()` rebuilds terminal HTML.

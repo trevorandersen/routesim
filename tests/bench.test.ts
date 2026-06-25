@@ -13,7 +13,7 @@ import { getDevice, linkedPortsFor, connectedIds, linkById } from "../src/device
 import { l2Reachable, getVlanForDevice, buildScanEvents } from "../src/simulation";
 import { runConsoleScript } from "../src/commands";
 import { isTrunkLink } from "../src/canvas";
-import { processAtSwitch, processAtRouter, processAtServer, buildRoutingTable, routingLookup, runRipConvergence, runStpConvergence, evaluateFirewall } from "../src/engine";
+import { processAtSwitch, processAtRouter, processAtServer, buildRoutingTable, routingLookup, runRipConvergence, runStpConvergence, evaluateFirewall, connectionState } from "../src/engine";
 import { createArpRequest, createArpReply, createIcmpEchoRequest, createIcmpEchoReply, createTcpSegment, createDnsResponse, createDhcpDiscover, packetColumns, BROADCAST_MAC } from "../src/frame";
 import { runIdsRules } from "../src/snort";
 import { registerNoopCallbacks, resetState } from "./helpers";
@@ -354,6 +354,19 @@ describe("bench: firewall", () => {
     results.push(bench("evaluateFirewall — 50 rules (miss)", () => {
       evaluateFirewall(fw, ipv4, "forward");
     }, { budget: 100 }));
+    expect(results[results.length - 1].passed).toBe(true);
+  });
+
+  it("connectionState — lookup over 50 tracked flows", () => {
+    // Worst case: a NEW frame scans the whole conntrack table without matching.
+    const fw: any = { id: "fw-ct" };
+    state.simulation.conntrack = { "fw-ct": Array.from({ length: 50 }, (_, i) => ({
+      proto: "tcp", srcIp: `10.0.0.${i}`, dstIp: "8.8.8.8", srcPort: 40000 + i, dstPort: 80, established: i % 2 === 0,
+    })) };
+    const ipv4: any = { type: "ipv4", srcIp: "192.168.1.99", dstIp: "1.2.3.4", ttl: 64, protocol: 6, payload: { type: "tcp", srcPort: 50000, dstPort: 443, flags: "syn" } };
+    results.push(bench("connectionState — 50 tracked flows (miss)", () => {
+      connectionState(fw, ipv4);
+    }, { budget: 80 }));
     expect(results[results.length - 1].passed).toBe(true);
   });
 

@@ -50,6 +50,7 @@ export function resetState(): void {
     autoPlay: false,
     stepTimer: null,
     animFrame: null,
+    conntrack: {},
   } as any;
   state.terminal = {
     deviceId: null,

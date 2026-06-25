@@ -125,7 +125,8 @@ export const state: AppState = {
     stormDetected: false,
     scanOpen: [],
     scanClosed: [],
-    sweepLive: []
+    sweepLive: [],
+    conntrack: {}
   },
   portSelection: null
 };

@@ -179,6 +179,7 @@ function generateRouterIfaceMac(routerId: string, ifaceIndex: number): string {
 
 const FIREWALL_TARGETS = new Set(["accept", "drop", "reject"]);
 const FIREWALL_PROTOCOLS = new Set(["icmp", "udp", "tcp", "all"]);
+const CONN_STATES = new Set(["new", "established", "related", "invalid"]);
 
 export function normaliseFirewallRules(raw: any): FirewallRule[] {
   if (!Array.isArray(raw)) return [];
@@ -192,6 +193,11 @@ export function normaliseFirewallRules(raw: any): FirewallRule[] {
     if (r?.dst) rule.dst = String(r.dst);
     if (r?.icmpType) rule.icmpType = String(r.icmpType).toLowerCase();
     if (r?.dport != null && Number.isFinite(Number(r.dport))) rule.dport = Number(r.dport);
+    if (Array.isArray(r?.states)) {
+      const states = r.states.map((s: any) => String(s).toLowerCase()).filter((s: string) => CONN_STATES.has(s));
+      if (states.length) rule.states = states as any;
+    }
+    if (r?.rejectWith && target === "reject") rule.rejectWith = String(r.rejectWith).toLowerCase();
     return rule;
   }).filter(Boolean) as FirewallRule[];
 }

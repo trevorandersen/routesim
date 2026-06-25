@@ -291,6 +291,11 @@ export interface LanConfig {
 // L3 fields plus TCP destination ports (`-p tcp --dport`). See
 // docs/src/firewall.md.
 export type FirewallTarget = "accept" | "drop" | "reject";
+// Connection-tracking state (netfilter conntrack). The model assigns only "new"
+// (first packet of a flow) and "established" (return traffic of a flow we let
+// out); "related"/"invalid" parse in a rule but are never assigned (a documented
+// simplification — see docs/src/firewall.md).
+export type ConnState = "new" | "established" | "related" | "invalid";
 export interface FirewallRule {
   chain: string;                              // "forward" (v1); "input"/"output" reserved
   target: FirewallTarget;
@@ -299,6 +304,16 @@ export interface FirewallRule {
   dst?: string;                               // IPv4 or CIDR
   icmpType?: string;                          // e.g. "echo-request"
   dport?: number;                             // TCP destination port (with protocol "tcp")
+  states?: ConnState[];                       // -m state --state / -m conntrack --ctstate
+  rejectWith?: string;                        // REJECT response, e.g. "tcp-reset" | "icmp-port-unreachable"
+}
+// A tracked connection (one per device, runtime only). The "original" direction
+// is the first packet; a packet matching the swapped tuple is the reply.
+export interface ConntrackEntry {
+  proto: string;                              // "tcp" | "udp" | "icmp" | "other"
+  srcIp: string; dstIp: string;
+  srcPort: number; dstPort: number;
+  established: boolean;                        // a reply has been seen
 }
 export interface FirewallConfig {
   ethernetPorts: number;
@@ -449,7 +464,7 @@ export interface ArpPayload {
 
 export interface IcmpPayload {
   type: "icmp";
-  icmpType: 8 | 0 | 11;   // 8 = echo request, 0 = echo reply, 11 = time exceeded
+  icmpType: 8 | 0 | 11 | 3;   // 8 = echo request, 0 = echo reply, 11 = time exceeded, 3 = dest unreachable
   sequence: number;
 }
 
@@ -625,6 +640,9 @@ export interface SimulationState {
   scanOpen: number[];
   scanClosed: number[];
   sweepLive: string[];
+  // Netfilter connection tracking, per filtering device (firewall/router), reset
+  // each run — drives stateful `-m state` rule matching. deviceId → flow entries.
+  conntrack: Record<string, ConntrackEntry[]>;
 }
 
 export interface PortOption {

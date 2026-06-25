@@ -29,7 +29,12 @@ export function showFirewallRules(device: Device, lineNumbers: boolean, chains: 
     );
     rules.forEach((r: FirewallRule, i: number) => {
       const num = lineNumbers ? String(i + 1).padEnd(5) : "";
-      const extra = [r.icmpType ? `icmp-type ${r.icmpType}` : "", r.dport ? `dpt:${r.dport}` : ""].filter(Boolean).join(" ");
+      const extra = [
+        r.icmpType ? `icmp-type ${r.icmpType}` : "",
+        r.dport ? `dpt:${r.dport}` : "",
+        r.states?.length ? `state ${r.states.map(s => s.toUpperCase()).join(",")}` : "",
+        r.rejectWith ? `reject-with ${r.rejectWith}` : "",
+      ].filter(Boolean).join(" ");
       lines.push(
         num + r.target.toUpperCase().padEnd(11) + (r.protocol || "all").padEnd(7) +
         (r.src || "anywhere").padEnd(22) + (r.dst || "anywhere") + (extra ? "  " + extra : "")
@@ -39,6 +44,9 @@ export function showFirewallRules(device: Device, lineNumbers: boolean, chains: 
   }
   return lines.join("\n");
 }
+
+const CONN_STATES = ["new", "established", "related", "invalid"];
+const REJECT_WITHS = ["tcp-reset", "icmp-port-unreachable", "icmp-host-unreachable", "icmp-net-unreachable", "icmp-proto-unreachable", "icmp-admin-prohibited"];
 
 // Parse the match/target flags of an -A/-I rule into a FirewallRule (or an error).
 function parseFirewallRule(chain: string, toks: string[]): FirewallRule | string {
@@ -56,6 +64,20 @@ function parseFirewallRule(chain: string, toks: string[]): FirewallRule | string
     }
     else if (t === "--icmp-type") { if (!val) return "iptables: --icmp-type needs a value"; rule.icmpType = val.toLowerCase(); i++; }
     else if (t === "--dport") { if (!val || !/^\d+$/.test(val) || Number(val) > 65535) return "iptables: --dport needs a port number (1-65535)"; rule.dport = Number(val); i++; }
+    // `-m <module>` loads a match extension; we infer behaviour from the flags,
+    // so the module name (state / conntrack / tcp / udp) is accepted and skipped.
+    else if (t === "-m") { if (!val) return "iptables: -m needs a module"; i++; }
+    else if (t === "--state" || t === "--ctstate") {
+      if (!val) return `iptables: ${t} needs a state list`;
+      const states = val.toLowerCase().split(",").map(s => s.trim()).filter(Boolean);
+      for (const s of states) if (!CONN_STATES.includes(s)) return `iptables: unknown state "${s}" (NEW|ESTABLISHED|RELATED|INVALID)`;
+      rule.states = states as any; i++;
+    }
+    else if (t === "--reject-with") {
+      const rw = (val || "").toLowerCase();
+      if (!REJECT_WITHS.includes(rw)) return `iptables: unknown --reject-with "${val}"`;
+      rule.rejectWith = rw; i++;
+    }
     else if (t === "-j" || t === "--jump") {
       const tgt = (val || "").toLowerCase();
       if (!["accept", "drop", "reject"].includes(tgt)) return `iptables: unknown target "${val}"`;
@@ -67,6 +89,7 @@ function parseFirewallRule(chain: string, toks: string[]): FirewallRule | string
   // otherwise it would be accepted and listed but never match (real iptables
   // likewise rejects --dport without a port-bearing protocol).
   if (rule.dport != null && rule.protocol !== "tcp") return "iptables: --dport requires -p tcp";
+  if (rule.rejectWith && rule.target !== "reject") return "iptables: --reject-with only applies to -j REJECT";
   if (!hasTarget) return "iptables: rule needs -j ACCEPT|DROP|REJECT";
   return rule;
 }
@@ -81,7 +104,8 @@ export function iptablesHelpLines(allowed: string[]): string[] {
     `iptables -P <chain> ACCEPT|DROP            set the default policy`,
     `iptables -F [chain]                        flush a chain (or all)`,
     "  matches: -s <ip/cidr>  -d <ip/cidr>  -p icmp|tcp|udp|all  --icmp-type <t>  --dport <port>",
-    "  targets: ACCEPT  DROP  REJECT",
+    "           -m state --state NEW,ESTABLISHED  (or -m conntrack --ctstate ...)",
+    "  targets: ACCEPT  DROP  REJECT [--reject-with tcp-reset|icmp-port-unreachable]",
     `  chains: ${C}`,
   ];
 }

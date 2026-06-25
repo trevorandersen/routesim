@@ -1,10 +1,10 @@
-import type { EthernetFrame, ArpPayload, Ipv4Payload, DhcpPayload, TcpPayload, DnsPayload, Dot11Payload, Dot1xPayload, BpduPayload, NatEntry, SimEvent, SimLogEntry, ActiveTransit, FrameHistoryEntry, RouteEntry, Device, DeviceType, FirewallRule, FirewallTarget } from "./types";
+import type { EthernetFrame, ArpPayload, Ipv4Payload, DhcpPayload, TcpPayload, DnsPayload, Dot11Payload, Dot1xPayload, BpduPayload, NatEntry, SimEvent, SimLogEntry, ActiveTransit, FrameHistoryEntry, RouteEntry, Device, DeviceType, FirewallRule, FirewallTarget, ConnState } from "./types";
 import { state, pushUndo, sync } from "./state";
 import { dom } from "./dom";
 import { getDevice, linkedPortsFor, routerInterfacesWithNames, linkName, linkById, linksFor, linkAuthorizedForData, macsecState } from "./devices";
 import { normalisePortVlans, normalisePortModes, normaliseTrunkAllowedVlans, normaliseArpTable, normaliseMacTable, normaliseDhcpLeases, normaliseStaticRoutes, ensureConfig } from "./normalise";
 import { sameSubnet, prefixOf, isValidIpv4, escapeHtml, ipv4ToInt, intToIpv4, normaliseMacAddress, deriveMac } from "./utils";
-import { createArpRequest, createArpReply, createIcmpEchoRequest, createIcmpEchoReply, createIcmpTimeExceeded, createDhcpOffer, createDhcpRequest, createDhcpAck, createTcpSegment, createDnsResponse, createDot11Frame, createDot1xFrame, createBpduFrame, BROADCAST_MAC, frameLabel, packetColumns } from "./frame";
+import { createArpRequest, createArpReply, createIcmpEchoRequest, createIcmpEchoReply, createIcmpTimeExceeded, createIcmpDestUnreachable, createDhcpOffer, createDhcpRequest, createDhcpAck, createTcpSegment, createDnsResponse, createDot11Frame, createDot1xFrame, createBpduFrame, BROADCAST_MAC, frameLabel, packetColumns } from "./frame";
 import { terminalLine, terminalLineFor, sessionFor, syncTerminal, openDock, syncSimLogBadge } from "./terminal";
 import { buildPingEvents, buildResolveEvents, buildDhcpEvents, buildAttackEvents, findPingTarget, hostnameToIp } from "./simulation";
 import type { PingSetup } from "./simulation";
@@ -73,6 +73,7 @@ export function startSimulation(setup: PingSetup, originDeviceId: string, target
   sim.dot1xAuthorized = false;
   sim.stormDetected = false;
   sim.scanOpen = []; sim.scanClosed = []; sim.sweepLive = [];
+  sim.conntrack = {};   // connection tracking starts empty each run
   // Each run reports only its own detections/findings — clear IDS alert logs and
   // attacker findings (like sim.log / sim.capture) so they don't accumulate.
   for (const d of state.devices) {
@@ -197,6 +198,7 @@ export function runSimulationHeadless(
   sim.dot1xAuthorized = false;
   sim.stormDetected = false;
   sim.scanOpen = []; sim.scanClosed = []; sim.sweepLive = [];
+  sim.conntrack = {};   // connection tracking starts empty each run
   // Each run reports only its own detections/findings — clear IDS alert logs and
   // attacker findings (like sim.log / sim.capture) so they don't accumulate.
   for (const d of state.devices) {
@@ -1568,11 +1570,18 @@ function routeIpv4Frame(device: Device, frame: EthernetFrame, ifaces: any[], ing
   if (selfIface) {
     // Router-destined traffic traverses the INPUT chain (netfilter is always
     // present on a router; an empty ruleset accepts).
-    const inputVerdict = evaluateFirewall(device, ipv4, "input");
+    const inStateful = firewallUsesConntrack(device);
+    const inputConn = inStateful ? connectionState(device, ipv4) : "new";
+    const inputVerdict = evaluateFirewall(device, ipv4, "input", inputConn);
     if (inputVerdict !== "accept") {
-      logStep(device, "sim-drop", `Firewall ${inputVerdict.toUpperCase()} ${frameLabel(frame)} ${ipv4.srcIp}→${ipv4.dstIp} (INPUT)`);
+      logStep(device, "sim-drop", `Firewall ${inputVerdict.toUpperCase()} ${frameLabel(frame)} ${ipv4.srcIp}→${ipv4.dstIp} (${inStateful ? `INPUT, ${inputConn}` : "INPUT"})`);
+      if (inputVerdict === "reject") {
+        const resp = rejectResponse(frame, ipv4, ingressIface.macAddress, selfIface.ipv4Address, ingressIface.vlanTag ?? null, fromDeviceId);
+        if (resp) outgoing.push(resp);
+      }
       return outgoing;
     }
+    if (inStateful) trackConnection(device, ipv4);
     if (ipv4.payload.type === "icmp" && ipv4.payload.icmpType === 8) {
       logStep(device, "sim-icmp", `Received ICMP Echo Request for self (${ipv4.dstIp}) — sending Reply`);
       const reply = createIcmpEchoReply(
@@ -1614,11 +1623,18 @@ function routeIpv4Frame(device: Device, frame: EthernetFrame, ifaces: any[], ing
   const { egressIface, nextHopIp } = routeResult;
 
   // FORWARD chain (post-routing-decision, like netfilter).
-  const forwardVerdict = evaluateFirewall(device, ipv4, "forward");
+  const fwStateful = firewallUsesConntrack(device);
+  const forwardConn = fwStateful ? connectionState(device, ipv4) : "new";
+  const forwardVerdict = evaluateFirewall(device, ipv4, "forward", forwardConn);
   if (forwardVerdict !== "accept") {
-    logStep(device, "sim-drop", `Firewall ${forwardVerdict.toUpperCase()} ${frameLabel(frame)} ${ipv4.srcIp}→${ipv4.dstIp} (FORWARD)`);
+    logStep(device, "sim-drop", `Firewall ${forwardVerdict.toUpperCase()} ${frameLabel(frame)} ${ipv4.srcIp}→${ipv4.dstIp} (${fwStateful ? `FORWARD, ${forwardConn}` : "FORWARD"})`);
+    if (forwardVerdict === "reject") {
+      const resp = rejectResponse(frame, ipv4, ingressIface.macAddress, ingressIface.ipv4Address, ingressIface.vlanTag ?? null, fromDeviceId);
+      if (resp) outgoing.push(resp);
+    }
     return outgoing;
   }
+  if (fwStateful) trackConnection(device, ipv4);   // remember the accepted flow (for ESTABLISHED)
 
   // NAT (PAT overload): inside→outside flows are source-translated onto the
   // egress interface address before leaving.
@@ -1679,7 +1695,7 @@ function ipMatchesCidr(ip: string, pattern: string): boolean {
   return (ipv4ToInt(ip) & mask) === (ipv4ToInt(net) & mask);
 }
 
-export function firewallRuleMatches(rule: FirewallRule, ipv4: Ipv4Payload): boolean {
+export function firewallRuleMatches(rule: FirewallRule, ipv4: Ipv4Payload, conn: ConnState = "new"): boolean {
   if (rule.protocol && rule.protocol !== "all") {
     const proto = ipv4.protocol === 1 ? "icmp" : ipv4.protocol === 6 ? "tcp" : ipv4.protocol === 17 ? "udp" : "other";
     if (rule.protocol !== proto) return false;
@@ -1693,14 +1709,81 @@ export function firewallRuleMatches(rule: FirewallRule, ipv4: Ipv4Payload): bool
   }
   if (rule.src && !ipMatchesCidr(ipv4.srcIp, rule.src)) return false;
   if (rule.dst && !ipMatchesCidr(ipv4.dstIp, rule.dst)) return false;
+  // -m state --state / -m conntrack --ctstate: the frame's connection state must
+  // be one the rule lists. ("related"/"invalid" never match — never assigned.)
+  if (rule.states && rule.states.length && !rule.states.includes(conn)) return false;
   return true;
 }
 
+// ─── Connection tracking (netfilter conntrack) ───────────────────────────────
+
+// The proto + ports that key a flow. ICMP/other carry no ports (0,0).
+function connTuple(ipv4: Ipv4Payload): { proto: string; sport: number; dport: number } {
+  const p = ipv4.payload;
+  if (p.type === "tcp") return { proto: "tcp", sport: p.srcPort, dport: p.dstPort };
+  // UDP flows (DNS/DHCP) and ICMP carry no L4 ports in the model — key on the
+  // address pair + protocol (so a DNS reply still matches its query).
+  const proto = ipv4.protocol === 1 ? "icmp" : ipv4.protocol === 17 ? "udp" : ipv4.protocol === 6 ? "tcp" : "other";
+  return { proto, sport: 0, dport: 0 };
+}
+
+// Conntrack only runs when the device actually filters on connection state (a
+// rule has `-m state`) — like real netfilter loading nf_conntrack on demand. A
+// purely stateless ruleset pays nothing (no per-frame tracking).
+export function firewallUsesConntrack(device: Device): boolean {
+  return (device.config?.rules || []).some(r => r.states && r.states.length > 0);
+}
+
+// The connection state of a frame at `device`: "established" when it is the
+// reply (or a later packet) of a flow we already tracked, else "new".
+export function connectionState(device: Device, ipv4: Ipv4Payload): ConnState {
+  const table = state.simulation.conntrack?.[device.id];
+  if (!table) return "new";
+  const { proto, sport, dport } = connTuple(ipv4);
+  for (const e of table) {
+    // Reply direction (the original went the other way) → established.
+    if (e.proto === proto && e.srcIp === ipv4.dstIp && e.dstIp === ipv4.srcIp && e.srcPort === dport && e.dstPort === sport) return "established";
+    // A later original-direction packet of a flow that already saw a reply.
+    if (e.established && e.proto === proto && e.srcIp === ipv4.srcIp && e.dstIp === ipv4.dstIp && e.srcPort === sport && e.dstPort === dport) return "established";
+  }
+  return "new";
+}
+
+// Record an accepted frame: mark a flow established when its reply arrives, else
+// create the original entry (idempotent for repeated original packets).
+function trackConnection(device: Device, ipv4: Ipv4Payload): void {
+  const sim = state.simulation;
+  if (!sim.conntrack) sim.conntrack = {};
+  const table = sim.conntrack[device.id] || (sim.conntrack[device.id] = []);
+  const { proto, sport, dport } = connTuple(ipv4);
+  const reply = table.find(e => e.proto === proto && e.srcIp === ipv4.dstIp && e.dstIp === ipv4.srcIp && e.srcPort === dport && e.dstPort === sport);
+  if (reply) { reply.established = true; return; }
+  if (table.some(e => e.proto === proto && e.srcIp === ipv4.srcIp && e.dstIp === ipv4.dstIp && e.srcPort === sport && e.dstPort === dport)) return;
+  table.push({ proto, srcIp: ipv4.srcIp, dstIp: ipv4.dstIp, srcPort: sport, dstPort: dport, established: false });
+}
+
+// The frame a filtering device sends back when it REJECTs a packet: a TCP RST
+// for TCP (so a scan/connect reads the port as closed/refused), else an ICMP
+// destination-unreachable. `srcMac`/`icmpSrcIp` are the responder's identity
+// (a router's ingress interface, or — on a transparent firewall — the target it
+// stands in for). Sent back out the ingress link (toDeviceId = fromDeviceId).
+function rejectResponse(frame: EthernetFrame, ipv4: Ipv4Payload, srcMac: string, icmpSrcIp: string, vlanTag: number | null, fromDeviceId: string | null): OutgoingFrame | null {
+  if (!fromDeviceId) return null;
+  const inner = ipv4.payload;
+  if (inner.type === "tcp") {
+    // The RST appears to come from the intended destination — "connection refused".
+    const rst = createTcpSegment(srcMac, frame.srcMac, ipv4.dstIp, ipv4.srcIp, inner.dstPort, inner.srcPort, "rst", 64, vlanTag);
+    return { frame: rst, toDeviceId: fromDeviceId };
+  }
+  const unreach = createIcmpDestUnreachable(srcMac, frame.srcMac, icmpSrcIp, ipv4.srcIp, 64, vlanTag);
+  return { frame: unreach, toDeviceId: fromDeviceId };
+}
+
 // First-match-wins over the chain's rules, else the chain's default policy.
-export function evaluateFirewall(device: Device, ipv4: Ipv4Payload, chain = "forward"): FirewallTarget {
+export function evaluateFirewall(device: Device, ipv4: Ipv4Payload, chain = "forward", conn: ConnState = "new"): FirewallTarget {
   const rules = (device.config?.rules || []).filter(r => (r.chain || "forward") === chain);
   for (const rule of rules) {
-    if (firewallRuleMatches(rule, ipv4)) return rule.target;
+    if (firewallRuleMatches(rule, ipv4, conn)) return rule.target;
   }
   return (device.config?.policy || {})[chain] || "accept";
 }
@@ -1719,12 +1802,21 @@ export function processAtFirewall(device: Device, frame: EthernetFrame, fromDevi
   // Filter IPv4 on the FORWARD chain; pass ARP and other control frames through.
   if (frame.payload.type === "ipv4") {
     const ipv4 = frame.payload as Ipv4Payload;
-    const verdict = evaluateFirewall(device, ipv4, "forward");
+    const stateful = firewallUsesConntrack(device);
+    const conn = stateful ? connectionState(device, ipv4) : "new";
+    const tag = stateful ? `FORWARD, ${conn}` : "FORWARD";
+    const verdict = evaluateFirewall(device, ipv4, "forward", conn);
     if (verdict !== "accept") {
-      logStep(device, "sim-drop", `Firewall ${verdict.toUpperCase()} ${frameLabel(frame)} ${ipv4.srcIp}→${ipv4.dstIp} (FORWARD)`);
+      logStep(device, "sim-drop", `Firewall ${verdict.toUpperCase()} ${frameLabel(frame)} ${ipv4.srcIp}→${ipv4.dstIp} (${tag})`);
+      // REJECT answers back (transparent: the firewall stands in for the target).
+      if (verdict === "reject") {
+        const resp = rejectResponse(frame, ipv4, frame.dstMac, ipv4.dstIp, frame.vlanTag, fromDeviceId);
+        if (resp) outgoing.push(resp);
+      }
       return outgoing;
     }
-    logStep(device, "sim-forward", `Firewall ACCEPT ${frameLabel(frame)} ${ipv4.srcIp}→${ipv4.dstIp} (FORWARD)`);
+    if (stateful) trackConnection(device, ipv4);   // remember the accepted flow (for ESTABLISHED)
+    logStep(device, "sim-forward", `Firewall ACCEPT ${frameLabel(frame)} ${ipv4.srcIp}→${ipv4.dstIp} (${tag})`);
   }
   egress.forEach((toDeviceId: string, i: number) => {
     outgoing.push({ frame: { ...frame, id: `${frame.id}-fw${i}` }, toDeviceId });

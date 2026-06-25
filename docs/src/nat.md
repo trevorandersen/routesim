@@ -37,6 +37,11 @@ interface address is implicit (a deliberate simplification of Cisco's
   routed inward. No match → the packet is genuinely for the router (INPUT
   chain + self handling apply), so pinging the public IP still gets the
   router's own reply.
+- **Composition with netfilter**: the un-NAT runs *before* the FORWARD chain,
+  so connection tracking sees consistent, un-translated tuples in both
+  directions — an inside→outside flow's return traffic is correctly classified
+  `established`. See [firewall.md](firewall.md) for the stateful filter and
+  REJECT detail.
 - Both directions log `sim-nat` (teal) lines: `NAT a.b.c.d → w.x.y.z (PAT …)`
   and `(un-PAT return flow)`.
 

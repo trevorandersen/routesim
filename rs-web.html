@@ -2959,6 +2959,7 @@ Full legal text: https://creativecommons.org/publicdomain/zero/1.0/legalcode</pr
   }
   var FIREWALL_TARGETS = /* @__PURE__ */ new Set(["accept", "drop", "reject"]);
   var FIREWALL_PROTOCOLS = /* @__PURE__ */ new Set(["icmp", "udp", "tcp", "all"]);
+  var CONN_STATES = /* @__PURE__ */ new Set(["new", "established", "related", "invalid"]);
   function normaliseFirewallRules(raw) {
     if (!Array.isArray(raw)) return [];
     return raw.map((r) => {
@@ -2971,6 +2972,11 @@ Full legal text: https://creativecommons.org/publicdomain/zero/1.0/legalcode</pr
       if (r?.dst) rule.dst = String(r.dst);
       if (r?.icmpType) rule.icmpType = String(r.icmpType).toLowerCase();
       if (r?.dport != null && Number.isFinite(Number(r.dport))) rule.dport = Number(r.dport);
+      if (Array.isArray(r?.states)) {
+        const states = r.states.map((s) => String(s).toLowerCase()).filter((s) => CONN_STATES.has(s));
+        if (states.length) rule.states = states;
+      }
+      if (r?.rejectWith && target === "reject") rule.rejectWith = String(r.rejectWith).toLowerCase();
       return rule;
     }).filter(Boolean);
   }
@@ -3367,7 +3373,8 @@ Full legal text: https://creativecommons.org/publicdomain/zero/1.0/legalcode</pr
       stormDetected: false,
       scanOpen: [],
       scanClosed: [],
-      sweepLive: []
+      sweepLive: [],
+      conntrack: {}
     },
     portSelection: null
   };
@@ -4921,6 +4928,11 @@ Full legal text: https://creativecommons.org/publicdomain/zero/1.0/legalcode</pr
     const ipv4 = { type: "ipv4", srcIp, dstIp, ttl, protocol: 1, payload: icmp };
     return { id: nextFrameId(), srcMac, dstMac, etherType: 2048, vlanTag, payload: ipv4 };
   }
+  function createIcmpDestUnreachable(srcMac, dstMac, srcIp, dstIp, ttl = 64, vlanTag = null) {
+    const icmp = { type: "icmp", icmpType: 3, sequence: 0 };
+    const ipv4 = { type: "ipv4", srcIp, dstIp, ttl, protocol: 1, payload: icmp };
+    return { id: nextFrameId(), srcMac, dstMac, etherType: 2048, vlanTag, payload: ipv4 };
+  }
   function createTcpSegment(srcMac, dstMac, srcIp, dstIp, srcPort, dstPort, flags, ttl = 64, vlanTag = null) {
     const tcp = { type: "tcp", srcPort, dstPort, flags };
     const ipv4 = { type: "ipv4", srcIp, dstIp, ttl, protocol: 6, payload: tcp };
@@ -5077,6 +5089,7 @@ Full legal text: https://creativecommons.org/publicdomain/zero/1.0/legalcode</pr
     if (p.type === "icmp") {
       if (p.icmpType === 8) return { src, dst, protocol: "ICMP", info: `Echo (ping) request  seq=${p.sequence}, ttl=${ipv4.ttl}`, tone: "icmp" };
       if (p.icmpType === 0) return { src, dst, protocol: "ICMP", info: `Echo (ping) reply  seq=${p.sequence}, ttl=${ipv4.ttl}`, tone: "icmp-reply" };
+      if (p.icmpType === 3) return { src, dst, protocol: "ICMP", info: "Destination unreachable (Port unreachable)", tone: "bad" };
       return { src, dst, protocol: "ICMP", info: "Time-to-live exceeded (Time to live exceeded in transit)", tone: "bad" };
     }
     if (p.type === "tcp") {
@@ -5116,7 +5129,7 @@ Full legal text: https://creativecommons.org/publicdomain/zero/1.0/legalcode</pr
       } else if (ipv4.payload.type === "dns") {
         label = ipv4.payload.op === "query" ? "DNS Query" : ipv4.payload.address ? "DNS Answer" : "DNS NXDOMAIN";
       } else if (ipv4.payload.type === "icmp") {
-        label = ipv4.payload.icmpType === 8 ? "ICMP Echo" : ipv4.payload.icmpType === 11 ? "ICMP TTL Exceeded" : "ICMP Reply";
+        label = ipv4.payload.icmpType === 8 ? "ICMP Echo" : ipv4.payload.icmpType === 11 ? "ICMP TTL Exceeded" : ipv4.payload.icmpType === 3 ? "ICMP Unreachable" : "ICMP Reply";
       } else {
         label = "Frame";
       }
@@ -5137,7 +5150,7 @@ Full legal text: https://creativecommons.org/publicdomain/zero/1.0/legalcode</pr
     if (ipv4.payload.type === "dns") return ipv4.payload.op === "response" && !ipv4.payload.address ? "#ef4444" : "#22d3ee";
     if (ipv4.payload.type === "tcp") return ipv4.payload.flags === "rst" ? "#ef4444" : "#fb923c";
     if (ipv4.payload.type === "icmp" && ipv4.payload.icmpType === 8) return "#3b82f6";
-    if (ipv4.payload.type === "icmp" && ipv4.payload.icmpType === 11) return "#ef4444";
+    if (ipv4.payload.type === "icmp" && (ipv4.payload.icmpType === 11 || ipv4.payload.icmpType === 3)) return "#ef4444";
     return "#22c55e";
   }
 
@@ -6380,6 +6393,7 @@ Full legal text: https://creativecommons.org/publicdomain/zero/1.0/legalcode</pr
     sim.scanOpen = [];
     sim.scanClosed = [];
     sim.sweepLive = [];
+    sim.conntrack = {};
     for (const d of state.devices) {
       if (d.type === "ids" && d.config) d.config.alerts = [];
       if ((d.type === "attacker" || d.type === "kali") && d.config) d.config.attackLog = [];
@@ -6466,6 +6480,7 @@ Full legal text: https://creativecommons.org/publicdomain/zero/1.0/legalcode</pr
     sim.scanOpen = [];
     sim.scanClosed = [];
     sim.sweepLive = [];
+    sim.conntrack = {};
     for (const d of state.devices) {
       if (d.type === "ids" && d.config) d.config.alerts = [];
       if ((d.type === "attacker" || d.type === "kali") && d.config) d.config.attackLog = [];
@@ -7567,11 +7582,18 @@ Full legal text: https://creativecommons.org/publicdomain/zero/1.0/legalcode</pr
     }
     const selfIface = ifaces.find((iface) => iface.ipv4Address === ipv4.dstIp);
     if (selfIface) {
-      const inputVerdict = evaluateFirewall(device, ipv4, "input");
+      const inStateful = firewallUsesConntrack(device);
+      const inputConn = inStateful ? connectionState(device, ipv4) : "new";
+      const inputVerdict = evaluateFirewall(device, ipv4, "input", inputConn);
       if (inputVerdict !== "accept") {
-        logStep(device, "sim-drop", `Firewall ${inputVerdict.toUpperCase()} ${frameLabel(frame)} ${ipv4.srcIp}\u2192${ipv4.dstIp} (INPUT)`);
+        logStep(device, "sim-drop", `Firewall ${inputVerdict.toUpperCase()} ${frameLabel(frame)} ${ipv4.srcIp}\u2192${ipv4.dstIp} (${inStateful ? `INPUT, ${inputConn}` : "INPUT"})`);
+        if (inputVerdict === "reject") {
+          const resp = rejectResponse(frame, ipv4, ingressIface.macAddress, selfIface.ipv4Address, ingressIface.vlanTag ?? null, fromDeviceId);
+          if (resp) outgoing.push(resp);
+        }
         return outgoing;
       }
+      if (inStateful) trackConnection(device, ipv4);
       if (ipv4.payload.type === "icmp" && ipv4.payload.icmpType === 8) {
         logStep(device, "sim-icmp", `Received ICMP Echo Request for self (${ipv4.dstIp}) \u2014 sending Reply`);
         const reply = createIcmpEchoReply(
@@ -7610,11 +7632,18 @@ Full legal text: https://creativecommons.org/publicdomain/zero/1.0/legalcode</pr
       return outgoing;
     }
     const { egressIface, nextHopIp } = routeResult;
-    const forwardVerdict = evaluateFirewall(device, ipv4, "forward");
+    const fwStateful = firewallUsesConntrack(device);
+    const forwardConn = fwStateful ? connectionState(device, ipv4) : "new";
+    const forwardVerdict = evaluateFirewall(device, ipv4, "forward", forwardConn);
     if (forwardVerdict !== "accept") {
-      logStep(device, "sim-drop", `Firewall ${forwardVerdict.toUpperCase()} ${frameLabel(frame)} ${ipv4.srcIp}\u2192${ipv4.dstIp} (FORWARD)`);
+      logStep(device, "sim-drop", `Firewall ${forwardVerdict.toUpperCase()} ${frameLabel(frame)} ${ipv4.srcIp}\u2192${ipv4.dstIp} (${fwStateful ? `FORWARD, ${forwardConn}` : "FORWARD"})`);
+      if (forwardVerdict === "reject") {
+        const resp = rejectResponse(frame, ipv4, ingressIface.macAddress, ingressIface.ipv4Address, ingressIface.vlanTag ?? null, fromDeviceId);
+        if (resp) outgoing.push(resp);
+      }
       return outgoing;
     }
+    if (fwStateful) trackConnection(device, ipv4);
     if (ingressIface.natRole === "inside" && egressIface.natRole === "outside" && egressIface.ipv4Address) {
       const translated = natTranslateOutbound(device, ipv4, egressIface);
       if (translated) {
@@ -7660,7 +7689,7 @@ Full legal text: https://creativecommons.org/publicdomain/zero/1.0/legalcode</pr
     const mask = bits === 0 ? 0 : ~0 << 32 - bits >>> 0;
     return (ipv4ToInt(ip) & mask) === (ipv4ToInt(net) & mask);
   }
-  function firewallRuleMatches(rule, ipv4) {
+  function firewallRuleMatches(rule, ipv4, conn = "new") {
     if (rule.protocol && rule.protocol !== "all") {
       const proto = ipv4.protocol === 1 ? "icmp" : ipv4.protocol === 6 ? "tcp" : ipv4.protocol === 17 ? "udp" : "other";
       if (rule.protocol !== proto) return false;
@@ -7674,12 +7703,55 @@ Full legal text: https://creativecommons.org/publicdomain/zero/1.0/legalcode</pr
     }
     if (rule.src && !ipMatchesCidr(ipv4.srcIp, rule.src)) return false;
     if (rule.dst && !ipMatchesCidr(ipv4.dstIp, rule.dst)) return false;
+    if (rule.states && rule.states.length && !rule.states.includes(conn)) return false;
     return true;
   }
-  function evaluateFirewall(device, ipv4, chain = "forward") {
+  function connTuple(ipv4) {
+    const p = ipv4.payload;
+    if (p.type === "tcp") return { proto: "tcp", sport: p.srcPort, dport: p.dstPort };
+    const proto = ipv4.protocol === 1 ? "icmp" : ipv4.protocol === 17 ? "udp" : ipv4.protocol === 6 ? "tcp" : "other";
+    return { proto, sport: 0, dport: 0 };
+  }
+  function firewallUsesConntrack(device) {
+    return (device.config?.rules || []).some((r) => r.states && r.states.length > 0);
+  }
+  function connectionState(device, ipv4) {
+    const table = state.simulation.conntrack?.[device.id];
+    if (!table) return "new";
+    const { proto, sport, dport } = connTuple(ipv4);
+    for (const e of table) {
+      if (e.proto === proto && e.srcIp === ipv4.dstIp && e.dstIp === ipv4.srcIp && e.srcPort === dport && e.dstPort === sport) return "established";
+      if (e.established && e.proto === proto && e.srcIp === ipv4.srcIp && e.dstIp === ipv4.dstIp && e.srcPort === sport && e.dstPort === dport) return "established";
+    }
+    return "new";
+  }
+  function trackConnection(device, ipv4) {
+    const sim = state.simulation;
+    if (!sim.conntrack) sim.conntrack = {};
+    const table = sim.conntrack[device.id] || (sim.conntrack[device.id] = []);
+    const { proto, sport, dport } = connTuple(ipv4);
+    const reply = table.find((e) => e.proto === proto && e.srcIp === ipv4.dstIp && e.dstIp === ipv4.srcIp && e.srcPort === dport && e.dstPort === sport);
+    if (reply) {
+      reply.established = true;
+      return;
+    }
+    if (table.some((e) => e.proto === proto && e.srcIp === ipv4.srcIp && e.dstIp === ipv4.dstIp && e.srcPort === sport && e.dstPort === dport)) return;
+    table.push({ proto, srcIp: ipv4.srcIp, dstIp: ipv4.dstIp, srcPort: sport, dstPort: dport, established: false });
+  }
+  function rejectResponse(frame, ipv4, srcMac, icmpSrcIp, vlanTag, fromDeviceId) {
+    if (!fromDeviceId) return null;
+    const inner = ipv4.payload;
+    if (inner.type === "tcp") {
+      const rst = createTcpSegment(srcMac, frame.srcMac, ipv4.dstIp, ipv4.srcIp, inner.dstPort, inner.srcPort, "rst", 64, vlanTag);
+      return { frame: rst, toDeviceId: fromDeviceId };
+    }
+    const unreach = createIcmpDestUnreachable(srcMac, frame.srcMac, icmpSrcIp, ipv4.srcIp, 64, vlanTag);
+    return { frame: unreach, toDeviceId: fromDeviceId };
+  }
+  function evaluateFirewall(device, ipv4, chain = "forward", conn = "new") {
     const rules = (device.config?.rules || []).filter((r) => (r.chain || "forward") === chain);
     for (const rule of rules) {
-      if (firewallRuleMatches(rule, ipv4)) return rule.target;
+      if (firewallRuleMatches(rule, ipv4, conn)) return rule.target;
     }
     return (device.config?.policy || {})[chain] || "accept";
   }
@@ -7689,12 +7761,20 @@ Full legal text: https://creativecommons.org/publicdomain/zero/1.0/legalcode</pr
     const egress = linkedPortsFor(device.id).filter((p) => p?.peer).map((p) => p.peer.id).filter((id) => id !== fromDeviceId);
     if (frame.payload.type === "ipv4") {
       const ipv4 = frame.payload;
-      const verdict = evaluateFirewall(device, ipv4, "forward");
+      const stateful = firewallUsesConntrack(device);
+      const conn = stateful ? connectionState(device, ipv4) : "new";
+      const tag = stateful ? `FORWARD, ${conn}` : "FORWARD";
+      const verdict = evaluateFirewall(device, ipv4, "forward", conn);
       if (verdict !== "accept") {
-        logStep(device, "sim-drop", `Firewall ${verdict.toUpperCase()} ${frameLabel(frame)} ${ipv4.srcIp}\u2192${ipv4.dstIp} (FORWARD)`);
+        logStep(device, "sim-drop", `Firewall ${verdict.toUpperCase()} ${frameLabel(frame)} ${ipv4.srcIp}\u2192${ipv4.dstIp} (${tag})`);
+        if (verdict === "reject") {
+          const resp = rejectResponse(frame, ipv4, frame.dstMac, ipv4.dstIp, frame.vlanTag, fromDeviceId);
+          if (resp) outgoing.push(resp);
+        }
         return outgoing;
       }
-      logStep(device, "sim-forward", `Firewall ACCEPT ${frameLabel(frame)} ${ipv4.srcIp}\u2192${ipv4.dstIp} (FORWARD)`);
+      if (stateful) trackConnection(device, ipv4);
+      logStep(device, "sim-forward", `Firewall ACCEPT ${frameLabel(frame)} ${ipv4.srcIp}\u2192${ipv4.dstIp} (${tag})`);
     }
     egress.forEach((toDeviceId, i) => {
       outgoing.push({ frame: { ...frame, id: `${frame.id}-fw${i}` }, toDeviceId });
@@ -8338,7 +8418,12 @@ Address: ${sim.dnsResolvedIp}`);
       );
       rules.forEach((r, i) => {
         const num = lineNumbers ? String(i + 1).padEnd(5) : "";
-        const extra = [r.icmpType ? `icmp-type ${r.icmpType}` : "", r.dport ? `dpt:${r.dport}` : ""].filter(Boolean).join(" ");
+        const extra = [
+          r.icmpType ? `icmp-type ${r.icmpType}` : "",
+          r.dport ? `dpt:${r.dport}` : "",
+          r.states?.length ? `state ${r.states.map((s) => s.toUpperCase()).join(",")}` : "",
+          r.rejectWith ? `reject-with ${r.rejectWith}` : ""
+        ].filter(Boolean).join(" ");
         lines.push(
           num + r.target.toUpperCase().padEnd(11) + (r.protocol || "all").padEnd(7) + (r.src || "anywhere").padEnd(22) + (r.dst || "anywhere") + (extra ? "  " + extra : "")
         );
@@ -8347,6 +8432,8 @@ Address: ${sim.dnsResolvedIp}`);
     }
     return lines.join("\n");
   }
+  var CONN_STATES2 = ["new", "established", "related", "invalid"];
+  var REJECT_WITHS = ["tcp-reset", "icmp-port-unreachable", "icmp-host-unreachable", "icmp-net-unreachable", "icmp-proto-unreachable", "icmp-admin-prohibited"];
   function parseFirewallRule(chain, toks) {
     const rule = { chain, target: "accept" };
     let hasTarget = false;
@@ -8374,6 +8461,20 @@ Address: ${sim.dnsResolvedIp}`);
         if (!val || !/^\d+$/.test(val) || Number(val) > 65535) return "iptables: --dport needs a port number (1-65535)";
         rule.dport = Number(val);
         i++;
+      } else if (t === "-m") {
+        if (!val) return "iptables: -m needs a module";
+        i++;
+      } else if (t === "--state" || t === "--ctstate") {
+        if (!val) return `iptables: ${t} needs a state list`;
+        const states = val.toLowerCase().split(",").map((s) => s.trim()).filter(Boolean);
+        for (const s of states) if (!CONN_STATES2.includes(s)) return `iptables: unknown state "${s}" (NEW|ESTABLISHED|RELATED|INVALID)`;
+        rule.states = states;
+        i++;
+      } else if (t === "--reject-with") {
+        const rw = (val || "").toLowerCase();
+        if (!REJECT_WITHS.includes(rw)) return `iptables: unknown --reject-with "${val}"`;
+        rule.rejectWith = rw;
+        i++;
       } else if (t === "-j" || t === "--jump") {
         const tgt = (val || "").toLowerCase();
         if (!["accept", "drop", "reject"].includes(tgt)) return `iptables: unknown target "${val}"`;
@@ -8383,6 +8484,7 @@ Address: ${sim.dnsResolvedIp}`);
       } else return `iptables: unknown option "${t}"`;
     }
     if (rule.dport != null && rule.protocol !== "tcp") return "iptables: --dport requires -p tcp";
+    if (rule.rejectWith && rule.target !== "reject") return "iptables: --reject-with only applies to -j REJECT";
     if (!hasTarget) return "iptables: rule needs -j ACCEPT|DROP|REJECT";
     return rule;
   }
@@ -8396,7 +8498,8 @@ Address: ${sim.dnsResolvedIp}`);
       `iptables -P <chain> ACCEPT|DROP            set the default policy`,
       `iptables -F [chain]                        flush a chain (or all)`,
       "  matches: -s <ip/cidr>  -d <ip/cidr>  -p icmp|tcp|udp|all  --icmp-type <t>  --dport <port>",
-      "  targets: ACCEPT  DROP  REJECT",
+      "           -m state --state NEW,ESTABLISHED  (or -m conntrack --ctstate ...)",
+      "  targets: ACCEPT  DROP  REJECT [--reject-with tcp-reset|icmp-port-unreachable]",
       `  chains: ${C}`
     ];
   }
@@ -10221,7 +10324,9 @@ Snort successfully validated the configuration${bad ? " (with errors)" : "."}`);
         r.src ? `-s ${escapeHtml(r.src)}` : "",
         r.dst ? `-d ${escapeHtml(r.dst)}` : "",
         r.icmpType ? `--icmp-type ${escapeHtml(r.icmpType)}` : "",
-        r.dport ? `--dport ${escapeHtml(String(r.dport))}` : ""
+        r.dport ? `--dport ${escapeHtml(String(r.dport))}` : "",
+        r.states?.length ? `--state ${escapeHtml(r.states.map((s) => s.toUpperCase()).join(","))}` : "",
+        r.rejectWith ? `--reject-with ${escapeHtml(r.rejectWith)}` : ""
       ].filter(Boolean).join(" ");
       return `<li><span class="fw-target fw-${escapeHtml(r.target)}">${escapeHtml(String(r.target).toUpperCase())}</span> ${escapeHtml(String(r.chain || "forward").toUpperCase())} ${match || "(any)"}<button class="inline-button fw-rule-del" type="button" data-fw-del="${index}" title="Delete this rule" aria-label="Delete rule">&times;</button></li>`;
     }).join("")}</ol>`;
@@ -10249,6 +10354,9 @@ Snort successfully validated the configuration${bad ? " (with errors)" : "."}`);
         </select>${chainField}
         <select id="fwAddProto" class="fw-select" title="Protocol">
           ${[["", "any proto"], ["icmp", "icmp"], ["tcp", "tcp"], ["udp", "udp"]].map(([v, l]) => `<option value="${v}">${l}</option>`).join("")}
+        </select>
+        <select id="fwAddState" class="fw-select" title="Connection state (-m state)">
+          ${[["", "any state"], ["new", "NEW"], ["established,related", "ESTABLISHED,RELATED"], ["new,established", "NEW,ESTABLISHED"]].map(([v, l]) => `<option value="${v}">${l}</option>`).join("")}
         </select>
         <input id="fwAddSrc" placeholder="source (any)" autocomplete="off" inputmode="decimal">
         <input id="fwAddDst" placeholder="dest (any)" autocomplete="off" inputmode="decimal">
@@ -10702,6 +10810,8 @@ Snort successfully validated the configuration${bad ? " (with errors)" : "."}`);
       const target = val("fwAddTarget") || "accept";
       const chain = document.getElementById("fwAddChain")?.value || chains[0];
       const protocol = val("fwAddProto");
+      const stateRaw = document.getElementById("fwAddState")?.value || "";
+      const states = stateRaw ? stateRaw.split(",") : void 0;
       const src = val("fwAddSrc"), dst = val("fwAddDst"), dportRaw = val("fwAddDport");
       if (src && !parseIpv4Token(src)) return fail("Source must be a valid IPv4 address or CIDR.");
       if (dst && !parseIpv4Token(dst)) return fail("Destination must be a valid IPv4 address or CIDR.");
@@ -10721,7 +10831,8 @@ Snort successfully validated the configuration${bad ? " (with errors)" : "."}`);
         ...protocol ? { protocol } : {},
         ...src ? { src } : {},
         ...dst ? { dst } : {},
-        ...dport != null ? { dport } : {}
+        ...dport != null ? { dport } : {},
+        ...states ? { states } : {}
       });
       syncPanel();
     });
@@ -11971,6 +12082,31 @@ Snort successfully validated the configuration${bad ? " (with errors)" : "."}`);
       { kind: "alert", from: "RT-1", to: "SRV", contains: "Telnet", label: "IDS-1 detects the Red Team port scan" }
     ]
   };
+  var statefulFirewall = {
+    id: "stateful-firewall",
+    name: "Stateful firewall: browse out, block scans in",
+    objective: "PC-A must be able to reach the web server SRV (TCP 80), but the Red Team host RT must not be able to open a connection in to PC-A. FW-1 is wide open. Write a STATEFUL ruleset on FW-1: default-drop the FORWARD chain, ACCEPT ESTABLISHED,RELATED return traffic, and ACCEPT new connections from PC-A (10.0.0.5). Watch out \u2014 a default-drop WITHOUT the state rule also breaks PC-A's own return traffic. Try: `cli FW-1 iptables -A FORWARD -m state --state ESTABLISHED,RELATED -j ACCEPT`.",
+    topology: {
+      version: 1,
+      devices: [
+        { id: "sf-a", type: "computer", name: "PC-A", x: -440, y: 0, config: { ipv4Address: "10.0.0.5", gatewayIpv4Address: "", macAddress: "02:00:00:00:2C:0A", arpTable: [] } },
+        { id: "sf-fw", type: "firewall", name: "FW-1", x: -160, y: 0, config: { ethernetPorts: 2, rules: [], policy: { forward: "accept" } } },
+        { id: "sf-sw", type: "switch", name: "SW-1", x: 100, y: 0, config: { managed: false, ethernetPorts: 4, macTable: [] } },
+        { id: "sf-srv", type: "computer", name: "SRV", x: 360, y: -110, config: { ipv4Address: "10.0.0.10", gatewayIpv4Address: "", macAddress: "02:00:00:00:2C:10", arpTable: [], openPorts: [80] } },
+        { id: "sf-rt", type: "attacker", name: "RT", x: 360, y: 110, config: { ipv4Address: "10.0.0.66", gatewayIpv4Address: "", macAddress: "02:00:00:00:2C:66", arpTable: [], attacks: ["scan"], attackTarget: "PC-A" } }
+      ],
+      links: [
+        { from: "sf-a", to: "sf-fw" },
+        { from: "sf-fw", to: "sf-sw" },
+        { from: "sf-sw", to: "sf-srv" },
+        { from: "sf-sw", to: "sf-rt" }
+      ]
+    },
+    checks: [
+      { kind: "tcp", from: "PC-A", to: "SRV", port: 80, label: "PC-A can still reach the web server (its replies are ESTABLISHED)" },
+      { kind: "tcp-fail", from: "RT", to: "PC-A", port: 22, label: "The Red Team cannot open a new connection in to PC-A" }
+    ]
+  };
   var CURRICULUM = [
     vlanSegmentation,
     routerOnAStick,
@@ -11995,7 +12131,8 @@ Snort successfully validated the configuration${bad ? " (with errors)" : "."}`);
     secureAccess,
     spanningTree,
     idsMonitor,
-    redTeamScan
+    redTeamScan,
+    statefulFirewall
   ];
 
   // src/scenarios.ts

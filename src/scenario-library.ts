@@ -669,6 +669,32 @@ const redTeamScan: Scenario = {
   ],
 };
 
+const statefulFirewall: Scenario = {
+  id: "stateful-firewall",
+  name: "Stateful firewall: browse out, block scans in",
+  objective: "PC-A must be able to reach the web server SRV (TCP 80), but the Red Team host RT must not be able to open a connection in to PC-A. FW-1 is wide open. Write a STATEFUL ruleset on FW-1: default-drop the FORWARD chain, ACCEPT ESTABLISHED,RELATED return traffic, and ACCEPT new connections from PC-A (10.0.0.5). Watch out — a default-drop WITHOUT the state rule also breaks PC-A's own return traffic. Try: `cli FW-1 iptables -A FORWARD -m state --state ESTABLISHED,RELATED -j ACCEPT`.",
+  topology: {
+    version: 1,
+    devices: [
+      { id: "sf-a", type: "computer", name: "PC-A", x: -440, y: 0, config: { ipv4Address: "10.0.0.5", gatewayIpv4Address: "", macAddress: "02:00:00:00:2C:0A", arpTable: [] } },
+      { id: "sf-fw", type: "firewall", name: "FW-1", x: -160, y: 0, config: { ethernetPorts: 2, rules: [], policy: { forward: "accept" } } },
+      { id: "sf-sw", type: "switch", name: "SW-1", x: 100, y: 0, config: { managed: false, ethernetPorts: 4, macTable: [] } },
+      { id: "sf-srv", type: "computer", name: "SRV", x: 360, y: -110, config: { ipv4Address: "10.0.0.10", gatewayIpv4Address: "", macAddress: "02:00:00:00:2C:10", arpTable: [], openPorts: [80] } },
+      { id: "sf-rt", type: "attacker", name: "RT", x: 360, y: 110, config: { ipv4Address: "10.0.0.66", gatewayIpv4Address: "", macAddress: "02:00:00:00:2C:66", arpTable: [], attacks: ["scan"], attackTarget: "PC-A" } },
+    ],
+    links: [
+      { from: "sf-a", to: "sf-fw" },
+      { from: "sf-fw", to: "sf-sw" },
+      { from: "sf-sw", to: "sf-srv" },
+      { from: "sf-sw", to: "sf-rt" },
+    ],
+  },
+  checks: [
+    { kind: "tcp", from: "PC-A", to: "SRV", port: 80, label: "PC-A can still reach the web server (its replies are ESTABLISHED)" },
+    { kind: "tcp-fail", from: "RT", to: "PC-A", port: 22, label: "The Red Team cannot open a new connection in to PC-A" },
+  ],
+};
+
 export const CURRICULUM: Scenario[] = [
   vlanSegmentation,
   routerOnAStick,
@@ -694,4 +720,5 @@ export const CURRICULUM: Scenario[] = [
   spanningTree,
   idsMonitor,
   redTeamScan,
+  statefulFirewall,
 ];

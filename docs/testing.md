@@ -79,6 +79,7 @@ describe("setSwitchPortVlan", () => {
 |-----------|--------|
 | `tests/engine.test.ts` | `processAtComputer/Switch/Router`, routing, sub-interfaces, traceroute, headless runs |
 | `tests/firewall.test.ts` | Firewall rule matching/evaluation, the iptables CLI, filtering in the sim |
+| `tests/firewall-stateful.test.ts` | The stateful firewall (inline PC1—FW1—SW1—PC2, headless flows): connection tracking (`-m state`/`--ctstate`) and REJECT — an ESTABLISHED,RELATED rule lets the reply back without an inbound rule (allowing only the outbound isn't enough — the reply drops), an outside-initiated NEW is blocked while the inside host still reaches out, `connectionState` classifies the echo NEW and its reply ESTABLISHED, REJECT `--reject-with tcp-reset` refuses a TCP connect with a RST (vs DROP timing out), and the `states`/`--reject-with` JSON config round-trip |
 | `tests/nat.test.ts` | NAT/PAT: translation table, return-path restore, router netfilter INPUT/FORWARD chains |
 | `tests/tcp.test.ts` | The TCP three-way handshake, the `openPorts` listener model, RST refusal, port filtering |
 | `tests/dns.test.ts` | DNS + the server device: A-records, resolv/dnsmasq conf handling, resolve-then-act flows, server DHCP, the **device-hostname auto-zone** (a server resolves any device name with no manual record) and the **Instant DNS setting** (instant name→IP match vs. requiring a real query; on for topologies, off for scenarios) |

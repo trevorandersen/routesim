@@ -24,10 +24,13 @@ committed scope — it's a menu for "what next".
 > a hand-driven **Kali PC** (Computer group) and an autonomous **Red Team actor**
 > (Security group) sharing one engine that runs an nmap SYN port scan, a ping
 > sweep, and ARP spoofing, reports an nmap-style result, and pairs with the IDS
-> for a red-vs-blue detection exercise — with the curriculum now at
-> **24 scenarios** (including WiFi joins, 802.1X port authentication, MACsec link
+> for a red-vs-blue detection exercise, and a **stateful firewall**
+> (connection tracking — `-m state`/`--ctstate` ESTABLISHED,RELATED — plus a real
+> REJECT that sends a RST / ICMP unreachable) — with the curriculum now at
+> **25 scenarios** (including WiFi joins, 802.1X port authentication, MACsec link
 > encryption, breaking an L2 loop with spanning tree, catching an intruder
-> with an IDS, and writing a Snort rule to detect a Red Team port scan), every
+> with an IDS, writing a Snort rule to detect a Red Team port scan, and building
+> a stateful firewall that blocks inbound scans while hosts browse out), every
 > one carrying a tested reference solution. Plus the
 > **unified bottom dock**: per-device terminal sessions as tabs (own
 > scrollback/history, the router's CLI mode survives switching), with the
@@ -165,8 +168,14 @@ and surfacing latency/loss on the canvas (currently inspector-only). Effort: low
 (the cosmetic bits).
 
 ### Firewall — beyond basic packet filtering
-**Stateful filtering + REJECT replies** (conntrack-style `-m state`, and an
-ICMP-unreachable for REJECT instead of a silent drop).
+**Stateful filtering + REJECT — shipped (2026-06).** Connection tracking
+(`connectionState`/`trackConnection`, `SimulationState.conntrack`) drives
+`-m state` / `-m conntrack --ctstate` rules (NEW/ESTABLISHED assigned;
+RELATED/INVALID parse but never match), gated by `firewallUsesConntrack` so a
+stateless ruleset is free. REJECT now answers — a TCP RST (a scan reads the port
+as closed) or an ICMP destination-unreachable — instead of a silent drop. **Later:**
+RELATED tracking (ICMP errors, FTP data), an INVALID classifier, and per-flow
+NAT-helper conntrack.
 
 ### Port security — 802.1X & MACsec
 Both reuse the substrate the WiFi auth work built — the EAPOL frame family and

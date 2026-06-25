@@ -113,6 +113,22 @@ export function createIcmpTimeExceeded(
   return { id: nextFrameId(), srcMac, dstMac, etherType: 0x0800, vlanTag, payload: ipv4 };
 }
 
+// ICMP Destination Unreachable (type 3) — a firewall/router sends this when it
+// REJECTs a non-TCP packet (a TCP REJECT sends a RST instead, so a scan reads
+// the port as closed).
+export function createIcmpDestUnreachable(
+  srcMac: string,
+  dstMac: string,
+  srcIp: string,
+  dstIp: string,
+  ttl: number = 64,
+  vlanTag: number | null = null
+): EthernetFrame {
+  const icmp: IcmpPayload = { type: "icmp", icmpType: 3, sequence: 0 };
+  const ipv4: Ipv4Payload = { type: "ipv4", srcIp, dstIp, ttl, protocol: 1, payload: icmp };
+  return { id: nextFrameId(), srcMac, dstMac, etherType: 0x0800, vlanTag, payload: ipv4 };
+}
+
 // TCP segment (protocol 6) — the simulator models the three-way handshake
 // (SYN / SYN-ACK / ACK) plus RST for refused connections.
 export function createTcpSegment(
@@ -304,6 +320,7 @@ export function packetColumns(frame: EthernetFrame): PacketColumns {
   if (p.type === "icmp") {
     if (p.icmpType === 8) return { src, dst, protocol: "ICMP", info: `Echo (ping) request  seq=${p.sequence}, ttl=${ipv4.ttl}`, tone: "icmp" };
     if (p.icmpType === 0) return { src, dst, protocol: "ICMP", info: `Echo (ping) reply  seq=${p.sequence}, ttl=${ipv4.ttl}`, tone: "icmp-reply" };
+    if (p.icmpType === 3) return { src, dst, protocol: "ICMP", info: "Destination unreachable (Port unreachable)", tone: "bad" };
     return { src, dst, protocol: "ICMP", info: "Time-to-live exceeded (Time to live exceeded in transit)", tone: "bad" };
   }
   if (p.type === "tcp") {
@@ -349,6 +366,7 @@ export function frameLabel(frame: EthernetFrame): string {
     } else if (ipv4.payload.type === "icmp") {
       label = ipv4.payload.icmpType === 8 ? "ICMP Echo"
         : ipv4.payload.icmpType === 11 ? "ICMP TTL Exceeded"
+        : ipv4.payload.icmpType === 3 ? "ICMP Unreachable"
         : "ICMP Reply";
     } else {
       label = "Frame";
@@ -371,6 +389,6 @@ export function frameColor(frame: EthernetFrame): string {
   if (ipv4.payload.type === "dns") return ipv4.payload.op === "response" && !ipv4.payload.address ? "#ef4444" : "#22d3ee"; // cyan (NXDOMAIN red)
   if (ipv4.payload.type === "tcp") return ipv4.payload.flags === "rst" ? "#ef4444" : "#fb923c"; // orange (RST red)
   if (ipv4.payload.type === "icmp" && ipv4.payload.icmpType === 8) return "#3b82f6"; // blue
-  if (ipv4.payload.type === "icmp" && ipv4.payload.icmpType === 11) return "#ef4444"; // red (TTL exceeded)
+  if (ipv4.payload.type === "icmp" && (ipv4.payload.icmpType === 11 || ipv4.payload.icmpType === 3)) return "#ef4444"; // red (TTL exceeded / unreachable)
   return "#22c55e";                                        // green
 }

@@ -244,6 +244,8 @@ export function renderFirewallRules(device: any): string {
       r.dst ? `-d ${escapeHtml(r.dst)}` : "",
       r.icmpType ? `--icmp-type ${escapeHtml(r.icmpType)}` : "",
       r.dport ? `--dport ${escapeHtml(String(r.dport))}` : "",
+      r.states?.length ? `--state ${escapeHtml(r.states.map((s: string) => s.toUpperCase()).join(","))}` : "",
+      r.rejectWith ? `--reject-with ${escapeHtml(r.rejectWith)}` : "",
     ].filter(Boolean).join(" ");
     return `<li><span class="fw-target fw-${escapeHtml(r.target)}">${escapeHtml(String(r.target).toUpperCase())}</span> ${escapeHtml(String(r.chain || "forward").toUpperCase())} ${match || "(any)"}<button class="inline-button fw-rule-del" type="button" data-fw-del="${index}" title="Delete this rule" aria-label="Delete rule">&times;</button></li>`;
   }).join("")}</ol>`;
@@ -276,6 +278,9 @@ export function renderFirewallControls(device: any, chains: string[]): string {
         </select>${chainField}
         <select id="fwAddProto" class="fw-select" title="Protocol">
           ${[["", "any proto"], ["icmp", "icmp"], ["tcp", "tcp"], ["udp", "udp"]].map(([v, l]) => `<option value="${v}">${l}</option>`).join("")}
+        </select>
+        <select id="fwAddState" class="fw-select" title="Connection state (-m state)">
+          ${[["", "any state"], ["new", "NEW"], ["established,related", "ESTABLISHED,RELATED"], ["new,established", "NEW,ESTABLISHED"]].map(([v, l]) => `<option value="${v}">${l}</option>`).join("")}
         </select>
         <input id="fwAddSrc" placeholder="source (any)" autocomplete="off" inputmode="decimal">
         <input id="fwAddDst" placeholder="dest (any)" autocomplete="off" inputmode="decimal">
@@ -756,6 +761,8 @@ export function bindFirewallControls(device: any, chains: string[]): void {
     const target = val("fwAddTarget") || "accept";
     const chain = (document.getElementById("fwAddChain") as HTMLSelectElement | null)?.value || chains[0];
     const protocol = val("fwAddProto");
+    const stateRaw = (document.getElementById("fwAddState") as HTMLSelectElement | null)?.value || "";
+    const states = stateRaw ? stateRaw.split(",") : undefined;
     const src = val("fwAddSrc"), dst = val("fwAddDst"), dportRaw = val("fwAddDport");
     if (src && !parseIpv4Token(src)) return fail("Source must be a valid IPv4 address or CIDR.");
     if (dst && !parseIpv4Token(dst)) return fail("Destination must be a valid IPv4 address or CIDR.");
@@ -775,6 +782,7 @@ export function bindFirewallControls(device: any, chains: string[]): void {
       ...(src ? { src } : {}),
       ...(dst ? { dst } : {}),
       ...(dport != null ? { dport } : {}),
+      ...(states ? { states } : {}),
     });
     syncPanel();
   });

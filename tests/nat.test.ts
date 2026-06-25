@@ -144,7 +144,7 @@ describe("router netfilter chains", () => {
     exec("cli R1 iptables -A INPUT -p icmp -j DROP");
     const toRouter = runSimulationHeadless(buildPingEvents(pc1, "192.168.1.1") as any, pc1.id, "192.168.1.1", "ping");
     expect(toRouter.success).toBe(false);
-    expect(toRouter.log.some(l => /Firewall DROP .*\(INPUT\)/.test(l.summary))).toBe(true);
+    expect(toRouter.log.some(l => /Firewall DROP .*\(INPUT/.test(l.summary))).toBe(true);
     const through = runSimulationHeadless(buildPingEvents(pc1, "203.0.113.10") as any, pc1.id, "203.0.113.10", "ping");
     expect(through.success).toBe(true);
   });

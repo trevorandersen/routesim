@@ -35,7 +35,7 @@ Budgets are calibrated for a ~2 GHz CPU with headroom, so they pass on modest ha
 | `bench: render-path helpers` | `getVlanForDevice` and `isTrunkLink` — the memoised per-frame port-map reads the render loop runs once per host/link |
 | `bench: linkById` | The lazy by-id link index (replaces per-frame `state.links.find`) |
 | `bench: processAtSwitch` | Unmanaged flood, managed 802.1Q flood, known unicast |
-| `bench: firewall` | `evaluateFirewall` worst case — a full 50-rule scan with no match |
+| `bench: firewall` | `evaluateFirewall` worst case — a full 50-rule scan with no match — and `connectionState` worst case — the stateful conntrack lookup over 50 tracked flows with no match (a full table scan) |
 | `bench: IDS rule matching` | `runIdsRules` over 25 Snort rules per frame |
 | `bench: Red Team attack building` | `buildScanEvents` — the per-launch work of a Red Team SYN scan (resolving the next hop and seeding a SYN to each of the 13 common ports across a switch to a server) |
 | `bench: dns` | `processAtServer` answering a DNS query against 50 A-records |

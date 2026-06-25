@@ -1,0 +1,16 @@
+# Stateful firewall: browse out, block scans in  ·  scenario id: stateful-firewall
+#
+# PC-A must be able to reach the web server SRV, but the Red Team host RT must
+# not be able to open a connection in to PC-A. The fix is a stateful ruleset on
+# FW-1: default-drop FORWARD, accept ESTABLISHED,RELATED return traffic, and
+# accept new connections from PC-A. The state rule is the crux — a plain
+# default-drop with only "allow PC-A out" would also drop PC-A's own replies.
+#
+# Loads the scenario, applies the solution, and checks the goal. Paste into
+# the command console (the >_ toolbar button) or run with routesim.run(...).
+
+scenario load stateful-firewall
+cli FW-1 iptables -P FORWARD DROP
+cli FW-1 iptables -A FORWARD -m state --state ESTABLISHED,RELATED -j ACCEPT
+cli FW-1 iptables -A FORWARD -s 10.0.0.5 -j ACCEPT
+scenario check

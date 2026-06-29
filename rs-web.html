@@ -787,6 +787,72 @@
     }
     .sim-log-clear:hover { color: #bae6fd; }
 
+    /* Multi-run capture controls (which saved run to view + compare). */
+    .simlog-captures {
+      display: flex;
+      align-items: center;
+      gap: 6px;
+      padding-left: 8px;
+      margin-left: 4px;
+      border-left: 1px solid rgba(214, 224, 235, 0.12);
+    }
+    .simlog-captures[hidden] { display: none; }
+
+    .simlog-capture-select {
+      max-width: 180px;
+      padding: 3px 6px;
+      border: 1px solid rgba(214, 224, 235, 0.18);
+      border-radius: 6px;
+      background: #0a0f15;
+      color: #d6e3ef;
+      font-size: 11px;
+    }
+    .simlog-capture-select[hidden] { display: none; }
+
+    .simlog-compare-toggle {
+      appearance: none;
+      padding: 3px 9px;
+      border: 1px solid rgba(214, 224, 235, 0.18);
+      border-radius: 6px;
+      background: transparent;
+      color: #95a4b3;
+      font-size: 10px;
+      font-weight: 700;
+      cursor: pointer;
+    }
+    .simlog-compare-toggle:hover:not(:disabled) { color: #d6e3ef; }
+    .simlog-compare-toggle.active {
+      color: #0a0f15;
+      background: #7dd3fc;
+      border-color: #7dd3fc;
+    }
+    .simlog-compare-toggle:disabled { opacity: 0.35; cursor: default; }
+
+    /* Side-by-side compare: two capture panes sharing the sim-log width. */
+    .pkt-compare {
+      display: flex;
+      align-items: flex-start;
+      gap: 0;
+    }
+    .pkt-pane {
+      flex: 1 1 0;
+      min-width: 0;
+      border-right: 1px solid rgba(214, 224, 235, 0.12);
+    }
+    .pkt-pane:last-child { border-right: none; }
+    .pkt-pane-title {
+      position: sticky;
+      top: 0;
+      z-index: 1;
+      padding: 4px 10px;
+      background: #0d141b;
+      border-bottom: 1px solid rgba(214, 224, 235, 0.12);
+      color: #95a4b3;
+      font-size: 10px;
+      font-weight: 700;
+    }
+    .pkt-pane-body { overflow-x: auto; }
+
     .terminal-output {
       min-height: 0;
       overflow: auto;
@@ -2428,6 +2494,11 @@
         <div class="simlog-toolbar">
           <button class="simlog-view active" data-logview="packets" type="button">Packets</button>
           <button class="simlog-view" data-logview="events" type="button">Events</button>
+          <div class="simlog-captures" id="simLogCaptureBar" hidden>
+            <select class="simlog-capture-select" id="simLogCaptureSelect" aria-label="Captured run to view"></select>
+            <button class="simlog-compare-toggle" id="simLogCompareToggle" type="button" title="Compare two runs side by side">Compare</button>
+            <select class="simlog-capture-select" id="simLogCompareSelect" aria-label="Baseline run to compare against" hidden></select>
+          </div>
           <div class="simlog-filter" id="simLogFilterBar">
             <input class="simlog-filter-input" id="simLogFilterInput" spellcheck="false" placeholder="Filter: dns || icmp && !arp" aria-label="Display filter">
             <select class="simlog-filter-device" id="simLogDeviceFilter" aria-label="Filter by device"></select>
@@ -3457,7 +3528,9 @@ Full legal text: https://creativecommons.org/publicdomain/zero/1.0/legalcode</pr
       activeTab: "terminal",
       height: 280,
       logView: "packets",
-      logFilter: { protocols: [], device: "", expr: "" }
+      logFilter: { protocols: [], device: "", expr: "" },
+      captureView: "live",
+      compareBaseId: ""
     },
     console: {
       lines: [],
@@ -3485,6 +3558,7 @@ Full legal text: https://creativecommons.org/publicdomain/zero/1.0/legalcode</pr
     redoStack: [],
     inspectedFrame: null,
     inspectedCapture: null,
+    savedCaptures: [],
     isApplyingCompositeChange: false,
     simulation: {
       status: "idle",
@@ -3905,6 +3979,14 @@ Full legal text: https://creativecommons.org/publicdomain/zero/1.0/legalcode</pr
     const redoButton = document.getElementById("redoButton");
     if (redoButton) redoButton.disabled = state.redoStack.length === 0;
   }
+  function resetCaptureState() {
+    state.simulation.capture = [];
+    state.savedCaptures = [];
+    state.dock.captureView = "live";
+    state.dock.compareBaseId = "";
+    state.inspectedFrame = null;
+    state.inspectedCapture = null;
+  }
   function restoreSnapshot(snapshot) {
     const restored = JSON.parse(snapshot);
     state.devices = restored.devices;
@@ -3916,7 +3998,9 @@ Full legal text: https://creativecommons.org/publicdomain/zero/1.0/legalcode</pr
     state.selectedLinkId = null;
     state.drag = null;
     state.panDrag = null;
+    resetCaptureState();
     sync().syncPanel();
+    sync().syncSimLog();
     sync().recomputeStp();
   }
   function undo() {
@@ -4026,6 +4110,10 @@ Full legal text: https://creativecommons.org/publicdomain/zero/1.0/legalcode</pr
     simLogChips: document.getElementById("simLogChips"),
     simLogFilterClear: document.getElementById("simLogFilterClear"),
     simLogFilterStatus: document.getElementById("simLogFilterStatus"),
+    simLogCaptureBar: document.getElementById("simLogCaptureBar"),
+    simLogCaptureSelect: document.getElementById("simLogCaptureSelect"),
+    simLogCompareToggle: document.getElementById("simLogCompareToggle"),
+    simLogCompareSelect: document.getElementById("simLogCompareSelect"),
     portSelectionOverlay: document.getElementById("portSelectionOverlay"),
     portSelectionBody: document.getElementById("portSelectionBody"),
     portSelectionConfirm: document.getElementById("portSelectionConfirm"),
@@ -4307,9 +4395,11 @@ Full legal text: https://creativecommons.org/publicdomain/zero/1.0/legalcode</pr
     state.linkStartId = null;
     state.panDrag = null;
     dropTerminalSessions();
+    resetCaptureState();
     state.nameCounters = freshNameCounters();
     sync().syncPanel();
     sync().syncTerminal();
+    sync().syncSimLog();
     sync().render();
   }
   function moveDevice(device, x, y) {
@@ -6890,12 +6980,15 @@ Full legal text: https://creativecommons.org/publicdomain/zero/1.0/legalcode</pr
     state.inspectedFrame = null;
     state.inspectedCapture = null;
     const sim = state.simulation;
+    bootRunActive = pendingBootRun;
+    pendingBootRun = false;
     sim.status = "running";
     sim.mode = mode;
     sim.headless = false;
     sim.events = [];
     sim.log = [];
     sim.capture = [];
+    state.dock.captureView = "live";
     sim.transits = [];
     sim.pendingArp = { ...setup.pendingArp };
     sim.stepIndex = 0;
@@ -6956,7 +7049,11 @@ Full legal text: https://creativecommons.org/publicdomain/zero/1.0/legalcode</pr
     sim.capture = [];
     sim.transits = [];
     sim.pendingArp = {};
+    bootQueue = [];
+    pendingBootRun = false;
     state.inspectedCapture = null;
+    state.dock.captureView = state.savedCaptures.length ? state.savedCaptures[state.savedCaptures.length - 1].id : "live";
+    if (state.dock.compareBaseId === state.dock.captureView) state.dock.compareBaseId = "";
     stopAnimationLoop();
     syncSimLog();
     syncTerminal();
@@ -7049,6 +7146,8 @@ Full legal text: https://creativecommons.org/publicdomain/zero/1.0/legalcode</pr
     };
   }
   var bootQueue = [];
+  var pendingBootRun = false;
+  var bootRunActive = false;
   function hostNeedsBoot(device) {
     return !!device && (device.type === "computer" || device.type === "laptop" || device.type === "kali" || device.type === "server") && !device.poweredOff && !device.config?.ipv4Address && state.links.some((l) => !l.hidden && !l.shutdown && (l.from === device.id || l.to === device.id));
   }
@@ -7092,6 +7191,7 @@ Full legal text: https://creativecommons.org/publicdomain/zero/1.0/legalcode</pr
         const setup = buildDhcpEvents(device);
         if (typeof setup === "string") continue;
         dom.modeLabel.textContent = `Booting ${device.name} via DHCP...`;
+        pendingBootRun = true;
         startSimulation(setup, device.id, "", "dhcp");
         return true;
       }
@@ -8398,8 +8498,43 @@ Full legal text: https://creativecommons.org/publicdomain/zero/1.0/legalcode</pr
     sim.log.push(entry);
   }
   var presentTokenCache = /* @__PURE__ */ new Set();
-  function syncSimLog() {
+  var presentDeviceIds = /* @__PURE__ */ new Set();
+  var CAPTURE_HISTORY_CAP = 12;
+  function captureEntriesFor(capId) {
+    if (capId === "live") return state.simulation.capture;
+    return state.savedCaptures.find((c) => c.id === capId)?.entries || [];
+  }
+  function paneFor(view) {
+    if (view && view !== "live") {
+      const saved = state.savedCaptures.find((c) => c.id === view);
+      if (saved) return { id: saved.id, label: saved.label, entries: saved.entries };
+    }
+    return { id: "live", label: "Live capture", entries: state.simulation.capture };
+  }
+  function healCaptureView() {
     const sim = state.simulation;
+    if (sim.status === "running" || sim.status === "paused") return;
+    const saved = state.savedCaptures;
+    const view = state.dock.captureView;
+    if (view !== "live" && !saved.some((c) => c.id === view)) {
+      state.dock.captureView = saved.length ? saved[saved.length - 1].id : "live";
+    } else if (view === "live" && saved.length && sim.capture.length === 0) {
+      state.dock.captureView = saved[saved.length - 1].id;
+    }
+  }
+  function displayedPanes() {
+    const sim = state.simulation;
+    if (sim.status === "running" || sim.status === "paused") {
+      return [{ id: "live", label: "Live capture", entries: sim.capture }];
+    }
+    const main = paneFor(state.dock.captureView);
+    if (state.dock.compareBaseId) {
+      const base = state.savedCaptures.find((c) => c.id === state.dock.compareBaseId);
+      if (base && base.id !== main.id) return [{ id: base.id, label: base.label, entries: base.entries }, main];
+    }
+    return [main];
+  }
+  function syncSimLog() {
     if (!state.dock.logFilter) state.dock.logFilter = { protocols: [], device: "", expr: "" };
     syncSimLogBadge();
     for (const btn of document.querySelectorAll("[data-logview]")) {
@@ -8409,22 +8544,89 @@ Full legal text: https://creativecommons.org/publicdomain/zero/1.0/legalcode</pr
     let html;
     let stats = { shown: 0, total: 0, error: null };
     if (packets) {
-      if (sim.capture.length === 0) {
+      healCaptureView();
+      const panes = displayedPanes();
+      const totalEntries = panes.reduce((n, p) => n + p.entries.length, 0);
+      if (totalEntries === 0) {
         presentTokenCache = /* @__PURE__ */ new Set();
+        presentDeviceIds = /* @__PURE__ */ new Set();
         html = `<p class="sim-log-line sim-learn">No packets captured \u2014 run a simulation (headless checks don't capture). The Events view holds imported logs.</p>`;
       } else {
-        const allRows = buildFilterRows();
-        const result = applyLogFilter(allRows, state.dock.logFilter);
-        presentTokenCache = presentTokens(allRows);
-        stats = { shown: result.rows.length, total: allRows.length, error: result.error };
-        html = result.rows.length ? renderPacketTable(result.rows) : `<p class="sim-log-line sim-learn">No packets match the filter. <button type="button" class="sim-log-clear" data-action="clear-log-filter">Clear filter</button></p>`;
+        const unionRows = panes.flatMap((p) => buildFilterRows(p.entries));
+        presentTokenCache = presentTokens(unionRows);
+        presentDeviceIds = new Set(unionRows.flatMap((r) => [r.fromId, r.toId]));
+        let firstError = null;
+        const cols = panes.map((p) => {
+          const rows = buildFilterRows(p.entries);
+          const result = applyLogFilter(rows, state.dock.logFilter);
+          stats.shown += result.rows.length;
+          stats.total += rows.length;
+          if (result.error && !firstError) firstError = result.error;
+          const table = result.rows.length ? renderPacketTable(result.rows, p.id) : `<p class="sim-log-line sim-learn">No packets match the filter. <button type="button" class="sim-log-clear" data-action="clear-log-filter">Clear filter</button></p>`;
+          return panes.length > 1 ? `<div class="pkt-pane"><div class="pkt-pane-title">${escapeHtml(p.label)}</div><div class="pkt-pane-body">${table}</div></div>` : table;
+        });
+        stats.error = firstError;
+        html = panes.length > 1 ? `<div class="pkt-compare">${cols.join("")}</div>` : cols[0];
       }
     } else {
       html = renderEventLog();
     }
+    syncSimLogCaptureBar(packets);
     syncSimLogFilterBar(packets, stats);
     dom.simLogOutput.innerHTML = html;
     dom.simLogOutput.scrollTop = dom.simLogOutput.scrollHeight;
+  }
+  function captureLabel() {
+    const sim = state.simulation;
+    const who = getDevice(sim.originDeviceId)?.name || "";
+    const target = sim.dnsName || sim.pingTargetIp || "";
+    const flow = target ? `${who}\u2192${target}` : who;
+    let verb, mark = "";
+    switch (sim.mode) {
+      case "dhcp":
+        verb = "dhcp";
+        mark = sim.dhcpSuccess ? " \u2713" : " \u2717";
+        break;
+      case "tcp":
+        verb = `tcp:${sim.tcpTargetPort ?? "?"}`;
+        mark = sim.tcpSuccess ? " \u2713" : " \u2717";
+        break;
+      case "dns":
+        verb = "dns";
+        mark = sim.dnsResolvedIp ? " \u2713" : " \u2717";
+        break;
+      case "associate":
+        verb = "wifi";
+        mark = sim.wifiAssociated ? " \u2713" : " \u2717";
+        break;
+      case "dot1x":
+        verb = "802.1x";
+        mark = sim.dot1xAuthorized ? " \u2713" : " \u2717";
+        break;
+      case "stp":
+        verb = "stp";
+        break;
+      case "attack":
+        verb = "scan";
+        break;
+      default:
+        verb = "ping";
+        mark = sim.pingSuccess ? " \u2713" : " \u2717";
+        break;
+    }
+    return `${verb} ${flow}${mark}`.trim();
+  }
+  function saveCurrentCapture() {
+    const sim = state.simulation;
+    if (sim.capture.length === 0) return;
+    const idx = state.savedCaptures.length ? state.savedCaptures[state.savedCaptures.length - 1].index + 1 : 1;
+    const id = `cap-${idx}`;
+    state.savedCaptures.push({ id, index: idx, label: `#${idx} ${captureLabel()}`, mode: sim.mode, entries: sim.capture.slice() });
+    while (state.savedCaptures.length > CAPTURE_HISTORY_CAP) state.savedCaptures.shift();
+    state.dock.captureView = id;
+    if (state.dock.compareBaseId && !state.savedCaptures.some((c) => c.id === state.dock.compareBaseId)) {
+      state.dock.compareBaseId = "";
+    }
   }
   function renderEventLog() {
     const sim = state.simulation;
@@ -8435,8 +8637,8 @@ Full legal text: https://creativecommons.org/publicdomain/zero/1.0/legalcode</pr
       (entry) => `<p class="sim-log-line ${escapeHtml(entry.kind || "")}">${escapeHtml(entry.summary)}</p>`
     ).join("");
   }
-  function buildFilterRows() {
-    return state.simulation.capture.map((entry) => ({
+  function buildFilterRows(entries) {
+    return entries.map((entry) => ({
       frame: entry.frame,
       macsec: !!entry.macsec,
       no: entry.no,
@@ -8448,15 +8650,17 @@ Full legal text: https://creativecommons.org/publicdomain/zero/1.0/legalcode</pr
       linkId: entry.linkId
     }));
   }
-  function renderPacketTable(rows) {
+  function renderPacketTable(rows, capId) {
     const linkMap = new Map(state.links.map((l) => [l.id, l]));
+    const selectedEntry = state.inspectedCapture;
+    const selectInPane = !!selectedEntry && captureEntriesFor(capId).includes(selectedEntry);
     const body = rows.map((row) => {
       const inner = packetColumns(row.frame);
       const cols = row.macsec ? { ...inner, protocol: "MACsec", info: `Encrypted ${inner.protocol} (SecTAG, ICV)`, tone: "macsec" } : inner;
       const link = linkMap.get(row.linkId);
       const wire = link ? linkName(link) : `${row.fromName} \u2194 ${row.toName}`;
-      const selected = (state.inspectedCapture ? state.inspectedCapture.no === row.no : state.inspectedFrame === row.frame) ? " selected" : "";
-      return `<tr class="pkt-row pkt-${escapeHtml(cols.tone)}${selected}" data-no="${row.no}">
+      const selected = (selectedEntry ? selectInPane && selectedEntry.no === row.no : state.inspectedFrame === row.frame) ? " selected" : "";
+      return `<tr class="pkt-row pkt-${escapeHtml(cols.tone)}${selected}" data-no="${row.no}" data-cap="${escapeHtml(capId)}">
       <td class="pkt-num">${row.no}</td>
       <td class="pkt-num">${row.step}</td>
       <td>${escapeHtml(cols.src)}</td>
@@ -8470,6 +8674,35 @@ Full legal text: https://creativecommons.org/publicdomain/zero/1.0/legalcode</pr
     <thead><tr><th>No.</th><th>Step</th><th>Source</th><th>Destination</th><th>Protocol</th><th>Info</th><th>Link</th></tr></thead>
     <tbody>${body}</tbody>
   </table>`;
+  }
+  function syncSimLogCaptureBar(packets) {
+    const bar = dom.simLogCaptureBar;
+    if (!bar) return;
+    const sim = state.simulation;
+    const running = sim.status === "running" || sim.status === "paused";
+    const saved = state.savedCaptures;
+    const show = packets && !running && saved.length > 0;
+    bar.hidden = !show;
+    if (!show) return;
+    const sel = dom.simLogCaptureSelect;
+    if (!saved.some((c) => c.id === state.dock.captureView)) state.dock.captureView = saved[saved.length - 1].id;
+    if (state.dock.compareBaseId === state.dock.captureView) state.dock.compareBaseId = "";
+    if (document.activeElement !== sel) {
+      sel.innerHTML = saved.slice().reverse().map((c) => `<option value="${escapeHtml(c.id)}">${escapeHtml(c.label)}</option>`).join("");
+      sel.value = state.dock.captureView;
+    }
+    const compareOn = !!state.dock.compareBaseId;
+    const toggle = dom.simLogCompareToggle;
+    toggle.classList.toggle("active", compareOn);
+    toggle.disabled = saved.length < 2;
+    const base = dom.simLogCompareSelect;
+    base.hidden = !compareOn;
+    if (compareOn && document.activeElement !== base) {
+      const others = saved.filter((c) => c.id !== state.dock.captureView).slice().reverse();
+      if (!others.some((c) => c.id === state.dock.compareBaseId)) state.dock.compareBaseId = others[0]?.id || "";
+      base.innerHTML = others.map((c) => `<option value="${escapeHtml(c.id)}">${escapeHtml(c.label)}</option>`).join("");
+      base.value = state.dock.compareBaseId;
+    }
   }
   function syncSimLogFilterBar(packets, stats) {
     const bar = dom.simLogFilterBar;
@@ -8504,12 +8737,7 @@ Full legal text: https://creativecommons.org/publicdomain/zero/1.0/legalcode</pr
     if (!sel) return;
     if (filter.device && !getDevice(filter.device)) filter.device = "";
     if (document.activeElement === sel) return;
-    const ids = /* @__PURE__ */ new Set();
-    for (const e of state.simulation.capture) {
-      ids.add(e.fromDeviceId);
-      ids.add(e.toDeviceId);
-    }
-    const devices = state.devices.filter((d) => ids.has(d.id)).sort((a, b) => a.name.localeCompare(b.name));
+    const devices = state.devices.filter((d) => presentDeviceIds.has(d.id)).sort((a, b) => a.name.localeCompare(b.name));
     const extra = filter.device && !devices.some((d) => d.id === filter.device) ? getDevice(filter.device) : null;
     const sig = devices.map((d) => d.id + "" + d.name).join("") + "" + (extra ? extra.id + "" + extra.name : "");
     if (sig !== deviceFilterSig) {
@@ -8629,6 +8857,7 @@ Address: ${sim.dnsResolvedIp}`);
     }
     sim.status = "done";
     if (sim.headless) return;
+    if (!bootRunActive) saveCurrentCapture();
     const termInput = document.getElementById("terminalInput");
     if (termInput) termInput.disabled = false;
     syncSimLog();
@@ -13584,7 +13813,8 @@ Snort successfully validated the configuration${bad ? " (with errors)" : "."}`);
       }
       const row = target.closest("tr[data-no]");
       if (!row) return;
-      const entry = state.simulation.capture.find((c) => c.no === Number(row.dataset.no));
+      const capId = row.dataset.cap || "live";
+      const entry = captureEntriesFor(capId).find((c) => c.no === Number(row.dataset.no));
       if (!entry) return;
       state.inspectedFrame = entry.frame;
       state.inspectedCapture = entry;
@@ -13613,6 +13843,24 @@ Snort successfully validated the configuration${bad ? " (with errors)" : "."}`);
       syncSimLog();
     });
     dom.simLogFilterClear.addEventListener("click", clearLogFilter);
+    dom.simLogCaptureSelect.addEventListener("change", () => {
+      state.dock.captureView = dom.simLogCaptureSelect.value;
+      if (state.dock.compareBaseId === state.dock.captureView) state.dock.compareBaseId = "";
+      syncSimLog();
+    });
+    dom.simLogCompareToggle.addEventListener("click", () => {
+      if (state.dock.compareBaseId) {
+        state.dock.compareBaseId = "";
+      } else {
+        const others = state.savedCaptures.filter((c) => c.id !== state.dock.captureView);
+        state.dock.compareBaseId = others.length ? others[others.length - 1].id : "";
+      }
+      syncSimLog();
+    });
+    dom.simLogCompareSelect.addEventListener("change", () => {
+      state.dock.compareBaseId = dom.simLogCompareSelect.value;
+      syncSimLog();
+    });
     dom.detailsPanel.addEventListener("click", (event) => {
       if (event.target?.closest?.("#inspectorCloseButton")) setNetworkPanel(false);
     });
@@ -13843,6 +14091,7 @@ Snort successfully validated the configuration${bad ? " (with errors)" : "."}`);
     state.panDrag = null;
     state.pointer = null;
     for (const type of DEVICE_TYPES) state.nameCounters[type] = nextDeviceNumber(type);
+    resetCaptureState();
     state.activeScenarioId = null;
     setTool("select");
     fitNetwork();
@@ -15381,7 +15630,8 @@ Snort successfully validated the configuration${bad ? " (with errors)" : "."}`);
     recomputeStp: () => {
       runStpConvergence();
       render();
-    }
+    },
+    syncSimLog
   });
   registerDeviceCallbacks({
     setTool,

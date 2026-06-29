@@ -11,6 +11,7 @@ export type SyncCallbacks = {
   syncCoordReadout: () => void;
   syncOptionControls: () => void;
   recomputeStp: () => void;   // recompute the spanning tree for live canvas/inspector display (also runs at sim start)
+  syncSimLog: () => void;     // rebuild the sim-log dock pane (packet list / event log)
 };
 
 // Available colour themes. The id is written to `<html data-theme>` and matched
@@ -64,7 +65,9 @@ export const state: AppState = {
     activeTab: "terminal",
     height: 280,
     logView: "packets",
-    logFilter: { protocols: [], device: "", expr: "" }
+    logFilter: { protocols: [], device: "", expr: "" },
+    captureView: "live",
+    compareBaseId: ""
   },
   console: {
     lines: [],
@@ -92,6 +95,7 @@ export const state: AppState = {
   redoStack: [],
   inspectedFrame: null,
   inspectedCapture: null,
+  savedCaptures: [],
   isApplyingCompositeChange: false,
   simulation: {
     status: "idle",
@@ -531,6 +535,19 @@ export function syncUndoButton(): void {
   if (redoButton) redoButton.disabled = state.redoStack.length === 0;
 }
 
+// Drop the live + archived packet captures and reset the packet-list view.
+// Every path that replaces or tears down the topology (load/import, Clear,
+// undo/redo) calls this so neither the live nor saved captures can dangle
+// against a gone network. (Mid-run paths reset the live capture themselves.)
+export function resetCaptureState(): void {
+  state.simulation.capture = [];
+  state.savedCaptures = [];
+  state.dock.captureView = "live";
+  state.dock.compareBaseId = "";
+  state.inspectedFrame = null;
+  state.inspectedCapture = null;
+}
+
 export function restoreSnapshot(snapshot: string): void {
   const restored = JSON.parse(snapshot);
   state.devices = restored.devices;
@@ -542,7 +559,11 @@ export function restoreSnapshot(snapshot: string): void {
   state.selectedLinkId = null;
   state.drag = null;
   state.panDrag = null;
+  // The restored topology may not contain the devices/links the saved captures
+  // reference — clear the capture archive so the packet list can't dangle.
+  resetCaptureState();
   sync().syncPanel();
+  sync().syncSimLog();
   // Restoring a different topology can change which ports the spanning tree
   // blocks — recompute so the canvas reflects the restored state (also renders).
   sync().recomputeStp();

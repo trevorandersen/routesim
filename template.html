@@ -212,6 +212,11 @@
         <div class="simlog-toolbar">
           <button class="simlog-view active" data-logview="packets" type="button">Packets</button>
           <button class="simlog-view" data-logview="events" type="button">Events</button>
+          <div class="simlog-captures" id="simLogCaptureBar" hidden>
+            <select class="simlog-capture-select" id="simLogCaptureSelect" aria-label="Captured run to view"></select>
+            <button class="simlog-compare-toggle" id="simLogCompareToggle" type="button" title="Compare two runs side by side">Compare</button>
+            <select class="simlog-capture-select" id="simLogCompareSelect" aria-label="Baseline run to compare against" hidden></select>
+          </div>
           <div class="simlog-filter" id="simLogFilterBar">
             <input class="simlog-filter-input" id="simLogFilterInput" spellcheck="false" placeholder="Filter: dns || icmp && !arp" aria-label="Display filter">
             <select class="simlog-filter-device" id="simLogDeviceFilter" aria-label="Filter by device"></select>

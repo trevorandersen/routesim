@@ -778,6 +778,72 @@
     }
     .sim-log-clear:hover { color: #bae6fd; }
 
+    /* Multi-run capture controls (which saved run to view + compare). */
+    .simlog-captures {
+      display: flex;
+      align-items: center;
+      gap: 6px;
+      padding-left: 8px;
+      margin-left: 4px;
+      border-left: 1px solid rgba(214, 224, 235, 0.12);
+    }
+    .simlog-captures[hidden] { display: none; }
+
+    .simlog-capture-select {
+      max-width: 180px;
+      padding: 3px 6px;
+      border: 1px solid rgba(214, 224, 235, 0.18);
+      border-radius: 6px;
+      background: #0a0f15;
+      color: #d6e3ef;
+      font-size: 11px;
+    }
+    .simlog-capture-select[hidden] { display: none; }
+
+    .simlog-compare-toggle {
+      appearance: none;
+      padding: 3px 9px;
+      border: 1px solid rgba(214, 224, 235, 0.18);
+      border-radius: 6px;
+      background: transparent;
+      color: #95a4b3;
+      font-size: 10px;
+      font-weight: 700;
+      cursor: pointer;
+    }
+    .simlog-compare-toggle:hover:not(:disabled) { color: #d6e3ef; }
+    .simlog-compare-toggle.active {
+      color: #0a0f15;
+      background: #7dd3fc;
+      border-color: #7dd3fc;
+    }
+    .simlog-compare-toggle:disabled { opacity: 0.35; cursor: default; }
+
+    /* Side-by-side compare: two capture panes sharing the sim-log width. */
+    .pkt-compare {
+      display: flex;
+      align-items: flex-start;
+      gap: 0;
+    }
+    .pkt-pane {
+      flex: 1 1 0;
+      min-width: 0;
+      border-right: 1px solid rgba(214, 224, 235, 0.12);
+    }
+    .pkt-pane:last-child { border-right: none; }
+    .pkt-pane-title {
+      position: sticky;
+      top: 0;
+      z-index: 1;
+      padding: 4px 10px;
+      background: #0d141b;
+      border-bottom: 1px solid rgba(214, 224, 235, 0.12);
+      color: #95a4b3;
+      font-size: 10px;
+      font-weight: 700;
+    }
+    .pkt-pane-body { overflow-x: auto; }
+
     .terminal-output {
       min-height: 0;
       overflow: auto;

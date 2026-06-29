@@ -1,4 +1,4 @@
-import { state, pushUndo, sync, dropTerminalSessions } from "./state";
+import { state, pushUndo, sync, dropTerminalSessions, resetCaptureState } from "./state";
 import { dom } from "./dom";
 import type { SerialisedTopology, Device, Link } from "./types";
 
@@ -218,6 +218,9 @@ export function applyConfigWithoutUndo(config: NormalisedConfig): void {
   // Recompute auto-name counters from the loaded devices for every type — a
   // loaded FW-2 must make the next firewall FW-3, not a duplicate FW-1.
   for (const type of DEVICE_TYPES) state.nameCounters[type] = nextDeviceNumber(type);
+  // The old network's archived captures reference devices/links that no longer
+  // exist — drop them and reset the packet-list capture view.
+  resetCaptureState();
   // Replacing the network drops any active scenario; loadScenario re-sets it after.
   state.activeScenarioId = null;
   setTool("select");

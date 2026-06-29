@@ -1,5 +1,5 @@
 import type { PortOption, Device, Link, DeviceType, DeviceConfig, NamedRouterIface } from "./types";
-import { state, sync, pushUndo, networkSnapshot, dropTerminalSessions } from "./state";
+import { state, sync, pushUndo, networkSnapshot, dropTerminalSessions, resetCaptureState } from "./state";
 import { dom } from "./dom";
 import { deviceSize, defaultDeviceConfig, ensureConfig, normaliseRouterInterfaces, normalisePortVlans, normalisePortModes } from "./normalise";
 import { clampPortCount, clampApPortCount, clampRouterPortCount, escapeHtml, randomMac, isValidHostname } from "./utils";
@@ -377,9 +377,13 @@ export function clearNetwork(): void {
   state.linkStartId = null;
   state.panDrag = null;
   dropTerminalSessions();
+  // The captures referenced the now-deleted devices/links — drop the archive
+  // and refresh the sim-log pane so its capture bar/list don't dangle.
+  resetCaptureState();
   state.nameCounters = freshNameCounters();
   sync().syncPanel();
   sync().syncTerminal();
+  sync().syncSimLog();
   sync().render();
 }
 

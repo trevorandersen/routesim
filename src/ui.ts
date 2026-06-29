@@ -13,7 +13,7 @@ import { openConsole, consoleLine, submitConsoleCommand, handleConsoleKeydown } 
 import { loadScenario } from "./scenarios";
 import { runActiveScenarioCheck, dismissScenario } from "./scenario-ui";
 import { loadTopology } from "./config";
-import { pauseSimulation, resumeSimulation, stepOnce, stopSimulation, syncSimLog, startNetworkBoot, launchRedTeam } from "./engine";
+import { pauseSimulation, resumeSimulation, stepOnce, stopSimulation, syncSimLog, startNetworkBoot, launchRedTeam, captureEntriesFor } from "./engine";
 import { setupRibbon, renderScenarioOptions } from "./ribbon";
 import * as io from "./io";
 
@@ -571,7 +571,10 @@ export function setupUI(): void {
     if (target.closest("[data-action='clear-log-filter']")) { clearLogFilter(); return; }
     const row = target.closest("tr[data-no]") as HTMLElement | null;
     if (!row) return;
-    const entry = state.simulation.capture.find(c => c.no === Number(row.dataset.no));
+    // Rows carry data-cap so a click resolves against the right capture (the live
+    // run, or a saved one shown via the capture selector / in compare mode).
+    const capId = row.dataset.cap || "live";
+    const entry = captureEntriesFor(capId).find(c => c.no === Number(row.dataset.no));
     if (!entry) return;
     state.inspectedFrame = entry.frame;
     state.inspectedCapture = entry; // cross-link: highlight this wire + its endpoints on the canvas
@@ -602,6 +605,27 @@ export function setupUI(): void {
     syncSimLog();
   });
   dom.simLogFilterClear.addEventListener("click", clearLogFilter);
+
+  // Multi-run captures: pick which archived run to view, and compare two runs
+  // side by side (a baseline on the left, the selected run on the right).
+  dom.simLogCaptureSelect.addEventListener("change", () => {
+    state.dock.captureView = dom.simLogCaptureSelect.value;
+    if (state.dock.compareBaseId === state.dock.captureView) state.dock.compareBaseId = "";
+    syncSimLog();
+  });
+  dom.simLogCompareToggle.addEventListener("click", () => {
+    if (state.dock.compareBaseId) {
+      state.dock.compareBaseId = "";
+    } else {
+      const others = state.savedCaptures.filter(c => c.id !== state.dock.captureView);
+      state.dock.compareBaseId = others.length ? others[others.length - 1].id : "";
+    }
+    syncSimLog();
+  });
+  dom.simLogCompareSelect.addEventListener("change", () => {
+    state.dock.compareBaseId = dom.simLogCompareSelect.value;
+    syncSimLog();
+  });
 
   // Inspector (network) panel. The close button lives in the panel heading,
   // which is rebuilt each sync, so it's wired by delegation.

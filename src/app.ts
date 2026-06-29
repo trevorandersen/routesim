@@ -11,6 +11,7 @@ import { loadDefaultConfig } from "./config";
 import { runStpConvergence } from "./stp";
 import { setupTutorial } from "./tutorial";
 import { runConsoleCommand, runConsoleScript, exportTopologyScript } from "./commands";
+import { syncSimLog } from "./engine";
 import { parseSettingsFromUrl, buildSettingsQuery } from "./settings-url";
 import * as io from "./io";
 
@@ -25,7 +26,8 @@ registerCallbacks({
   syncOptionControls,
   // Recompute the spanning tree, then redraw so blocked links/roles show live
   // (the sim path recomputes too — see startSimulation/runSimulationHeadless).
-  recomputeStp: () => { runStpConvergence(); render(); }
+  recomputeStp: () => { runStpConvergence(); render(); },
+  syncSimLog,
 });
 
 // Register UI callbacks that devices.ts needs without circular imports.

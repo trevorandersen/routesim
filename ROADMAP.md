@@ -42,22 +42,25 @@ committed scope — it's a menu for "what next".
 
 ## Next up (ranked)
 
-### 1. Sim log filtering & captures
-The packet list, **log ↔ canvas cross-linking** (clicking a packet row glows its
-wire + endpoint devices amber on the canvas), and now **display filtering** have
-shipped. What remains is **multi-run captures** kept side by side so a
-troubleshooting fix can be compared before/after. Effort: low–moderate, all
-renderer/filter-model work on data already captured.
-
-> **Display filtering — shipped (2026-06).** The packet list is queryable
-> (`src/packet-filter.ts`, `state.dock.logFilter`): clickable **protocol chips**
-> (OR within the set, dimmed when absent), a **device filter** `<select>`, and a
-> free-text **Wireshark-style display-filter expression** (`dns || icmp && !arp`,
-> `ip.addr == 10.0.0.0/24`, `tcp.port == 22 && device contains PC`) — a real
-> grammar with `&&`/`||`/`!`/parens, `==`/`!=`/`<`/`>`/`contains`, and CIDR over
-> `ip`/`eth`/`tcp`/`device`/`frame` fields. All three dimensions are ANDed; an
-> invalid expression flags red without emptying the list, and a "Showing N of M"
-> status reads out the result.
+> **Sim log filtering & captures — shipped (2026-06).** The packet list,
+> **log ↔ canvas cross-linking** (clicking a packet row glows its wire + endpoint
+> devices amber on the canvas), **display filtering**, and **multi-run captures**
+> have all shipped.
+>
+> *Display filtering* (`src/packet-filter.ts`, `state.dock.logFilter`): clickable
+> **protocol chips** (OR within the set, dimmed when absent), a **device filter**
+> `<select>`, and a free-text **Wireshark-style display-filter expression**
+> (`dns || icmp && !arp`, `ip.addr == 10.0.0.0/24`, `tcp.port == 22 && device
+> contains PC`) — a real grammar with `&&`/`||`/`!`/parens, `==`/`!=`/`<`/`>`/
+> `contains`, and CIDR over `ip`/`eth`/`tcp`/`device`/`frame` fields. All three
+> dimensions are ANDed; an invalid expression flags red without emptying the
+> list, and a "Showing N of M" status reads out the result.
+>
+> *Multi-run captures* (`state.savedCaptures`, a 12-run ring): each finished
+> animated run is archived with an outcome label; a capture `<select>` switches
+> which run the list shows, and a **Compare** toggle renders two runs **side by
+> side** (baseline left, current right) so a fix can be checked before/after —
+> both panes honour the display filter.
 
 > **STP / L2 loop handling — shipped (2026-06).** Managed switches run Spanning
 > Tree (802.1D) by default: `runStpConvergence` (`stp.ts`) elects a root bridge

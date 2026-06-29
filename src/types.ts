@@ -44,6 +44,21 @@ export interface DockState {
   logView: "packets" | "events";
   // The packet-list display filter (three ANDed dimensions). See packet-filter.ts.
   logFilter: LogFilter;
+  // Which capture the packet list shows: "live" (the running/most-recent
+  // sim.capture) or a SavedCapture id. `compareBaseId` ("" = off) is the
+  // baseline shown side-by-side on the left in compare mode.
+  captureView: string;
+  compareBaseId: string;
+}
+
+// A completed animated run's packet capture, archived so a later run can be
+// compared against it (before/after). Runtime/session only — not serialised.
+export interface SavedCapture {
+  id: string;
+  index: number;        // monotonic run ordinal, for stable labelling
+  label: string;        // e.g. "#3 ping PC-A1 ✓"
+  mode: string;         // the sim mode that produced it
+  entries: CaptureEntry[];
 }
 
 // The sim-log packet-list display filter. `protocols` is the active protocol
@@ -703,6 +718,7 @@ export interface AppState {
   redoStack: string[];
   inspectedFrame: EthernetFrame | null;  // click-a-packet: frame shown in the inspector
   inspectedCapture: CaptureEntry | null; // selected packet-list row: cross-links the wire + endpoints on the canvas
+  savedCaptures: SavedCapture[];         // archived completed runs (for multi-run compare)
   isApplyingCompositeChange: boolean;
   simulation: SimulationState;
   portSelection: PortSelectionState | null;

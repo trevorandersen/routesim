@@ -13,7 +13,7 @@ import { runStpConvergence, isStpParticipant } from "./stp";
 import { runIdsRules } from "./snort";
 import { applyLogFilter, presentTokens, isFilterActive, PROTOCOL_CHIPS } from "./packet-filter";
 import type { FilterRow } from "./packet-filter";
-import type { LogFilter } from "./types";
+import type { LogFilter, CaptureEntry } from "./types";
 
 // Re-exported so existing imports (terminal, tests, benchmarks) keep working.
 export { buildRoutingTable, routingLookup, runRipConvergence } from "./routing";
@@ -30,12 +30,15 @@ export function startSimulation(setup: PingSetup, originDeviceId: string, target
   state.inspectedFrame = null; // a new run invalidates the inspected frame
   state.inspectedCapture = null;
   const sim = state.simulation;
+  bootRunActive = pendingBootRun; // is this a network-boot run? (armed by bootNextHost)
+  pendingBootRun = false;
   sim.status = "running";
   sim.mode = mode;
   sim.headless = false;
   sim.events = [];
   sim.log = [];
   sim.capture = [];
+  state.dock.captureView = "live"; // watch the run that's starting, not an archived one
   sim.transits = [];
   sim.pendingArp = { ...setup.pendingArp };
   sim.stepIndex = 0;
@@ -114,7 +117,12 @@ export function stopSimulation(): void {
   sim.capture = [];
   sim.transits = [];
   sim.pendingArp = {};
+  bootQueue = [];          // stop also cancels any in-flight network-boot chain
+  pendingBootRun = false;
   state.inspectedCapture = null; // the capture it referenced is gone
+  // The live capture was just cleared — fall back to the most recent saved run.
+  state.dock.captureView = state.savedCaptures.length ? state.savedCaptures[state.savedCaptures.length - 1].id : "live";
+  if (state.dock.compareBaseId === state.dock.captureView) state.dock.compareBaseId = "";
   stopAnimationLoop();
   syncSimLog();
   syncTerminal();
@@ -258,6 +266,12 @@ export function runSimulationHeadless(
 // 169.254.x.y/16 only after the simulated DHCP times out — just like a real
 // machine on carrier detect, but visible. Wired to the Play button (when idle).
 let bootQueue: string[] = [];
+// A network-boot run (Play auto-DHCP for unconfigured hosts) is chained chatter,
+// not a user experiment — `pendingBootRun` is armed by bootNextHost just before
+// its startSimulation, latched into `bootRunActive` for the run's lifetime, and
+// keeps the run's capture out of the multi-run compare archive.
+let pendingBootRun = false;
+let bootRunActive = false;
 
 function hostNeedsBoot(device: Device | undefined): boolean {
   return !!device && (device.type === "computer" || device.type === "laptop" || device.type === "kali" || device.type === "server")
@@ -316,6 +330,7 @@ function bootNextHost(): boolean {
       const setup = buildDhcpEvents(device!);
       if (typeof setup === "string") continue;
       dom.modeLabel.textContent = `Booting ${device!.name} via DHCP...`;
+      pendingBootRun = true; // a boot run — keep its capture out of the compare archive
       startSimulation(setup, device!.id, "", "dhcp");
       return true;
     }
@@ -1929,9 +1944,64 @@ function logStep(device: Device, kind: string, summary: string): void {
 // event log, switched by the Packets/Events toggle (state.dock.logView). The
 // packet list honours the display filter (state.dock.logFilter; packet-filter.ts).
 let presentTokenCache: Set<string> = new Set();
+// Device ids that appear as a wire endpoint across the currently displayed
+// pane(s) — drives the device-filter dropdown (set in syncSimLog).
+let presentDeviceIds: Set<string> = new Set();
+
+const CAPTURE_HISTORY_CAP = 12;
+
+// One capture's worth of rows to show: the live run, or a saved run.
+interface CapturePane { id: string; label: string; entries: CaptureEntry[]; }
+
+// The capture entries for a pane id ("live" = the running/most-recent run, else
+// a saved capture). Used by the renderer and the ui.ts row-click resolver.
+export function captureEntriesFor(capId: string): CaptureEntry[] {
+  if (capId === "live") return state.simulation.capture;
+  return state.savedCaptures.find(c => c.id === capId)?.entries || [];
+}
+
+function paneFor(view: string): CapturePane {
+  if (view && view !== "live") {
+    const saved = state.savedCaptures.find(c => c.id === view);
+    if (saved) return { id: saved.id, label: saved.label, entries: saved.entries };
+  }
+  return { id: "live", label: "Live capture", entries: state.simulation.capture };
+}
+
+// Repair a captureView that points nowhere before the panes are computed, so a
+// single render is self-consistent (the capture bar would otherwise heal it only
+// afterwards). Idle only — a running view is always "live".
+function healCaptureView(): void {
+  const sim = state.simulation;
+  if (sim.status === "running" || sim.status === "paused") return;
+  const saved = state.savedCaptures;
+  const view = state.dock.captureView;
+  if (view !== "live" && !saved.some(c => c.id === view)) {
+    state.dock.captureView = saved.length ? saved[saved.length - 1].id : "live";
+  } else if (view === "live" && saved.length && sim.capture.length === 0) {
+    // A 0-frame finished run left the view on an empty live capture — show the
+    // most recent saved run instead of "No packets".
+    state.dock.captureView = saved[saved.length - 1].id;
+  }
+}
+
+// The capture(s) the packet list renders: the live run while one is active,
+// otherwise the selected saved run — with a baseline pane prepended in compare
+// mode (before | after, left to right).
+function displayedPanes(): CapturePane[] {
+  const sim = state.simulation;
+  if (sim.status === "running" || sim.status === "paused") {
+    return [{ id: "live", label: "Live capture", entries: sim.capture }];
+  }
+  const main = paneFor(state.dock.captureView);
+  if (state.dock.compareBaseId) {
+    const base = state.savedCaptures.find(c => c.id === state.dock.compareBaseId);
+    if (base && base.id !== main.id) return [{ id: base.id, label: base.label, entries: base.entries }, main];
+  }
+  return [main];
+}
 
 export function syncSimLog(): void {
-  const sim = state.simulation;
   if (!state.dock.logFilter) state.dock.logFilter = { protocols: [], device: "", expr: "" };
   syncSimLogBadge();
   for (const btn of document.querySelectorAll<HTMLElement>("[data-logview]")) {
@@ -1941,24 +2011,77 @@ export function syncSimLog(): void {
   let html: string;
   let stats = { shown: 0, total: 0, error: null as string | null };
   if (packets) {
-    if (sim.capture.length === 0) {
+    healCaptureView();
+    const panes = displayedPanes();
+    const totalEntries = panes.reduce((n, p) => n + p.entries.length, 0);
+    if (totalEntries === 0) {
       presentTokenCache = new Set();
+      presentDeviceIds = new Set();
       html = `<p class="sim-log-line sim-learn">No packets captured — run a simulation (headless checks don't capture). The Events view holds imported logs.</p>`;
     } else {
-      const allRows = buildFilterRows();
-      const result = applyLogFilter(allRows, state.dock.logFilter);
-      presentTokenCache = presentTokens(allRows);
-      stats = { shown: result.rows.length, total: allRows.length, error: result.error };
-      html = result.rows.length
-        ? renderPacketTable(result.rows)
-        : `<p class="sim-log-line sim-learn">No packets match the filter. <button type="button" class="sim-log-clear" data-action="clear-log-filter">Clear filter</button></p>`;
+      // Present-tokens + the device dropdown span every displayed pane.
+      const unionRows = panes.flatMap(p => buildFilterRows(p.entries));
+      presentTokenCache = presentTokens(unionRows);
+      presentDeviceIds = new Set(unionRows.flatMap(r => [r.fromId, r.toId]));
+      let firstError: string | null = null;
+      const cols = panes.map(p => {
+        const rows = buildFilterRows(p.entries);
+        const result = applyLogFilter(rows, state.dock.logFilter);
+        stats.shown += result.rows.length;
+        stats.total += rows.length;
+        if (result.error && !firstError) firstError = result.error;
+        const table = result.rows.length
+          ? renderPacketTable(result.rows, p.id)
+          : `<p class="sim-log-line sim-learn">No packets match the filter. <button type="button" class="sim-log-clear" data-action="clear-log-filter">Clear filter</button></p>`;
+        return panes.length > 1
+          ? `<div class="pkt-pane"><div class="pkt-pane-title">${escapeHtml(p.label)}</div><div class="pkt-pane-body">${table}</div></div>`
+          : table;
+      });
+      stats.error = firstError;
+      html = panes.length > 1 ? `<div class="pkt-compare">${cols.join("")}</div>` : cols[0];
     }
   } else {
     html = renderEventLog();
   }
+  syncSimLogCaptureBar(packets);
   syncSimLogFilterBar(packets, stats);
   dom.simLogOutput.innerHTML = html;
   dom.simLogOutput.scrollTop = dom.simLogOutput.scrollHeight;
+}
+
+// Derive a short label for a finished run from its outcome (mode + endpoints + ✓/✗).
+function captureLabel(): string {
+  const sim = state.simulation;
+  const who = getDevice(sim.originDeviceId)?.name || "";
+  const target = sim.dnsName || sim.pingTargetIp || "";
+  const flow = target ? `${who}→${target}` : who;
+  let verb: string, mark = "";
+  switch (sim.mode) {
+    case "dhcp": verb = "dhcp"; mark = sim.dhcpSuccess ? " ✓" : " ✗"; break;
+    case "tcp": verb = `tcp:${sim.tcpTargetPort ?? "?"}`; mark = sim.tcpSuccess ? " ✓" : " ✗"; break;
+    case "dns": verb = "dns"; mark = sim.dnsResolvedIp ? " ✓" : " ✗"; break;
+    case "associate": verb = "wifi"; mark = sim.wifiAssociated ? " ✓" : " ✗"; break;
+    case "dot1x": verb = "802.1x"; mark = sim.dot1xAuthorized ? " ✓" : " ✗"; break;
+    case "stp": verb = "stp"; break;
+    case "attack": verb = "scan"; break;
+    default: verb = "ping"; mark = sim.pingSuccess ? " ✓" : " ✗"; break;
+  }
+  return `${verb} ${flow}${mark}`.trim();
+}
+
+// Archive the just-completed animated run so a later run can be compared against
+// it. Monotonic index → stable, unique id (survives the ring-buffer cap).
+function saveCurrentCapture(): void {
+  const sim = state.simulation;
+  if (sim.capture.length === 0) return;
+  const idx = state.savedCaptures.length ? state.savedCaptures[state.savedCaptures.length - 1].index + 1 : 1;
+  const id = `cap-${idx}`;
+  state.savedCaptures.push({ id, index: idx, label: `#${idx} ${captureLabel()}`, mode: sim.mode, entries: sim.capture.slice() });
+  while (state.savedCaptures.length > CAPTURE_HISTORY_CAP) state.savedCaptures.shift();
+  state.dock.captureView = id; // show the run that just finished
+  if (state.dock.compareBaseId && !state.savedCaptures.some(c => c.id === state.dock.compareBaseId)) {
+    state.dock.compareBaseId = ""; // the baseline scrolled out of the buffer
+  }
 }
 
 function renderEventLog(): string {
@@ -1973,8 +2096,8 @@ function renderEventLog(): string {
 }
 
 // Enrich each capture entry with its wire endpoints for the filter predicate.
-function buildFilterRows(): FilterRow[] {
-  return state.simulation.capture.map(entry => ({
+function buildFilterRows(entries: CaptureEntry[]): FilterRow[] {
+  return entries.map(entry => ({
     frame: entry.frame,
     macsec: !!entry.macsec,
     no: entry.no,
@@ -1988,11 +2111,16 @@ function buildFilterRows(): FilterRow[] {
 }
 
 // One row per (filtered) captured frame; clicking a row opens the frame
-// breakdown (wired in ui.ts by data-no). The selected frame's row is
-// highlighted — reference equality works because capture entries hold the same
-// frame objects the transits (and click-a-packet) use.
-function renderPacketTable(rows: FilterRow[]): string {
+// breakdown (wired in ui.ts by data-no + data-cap, which names the capture the
+// row belongs to). The selected frame's row is highlighted — reference equality
+// works because capture entries hold the same frame objects the transits use.
+function renderPacketTable(rows: FilterRow[], capId: string): string {
   const linkMap = new Map(state.links.map(l => [l.id, l]));
+  // Capture numbers restart at 1 per run, so a selected row is only highlighted
+  // in the pane its entry actually belongs to (identity check) — matters in
+  // compare mode where both panes share the 1..N range.
+  const selectedEntry = state.inspectedCapture;
+  const selectInPane = !!selectedEntry && captureEntriesFor(capId).includes(selectedEntry);
   const body = rows.map(row => {
     const inner = packetColumns(row.frame);
     // A MACsec-protected frame shows as encrypted on the wire (its real protocol
@@ -2004,12 +2132,12 @@ function renderPacketTable(rows: FilterRow[]): string {
     // endpoint combo). Falls back to the traversal endpoints if the link is gone.
     const link = linkMap.get(row.linkId);
     const wire = link ? linkName(link) : `${row.fromName} ↔ ${row.toName}`;
-    // Highlight the specific selected row (by capture no), falling back to frame
-    // reference for a canvas-dot pick (which has no row of its own).
-    const selected = (state.inspectedCapture
-      ? state.inspectedCapture.no === row.no
+    // Highlight the specific selected row (by capture no within its pane),
+    // falling back to frame reference for a canvas-dot pick (no row of its own).
+    const selected = (selectedEntry
+      ? (selectInPane && selectedEntry.no === row.no)
       : state.inspectedFrame === row.frame) ? " selected" : "";
-    return `<tr class="pkt-row pkt-${escapeHtml(cols.tone)}${selected}" data-no="${row.no}">
+    return `<tr class="pkt-row pkt-${escapeHtml(cols.tone)}${selected}" data-no="${row.no}" data-cap="${escapeHtml(capId)}">
       <td class="pkt-num">${row.no}</td>
       <td class="pkt-num">${row.step}</td>
       <td>${escapeHtml(cols.src)}</td>
@@ -2023,6 +2151,44 @@ function renderPacketTable(rows: FilterRow[]): string {
     <thead><tr><th>No.</th><th>Step</th><th>Source</th><th>Destination</th><th>Protocol</th><th>Info</th><th>Link</th></tr></thead>
     <tbody>${body}</tbody>
   </table>`;
+}
+
+// Sync the capture-history controls (which saved run to view + the compare
+// toggle / baseline select). Shown only when the sim is idle and ≥1 run has been
+// archived — while a run animates, the live capture is always what's displayed.
+function syncSimLogCaptureBar(packets: boolean): void {
+  const bar = dom.simLogCaptureBar;
+  if (!bar) return;
+  const sim = state.simulation;
+  const running = sim.status === "running" || sim.status === "paused";
+  const saved = state.savedCaptures;
+  const show = packets && !running && saved.length > 0;
+  bar.hidden = !show;
+  if (!show) return;
+
+  const sel = dom.simLogCaptureSelect as HTMLSelectElement;
+  if (!saved.some(c => c.id === state.dock.captureView)) state.dock.captureView = saved[saved.length - 1].id;
+  // A baseline can't compare against the primary view itself — drop a collision
+  // so the toggle/render state stays consistent.
+  if (state.dock.compareBaseId === state.dock.captureView) state.dock.compareBaseId = "";
+  if (document.activeElement !== sel) {
+    sel.innerHTML = saved.slice().reverse().map(c => `<option value="${escapeHtml(c.id)}">${escapeHtml(c.label)}</option>`).join("");
+    sel.value = state.dock.captureView;
+  }
+
+  const compareOn = !!state.dock.compareBaseId;
+  const toggle = dom.simLogCompareToggle as HTMLButtonElement;
+  toggle.classList.toggle("active", compareOn);
+  toggle.disabled = saved.length < 2;
+
+  const base = dom.simLogCompareSelect as HTMLSelectElement;
+  base.hidden = !compareOn;
+  if (compareOn && document.activeElement !== base) {
+    const others = saved.filter(c => c.id !== state.dock.captureView).slice().reverse();
+    if (!others.some(c => c.id === state.dock.compareBaseId)) state.dock.compareBaseId = others[0]?.id || "";
+    base.innerHTML = others.map(c => `<option value="${escapeHtml(c.id)}">${escapeHtml(c.label)}</option>`).join("");
+    base.value = state.dock.compareBaseId;
+  }
 }
 
 // Sync the packet-list filter toolbar (protocol chips, device select, the
@@ -2067,10 +2233,11 @@ function syncSimLogFilterBar(packets: boolean, stats: { shown: number; total: nu
   (dom.simLogFilterClear as HTMLButtonElement).disabled = !isFilterActive(filter);
 }
 
-// Rebuild the device <select> from the devices that appear as a wire endpoint in
-// the current capture. The option set rarely changes between animation steps, so
-// it's only re-rendered when a signature of (options + extra) actually differs —
-// avoiding a per-step innerHTML churn that could disturb an open dropdown.
+// Rebuild the device <select> from the devices present across the displayed
+// pane(s) (`presentDeviceIds`, so it matches the chips and the compare view).
+// The option set rarely changes between animation steps, so it's only re-rendered
+// when a signature of (options + extra) differs — avoiding a per-step innerHTML
+// churn that could disturb an open dropdown.
 let deviceFilterSig = "";
 
 function populateDeviceFilter(filter: LogFilter): void {
@@ -2080,9 +2247,7 @@ function populateDeviceFilter(filter: LogFilter): void {
   // points at a device that no longer exists.
   if (filter.device && !getDevice(filter.device)) filter.device = "";
   if (document.activeElement === sel) return; // don't disturb an open dropdown
-  const ids = new Set<string>();
-  for (const e of state.simulation.capture) { ids.add(e.fromDeviceId); ids.add(e.toDeviceId); }
-  const devices = state.devices.filter(d => ids.has(d.id)).sort((a, b) => a.name.localeCompare(b.name));
+  const devices = state.devices.filter(d => presentDeviceIds.has(d.id)).sort((a, b) => a.name.localeCompare(b.name));
   // A selected device that carried no frames this run is kept visible as an extra option.
   const extra = filter.device && !devices.some(d => d.id === filter.device) ? getDevice(filter.device) : null;
   const sig = devices.map(d => d.id + "" + d.name).join("") + "" + (extra ? extra.id + "" + extra.name : "");
@@ -2205,6 +2370,9 @@ function finishSimulation(): void {
   sim.status = "done";
   // Headless runs don't touch the DOM/terminal — the caller renders the result.
   if (sim.headless) return;
+  // Archive this run's packet capture so a later run can be compared against it
+  // — except network-boot chatter, which would flood the small history ring.
+  if (!bootRunActive) saveCurrentCapture();
   // Re-enable terminal input
   const termInput = document.getElementById("terminalInput") as HTMLInputElement | null;
   if (termInput) termInput.disabled = false;

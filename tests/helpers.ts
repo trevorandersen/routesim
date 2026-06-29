@@ -17,6 +17,7 @@ export function registerNoopCallbacks(): void {
     syncCoordReadout: () => {},
     syncOptionControls: () => {},
     recomputeStp: () => {},
+    syncSimLog: () => {},
   });
 }
 
@@ -62,7 +63,8 @@ export function resetState(): void {
     historyIndex: -1,
   };
   state.terminalSessions = [];
-  state.dock = { open: false, activeTab: "terminal", height: 280, logView: "packets", logFilter: { protocols: [], device: "", expr: "" } };
+  state.dock = { open: false, activeTab: "terminal", height: 280, logView: "packets", logFilter: { protocols: [], device: "", expr: "" }, captureView: "live", compareBaseId: "" };
+  state.savedCaptures = [];
   state.console = { lines: [], history: [], historyIndex: -1 };
   state.activeScenarioId = null;
   // resetState leaves display options alone (tests save/restore them), but

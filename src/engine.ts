@@ -4,7 +4,7 @@ import { dom } from "./dom";
 import { getDevice, linkedPortsFor, routerInterfacesWithNames, linkName, linkById, linksFor, linkAuthorizedForData, macsecState } from "./devices";
 import { normalisePortVlans, normalisePortModes, normaliseTrunkAllowedVlans, normaliseArpTable, normaliseMacTable, normaliseDhcpLeases, normaliseStaticRoutes, ensureConfig } from "./normalise";
 import { sameSubnet, prefixOf, isValidIpv4, escapeHtml, ipv4ToInt, intToIpv4, normaliseMacAddress, deriveMac } from "./utils";
-import { createArpRequest, createArpReply, createIcmpEchoRequest, createIcmpEchoReply, createIcmpTimeExceeded, createIcmpDestUnreachable, createDhcpOffer, createDhcpRequest, createDhcpAck, createTcpSegment, createDnsResponse, createDot11Frame, createDot1xFrame, createBpduFrame, BROADCAST_MAC, frameLabel, packetColumns } from "./frame";
+import { createArpRequest, createArpReply, createIcmpEchoRequest, createIcmpEchoReply, createIcmpTimeExceeded, createIcmpDestUnreachable, createDhcpOffer, createDhcpRequest, createDhcpAck, createTcpSegment, createHttpRequest, createHttpResponse, createDnsResponse, createDot11Frame, createDot1xFrame, createBpduFrame, BROADCAST_MAC, frameLabel, packetColumns } from "./frame";
 import { terminalLine, terminalLineFor, sessionFor, syncTerminal, openDock, syncSimLogBadge } from "./terminal";
 import { buildPingEvents, buildResolveEvents, buildDhcpEvents, buildAttackEvents, findPingTarget, hostnameToIp } from "./simulation";
 import type { PingSetup } from "./simulation";
@@ -21,7 +21,7 @@ export { runStpConvergence } from "./stp";
 
 // ─── Public API ──────────────────────────────────────────────────────────────
 
-export function startSimulation(setup: PingSetup, originDeviceId: string, targetIp: string, mode: "ping" | "dhcp" | "tcp" | "dns" | "associate" | "dot1x" | "stp" | "attack" = "ping", targetPort: number | null = null): void {
+export function startSimulation(setup: PingSetup, originDeviceId: string, targetIp: string, mode: "ping" | "dhcp" | "tcp" | "dns" | "http" | "associate" | "dot1x" | "stp" | "attack" = "ping", targetPort: number | null = null): void {
   // Converge routing (RIP) and the spanning tree before the run, so frames route
   // correctly and loops are already broken (blocked ports) before the first hop.
   runRipConvergence();
@@ -68,6 +68,11 @@ export function startSimulation(setup: PingSetup, originDeviceId: string, target
   sim.tcpSuccess = false;
   sim.tcpRefused = false;
   sim.tcpTargetPort = setup.dns?.port ?? targetPort;
+  sim.httpPath = setup.httpPath ?? "/";
+  sim.httpSuccess = false;
+  sim.httpStatus = null;
+  sim.httpStatusText = null;
+  sim.httpServerTitle = null;
   sim.dnsName = setup.dns?.name ?? null;
   sim.dnsResolvedIp = null;
   sim.resolveThen = setup.dns?.then ?? null;
@@ -89,6 +94,7 @@ export function startSimulation(setup: PingSetup, originDeviceId: string, target
   const target = setup.dns ? setup.dns.name : targetIp;
   const label = mode === "dhcp" ? "Requesting DHCP lease..."
     : mode === "tcp" ? `Opening TCP connection to ${target}:${sim.tcpTargetPort ?? "?"}...`
+    : mode === "http" ? `Requesting http://${target}${sim.httpPath}...`
     : mode === "dns" ? `Resolving ${target}...`
     : mode === "associate" ? `Associating to ${target || "WiFi"}...`
     : mode === "dot1x" ? `802.1X authenticating ${target || "supplicant"}...`
@@ -163,7 +169,8 @@ export interface SimResult {
   ttl?: number;
   responderIp?: string | null;   // who answered (echo reply or a router's TTL-exceeded)
   timeExceeded?: boolean;        // the answer was an ICMP Time-Exceeded
-  resolvedIp?: string | null;    // DNS answer (mode "dns" or a by-name ping/tcp flow)
+  resolvedIp?: string | null;    // DNS answer (mode "dns" or a by-name ping/tcp/http flow)
+  httpStatus?: number | null;    // HTTP response status (mode "http")
   assignedIp?: string | null;
   assignedGateway?: string | null;
   log: SimLogEntry[];
@@ -174,7 +181,7 @@ export interface SimResult {
 // and returns the result plus the hop-by-hop log. Reuses the same process handlers as
 // the animated path; powers the console `run` command, window.routesim, and tests.
 export function runSimulationHeadless(
-  setup: PingSetup, originDeviceId: string, targetIp: string, mode: "ping" | "dhcp" | "tcp" | "dns" | "associate" | "dot1x" | "stp" | "attack" = "ping", targetPort: number | null = null
+  setup: PingSetup, originDeviceId: string, targetIp: string, mode: "ping" | "dhcp" | "tcp" | "dns" | "http" | "associate" | "dot1x" | "stp" | "attack" = "ping", targetPort: number | null = null
 ): SimResult {
   runRipConvergence();
   runStpConvergence();
@@ -198,6 +205,11 @@ export function runSimulationHeadless(
   sim.tcpSuccess = false;
   sim.tcpRefused = false;
   sim.tcpTargetPort = setup.dns?.port ?? targetPort;
+  sim.httpPath = setup.httpPath ?? "/";
+  sim.httpSuccess = false;
+  sim.httpStatus = null;
+  sim.httpStatusText = null;
+  sim.httpServerTitle = null;
   sim.dnsName = setup.dns?.name ?? null;
   sim.dnsResolvedIp = null;
   sim.resolveThen = setup.dns?.then ?? null;
@@ -239,6 +251,7 @@ export function runSimulationHeadless(
   return {
     success: mode === "dhcp" ? sim.dhcpSuccess
       : mode === "tcp" ? sim.tcpSuccess
+      : mode === "http" ? sim.httpSuccess
       : mode === "dns" ? sim.dnsResolvedIp != null
       : mode === "associate" ? sim.wifiAssociated
       : mode === "dot1x" ? sim.dot1xAuthorized
@@ -250,6 +263,7 @@ export function runSimulationHeadless(
     responderIp: sim.pingResponderIp,
     timeExceeded: sim.pingTimeExceeded,
     resolvedIp: sim.dnsResolvedIp,
+    httpStatus: sim.httpStatus,
     assignedIp: sim.dhcpAssignedIp,
     assignedGateway: sim.dhcpAssignedGateway,
     log: sim.log,
@@ -876,10 +890,36 @@ export function processAtComputer(device: Device, frame: EthernetFrame, fromDevi
           sim.pingResponderIp = ipv4.srcIp;
         }
         outgoing.push({ frame: createTcpSegment(config.macAddress || "", frame.srcMac, config.ipv4Address || "", ipv4.srcIp, tcp.dstPort, tcp.srcPort, "ack", 64, frame.vlanTag), toDeviceId: fromDeviceId! });
+        // HTTP: once the connection is up, the client immediately sends its GET.
+        if (sim.mode === "http" && device.id === sim.originDeviceId) {
+          const host = sim.dnsName || ipv4.srcIp;
+          logStep(device, "sim-tcp", `HTTP GET ${sim.httpPath} (Host: ${host})`);
+          outgoing.push({ frame: createHttpRequest(config.macAddress || "", frame.srcMac, config.ipv4Address || "", ipv4.srcIp, tcp.dstPort, tcp.srcPort, sim.httpPath, host, 64, frame.vlanTag), toDeviceId: fromDeviceId! });
+        }
       } else if (tcp.flags === "rst") {
         if (device.id === sim.originDeviceId) {
           sim.tcpRefused = true;
           logStep(device, "sim-drop", `TCP RST from ${ipv4.srcIp}:${tcp.srcPort} — connection refused`);
+        }
+      } else if (tcp.flags === "ack" && tcp.http?.kind === "request") {
+        // Server side: an HTTP GET arrived on the established connection. The web
+        // service listens on port 80 — a GET to any other (open) port goes
+        // unanswered, like connecting to a port with no HTTP server behind it.
+        if (config.httpEnabled && tcp.dstPort === 80) {
+          const title = config.httpTitle || `${device.name} — RouteSim web server`;
+          logStep(device, "sim-tcp", `HTTP ${tcp.http.method} ${tcp.http.path} → 200 OK`);
+          outgoing.push({ frame: createHttpResponse(config.macAddress || "", frame.srcMac, config.ipv4Address || "", ipv4.srcIp, tcp.dstPort, tcp.srcPort, 200, "OK", title, 64, frame.vlanTag), toDeviceId: fromDeviceId! });
+        } else {
+          logStep(device, "sim-drop", `HTTP ${tcp.http.method} ${tcp.http.path} on port ${tcp.dstPort} — no web service (no response)`);
+        }
+      } else if (tcp.flags === "ack" && tcp.http?.kind === "response") {
+        // Client side: the HTTP response came back.
+        if (device.id === sim.originDeviceId) {
+          sim.httpStatus = tcp.http.status ?? null;
+          sim.httpStatusText = tcp.http.statusText ?? null;
+          sim.httpServerTitle = tcp.http.title ?? null;
+          sim.httpSuccess = (tcp.http.status ?? 0) >= 200 && (tcp.http.status ?? 0) < 300;
+          logStep(device, "sim-tcp", `HTTP ${tcp.http.status} ${tcp.http.statusText} from ${ipv4.srcIp}`);
         }
       } else if (tcp.flags === "ack") {
         logStep(device, "sim-tcp", `TCP ACK from ${ipv4.srcIp} — handshake complete`);
@@ -946,7 +986,7 @@ export function processAtComputer(device: Device, frame: EthernetFrame, fromDevi
 // for: an ICMP echo (ping) or a TCP SYN (nc). Same next-hop decision as the
 // setup builders — on-subnet direct, otherwise via the default gateway — with
 // the real frame buffered behind an ARP request when the MAC is unknown.
-function buildFollowOnFrames(device: Device, config: any, dstIp: string, then: "ping" | "tcp", port: number | null, vlanTag: number | null): EthernetFrame[] | string {
+function buildFollowOnFrames(device: Device, config: any, dstIp: string, then: "ping" | "tcp" | "http", port: number | null, vlanTag: number | null): EthernetFrame[] | string {
   const sim = state.simulation;
   const srcIp = config.ipv4Address;
   const srcMac = config.macAddress;
@@ -956,9 +996,10 @@ function buildFollowOnFrames(device: Device, config: any, dstIp: string, then: "
     nextHopIp = config.gatewayIpv4Address;
   }
   const srcPort = 30000 + (sim.stepIndex % 20000); // deterministic ephemeral port
-  const make = (dstMac: string) => then === "tcp"
-    ? createTcpSegment(srcMac, dstMac, srcIp, dstIp, srcPort, port ?? 80, "syn", 64, vlanTag)
-    : createIcmpEchoRequest(srcMac, dstMac, srcIp, dstIp, 64, vlanTag);
+  // tcp and http both open with a SYN (HTTP sends its GET once established); ping is ICMP.
+  const make = (dstMac: string) => then === "ping"
+    ? createIcmpEchoRequest(srcMac, dstMac, srcIp, dstIp, 64, vlanTag)
+    : createTcpSegment(srcMac, dstMac, srcIp, dstIp, srcPort, port ?? 80, "syn", 64, vlanTag);
   const arpEntry = (config.arpTable || []).find((e: any) => e.ipv4Address === nextHopIp);
   if (arpEntry) return [make(arpEntry.macAddress)];
   const pendingKey = `${device.id}:${nextHopIp}`;
@@ -2349,6 +2390,22 @@ function finishSimulation(): void {
         out("error", `nc: connect to ${target} port ${port} (tcp) failed: Connection refused`);
       } else {
         out("error", `nc: connect to ${target} port ${port} (tcp) failed: Operation timed out`);
+      }
+    }
+  } else if (sim.mode === "http") {
+    if (!sim.headless) {
+      const target = sim.dnsName || sim.pingTargetIp || "?";
+      const url = `http://${target}${sim.httpPath || "/"}`;
+      if (sim.dnsName && !sim.dnsResolvedIp) {
+        out("error", `curl: (6) Could not resolve host: ${sim.dnsName}`);
+      } else if (sim.tcpRefused) {
+        out("error", `curl: (7) Failed to connect to ${target} port ${sim.tcpTargetPort ?? 80}: Connection refused`);
+      } else if (sim.httpStatus != null) {
+        out("", `> GET ${sim.httpPath || "/"} HTTP/1.1\n< HTTP/1.1 ${sim.httpStatus} ${sim.httpStatusText}\n\n${sim.httpServerTitle || ""}`);
+      } else if (sim.tcpSuccess) {
+        out("error", `curl: (52) Empty reply from server (${url} — connected, but no web service is listening)`);
+      } else {
+        out("error", `curl: (28) Failed to connect to ${target} port ${sim.tcpTargetPort ?? 80}: Operation timed out`);
       }
     }
   } else if (!sim.headless) {

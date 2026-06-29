@@ -304,6 +304,15 @@ function renderDnsmasqSection(device: any): string {
       <input id="dnsmasqRunning" type="checkbox" ${config.dnsmasqRunning !== false ? "checked" : ""}>
     </div>
     <div class="field">
+      <label for="httpEnabled">HTTP service (answer GET with 200 OK)</label>
+      <input id="httpEnabled" type="checkbox" ${config.httpEnabled ? "checked" : ""}>
+    </div>
+    ${config.httpEnabled ? `
+    <div class="field">
+      <label for="httpTitle">Web page title</label>
+      <input id="httpTitle" value="${escapeHtml(config.httpTitle || "")}" placeholder="${escapeHtml(device.name)} — RouteSim web server" autocomplete="off">
+    </div>` : ""}
+    <div class="field">
       <label>DNS records (address=/name/ip)</label>
       ${records.length ? `
       <table class="data-table">
@@ -382,6 +391,24 @@ function bindDnsmasqControls(selected: any): void {
       pushUndo();
       ensureConfig(selected);
       selected.config.dnsmasqRunning = event.target.checked;
+      syncPanel();
+    });
+  }
+  const httpInput = document.getElementById("httpEnabled") as HTMLInputElement | null;
+  if (httpInput) {
+    httpInput.addEventListener("change", (event: any) => {
+      pushUndo();
+      ensureConfig(selected);
+      selected.config.httpEnabled = event.target.checked;
+      syncPanel(); // reveal/hide the title field
+    });
+  }
+  const httpTitleInput = document.getElementById("httpTitle") as HTMLInputElement | null;
+  if (httpTitleInput) {
+    httpTitleInput.addEventListener("change", (event: any) => {
+      pushUndo();
+      ensureConfig(selected);
+      selected.config.httpTitle = event.target.value.replace(/\s+/g, " ").trim().slice(0, 200);
       syncPanel();
     });
   }

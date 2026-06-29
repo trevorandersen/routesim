@@ -54,7 +54,9 @@ export function buildConfigPayload(): SerialisedTopology {
             ? { dhcpRangeStart: config.dhcpRangeStart, dhcpRangeEnd: config.dhcpRangeEnd } : {}),
           ...(config?.dhcpRouterIp ? { dhcpRouterIp: config.dhcpRouterIp } : {}),
           dhcpLeases: normaliseDhcpLeases(config?.dhcpLeases || []),
-          ...(config?.radius ? { radius: { users: (config.radius.users || []).map((u: any) => ({ identity: u.identity, password: u.password || "" })) } } : {})
+          ...(config?.radius ? { radius: { users: (config.radius.users || []).map((u: any) => ({ identity: u.identity, password: u.password || "" })) } } : {}),
+          ...(config?.httpEnabled ? { httpEnabled: true } : {}),
+          ...(config?.httpTitle ? { httpTitle: config.httpTitle } : {}),
         }
       } : {}),
       ...(type === "switch" ? {

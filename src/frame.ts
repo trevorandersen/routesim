@@ -1,4 +1,4 @@
-import type { EthernetFrame, ArpPayload, Ipv4Payload, IcmpPayload, DhcpPayload, TcpPayload, TcpFlags, DnsPayload, Dot11Payload, Dot11Subtype, Dot1xPayload, Dot1xSubtype, BpduPayload } from "./types";
+import type { EthernetFrame, ArpPayload, Ipv4Payload, IcmpPayload, DhcpPayload, TcpPayload, TcpFlags, HttpInfo, DnsPayload, Dot11Payload, Dot11Subtype, Dot1xPayload, Dot1xSubtype, BpduPayload } from "./types";
 
 let frameCounter = 0;
 function nextFrameId(): string {
@@ -139,6 +139,36 @@ export function createTcpSegment(
   ttl = 64, vlanTag: number | null = null
 ): EthernetFrame {
   const tcp: TcpPayload = { type: "tcp", srcPort, dstPort, flags };
+  const ipv4: Ipv4Payload = { type: "ipv4", srcIp, dstIp, ttl, protocol: 6, payload: tcp };
+  return { id: nextFrameId(), srcMac, dstMac, etherType: 0x0800, vlanTag, payload: ipv4 };
+}
+
+// HTTP rides an established TCP connection: the request/response is carried on a
+// data (ACK) segment, tagged with the HTTP payload so the packet list shows it
+// as HTTP. GET request →
+export function createHttpRequest(
+  srcMac: string, dstMac: string,
+  srcIp: string, dstIp: string,
+  srcPort: number, dstPort: number,
+  path: string, host: string,
+  ttl = 64, vlanTag: number | null = null
+): EthernetFrame {
+  const http: HttpInfo = { kind: "request", method: "GET", path, host };
+  const tcp: TcpPayload = { type: "tcp", srcPort, dstPort, flags: "ack", http };
+  const ipv4: Ipv4Payload = { type: "ipv4", srcIp, dstIp, ttl, protocol: 6, payload: tcp };
+  return { id: nextFrameId(), srcMac, dstMac, etherType: 0x0800, vlanTag, payload: ipv4 };
+}
+
+// ← response (status + the served page's one-line body).
+export function createHttpResponse(
+  srcMac: string, dstMac: string,
+  srcIp: string, dstIp: string,
+  srcPort: number, dstPort: number,
+  status: number, statusText: string, title: string,
+  ttl = 64, vlanTag: number | null = null
+): EthernetFrame {
+  const http: HttpInfo = { kind: "response", status, statusText, title };
+  const tcp: TcpPayload = { type: "tcp", srcPort, dstPort, flags: "ack", http };
   const ipv4: Ipv4Payload = { type: "ipv4", srcIp, dstIp, ttl, protocol: 6, payload: tcp };
   return { id: nextFrameId(), srcMac, dstMac, etherType: 0x0800, vlanTag, payload: ipv4 };
 }
@@ -324,6 +354,13 @@ export function packetColumns(frame: EthernetFrame): PacketColumns {
     return { src, dst, protocol: "ICMP", info: "Time-to-live exceeded (Time to live exceeded in transit)", tone: "bad" };
   }
   if (p.type === "tcp") {
+    if (p.http) {
+      const info = p.http.kind === "request"
+        ? `${p.http.method} ${p.http.path} HTTP/1.1  (Host: ${p.http.host})`
+        : `HTTP/1.1 ${p.http.status} ${p.http.statusText}`;
+      const bad = p.http.kind === "response" && (p.http.status == null || p.http.status >= 400);
+      return { src, dst, protocol: "HTTP", info, tone: bad ? "bad" : "http" };
+    }
     const flags: Record<string, string> = { "syn": "[SYN]", "syn-ack": "[SYN, ACK]", "ack": "[ACK]", "rst": "[RST]" };
     return { src, dst, protocol: "TCP", info: `${p.srcPort} → ${p.dstPort} ${flags[p.flags] || ""} Len=0`, tone: p.flags === "rst" ? "bad" : "tcp" };
   }
@@ -358,8 +395,12 @@ export function frameLabel(frame: EthernetFrame): string {
       const labels: Record<string, string> = { discover: "DHCP Disc", offer: "DHCP Offer", request: "DHCP Req", ack: "DHCP ACK" };
       label = labels[dhcp.messageType] || "DHCP";
     } else if (ipv4.payload.type === "tcp") {
-      const labels: Record<string, string> = { "syn": "TCP SYN", "syn-ack": "TCP SYN-ACK", "ack": "TCP ACK", "rst": "TCP RST" };
-      label = labels[ipv4.payload.flags] || "TCP";
+      if (ipv4.payload.http) {
+        label = ipv4.payload.http.kind === "request" ? "HTTP GET" : `HTTP ${ipv4.payload.http.status}`;
+      } else {
+        const labels: Record<string, string> = { "syn": "TCP SYN", "syn-ack": "TCP SYN-ACK", "ack": "TCP ACK", "rst": "TCP RST" };
+        label = labels[ipv4.payload.flags] || "TCP";
+      }
     } else if (ipv4.payload.type === "dns") {
       label = ipv4.payload.op === "query" ? "DNS Query"
         : ipv4.payload.address ? "DNS Answer" : "DNS NXDOMAIN";
@@ -387,7 +428,13 @@ export function frameColor(frame: EthernetFrame): string {
   const ipv4 = frame.payload; // narrowed to Ipv4Payload after the arp/dot11/bpdu branches return
   if (ipv4.payload.type === "dhcp") return "#a78bfa";    // violet
   if (ipv4.payload.type === "dns") return ipv4.payload.op === "response" && !ipv4.payload.address ? "#ef4444" : "#22d3ee"; // cyan (NXDOMAIN red)
-  if (ipv4.payload.type === "tcp") return ipv4.payload.flags === "rst" ? "#ef4444" : "#fb923c"; // orange (RST red)
+  if (ipv4.payload.type === "tcp") {
+    if (ipv4.payload.http) {
+      const bad = ipv4.payload.http.kind === "response" && (ipv4.payload.http.status == null || ipv4.payload.http.status >= 400);
+      return bad ? "#ef4444" : "#a3e635"; // lime (HTTP); red on a 4xx/5xx
+    }
+    return ipv4.payload.flags === "rst" ? "#ef4444" : "#fb923c"; // orange (RST red)
+  }
   if (ipv4.payload.type === "icmp" && ipv4.payload.icmpType === 8) return "#3b82f6"; // blue
   if (ipv4.payload.type === "icmp" && (ipv4.payload.icmpType === 11 || ipv4.payload.icmpType === 3)) return "#ef4444"; // red (TTL exceeded / unreachable)
   return "#22c55e";                                        // green

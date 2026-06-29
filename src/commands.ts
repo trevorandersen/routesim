@@ -18,7 +18,7 @@ import {
   startSimulation, stopSimulation, pauseSimulation, resumeSimulation, stepOnce,
   runSimulationHeadless, runTraceroute,
 } from "./engine";
-import { buildPingEvents, buildDhcpEvents, buildConnectEvents, buildResolveEvents, buildAssociationEvents, buildDot1xEvents, buildStpEvents, buildScanEvents, buildSweepEvents, buildArpSpoofEvents, buildAttackEvents, associatedAp, findPingTarget } from "./simulation";
+import { buildPingEvents, buildDhcpEvents, buildConnectEvents, buildResolveEvents, buildHttpEvents, parseHttpTarget, buildAssociationEvents, buildDot1xEvents, buildStpEvents, buildScanEvents, buildSweepEvents, buildArpSpoofEvents, buildAttackEvents, associatedAp, findPingTarget } from "./simulation";
 import { DEFAULT_BRIDGE_PRIORITY } from "./stp";
 import {
   setHostIp, setHostGateway, setHostDns, setRouterInterfaceIp, addSwitchVlan, removeSwitchVlan,
@@ -362,6 +362,19 @@ function cmdConnect(args: string[]): CommandResult {
   return ok(`TCP connect ${src.name} → ${dst}:${port} started.`);
 }
 
+function cmdHttp(args: string[]): CommandResult {
+  const src = resolveDevice(args[0]);
+  if (typeof src === "string") return err(src);
+  if (!args[1]) return err(`http: expected "http <src> <host>[:port][/path] [path]".`);
+  const { host, port, path } = parseHttpTarget(args[1], args[2] || "/");
+  if (!host) return err(`http: no host specified.`);
+  if (!Number.isInteger(port) || port < 1 || port > 65535) return err(`http: invalid port in "${args[1]}".`);
+  const setup = buildHttpEvents(src, host, port, path);
+  if (typeof setup === "string") return err(setup);
+  startSimulation(setup, src.id, targetIpFor(host), "http", port);
+  return ok(`HTTP GET ${src.name} → http://${host}:${port}${path} started.`);
+}
+
 function cmdDhcp(args: string[]): CommandResult {
   const host = resolveDevice(args[0]);
   if (typeof host === "string") return err(host);
@@ -497,6 +510,29 @@ function cmdManaged(args: string[]): CommandResult {
   sync().recomputeStp();
   sync().syncPanel();
   return ok(`${sw.name} is now ${on ? "managed" : "unmanaged"}.`);
+}
+
+// Enable/disable a host's HTTP service: `web <server> on|off [title]`. With it
+// on, the host answers an HTTP GET with 200 OK (and the given page title).
+function cmdWeb(args: string[]): CommandResult {
+  const dev = resolveDevice(args[0]);
+  if (typeof dev === "string") return err(dev);
+  if (dev.type !== "server") return err(`${dev.name} is not a server (the web service runs on a server).`);
+  const mode = (args[1] || "").toLowerCase();
+  if (mode !== "on" && mode !== "off") return err(`web: expected "web <host> on|off [title]".`);
+  pushUndo();
+  ensureConfig(dev);
+  if (mode === "off") {
+    dev.config!.httpEnabled = false;
+    delete (dev.config as any).httpTitle;
+    sync().syncPanel();
+    return ok(`Web service disabled on ${dev.name}.`);
+  }
+  dev.config!.httpEnabled = true;
+  const title = args.slice(2).join(" ").trim();
+  if (title) dev.config!.httpTitle = title.slice(0, 200);
+  sync().syncPanel();
+  return ok(`Web service enabled on ${dev.name}${title ? ` ("${title}")` : ""}.`);
 }
 
 // SPAN port mirroring on a managed switch: `mirror <switch> <dst> [src...]`,
@@ -644,6 +680,19 @@ function cmdRun(args: string[]): CommandResult {
     const r = runSimulationHeadless(setup, src.id, targetIpFor(dst), "tcp", port);
     return { ok: r.success, data: r,
       output: [`connect ${dst}:${port}: ${r.success ? "open (handshake completed)" : r.refused ? "refused (RST)" : "timed out"} — ${r.steps} steps`] };
+  }
+  if (mode === "http") {
+    const src = resolveDevice(args[1]);
+    if (typeof src === "string") return err(src);
+    if (!args[2]) return err(`run http: expected "run http <src> <host>[:port][/path] [path]".`);
+    const { host, port, path } = parseHttpTarget(args[2], args[3] || "/");
+    if (!host) return err(`run http: no host specified.`);
+    if (!Number.isInteger(port) || port < 1 || port > 65535) return err(`run http: invalid port in "${args[2]}".`);
+    const setup = buildHttpEvents(src, host, port, path);
+    if (typeof setup === "string") return err(setup);
+    const r = runSimulationHeadless(setup, src.id, targetIpFor(host), "http", port);
+    return { ok: r.success, data: r,
+      output: [`http http://${host}:${port}${path}: ${r.httpStatus != null ? `${r.httpStatus}` : r.refused ? "refused" : "no response"} — ${r.steps} steps`] };
   }
   if (mode === "dhcp") {
     const host = resolveDevice(args[1]);
@@ -887,8 +936,8 @@ const COMMANDS: Record<string, Handler> = {
   move: cmdMove, rename: cmdRename, clear: cmdClear, collapse: cmdCollapse, expand: cmdExpand,
   ip: cmdIp, gateway: cmdGateway, nameserver: cmdNameserver, mac: cmdMac, ssid: cmdSsid, interface: cmdInterface, route: cmdRoute,
   supplicant: cmdSupplicant, portauth: cmdPortAuth, radius: cmdRadius, ports: cmdPorts, dot1x: cmdDot1x, macsec: cmdMacsec,
-  vlan: cmdVlan, port: cmdPort, managed: cmdManaged, stp: cmdStp, mirror: cmdMirror, idsrule: cmdIdsRule, attack: cmdAttack, redteam: cmdRedteam, cli: cmdCli,
-  ping: cmdPing, dhcp: cmdDhcp, connect: cmdConnect, associate: cmdAssociate, run: cmdRun, traceroute: cmdTraceroute, tracert: cmdTraceroute,
+  vlan: cmdVlan, port: cmdPort, managed: cmdManaged, stp: cmdStp, mirror: cmdMirror, web: cmdWeb, idsrule: cmdIdsRule, attack: cmdAttack, redteam: cmdRedteam, cli: cmdCli,
+  ping: cmdPing, dhcp: cmdDhcp, connect: cmdConnect, http: cmdHttp, associate: cmdAssociate, run: cmdRun, traceroute: cmdTraceroute, tracert: cmdTraceroute,
   play: cmdPlay, pause: cmdPause, step: cmdStep,
   stop: cmdStop, speed: cmdSpeed,
   topology: cmdTopology, save: cmdSave, load: cmdLoad, undo: cmdUndo, redo: cmdRedo, export: cmdExport,
@@ -918,13 +967,15 @@ const HELP: Record<string, string> = {
   managed: "managed <switch> [on|off] (enable the switch's management plane: VLANs, STP, port security)",
   stp: "stp (animate the BPDU exchange) | stp <switch> on|off | stp <switch> priority <n> (default on for managed switches)",
   mirror: "mirror <switch> <dst-port> [src-port…] | mirror <switch> off (SPAN: copy traffic to a monitor port for an IDS)",
+  web: "web <server> on|off [title] (enable/disable the server's HTTP service)",
   idsrule: "idsrule <ids> <snort rule> | idsrule <ids> clear (manage a Snort IDS sensor's rules)",
   attack: "attack <redteam> [scan|sweep|arp-spoof] [target] (launch a Red Team host's simulated attacks)",
   redteam: "redteam <node> target <ip> | attacks <scan,sweep,arp-spoof> | spoof <ip> (configure a Red Team host)",
   cli: "cli <device> <raw CLI command>",
   ping: "ping <src> <dst> (animated)", dhcp: "dhcp <host> (animated)", connect: "connect <src> <dst> <port> (animated TCP handshake)",
+  http: "http <src> <host>[:port][/path] [path] (animated HTTP GET over the TCP handshake)",
   associate: "associate <laptop> (animate the 802.11 join: probe/auth/assoc + WPA2 if secured)",
-  run: "run ping <src> <dst> | run connect <src> <dst> <port> | run resolve <src> <name> | run dhcp <host> | run associate <laptop> | run dot1x <host> | run stp (headless, returns result)",
+  run: "run ping <src> <dst> | run connect <src> <dst> <port> | run http <src> <host> | run resolve <src> <name> | run dhcp <host> | run associate <laptop> | run dot1x <host> | run stp (headless, returns result)",
   traceroute: "traceroute <src> <dst> (hop-by-hop via TTL)",
   play: "resume", pause: "pause", step: "advance one hop", stop: "stop", speed: "speed <ms-per-hop>",
   topology: "topology basic|vlan-roas|router-mesh|wifi-vlan", save: "save <name>", load: "load <name>",
@@ -992,6 +1043,7 @@ export function exportTopologyScript(): string {
       if (c.dot1x?.identity) lines.push(`supplicant ${d.name} ${c.dot1x.identity} ${c.dot1x.password || ""}`.trimEnd());
       for (const u of (c.radius?.users || [])) lines.push(`radius ${d.name} ${u.identity} ${u.password || ""}`.trimEnd());
       if (Array.isArray(c.openPorts) && c.openPorts.length) lines.push(`ports ${d.name} ${c.openPorts.join(",")}`);
+      if (c.httpEnabled) lines.push(`web ${d.name} on${c.httpTitle ? ` ${c.httpTitle}` : ""}`);
     } else if (d.type === "switch") {
       if (c.managed) {
         lines.push(`managed ${d.name}`);   // a managed switch needs its management plane on before VLAN/STP config

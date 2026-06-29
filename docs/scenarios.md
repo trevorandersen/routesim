@@ -28,6 +28,7 @@ type ScenarioCheck =
   | { kind: "ping-fail"; from: string; to: string; label: string }          // isolation: the ping must NOT succeed
   | { kind: "tcp";       from: string; to: string; port: number; label: string }   // a TCP connect succeeds
   | { kind: "tcp-fail";  from: string; to: string; port: number; label: string }   // the TCP connect must NOT succeed
+  | { kind: "http";      from: string; to: string; path?: string; status?: number; label: string }  // an HTTP GET returns 2xx (or the given status)
   | { kind: "dns";       from: string; name: string; ip?: string; label: string }  // the name resolves (optionally to a given address)
   | { kind: "dhcp";      host: string; label: string }                      // a DHCP request from host succeeds (headless)
   | { kind: "alert";     from: string; to: string; port?: number; contains: string; label: string };  // a flow makes an IDS raise an alert containing the substring — an attacker `from` launches its port scan, otherwise a tcp connect (if port) or ping
@@ -80,6 +81,7 @@ The curriculum is a progression from L2 basics to routing, services, security, a
 | `dns-service` | Name service (DNS) | Point PC-A at the nameserver (`/etc/resolv.conf`) and add a dnsmasq A-record so `web.corp` resolves, pings, and serves port 80 by name. |
 | `troubleshoot-dns` | Troubleshoot: name vs address | The IP pings but the name doesn't — find and fix the stale A-record on the dnsmasq server. |
 | `server-dhcp` | DHCP from the server | Enable `dhcp-range` on the dnsmasq server: the client leases address + nameserver (option 6) and reaches `web.corp` with zero manual config. |
+| `web-service` | Publish a web page | PC-A can already open a TCP connection to WEB on port 80, but no web service is running, so an HTTP GET gets no reply. Start the service (`web WEB on`) so WEB answers with 200 OK — an `http` check proves it. |
 | `wifi-join` | Join a WiFi network | Set the laptop's SSID + password to match the secured access point, then associate it so it reaches the wired server. |
 | `troubleshoot-wifi` | Troubleshoot: wrong WiFi password | A laptop is "associated" but offline — a wrong saved password leaves the link unauthenticated; re-join with the correct credentials. |
 | `wifi-dhcp` | WiFi hotspot + DHCP | Join an open guest hotspot and let the laptop pull an address from the DHCP server automatically, over the air. |

@@ -421,6 +421,8 @@ export function normaliseDeviceConfig(device: any): DeviceConfig {
       ...(isValidIpv4(dhcpRouterIp) ? { dhcpRouterIp } : {}),
       dhcpLeases: normaliseDhcpLeases(device.config?.dhcpLeases || []),
       ...(device.config?.radius?.users ? { radius: { users: normaliseRadiusUsers(device.config.radius.users) } } : {}),
+      ...(device.config?.httpEnabled ? { httpEnabled: true } : {}),
+      ...(device.config?.httpTitle ? { httpTitle: String(device.config.httpTitle).slice(0, 200) } : {}),
     };
   }
   if (device.type === "access-point") {

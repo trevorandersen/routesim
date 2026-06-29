@@ -695,6 +695,27 @@ const statefulFirewall: Scenario = {
   ],
 };
 
+const webService: Scenario = {
+  id: "web-service",
+  name: "Publish a web page",
+  objective: "PC-A should be able to load the home page from WEB — an HTTP GET to 10.0.0.80 must return 200 OK. The TCP port is already open (the connection succeeds), but no web service is running yet, so the GET gets no reply. Start the service. Try: `web WEB on Welcome`.",
+  topology: {
+    version: 1,
+    devices: [
+      { id: "web-a", type: "computer", name: "PC-A", x: -260, y: 0, config: { ipv4Address: "10.0.0.10", gatewayIpv4Address: "", macAddress: "02:00:00:00:80:0A", arpTable: [] } },
+      { id: "web-sw", type: "switch", name: "SW-1", x: 0, y: 0, config: { managed: false, ethernetPorts: 4, macTable: [] } },
+      { id: "web-srv", type: "server", name: "WEB", x: 260, y: 0, config: { ipv4Address: "10.0.0.80", gatewayIpv4Address: "", macAddress: "02:00:00:00:80:80", arpTable: [], dnsmasqRunning: false, openPorts: [80], httpEnabled: false } },
+    ],
+    links: [
+      { from: "web-a", to: "web-sw" },
+      { from: "web-sw", to: "web-srv" },
+    ],
+  },
+  checks: [
+    { kind: "http", from: "PC-A", to: "WEB", status: 200, label: "PC-A can load the home page from WEB (HTTP 200 OK)" },
+  ],
+};
+
 export const CURRICULUM: Scenario[] = [
   vlanSegmentation,
   routerOnAStick,
@@ -711,6 +732,7 @@ export const CURRICULUM: Scenario[] = [
   dnsService,
   troubleshootDns,
   serverDhcp,
+  webService,
   wifiJoin,
   troubleshootWifi,
   wifiDhcp,
@@ -731,7 +753,7 @@ export const SCENARIO_GROUPS: { label: string; ids: string[] }[] = [
   { label: "Getting started", ids: ["connect-lan"] },
   { label: "Switching & VLANs", ids: ["vlan-segmentation", "router-on-a-stick", "spanning-tree"] },
   { label: "Routing", ids: ["static-routes", "rip-convergence", "nat-gateway"] },
-  { label: "Services (DHCP & DNS)", ids: ["dhcp-service", "dns-service", "server-dhcp"] },
+  { label: "Services (DHCP, DNS & HTTP)", ids: ["dhcp-service", "dns-service", "server-dhcp", "web-service"] },
   { label: "Wireless", ids: ["wifi-join", "wifi-dhcp"] },
   { label: "Security", ids: ["firewall-guard", "harden-gateway", "stateful-firewall", "port-auth-8021x", "macsec-link", "secure-access", "ids-monitor", "red-team-scan"] },
   { label: "Troubleshooting", ids: ["troubleshoot-gateway", "troubleshoot-vlan", "troubleshoot-static-route", "troubleshoot-firewall", "troubleshoot-dns", "troubleshoot-wifi"] },

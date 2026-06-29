@@ -63,7 +63,7 @@ export const SERVER_PRESETS: Record<string, ServerPreset> = {
   "dns-server": { namePrefix: "DNS", config: () => ({ dnsmasqRunning: true, dnsRecords: [] }) },
   "dhcp-server": { namePrefix: "DHCP", config: () => ({ dnsmasqRunning: true, dnsRecords: [] }) },
   "radius-server": { namePrefix: "RAD", config: () => ({ dnsmasqRunning: false, radius: { users: [] } }) },
-  "web-server": { namePrefix: "WEB", config: () => ({ dnsmasqRunning: false, openPorts: [80] }) },
+  "web-server": { namePrefix: "WEB", config: () => ({ dnsmasqRunning: false, openPorts: [80], httpEnabled: true }) },
 };
 
 // Next free "<PREFIX>-<n>" name across all devices. Preset prefixes aren't in

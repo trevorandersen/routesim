@@ -211,6 +211,11 @@ export interface ServerConfig extends ComputerConfig {
   // RADIUS authentication server (the 802.1X back end): the user database an
   // authenticator validates supplicants against. Presence enables the service.
   radius?: { users: { identity: string; password: string }[] };
+  // HTTP service: when enabled, the server answers an HTTP GET (on a listening
+  // port, default 80) with 200 OK — the application layer riding the TCP
+  // handshake. `httpTitle` is the served page's one-line body.
+  httpEnabled?: boolean;
+  httpTitle?: string;
 }
 
 // Spanning Tree (802.1D) per managed switch. `enabled` and `priority` are
@@ -502,6 +507,20 @@ export interface TcpPayload {
   srcPort: number;
   dstPort: number;
   flags: TcpFlags;
+  http?: HttpInfo;   // HTTP application data carried on an established (ACK) segment
+}
+
+// HTTP/1.1 application data on a TCP segment — a GET request or its response.
+// Carried on a flags:"ack" segment (data on the established connection), so the
+// packet list shows it as HTTP rather than a bare ACK.
+export interface HttpInfo {
+  kind: "request" | "response";
+  method?: string;       // request: "GET"
+  path?: string;         // request: "/"
+  host?: string;         // request: the Host header
+  status?: number;       // response: 200 / 404
+  statusText?: string;   // response: "OK" / "Not Found"
+  title?: string;        // response: the served page's one-line body
 }
 
 export interface DhcpPayload {
@@ -633,7 +652,7 @@ export interface CaptureEntry {
 
 export interface SimulationState {
   status: "idle" | "running" | "paused" | "done";
-  mode: "ping" | "dhcp" | "tcp" | "dns" | "associate" | "dot1x" | "stp" | "attack";
+  mode: "ping" | "dhcp" | "tcp" | "dns" | "http" | "associate" | "dot1x" | "stp" | "attack";
   events: SimEvent[];
   log: SimLogEntry[];
   capture: CaptureEntry[];   // packet list (animated runs only; capped)
@@ -648,13 +667,19 @@ export interface SimulationState {
   pingTtl: number;
   pingResponderIp: string | null;   // who answered (echo reply, or a router's TTL-exceeded)
   pingTimeExceeded: boolean;         // the last answer was an ICMP Time-Exceeded
-  tcpSuccess: boolean;               // three-way handshake completed (mode "tcp")
+  tcpSuccess: boolean;               // three-way handshake completed (mode "tcp"/"http")
   tcpRefused: boolean;               // destination answered RST (port closed)
   tcpTargetPort: number | null;
+  // HTTP (mode "http"): the GET path, and the response once it arrives.
+  httpPath: string;
+  httpSuccess: boolean;              // a 2xx response came back
+  httpStatus: number | null;        // the response status code
+  httpStatusText: string | null;
+  httpServerTitle: string | null;   // the served page's one-line body
   headless: boolean;                 // running synchronously (no animation / terminal output)
-  dnsName: string | null;            // name being resolved (DNS flows and ping/tcp-by-name)
+  dnsName: string | null;            // name being resolved (DNS flows and ping/tcp/http-by-name)
   dnsResolvedIp: string | null;      // the answer, once the DNS response arrives
-  resolveThen: "ping" | "tcp" | null; // follow-on flow the origin starts after resolution
+  resolveThen: "ping" | "tcp" | "http" | null; // follow-on flow the origin starts after resolution
   dhcpOfferTaken: boolean;           // client accepted an Offer (ignore competing servers)
   dhcpSuccess: boolean;
   dhcpAssignedIp: string | null;

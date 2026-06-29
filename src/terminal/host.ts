@@ -7,7 +7,7 @@ import { state, sync, pushUndo } from "../state";
 import { dom } from "../dom";
 import { isValidIpv4, isValidMac, normaliseMacAddress, parseIpv4Token, prefixOf, clampPrefixLength } from "../utils";
 import { normaliseArpTable, ensureConfig } from "../normalise";
-import { buildPingEvents, buildDhcpEvents, buildConnectEvents, buildResolveEvents } from "../simulation";
+import { buildPingEvents, buildDhcpEvents, buildConnectEvents, buildResolveEvents, buildHttpEvents, parseHttpTarget } from "../simulation";
 import { startSimulation, runTraceroute } from "../engine";
 import { applyHostname } from "../devices";
 import { terminalLine } from "./core";
@@ -257,6 +257,29 @@ export function runHostTerminalCommand(host: Device, command: string): void {
     return;
   }
 
+  // curl / wget [flags] <url> [flags] — an HTTP GET over the TCP handshake.
+  const httpMatch = command.match(/^(curl|wget)(?:\s+(.+))?$/i);
+  if (httpMatch) {
+    const tool = httpMatch[1].toLowerCase();
+    // The first non-flag token is the URL (flags may sit before or after it).
+    const url = (httpMatch[2] || "").trim().split(/\s+/).find(t => t && !t.startsWith("-")) || "";
+    if (!url) { terminalLine("error", `${tool}: no URL specified`); return; }
+    const { host: target, port, path } = parseHttpTarget(url);
+    if (!target) { terminalLine("error", `${tool}: no URL specified`); return; }
+    if (!Number.isInteger(port) || port < 1 || port > 65535) {
+      terminalLine("error", `${tool}: (3) URL rejected: Port number was not a decimal number between 0 and 65535`);
+      return;
+    }
+    const result = buildHttpEvents(host, target, port, path);
+    if (typeof result === "string") {
+      terminalLine("error", result);
+    } else {
+      startSimulation(result, host.id, resolvePingTargetIp(target), "http", port);
+      dom.terminalInput.disabled = true;
+    }
+    return;
+  }
+
   const traceMatch = command.match(/^(?:traceroute|tracert)\s+(.+)$/i);
   if (traceMatch) {
     const result = runTraceroute(host, traceMatch[1].trim());
@@ -312,6 +335,7 @@ export function hostHelpLines(): string[] {
     "  traceroute <name|ipv4>",
     "  nslookup <name>               (DNS lookup)",
     "  nc -z <name|ipv4> <port>      (TCP connection test)",
+    "  curl http://<name|ipv4>[:port][/path]  (HTTP GET)",
     "  dhcp",
     "  clear"
   ];

@@ -109,10 +109,14 @@ the step loop. Depends on **Configurable links** below for per-link bandwidth
 distance metric).
 
 ### Server — more services
-The server device is built to host more than dnsmasq: an HTTP service (a real
-GET riding the existing TCP handshake), DNAT/port-forwarding on NAT routers so
-inbound connections can reach an inside server, upstream DNS forwarding.
-Effort: low–moderate each.
+The server device hosts more than dnsmasq. **HTTP — shipped (2026-06):** a real
+HTTP GET rides the existing TCP handshake (`curl http://host` / `http <src>
+<host>`, sim mode `"http"`), and a server with its web service on (`web <host>
+on`, the inspector toggle, or the Web-server tool) answers **200 OK** —
+`HttpInfo` on a TCP segment, shown as HTTP in the packet list; the `web-service`
+scenario + `http` scenario-check ship with it. **Still to do:** DNAT/
+port-forwarding on NAT routers so inbound connections can reach an inside server,
+and upstream DNS forwarding. Effort: low–moderate each.
 
 ### Multi-NIC hosts
 Hosts currently model a single NIC (eth0) and so take one cable. Allow

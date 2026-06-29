@@ -1,0 +1,12 @@
+# Publish a web page  ·  scenario id: web-service
+#
+# PC-A can already open a TCP connection to WEB on port 80, but no web service
+# is running there, so an HTTP GET gets no reply. Starting the service makes WEB
+# answer the GET with 200 OK.
+#
+# Loads the scenario, applies the solution, and checks the goal. Paste into
+# the command console (the >_ toolbar button) or run with routesim.run(...).
+
+scenario load web-service
+web WEB on Welcome
+scenario check

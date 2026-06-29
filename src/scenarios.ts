@@ -9,7 +9,7 @@ import { state, sync } from "./state";
 import { getDevice } from "./devices";
 import { applyConfig } from "./config";
 import { normaliseConfig, shiftToPositive } from "./normalise";
-import { buildPingEvents, buildDhcpEvents, buildConnectEvents, buildResolveEvents, buildScanEvents } from "./simulation";
+import { buildPingEvents, buildDhcpEvents, buildConnectEvents, buildResolveEvents, buildHttpEvents, buildScanEvents } from "./simulation";
 import { CURRICULUM } from "./scenario-library";
 import { runSimulationHeadless } from "./engine";
 
@@ -20,6 +20,7 @@ export type ScenarioCheck =
   | { kind: "ping-fail"; from: string; to: string; label: string }   // isolation: the ping must NOT succeed
   | { kind: "tcp"; from: string; to: string; port: number; label: string }
   | { kind: "tcp-fail"; from: string; to: string; port: number; label: string }
+  | { kind: "http"; from: string; to: string; path?: string; status?: number; label: string }   // an HTTP GET returns 2xx (or the given status)
   | { kind: "dns"; from: string; name: string; ip?: string; label: string }   // name resolves (optionally to a given address)
   | { kind: "dhcp"; host: string; label: string }
   // An IDS sensor raises an alert containing `contains` for a flow from→to (TCP
@@ -132,6 +133,15 @@ function evaluate(check: ScenarioCheck): boolean {
     const success = typeof setup === "string" ? false
       : runSimulationHeadless(setup, from.id, to, "tcp", check.port).success;
     return check.kind === "tcp" ? success : !success;
+  }
+  if (check.kind === "http") {
+    const from = resolve(check.from);
+    if (!from) return false;
+    const to = resolve(check.to)?.config?.ipv4Address || check.to;
+    const setup = buildHttpEvents(from, to, 80, check.path || "/");
+    if (typeof setup === "string") return false;
+    const r = runSimulationHeadless(setup, from.id, to, "http", 80);
+    return check.status != null ? r.httpStatus === check.status : (r.httpStatus != null && r.httpStatus >= 200 && r.httpStatus < 300);
   }
   if (check.kind === "dns") {
     const from = resolve(check.from);

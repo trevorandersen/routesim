@@ -1841,6 +1841,7 @@
     .pkt-icmp       td { color: #7dd3fc; }
     .pkt-icmp-reply td { color: #34d399; }
     .pkt-tcp        td { color: #fb923c; }
+    .pkt-http       td { color: #a3e635; }
     .pkt-dns        td { color: #22d3ee; }
     .pkt-dhcp       td { color: #a78bfa; }
     .pkt-dot11      td { color: #2dd4bf; }

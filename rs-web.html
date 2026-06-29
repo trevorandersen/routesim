@@ -1850,6 +1850,7 @@
     .pkt-icmp       td { color: #7dd3fc; }
     .pkt-icmp-reply td { color: #34d399; }
     .pkt-tcp        td { color: #fb923c; }
+    .pkt-http       td { color: #a3e635; }
     .pkt-dns        td { color: #22d3ee; }
     .pkt-dhcp       td { color: #a78bfa; }
     .pkt-dot11      td { color: #2dd4bf; }
@@ -3372,7 +3373,9 @@ Full legal text: https://creativecommons.org/publicdomain/zero/1.0/legalcode</pr
         ...rangeValid ? { dhcpRangeStart, dhcpRangeEnd } : {},
         ...isValidIpv4(dhcpRouterIp) ? { dhcpRouterIp } : {},
         dhcpLeases: normaliseDhcpLeases(device.config?.dhcpLeases || []),
-        ...device.config?.radius?.users ? { radius: { users: normaliseRadiusUsers(device.config.radius.users) } } : {}
+        ...device.config?.radius?.users ? { radius: { users: normaliseRadiusUsers(device.config.radius.users) } } : {},
+        ...device.config?.httpEnabled ? { httpEnabled: true } : {},
+        ...device.config?.httpTitle ? { httpTitle: String(device.config.httpTitle).slice(0, 200) } : {}
       };
     }
     if (device.type === "access-point") {
@@ -3580,6 +3583,11 @@ Full legal text: https://creativecommons.org/publicdomain/zero/1.0/legalcode</pr
       tcpSuccess: false,
       tcpRefused: false,
       tcpTargetPort: null,
+      httpPath: "/",
+      httpSuccess: false,
+      httpStatus: null,
+      httpStatusText: null,
+      httpServerTitle: null,
       headless: false,
       dnsName: null,
       dnsResolvedIp: null,
@@ -4166,7 +4174,7 @@ Full legal text: https://creativecommons.org/publicdomain/zero/1.0/legalcode</pr
     "dns-server": { namePrefix: "DNS", config: () => ({ dnsmasqRunning: true, dnsRecords: [] }) },
     "dhcp-server": { namePrefix: "DHCP", config: () => ({ dnsmasqRunning: true, dnsRecords: [] }) },
     "radius-server": { namePrefix: "RAD", config: () => ({ dnsmasqRunning: false, radius: { users: [] } }) },
-    "web-server": { namePrefix: "WEB", config: () => ({ dnsmasqRunning: false, openPorts: [80] }) }
+    "web-server": { namePrefix: "WEB", config: () => ({ dnsmasqRunning: false, openPorts: [80], httpEnabled: true }) }
   };
   function nextNameForPrefix(prefix) {
     const p = `${prefix}-`;
@@ -5181,6 +5189,18 @@ Full legal text: https://creativecommons.org/publicdomain/zero/1.0/legalcode</pr
     const ipv4 = { type: "ipv4", srcIp, dstIp, ttl, protocol: 6, payload: tcp };
     return { id: nextFrameId(), srcMac, dstMac, etherType: 2048, vlanTag, payload: ipv4 };
   }
+  function createHttpRequest(srcMac, dstMac, srcIp, dstIp, srcPort, dstPort, path, host, ttl = 64, vlanTag = null) {
+    const http = { kind: "request", method: "GET", path, host };
+    const tcp = { type: "tcp", srcPort, dstPort, flags: "ack", http };
+    const ipv4 = { type: "ipv4", srcIp, dstIp, ttl, protocol: 6, payload: tcp };
+    return { id: nextFrameId(), srcMac, dstMac, etherType: 2048, vlanTag, payload: ipv4 };
+  }
+  function createHttpResponse(srcMac, dstMac, srcIp, dstIp, srcPort, dstPort, status, statusText, title, ttl = 64, vlanTag = null) {
+    const http = { kind: "response", status, statusText, title };
+    const tcp = { type: "tcp", srcPort, dstPort, flags: "ack", http };
+    const ipv4 = { type: "ipv4", srcIp, dstIp, ttl, protocol: 6, payload: tcp };
+    return { id: nextFrameId(), srcMac, dstMac, etherType: 2048, vlanTag, payload: ipv4 };
+  }
   var dnsIdCounter = 0;
   function createDnsQuery(srcMac, dstMac, srcIp, dstIp, name, id = ++dnsIdCounter, ttl = 64, vlanTag = null) {
     const dns = { type: "dns", op: "query", id, name, address: null };
@@ -5336,6 +5356,11 @@ Full legal text: https://creativecommons.org/publicdomain/zero/1.0/legalcode</pr
       return { src, dst, protocol: "ICMP", info: "Time-to-live exceeded (Time to live exceeded in transit)", tone: "bad" };
     }
     if (p.type === "tcp") {
+      if (p.http) {
+        const info = p.http.kind === "request" ? `${p.http.method} ${p.http.path} HTTP/1.1  (Host: ${p.http.host})` : `HTTP/1.1 ${p.http.status} ${p.http.statusText}`;
+        const bad = p.http.kind === "response" && (p.http.status == null || p.http.status >= 400);
+        return { src, dst, protocol: "HTTP", info, tone: bad ? "bad" : "http" };
+      }
       const flags = { "syn": "[SYN]", "syn-ack": "[SYN, ACK]", "ack": "[ACK]", "rst": "[RST]" };
       return { src, dst, protocol: "TCP", info: `${p.srcPort} \u2192 ${p.dstPort} ${flags[p.flags] || ""} Len=0`, tone: p.flags === "rst" ? "bad" : "tcp" };
     }
@@ -5367,8 +5392,12 @@ Full legal text: https://creativecommons.org/publicdomain/zero/1.0/legalcode</pr
         const labels = { discover: "DHCP Disc", offer: "DHCP Offer", request: "DHCP Req", ack: "DHCP ACK" };
         label = labels[dhcp.messageType] || "DHCP";
       } else if (ipv4.payload.type === "tcp") {
-        const labels = { "syn": "TCP SYN", "syn-ack": "TCP SYN-ACK", "ack": "TCP ACK", "rst": "TCP RST" };
-        label = labels[ipv4.payload.flags] || "TCP";
+        if (ipv4.payload.http) {
+          label = ipv4.payload.http.kind === "request" ? "HTTP GET" : `HTTP ${ipv4.payload.http.status}`;
+        } else {
+          const labels = { "syn": "TCP SYN", "syn-ack": "TCP SYN-ACK", "ack": "TCP ACK", "rst": "TCP RST" };
+          label = labels[ipv4.payload.flags] || "TCP";
+        }
       } else if (ipv4.payload.type === "dns") {
         label = ipv4.payload.op === "query" ? "DNS Query" : ipv4.payload.address ? "DNS Answer" : "DNS NXDOMAIN";
       } else if (ipv4.payload.type === "icmp") {
@@ -5391,7 +5420,13 @@ Full legal text: https://creativecommons.org/publicdomain/zero/1.0/legalcode</pr
     const ipv4 = frame.payload;
     if (ipv4.payload.type === "dhcp") return "#a78bfa";
     if (ipv4.payload.type === "dns") return ipv4.payload.op === "response" && !ipv4.payload.address ? "#ef4444" : "#22d3ee";
-    if (ipv4.payload.type === "tcp") return ipv4.payload.flags === "rst" ? "#ef4444" : "#fb923c";
+    if (ipv4.payload.type === "tcp") {
+      if (ipv4.payload.http) {
+        const bad = ipv4.payload.http.kind === "response" && (ipv4.payload.http.status == null || ipv4.payload.http.status >= 400);
+        return bad ? "#ef4444" : "#a3e635";
+      }
+      return ipv4.payload.flags === "rst" ? "#ef4444" : "#fb923c";
+    }
     if (ipv4.payload.type === "icmp" && ipv4.payload.icmpType === 8) return "#3b82f6";
     if (ipv4.payload.type === "icmp" && (ipv4.payload.icmpType === 11 || ipv4.payload.icmpType === 3)) return "#ef4444";
     return "#22c55e";
@@ -5557,6 +5592,31 @@ Full legal text: https://creativecommons.org/publicdomain/zero/1.0/legalcode</pr
       }],
       pendingArp
     };
+  }
+  function parseHttpTarget(text, fallbackPath = "/") {
+    let s = String(text || "").trim().replace(/^https?:\/\//i, "");
+    let path = fallbackPath || "/";
+    const slash = s.indexOf("/");
+    if (slash >= 0) {
+      path = s.slice(slash);
+      s = s.slice(0, slash);
+    }
+    let port = 80;
+    const colon = s.indexOf(":");
+    if (colon >= 0) {
+      const p = Number(s.slice(colon + 1));
+      port = Number.isInteger(p) && p > 0 && p < 65536 ? p : NaN;
+      s = s.slice(0, colon);
+    }
+    if (!path.startsWith("/")) path = "/" + path;
+    return { host: s, port, path };
+  }
+  function buildHttpEvents(source, targetText, port = 80, path = "/") {
+    const setup = buildConnectEvents(source, targetText, port);
+    if (typeof setup === "string") return setup;
+    setup.httpPath = path || "/";
+    if (setup.dns) setup.dns.then = "http";
+    return setup;
   }
   function buildResolveEvents(source, name, then = null, port = null) {
     if (!source.config?.ipv4Address) return `${source.name}: eth0 has no IPv4 address.`;
@@ -7013,6 +7073,11 @@ Full legal text: https://creativecommons.org/publicdomain/zero/1.0/legalcode</pr
     sim.tcpSuccess = false;
     sim.tcpRefused = false;
     sim.tcpTargetPort = setup.dns?.port ?? targetPort;
+    sim.httpPath = setup.httpPath ?? "/";
+    sim.httpSuccess = false;
+    sim.httpStatus = null;
+    sim.httpStatusText = null;
+    sim.httpServerTitle = null;
     sim.dnsName = setup.dns?.name ?? null;
     sim.dnsResolvedIp = null;
     sim.resolveThen = setup.dns?.then ?? null;
@@ -7032,7 +7097,7 @@ Full legal text: https://creativecommons.org/publicdomain/zero/1.0/legalcode</pr
       if ((d.type === "attacker" || d.type === "kali") && d.config) d.config.attackLog = [];
     }
     const target = setup.dns ? setup.dns.name : targetIp;
-    const label = mode === "dhcp" ? "Requesting DHCP lease..." : mode === "tcp" ? `Opening TCP connection to ${target}:${sim.tcpTargetPort ?? "?"}...` : mode === "dns" ? `Resolving ${target}...` : mode === "associate" ? `Associating to ${target || "WiFi"}...` : mode === "dot1x" ? `802.1X authenticating ${target || "supplicant"}...` : mode === "stp" ? "Spanning tree: advertising BPDUs from the root bridge..." : mode === "attack" ? "Red Team: launching attacks..." : `Simulating ping to ${target}...`;
+    const label = mode === "dhcp" ? "Requesting DHCP lease..." : mode === "tcp" ? `Opening TCP connection to ${target}:${sim.tcpTargetPort ?? "?"}...` : mode === "http" ? `Requesting http://${target}${sim.httpPath}...` : mode === "dns" ? `Resolving ${target}...` : mode === "associate" ? `Associating to ${target || "WiFi"}...` : mode === "dot1x" ? `802.1X authenticating ${target || "supplicant"}...` : mode === "stp" ? "Spanning tree: advertising BPDUs from the root bridge..." : mode === "attack" ? "Red Team: launching attacks..." : `Simulating ping to ${target}...`;
     state.terminal.lines.push({ kind: "sim", text: label });
     if (!state.dock.open) openDock("simlog");
     syncTerminal();
@@ -7104,6 +7169,11 @@ Full legal text: https://creativecommons.org/publicdomain/zero/1.0/legalcode</pr
     sim.tcpSuccess = false;
     sim.tcpRefused = false;
     sim.tcpTargetPort = setup.dns?.port ?? targetPort;
+    sim.httpPath = setup.httpPath ?? "/";
+    sim.httpSuccess = false;
+    sim.httpStatus = null;
+    sim.httpStatusText = null;
+    sim.httpServerTitle = null;
     sim.dnsName = setup.dns?.name ?? null;
     sim.dnsResolvedIp = null;
     sim.resolveThen = setup.dns?.then ?? null;
@@ -7133,12 +7203,13 @@ Full legal text: https://creativecommons.org/publicdomain/zero/1.0/legalcode</pr
     if (guard >= MAX_STEPS && (sim.transits.length > 0 || sim.events.length > 0)) sim.stormDetected = true;
     if (sim.status !== "done") finishSimulation();
     return {
-      success: mode === "dhcp" ? sim.dhcpSuccess : mode === "tcp" ? sim.tcpSuccess : mode === "dns" ? sim.dnsResolvedIp != null : mode === "associate" ? sim.wifiAssociated : mode === "dot1x" ? sim.dot1xAuthorized : mode === "stp" ? !sim.stormDetected : mode === "attack" ? sim.scanOpen.length > 0 || sim.sweepLive.length > 0 : sim.pingSuccess,
+      success: mode === "dhcp" ? sim.dhcpSuccess : mode === "tcp" ? sim.tcpSuccess : mode === "http" ? sim.httpSuccess : mode === "dns" ? sim.dnsResolvedIp != null : mode === "associate" ? sim.wifiAssociated : mode === "dot1x" ? sim.dot1xAuthorized : mode === "stp" ? !sim.stormDetected : mode === "attack" ? sim.scanOpen.length > 0 || sim.sweepLive.length > 0 : sim.pingSuccess,
       refused: sim.tcpRefused,
       ttl: sim.pingTtl,
       responderIp: sim.pingResponderIp,
       timeExceeded: sim.pingTimeExceeded,
       resolvedIp: sim.dnsResolvedIp,
+      httpStatus: sim.httpStatus,
       assignedIp: sim.dhcpAssignedIp,
       assignedGateway: sim.dhcpAssignedGateway,
       log: sim.log,
@@ -7632,10 +7703,31 @@ Full legal text: https://creativecommons.org/publicdomain/zero/1.0/legalcode</pr
             sim.pingResponderIp = ipv4.srcIp;
           }
           outgoing.push({ frame: createTcpSegment(config.macAddress || "", frame.srcMac, config.ipv4Address || "", ipv4.srcIp, tcp.dstPort, tcp.srcPort, "ack", 64, frame.vlanTag), toDeviceId: fromDeviceId });
+          if (sim.mode === "http" && device.id === sim.originDeviceId) {
+            const host = sim.dnsName || ipv4.srcIp;
+            logStep(device, "sim-tcp", `HTTP GET ${sim.httpPath} (Host: ${host})`);
+            outgoing.push({ frame: createHttpRequest(config.macAddress || "", frame.srcMac, config.ipv4Address || "", ipv4.srcIp, tcp.dstPort, tcp.srcPort, sim.httpPath, host, 64, frame.vlanTag), toDeviceId: fromDeviceId });
+          }
         } else if (tcp.flags === "rst") {
           if (device.id === sim.originDeviceId) {
             sim.tcpRefused = true;
             logStep(device, "sim-drop", `TCP RST from ${ipv4.srcIp}:${tcp.srcPort} \u2014 connection refused`);
+          }
+        } else if (tcp.flags === "ack" && tcp.http?.kind === "request") {
+          if (config.httpEnabled && tcp.dstPort === 80) {
+            const title = config.httpTitle || `${device.name} \u2014 RouteSim web server`;
+            logStep(device, "sim-tcp", `HTTP ${tcp.http.method} ${tcp.http.path} \u2192 200 OK`);
+            outgoing.push({ frame: createHttpResponse(config.macAddress || "", frame.srcMac, config.ipv4Address || "", ipv4.srcIp, tcp.dstPort, tcp.srcPort, 200, "OK", title, 64, frame.vlanTag), toDeviceId: fromDeviceId });
+          } else {
+            logStep(device, "sim-drop", `HTTP ${tcp.http.method} ${tcp.http.path} on port ${tcp.dstPort} \u2014 no web service (no response)`);
+          }
+        } else if (tcp.flags === "ack" && tcp.http?.kind === "response") {
+          if (device.id === sim.originDeviceId) {
+            sim.httpStatus = tcp.http.status ?? null;
+            sim.httpStatusText = tcp.http.statusText ?? null;
+            sim.httpServerTitle = tcp.http.title ?? null;
+            sim.httpSuccess = (tcp.http.status ?? 0) >= 200 && (tcp.http.status ?? 0) < 300;
+            logStep(device, "sim-tcp", `HTTP ${tcp.http.status} ${tcp.http.statusText} from ${ipv4.srcIp}`);
           }
         } else if (tcp.flags === "ack") {
           logStep(device, "sim-tcp", `TCP ACK from ${ipv4.srcIp} \u2014 handshake complete`);
@@ -7700,7 +7792,7 @@ Full legal text: https://creativecommons.org/publicdomain/zero/1.0/legalcode</pr
       nextHopIp = config.gatewayIpv4Address;
     }
     const srcPort = 3e4 + sim.stepIndex % 2e4;
-    const make = (dstMac) => then === "tcp" ? createTcpSegment(srcMac, dstMac, srcIp, dstIp, srcPort, port ?? 80, "syn", 64, vlanTag) : createIcmpEchoRequest(srcMac, dstMac, srcIp, dstIp, 64, vlanTag);
+    const make = (dstMac) => then === "ping" ? createIcmpEchoRequest(srcMac, dstMac, srcIp, dstIp, 64, vlanTag) : createTcpSegment(srcMac, dstMac, srcIp, dstIp, srcPort, port ?? 80, "syn", 64, vlanTag);
     const arpEntry = (config.arpTable || []).find((e) => e.ipv4Address === nextHopIp);
     if (arpEntry) return [make(arpEntry.macAddress)];
     const pendingKey = `${device.id}:${nextHopIp}`;
@@ -8833,6 +8925,25 @@ Address: ${sim.dnsResolvedIp}`);
           out("error", `nc: connect to ${target} port ${port} (tcp) failed: Operation timed out`);
         }
       }
+    } else if (sim.mode === "http") {
+      if (!sim.headless) {
+        const target = sim.dnsName || sim.pingTargetIp || "?";
+        const url = `http://${target}${sim.httpPath || "/"}`;
+        if (sim.dnsName && !sim.dnsResolvedIp) {
+          out("error", `curl: (6) Could not resolve host: ${sim.dnsName}`);
+        } else if (sim.tcpRefused) {
+          out("error", `curl: (7) Failed to connect to ${target} port ${sim.tcpTargetPort ?? 80}: Connection refused`);
+        } else if (sim.httpStatus != null) {
+          out("", `> GET ${sim.httpPath || "/"} HTTP/1.1
+< HTTP/1.1 ${sim.httpStatus} ${sim.httpStatusText}
+
+${sim.httpServerTitle || ""}`);
+        } else if (sim.tcpSuccess) {
+          out("error", `curl: (52) Empty reply from server (${url} \u2014 connected, but no web service is listening)`);
+        } else {
+          out("error", `curl: (28) Failed to connect to ${target} port ${sim.tcpTargetPort ?? 80}: Operation timed out`);
+        }
+      }
     } else if (!sim.headless) {
       if (sim.dnsName && !sim.dnsResolvedIp) {
         out("error", `ping: ${sim.dnsName}: Name or service not known`);
@@ -9087,6 +9198,32 @@ Address: ${sim.dnsResolvedIp}`);
       }
       return;
     }
+    const httpMatch = command.match(/^(curl|wget)(?:\s+(.+))?$/i);
+    if (httpMatch) {
+      const tool = httpMatch[1].toLowerCase();
+      const url = (httpMatch[2] || "").trim().split(/\s+/).find((t) => t && !t.startsWith("-")) || "";
+      if (!url) {
+        terminalLine("error", `${tool}: no URL specified`);
+        return;
+      }
+      const { host: target, port, path } = parseHttpTarget(url);
+      if (!target) {
+        terminalLine("error", `${tool}: no URL specified`);
+        return;
+      }
+      if (!Number.isInteger(port) || port < 1 || port > 65535) {
+        terminalLine("error", `${tool}: (3) URL rejected: Port number was not a decimal number between 0 and 65535`);
+        return;
+      }
+      const result = buildHttpEvents(host, target, port, path);
+      if (typeof result === "string") {
+        terminalLine("error", result);
+      } else {
+        startSimulation(result, host.id, resolvePingTargetIp(target), "http", port);
+        dom.terminalInput.disabled = true;
+      }
+      return;
+    }
     const traceMatch = command.match(/^(?:traceroute|tracert)\s+(.+)$/i);
     if (traceMatch) {
       const result = runTraceroute(host, traceMatch[1].trim());
@@ -9137,6 +9274,7 @@ Address: ${sim.dnsResolvedIp}`);
       "  traceroute <name|ipv4>",
       "  nslookup <name>               (DNS lookup)",
       "  nc -z <name|ipv4> <port>      (TCP connection test)",
+      "  curl http://<name|ipv4>[:port][/path]  (HTTP GET)",
       "  dhcp",
       "  clear"
     ];
@@ -11226,6 +11364,15 @@ Snort successfully validated the configuration${bad ? " (with errors)" : "."}`);
       <input id="dnsmasqRunning" type="checkbox" ${config.dnsmasqRunning !== false ? "checked" : ""}>
     </div>
     <div class="field">
+      <label for="httpEnabled">HTTP service (answer GET with 200 OK)</label>
+      <input id="httpEnabled" type="checkbox" ${config.httpEnabled ? "checked" : ""}>
+    </div>
+    ${config.httpEnabled ? `
+    <div class="field">
+      <label for="httpTitle">Web page title</label>
+      <input id="httpTitle" value="${escapeHtml(config.httpTitle || "")}" placeholder="${escapeHtml(device.name)} \u2014 RouteSim web server" autocomplete="off">
+    </div>` : ""}
+    <div class="field">
       <label>DNS records (address=/name/ip)</label>
       ${records.length ? `
       <table class="data-table">
@@ -11301,6 +11448,24 @@ Snort successfully validated the configuration${bad ? " (with errors)" : "."}`);
         pushUndo();
         ensureConfig(selected);
         selected.config.dnsmasqRunning = event.target.checked;
+        syncPanel();
+      });
+    }
+    const httpInput = document.getElementById("httpEnabled");
+    if (httpInput) {
+      httpInput.addEventListener("change", (event) => {
+        pushUndo();
+        ensureConfig(selected);
+        selected.config.httpEnabled = event.target.checked;
+        syncPanel();
+      });
+    }
+    const httpTitleInput = document.getElementById("httpTitle");
+    if (httpTitleInput) {
+      httpTitleInput.addEventListener("change", (event) => {
+        pushUndo();
+        ensureConfig(selected);
+        selected.config.httpTitle = event.target.value.replace(/\s+/g, " ").trim().slice(0, 200);
         syncPanel();
       });
     }
@@ -12956,6 +13121,26 @@ Snort successfully validated the configuration${bad ? " (with errors)" : "."}`);
       { kind: "tcp-fail", from: "RT", to: "PC-A", port: 22, label: "The Red Team cannot open a new connection in to PC-A" }
     ]
   };
+  var webService = {
+    id: "web-service",
+    name: "Publish a web page",
+    objective: "PC-A should be able to load the home page from WEB \u2014 an HTTP GET to 10.0.0.80 must return 200 OK. The TCP port is already open (the connection succeeds), but no web service is running yet, so the GET gets no reply. Start the service. Try: `web WEB on Welcome`.",
+    topology: {
+      version: 1,
+      devices: [
+        { id: "web-a", type: "computer", name: "PC-A", x: -260, y: 0, config: { ipv4Address: "10.0.0.10", gatewayIpv4Address: "", macAddress: "02:00:00:00:80:0A", arpTable: [] } },
+        { id: "web-sw", type: "switch", name: "SW-1", x: 0, y: 0, config: { managed: false, ethernetPorts: 4, macTable: [] } },
+        { id: "web-srv", type: "server", name: "WEB", x: 260, y: 0, config: { ipv4Address: "10.0.0.80", gatewayIpv4Address: "", macAddress: "02:00:00:00:80:80", arpTable: [], dnsmasqRunning: false, openPorts: [80], httpEnabled: false } }
+      ],
+      links: [
+        { from: "web-a", to: "web-sw" },
+        { from: "web-sw", to: "web-srv" }
+      ]
+    },
+    checks: [
+      { kind: "http", from: "PC-A", to: "WEB", status: 200, label: "PC-A can load the home page from WEB (HTTP 200 OK)" }
+    ]
+  };
   var CURRICULUM = [
     vlanSegmentation,
     routerOnAStick,
@@ -12972,6 +13157,7 @@ Snort successfully validated the configuration${bad ? " (with errors)" : "."}`);
     dnsService,
     troubleshootDns,
     serverDhcp,
+    webService,
     wifiJoin,
     troubleshootWifi,
     wifiDhcp,
@@ -12987,7 +13173,7 @@ Snort successfully validated the configuration${bad ? " (with errors)" : "."}`);
     { label: "Getting started", ids: ["connect-lan"] },
     { label: "Switching & VLANs", ids: ["vlan-segmentation", "router-on-a-stick", "spanning-tree"] },
     { label: "Routing", ids: ["static-routes", "rip-convergence", "nat-gateway"] },
-    { label: "Services (DHCP & DNS)", ids: ["dhcp-service", "dns-service", "server-dhcp"] },
+    { label: "Services (DHCP, DNS & HTTP)", ids: ["dhcp-service", "dns-service", "server-dhcp", "web-service"] },
     { label: "Wireless", ids: ["wifi-join", "wifi-dhcp"] },
     { label: "Security", ids: ["firewall-guard", "harden-gateway", "stateful-firewall", "port-auth-8021x", "macsec-link", "secure-access", "ids-monitor", "red-team-scan"] },
     { label: "Troubleshooting", ids: ["troubleshoot-gateway", "troubleshoot-vlan", "troubleshoot-static-route", "troubleshoot-firewall", "troubleshoot-dns", "troubleshoot-wifi"] }
@@ -13088,6 +13274,15 @@ Snort successfully validated the configuration${bad ? " (with errors)" : "."}`);
       const setup = buildConnectEvents(from, to, check.port);
       const success = typeof setup === "string" ? false : runSimulationHeadless(setup, from.id, to, "tcp", check.port).success;
       return check.kind === "tcp" ? success : !success;
+    }
+    if (check.kind === "http") {
+      const from = resolve(check.from);
+      if (!from) return false;
+      const to = resolve(check.to)?.config?.ipv4Address || check.to;
+      const setup = buildHttpEvents(from, to, 80, check.path || "/");
+      if (typeof setup === "string") return false;
+      const r = runSimulationHeadless(setup, from.id, to, "http", 80);
+      return check.status != null ? r.httpStatus === check.status : r.httpStatus != null && r.httpStatus >= 200 && r.httpStatus < 300;
     }
     if (check.kind === "dns") {
       const from = resolve(check.from);
@@ -13945,7 +14140,9 @@ Snort successfully validated the configuration${bad ? " (with errors)" : "."}`);
             ...config?.dhcpRangeStart && config?.dhcpRangeEnd ? { dhcpRangeStart: config.dhcpRangeStart, dhcpRangeEnd: config.dhcpRangeEnd } : {},
             ...config?.dhcpRouterIp ? { dhcpRouterIp: config.dhcpRouterIp } : {},
             dhcpLeases: normaliseDhcpLeases(config?.dhcpLeases || []),
-            ...config?.radius ? { radius: { users: (config.radius.users || []).map((u) => ({ identity: u.identity, password: u.password || "" })) } } : {}
+            ...config?.radius ? { radius: { users: (config.radius.users || []).map((u) => ({ identity: u.identity, password: u.password || "" })) } } : {},
+            ...config?.httpEnabled ? { httpEnabled: true } : {},
+            ...config?.httpTitle ? { httpTitle: config.httpTitle } : {}
           }
         } : {},
         ...type === "switch" ? {
@@ -14501,6 +14698,18 @@ Snort successfully validated the configuration${bad ? " (with errors)" : "."}`);
     startSimulation(setup, src.id, targetIpFor(dst), "tcp", port);
     return ok(`TCP connect ${src.name} \u2192 ${dst}:${port} started.`);
   }
+  function cmdHttp(args) {
+    const src = resolveDevice(args[0]);
+    if (typeof src === "string") return err(src);
+    if (!args[1]) return err(`http: expected "http <src> <host>[:port][/path] [path]".`);
+    const { host, port, path } = parseHttpTarget(args[1], args[2] || "/");
+    if (!host) return err(`http: no host specified.`);
+    if (!Number.isInteger(port) || port < 1 || port > 65535) return err(`http: invalid port in "${args[1]}".`);
+    const setup = buildHttpEvents(src, host, port, path);
+    if (typeof setup === "string") return err(setup);
+    startSimulation(setup, src.id, targetIpFor(host), "http", port);
+    return ok(`HTTP GET ${src.name} \u2192 http://${host}:${port}${path} started.`);
+  }
   function cmdDhcp(args) {
     const host = resolveDevice(args[0]);
     if (typeof host === "string") return err(host);
@@ -14620,6 +14829,26 @@ Snort successfully validated the configuration${bad ? " (with errors)" : "."}`);
     sync().recomputeStp();
     sync().syncPanel();
     return ok(`${sw.name} is now ${on ? "managed" : "unmanaged"}.`);
+  }
+  function cmdWeb(args) {
+    const dev = resolveDevice(args[0]);
+    if (typeof dev === "string") return err(dev);
+    if (dev.type !== "server") return err(`${dev.name} is not a server (the web service runs on a server).`);
+    const mode = (args[1] || "").toLowerCase();
+    if (mode !== "on" && mode !== "off") return err(`web: expected "web <host> on|off [title]".`);
+    pushUndo();
+    ensureConfig(dev);
+    if (mode === "off") {
+      dev.config.httpEnabled = false;
+      delete dev.config.httpTitle;
+      sync().syncPanel();
+      return ok(`Web service disabled on ${dev.name}.`);
+    }
+    dev.config.httpEnabled = true;
+    const title = args.slice(2).join(" ").trim();
+    if (title) dev.config.httpTitle = title.slice(0, 200);
+    sync().syncPanel();
+    return ok(`Web service enabled on ${dev.name}${title ? ` ("${title}")` : ""}.`);
   }
   function cmdMirror(args) {
     const sw = resolveDevice(args[0]);
@@ -14786,6 +15015,22 @@ Snort successfully validated the configuration${bad ? " (with errors)" : "."}`);
         ok: r.success,
         data: r,
         output: [`connect ${dst}:${port}: ${r.success ? "open (handshake completed)" : r.refused ? "refused (RST)" : "timed out"} \u2014 ${r.steps} steps`]
+      };
+    }
+    if (mode === "http") {
+      const src = resolveDevice(args[1]);
+      if (typeof src === "string") return err(src);
+      if (!args[2]) return err(`run http: expected "run http <src> <host>[:port][/path] [path]".`);
+      const { host, port, path } = parseHttpTarget(args[2], args[3] || "/");
+      if (!host) return err(`run http: no host specified.`);
+      if (!Number.isInteger(port) || port < 1 || port > 65535) return err(`run http: invalid port in "${args[2]}".`);
+      const setup = buildHttpEvents(src, host, port, path);
+      if (typeof setup === "string") return err(setup);
+      const r = runSimulationHeadless(setup, src.id, targetIpFor(host), "http", port);
+      return {
+        ok: r.success,
+        data: r,
+        output: [`http http://${host}:${port}${path}: ${r.httpStatus != null ? `${r.httpStatus}` : r.refused ? "refused" : "no response"} \u2014 ${r.steps} steps`]
       };
     }
     if (mode === "dhcp") {
@@ -15056,6 +15301,7 @@ Snort successfully validated the configuration${bad ? " (with errors)" : "."}`);
     managed: cmdManaged,
     stp: cmdStp,
     mirror: cmdMirror,
+    web: cmdWeb,
     idsrule: cmdIdsRule,
     attack: cmdAttack,
     redteam: cmdRedteam,
@@ -15063,6 +15309,7 @@ Snort successfully validated the configuration${bad ? " (with errors)" : "."}`);
     ping: cmdPing,
     dhcp: cmdDhcp,
     connect: cmdConnect,
+    http: cmdHttp,
     associate: cmdAssociate,
     run: cmdRun,
     traceroute: cmdTraceroute,
@@ -15121,6 +15368,7 @@ Snort successfully validated the configuration${bad ? " (with errors)" : "."}`);
     managed: "managed <switch> [on|off] (enable the switch's management plane: VLANs, STP, port security)",
     stp: "stp (animate the BPDU exchange) | stp <switch> on|off | stp <switch> priority <n> (default on for managed switches)",
     mirror: "mirror <switch> <dst-port> [src-port\u2026] | mirror <switch> off (SPAN: copy traffic to a monitor port for an IDS)",
+    web: "web <server> on|off [title] (enable/disable the server's HTTP service)",
     idsrule: "idsrule <ids> <snort rule> | idsrule <ids> clear (manage a Snort IDS sensor's rules)",
     attack: "attack <redteam> [scan|sweep|arp-spoof] [target] (launch a Red Team host's simulated attacks)",
     redteam: "redteam <node> target <ip> | attacks <scan,sweep,arp-spoof> | spoof <ip> (configure a Red Team host)",
@@ -15128,8 +15376,9 @@ Snort successfully validated the configuration${bad ? " (with errors)" : "."}`);
     ping: "ping <src> <dst> (animated)",
     dhcp: "dhcp <host> (animated)",
     connect: "connect <src> <dst> <port> (animated TCP handshake)",
+    http: "http <src> <host>[:port][/path] [path] (animated HTTP GET over the TCP handshake)",
     associate: "associate <laptop> (animate the 802.11 join: probe/auth/assoc + WPA2 if secured)",
-    run: "run ping <src> <dst> | run connect <src> <dst> <port> | run resolve <src> <name> | run dhcp <host> | run associate <laptop> | run dot1x <host> | run stp (headless, returns result)",
+    run: "run ping <src> <dst> | run connect <src> <dst> <port> | run http <src> <host> | run resolve <src> <name> | run dhcp <host> | run associate <laptop> | run dot1x <host> | run stp (headless, returns result)",
     traceroute: "traceroute <src> <dst> (hop-by-hop via TTL)",
     play: "resume",
     pause: "pause",
@@ -15194,6 +15443,7 @@ Snort successfully validated the configuration${bad ? " (with errors)" : "."}`);
         if (c.dot1x?.identity) lines.push(`supplicant ${d.name} ${c.dot1x.identity} ${c.dot1x.password || ""}`.trimEnd());
         for (const u of c.radius?.users || []) lines.push(`radius ${d.name} ${u.identity} ${u.password || ""}`.trimEnd());
         if (Array.isArray(c.openPorts) && c.openPorts.length) lines.push(`ports ${d.name} ${c.openPorts.join(",")}`);
+        if (c.httpEnabled) lines.push(`web ${d.name} on${c.httpTitle ? ` ${c.httpTitle}` : ""}`);
       } else if (d.type === "switch") {
         if (c.managed) {
           lines.push(`managed ${d.name}`);

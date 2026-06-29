@@ -10,9 +10,12 @@ export interface PingSetup {
   events: SimEvent[];
   pendingArp: Record<string, EthernetFrame[]>;
   // Present when the flow starts with a DNS resolution: the name being
-  // resolved and the follow-on flow ("ping"/"tcp") the origin should launch
-  // once the answer arrives (null = bare lookup, e.g. nslookup).
-  dns?: { name: string; then: "ping" | "tcp" | null; port: number | null };
+  // resolved and the follow-on flow ("ping"/"tcp"/"http") the origin should
+  // launch once the answer arrives (null = bare lookup, e.g. nslookup).
+  dns?: { name: string; then: "ping" | "tcp" | "http" | null; port: number | null };
+  // The requested path for an HTTP flow (mode "http"); the engine sends the GET
+  // once the TCP handshake completes.
+  httpPath?: string;
 }
 
 // ─── Utilities kept from original simulation ─────────────────────────────────
@@ -285,13 +288,47 @@ export function buildConnectEvents(source: any, targetText: string, port: number
 }
 
 /**
+ * Builds the initial events for an HTTP request: the TCP three-way handshake to
+ * the web port (default 80), after which the engine sends the GET once the
+ * connection is established (mode "http"). Reuses buildConnectEvents for the
+ * handshake/ARP/DNS plumbing and just tags the flow with the requested path.
+ */
+// Parse an HTTP target into host / port / path. Accepts a bare host/IP, a
+// `host:port`, or a `http://host[:port][/path]` URL; `fallbackPath` (a separate
+// path argument) is used only when the target carries no path of its own.
+export function parseHttpTarget(text: string, fallbackPath = "/"): { host: string; port: number; path: string } {
+  let s = String(text || "").trim().replace(/^https?:\/\//i, "");
+  let path = fallbackPath || "/";
+  const slash = s.indexOf("/");
+  if (slash >= 0) { path = s.slice(slash); s = s.slice(0, slash); }
+  let port = 80;
+  const colon = s.indexOf(":");
+  if (colon >= 0) {
+    const p = Number(s.slice(colon + 1));
+    // A present-but-invalid port is NaN (not silently 80) so the caller can reject it.
+    port = (Number.isInteger(p) && p > 0 && p < 65536) ? p : NaN;
+    s = s.slice(0, colon);
+  }
+  if (!path.startsWith("/")) path = "/" + path;
+  return { host: s, port, path };
+}
+
+export function buildHttpEvents(source: any, targetText: string, port = 80, path = "/"): PingSetup | string {
+  const setup = buildConnectEvents(source, targetText, port);
+  if (typeof setup === "string") return setup;
+  setup.httpPath = path || "/";
+  if (setup.dns) setup.dns.then = "http"; // by-name: resolve, then run HTTP (not a bare connect)
+  return setup;
+}
+
+/**
  * Builds the initial events for a DNS lookup: a UDP/53 query to the host's
  * configured nameserver (ARP-ing the next hop first when its MAC is unknown,
  * exactly like ping). `then` names the follow-on flow the origin launches when
  * the answer arrives — "ping"/"tcp" for ping/nc-by-name, null for a bare
  * lookup (nslookup). The engine handles the response (engine.ts).
  */
-export function buildResolveEvents(source: any, name: string, then: "ping" | "tcp" | null = null, port: number | null = null): PingSetup | string {
+export function buildResolveEvents(source: any, name: string, then: "ping" | "tcp" | "http" | null = null, port: number | null = null): PingSetup | string {
   if (!source.config?.ipv4Address) return `${source.name}: eth0 has no IPv4 address.`;
   if (!source.config?.macAddress) return `${source.name}: eth0 has no MAC address.`;
   const dnsIp = source.config?.dnsServerIp;

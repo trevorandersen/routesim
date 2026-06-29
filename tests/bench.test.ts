@@ -16,6 +16,7 @@ import { isTrunkLink } from "../src/canvas";
 import { processAtSwitch, processAtRouter, processAtServer, buildRoutingTable, routingLookup, runRipConvergence, runStpConvergence, evaluateFirewall, connectionState } from "../src/engine";
 import { createArpRequest, createArpReply, createIcmpEchoRequest, createIcmpEchoReply, createTcpSegment, createDnsResponse, createDhcpDiscover, packetColumns, BROADCAST_MAC } from "../src/frame";
 import { runIdsRules } from "../src/snort";
+import { applyLogFilter, type FilterRow } from "../src/packet-filter";
 import { registerNoopCallbacks, resetState } from "./helpers";
 import { bench, printResults, type BenchResult } from "./bench-harness";
 import {
@@ -729,6 +730,34 @@ describe("bench: Red Team attack building", () => {
     results.push(bench("buildScanEvents — 13-port scan", () => {
       buildScanEvents(rt, "SRV");
     }, { budget: 80, warmup: 50, minTime: 1000 }));
+    expect(results[results.length - 1].passed).toBe(true);
+  });
+
+  it("prints results", () => { if (results.length) printResults(results); });
+});
+
+describe("bench: packet-list display filter", () => {
+  const results: BenchResult[] = [];
+
+  it("applyLogFilter — full (1000-row) capture, mixed expression", () => {
+    // The sim-log render re-filters the whole capture each animation step; this
+    // measures a worst-case full (capped) capture against a non-trivial filter.
+    const rows: FilterRow[] = [];
+    for (let i = 0; i < 1000; i++) {
+      const m = i % 4;
+      const frame = m === 0
+        ? createArpRequest("02:00:00:00:00:0a", "10.0.0.1", "10.0.0.2")
+        : m === 1
+          ? createIcmpEchoRequest("02:00:00:00:00:0a", "02:00:00:00:00:0b", "10.0.0.1", "10.0.0.2", 64)
+          : m === 2
+            ? createTcpSegment("02:00:00:00:00:0a", "02:00:00:00:00:0b", "10.0.0.1", "10.0.0.2", 50000, 80, "syn")
+            : createDnsResponse("02:00:00:00:00:0a", "02:00:00:00:00:0b", "10.0.0.53", "10.0.0.1", "host", "10.0.0.9", 0x1234);
+      rows.push({ frame, macsec: false, no: i + 1, step: i, fromId: "d1", toId: "d2", fromName: "PC-A", toName: "SW-1", linkId: "l1" });
+    }
+    const filter = { protocols: ["icmp", "dns", "tcp"], device: "", expr: "icmp || dns || tcp.port == 80" };
+    results.push(bench("applyLogFilter — 1000 rows", () => {
+      applyLogFilter(rows, filter);
+    }, { budget: 600, warmup: 20, minTime: 1000 }));
     expect(results[results.length - 1].passed).toBe(true);
   });
 

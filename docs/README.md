@@ -32,6 +32,7 @@ It is a single-page app with **no framework and no runtime dependencies** — it
 | `src/routing.ts` | [engine.md](src/engine.md) | Routing table, longest-match lookup, RIP convergence |
 | `src/stp.ts` | [stp.md](src/stp.md) | Spanning Tree (802.1D): root election, port roles/states, loop-breaking |
 | `src/snort.ts` | [ids.md](src/ids.md) | Snort rule parsing/matching for the passive IDS sensor (+ SPAN port mirroring) |
+| `src/packet-filter.ts` | [packet-filter.md](src/packet-filter.md) | Sim-log packet-list display filter: protocol tokens + a Wireshark-style expression grammar |
 | `src/device-registry.ts` | [architecture.md](architecture.md) | Per-type device spec: label, name prefix, size, palette, icon, defaults |
 | (firewall) | [firewall.md](src/firewall.md) | The transparent inline firewall device + router INPUT/FORWARD chains |
 | (NAT) | [nat.md](src/nat.md) | Source NAT / PAT on routers: interface marks, translation table, return-path restore |

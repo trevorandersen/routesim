@@ -63,7 +63,8 @@ export const state: AppState = {
     open: false,
     activeTab: "terminal",
     height: 280,
-    logView: "packets"
+    logView: "packets",
+    logFilter: { protocols: [], device: "", expr: "" }
   },
   console: {
     lines: [],

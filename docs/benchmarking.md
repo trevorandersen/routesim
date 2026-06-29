@@ -40,6 +40,7 @@ Budgets are calibrated for a ~2 GHz CPU with headroom, so they pass on modest ha
 | `bench: Red Team attack building` | `buildScanEvents` — the per-launch work of a Red Team SYN scan (resolving the next hop and seeding a SYN to each of the 13 common ports across a switch to a server) |
 | `bench: dns` | `processAtServer` answering a DNS query against 50 A-records |
 | `bench: packetColumns` | The packet-list column mapping (runs per visible row on every sim-log sync) |
+| `bench: packet-list display filter` | `applyLogFilter` over a full (1000-row) capture with a mixed protocol-chip + expression filter — the per-step cost the sim-log render pays while filtering |
 | `bench: routing` | `buildRoutingTable` and `processAtRouter` (connected/static/NAT translate) |
 | `bench: routingLookup` | Per-frame route resolution — building the table per call vs reusing a prebuilt table (the ARP-flush path) |
 | `bench: RIP convergence` | `runRipConvergence` at 5/10/15 routers |

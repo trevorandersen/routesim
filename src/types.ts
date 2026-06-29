@@ -42,6 +42,18 @@ export interface DockState {
   // Sim-log pane view: the Wireshark-style packet list, or the narrative
   // event log (MAC learns, routing decisions, verdicts).
   logView: "packets" | "events";
+  // The packet-list display filter (three ANDed dimensions). See packet-filter.ts.
+  logFilter: LogFilter;
+}
+
+// The sim-log packet-list display filter. `protocols` is the active protocol
+// chips (OR within the set; empty = all), `device` a device id the frame must
+// have crossed ("" = any), and `expr` a free-text Wireshark-style expression
+// ("" = no constraint). All three are ANDed.
+export interface LogFilter {
+  protocols: string[];
+  device: string;
+  expr: string;
 }
 
 export interface DisplayOptions {

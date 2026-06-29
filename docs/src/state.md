@@ -5,7 +5,7 @@ The heart of the app. Holds the single mutable `state` object, the cross-module 
 ## Key exports
 
 ### The state singleton
-- **`state: AppState`** — one mutable object holding everything: `devices`, `links`, `configStore`, selection (`selectedId`, `selectedLinkId`, `configuringId`), the active `tool`, view transform (`pan`, `scale`), interaction state (`drag`, `panDrag`, `pointer`, `inspectorResize`, `portSelection`), display `options`, `theme`, the `undoStack`, the `simulation` sub-state, and the dock/terminal model — `terminalSessions` (one `TerminalSession` per open device CLI, in tab order), `terminal` (the active session pointer all CLI handlers write to), `dock` (`open`/`activeTab`/`height`/`logView`), and `console`.
+- **`state: AppState`** — one mutable object holding everything: `devices`, `links`, `configStore`, selection (`selectedId`, `selectedLinkId`, `configuringId`), the active `tool`, view transform (`pan`, `scale`), interaction state (`drag`, `panDrag`, `pointer`, `inspectorResize`, `portSelection`), display `options`, `theme`, the `undoStack`, the `simulation` sub-state, and the dock/terminal model — `terminalSessions` (one `TerminalSession` per open device CLI, in tab order), `terminal` (the active session pointer all CLI handlers write to), `dock` (`open`/`activeTab`/`height`/`logView`/`logFilter` — the last being the packet-list display filter), and `console`.
 
 ### Terminal sessions
 - **`freshTerminalSession(deviceId)`** — a blank session (empty scrollback/history, exec mode).

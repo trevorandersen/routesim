@@ -24,7 +24,7 @@ The single source of truth for the data model. No runtime code — only `interfa
 ## App state
 
 - **`AppState`** — the shape of the `state` singleton.
-- **`TerminalSession`** — one device CLI session (device id, mode machine, scrollback, history); **`DockState`/`DockTab`** — the bottom dock (`open`, `activeTab`, `height`, `logView`); **`ConsoleState`** — the command console's lines/history.
+- **`TerminalSession`** — one device CLI session (device id, mode machine, scrollback, history); **`DockState`/`DockTab`** — the bottom dock (`open`, `activeTab`, `height`, `logView`, `logFilter`); **`LogFilter`** — the packet-list display filter (`protocols`/`device`/`expr`, see [packet-filter.md](packet-filter.md)); **`ConsoleState`** — the command console's lines/history.
 - **`DisplayOptions`, `DragState`, `PanDragState`, `InspectorResizeState`, `PortSelectionState`, `PortOption`, `ConfigStore`, `FrameHistoryEntry`, `Link`, `Point`** — supporting state shapes (`Link` carries an optional `name`, `shutdown`, and `bandwidth`/`latency`/`loss`; `ActiveTransit` carries a `latencyFactor`).
 
 ## How it fits

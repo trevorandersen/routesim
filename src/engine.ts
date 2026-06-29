@@ -11,6 +11,9 @@ import type { PingSetup } from "./simulation";
 import { routingLookup, runRipConvergence, buildRoutingTable } from "./routing";
 import { runStpConvergence, isStpParticipant } from "./stp";
 import { runIdsRules } from "./snort";
+import { applyLogFilter, presentTokens, isFilterActive, PROTOCOL_CHIPS } from "./packet-filter";
+import type { FilterRow } from "./packet-filter";
+import type { LogFilter } from "./types";
 
 // Re-exported so existing imports (terminal, tests, benchmarks) keep working.
 export { buildRoutingTable, routingLookup, runRipConvergence } from "./routing";
@@ -463,8 +466,12 @@ function deliverCompletedTransits(): void {
       // encrypted in the packet list (the engine still processes the real inner
       // frame at the far end, where MACsec would have decrypted it).
       const macsec = !!wireLink && t.frame.payload.type !== "dot11" && t.frame.payload.type !== "dot1x" && t.frame.payload.type !== "bpdu" && macsecState(wireLink) === "secured";
+      // A strictly increasing capture number — derived from the last entry, not
+      // the array length, so it stays unique after the 1000-entry cap shifts
+      // older rows out (the packet list keys row clicks + selection on it).
+      const lastNo = sim.capture.length ? sim.capture[sim.capture.length - 1].no : 0;
       sim.capture.push({
-        no: sim.capture.length + 1,
+        no: lastNo + 1,
         step: sim.stepIndex,
         frame: t.frame,
         fromDeviceId: t.fromDeviceId,
@@ -1919,14 +1926,38 @@ function logStep(device: Device, kind: string, summary: string): void {
 }
 
 // The sim-log pane: a Wireshark-style packet list (default) or the narrative
-// event log, switched by the Packets/Events toggle (state.dock.logView).
+// event log, switched by the Packets/Events toggle (state.dock.logView). The
+// packet list honours the display filter (state.dock.logFilter; packet-filter.ts).
+let presentTokenCache: Set<string> = new Set();
+
 export function syncSimLog(): void {
   const sim = state.simulation;
+  if (!state.dock.logFilter) state.dock.logFilter = { protocols: [], device: "", expr: "" };
   syncSimLogBadge();
   for (const btn of document.querySelectorAll<HTMLElement>("[data-logview]")) {
     btn.classList.toggle("active", btn.dataset.logview === state.dock.logView);
   }
-  dom.simLogOutput.innerHTML = state.dock.logView === "packets" ? renderPacketList() : renderEventLog();
+  const packets = state.dock.logView === "packets";
+  let html: string;
+  let stats = { shown: 0, total: 0, error: null as string | null };
+  if (packets) {
+    if (sim.capture.length === 0) {
+      presentTokenCache = new Set();
+      html = `<p class="sim-log-line sim-learn">No packets captured — run a simulation (headless checks don't capture). The Events view holds imported logs.</p>`;
+    } else {
+      const allRows = buildFilterRows();
+      const result = applyLogFilter(allRows, state.dock.logFilter);
+      presentTokenCache = presentTokens(allRows);
+      stats = { shown: result.rows.length, total: allRows.length, error: result.error };
+      html = result.rows.length
+        ? renderPacketTable(result.rows)
+        : `<p class="sim-log-line sim-learn">No packets match the filter. <button type="button" class="sim-log-clear" data-action="clear-log-filter">Clear filter</button></p>`;
+    }
+  } else {
+    html = renderEventLog();
+  }
+  syncSimLogFilterBar(packets, stats);
+  dom.simLogOutput.innerHTML = html;
   dom.simLogOutput.scrollTop = dom.simLogOutput.scrollHeight;
 }
 
@@ -1941,36 +1972,46 @@ function renderEventLog(): string {
   ).join("");
 }
 
-// One row per captured frame; clicking a row opens the frame breakdown (wired
-// in ui.ts by data-no). The selected frame's row is highlighted — reference
-// equality works because capture entries hold the same frame objects the
-// transits (and click-a-packet) use.
-function renderPacketList(): string {
-  const sim = state.simulation;
-  if (sim.capture.length === 0) {
-    return `<p class="sim-log-line sim-learn">No packets captured — run a simulation (headless checks don't capture). The Events view holds imported logs.</p>`;
-  }
-  const linkById = new Map(state.links.map(l => [l.id, l]));
-  const rows = sim.capture.map(entry => {
-    const inner = packetColumns(entry.frame);
+// Enrich each capture entry with its wire endpoints for the filter predicate.
+function buildFilterRows(): FilterRow[] {
+  return state.simulation.capture.map(entry => ({
+    frame: entry.frame,
+    macsec: !!entry.macsec,
+    no: entry.no,
+    step: entry.step,
+    fromId: entry.fromDeviceId,
+    toId: entry.toDeviceId,
+    fromName: getDevice(entry.fromDeviceId)?.name ?? "?",
+    toName: getDevice(entry.toDeviceId)?.name ?? "?",
+    linkId: entry.linkId,
+  }));
+}
+
+// One row per (filtered) captured frame; clicking a row opens the frame
+// breakdown (wired in ui.ts by data-no). The selected frame's row is
+// highlighted — reference equality works because capture entries hold the same
+// frame objects the transits (and click-a-packet) use.
+function renderPacketTable(rows: FilterRow[]): string {
+  const linkMap = new Map(state.links.map(l => [l.id, l]));
+  const body = rows.map(row => {
+    const inner = packetColumns(row.frame);
     // A MACsec-protected frame shows as encrypted on the wire (its real protocol
     // would only be visible after decryption at the far end).
-    const cols = entry.macsec
+    const cols = row.macsec
       ? { ...inner, protocol: "MACsec", info: `Encrypted ${inner.protocol} (SecTAG, ICV)`, tone: "macsec" }
       : inner;
     // The wire it was captured on: the link's name (user-given, or the
     // endpoint combo). Falls back to the traversal endpoints if the link is gone.
-    const link = linkById.get(entry.linkId);
-    const wire = link ? linkName(link)
-      : `${getDevice(entry.fromDeviceId)?.name ?? "?"} ↔ ${getDevice(entry.toDeviceId)?.name ?? "?"}`;
+    const link = linkMap.get(row.linkId);
+    const wire = link ? linkName(link) : `${row.fromName} ↔ ${row.toName}`;
     // Highlight the specific selected row (by capture no), falling back to frame
     // reference for a canvas-dot pick (which has no row of its own).
     const selected = (state.inspectedCapture
-      ? state.inspectedCapture.no === entry.no
-      : state.inspectedFrame === entry.frame) ? " selected" : "";
-    return `<tr class="pkt-row pkt-${escapeHtml(cols.tone)}${selected}" data-no="${entry.no}">
-      <td class="pkt-num">${entry.no}</td>
-      <td class="pkt-num">${entry.step}</td>
+      ? state.inspectedCapture.no === row.no
+      : state.inspectedFrame === row.frame) ? " selected" : "";
+    return `<tr class="pkt-row pkt-${escapeHtml(cols.tone)}${selected}" data-no="${row.no}">
+      <td class="pkt-num">${row.no}</td>
+      <td class="pkt-num">${row.step}</td>
       <td>${escapeHtml(cols.src)}</td>
       <td>${escapeHtml(cols.dst)}</td>
       <td>${escapeHtml(cols.protocol)}</td>
@@ -1980,8 +2021,79 @@ function renderPacketList(): string {
   }).join("");
   return `<table class="pkt-table">
     <thead><tr><th>No.</th><th>Step</th><th>Source</th><th>Destination</th><th>Protocol</th><th>Info</th><th>Link</th></tr></thead>
-    <tbody>${rows}</tbody>
+    <tbody>${body}</tbody>
   </table>`;
+}
+
+// Sync the packet-list filter toolbar (protocol chips, device select, the
+// display-filter input, the count/error status) to state.dock.logFilter. The
+// chips are rendered once then class-toggled; the device select is rebuilt from
+// the devices present in the capture. Hidden entirely in the Events view.
+function syncSimLogFilterBar(packets: boolean, stats: { shown: number; total: number; error: string | null }): void {
+  const bar = dom.simLogFilterBar;
+  if (!bar) return;
+  bar.hidden = !packets;
+  if (!packets) return;
+  const filter = state.dock.logFilter;
+
+  const chipBox = dom.simLogChips as HTMLElement;
+  if (chipBox && (chipBox.children?.length ?? 0) === 0) {
+    chipBox.innerHTML = PROTOCOL_CHIPS.map(c =>
+      `<button class="simlog-chip" data-proto="${c.token}" type="button">${escapeHtml(c.label)}</button>`).join("");
+  }
+  for (const chip of chipBox.querySelectorAll<HTMLElement>("[data-proto]")) {
+    const tok = chip.dataset.proto || "";
+    chip.classList.toggle("active", filter.protocols.includes(tok));
+    chip.classList.toggle("empty", !presentTokenCache.has(tok));
+  }
+
+  // The expression input — don't clobber the cursor while the user types.
+  const input = dom.simLogFilterInput as HTMLInputElement;
+  if (document.activeElement !== input) input.value = filter.expr;
+  input.classList.toggle("invalid", !!stats.error);
+  input.title = stats.error ? `Filter error: ${stats.error}` : "Display filter — e.g. dns || icmp && !arp";
+
+  populateDeviceFilter(filter);
+
+  const status = dom.simLogFilterStatus as HTMLElement;
+  if (status) {
+    status.textContent = stats.error
+      ? stats.error
+      : isFilterActive(filter)
+        ? `Showing ${stats.shown} of ${stats.total}`
+        : (stats.total ? `${stats.total} packet${stats.total === 1 ? "" : "s"}` : "");
+    status.classList.toggle("error", !!stats.error);
+  }
+  (dom.simLogFilterClear as HTMLButtonElement).disabled = !isFilterActive(filter);
+}
+
+// Rebuild the device <select> from the devices that appear as a wire endpoint in
+// the current capture. The option set rarely changes between animation steps, so
+// it's only re-rendered when a signature of (options + extra) actually differs —
+// avoiding a per-step innerHTML churn that could disturb an open dropdown.
+let deviceFilterSig = "";
+
+function populateDeviceFilter(filter: LogFilter): void {
+  const sel = dom.simLogDeviceFilter as HTMLSelectElement;
+  if (!sel) return;
+  // Drop a deleted device's id regardless of focus, so the stored filter never
+  // points at a device that no longer exists.
+  if (filter.device && !getDevice(filter.device)) filter.device = "";
+  if (document.activeElement === sel) return; // don't disturb an open dropdown
+  const ids = new Set<string>();
+  for (const e of state.simulation.capture) { ids.add(e.fromDeviceId); ids.add(e.toDeviceId); }
+  const devices = state.devices.filter(d => ids.has(d.id)).sort((a, b) => a.name.localeCompare(b.name));
+  // A selected device that carried no frames this run is kept visible as an extra option.
+  const extra = filter.device && !devices.some(d => d.id === filter.device) ? getDevice(filter.device) : null;
+  const sig = devices.map(d => d.id + "" + d.name).join("") + "" + (extra ? extra.id + "" + extra.name : "");
+  if (sig !== deviceFilterSig) {
+    const opts = [`<option value="">All devices</option>`];
+    for (const d of devices) opts.push(`<option value="${escapeHtml(d.id)}">${escapeHtml(d.name)}</option>`);
+    if (extra) opts.push(`<option value="${escapeHtml(extra.id)}">${escapeHtml(extra.name)}</option>`);
+    sel.innerHTML = opts.join("");
+    deviceFilterSig = sig;
+  }
+  sel.value = filter.device;
 }
 
 function findLinkBetween(a: string, b: string): any | null {

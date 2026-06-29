@@ -60,6 +60,12 @@ function closeScenarioMenu(): void {
   dom.scenarioMenuButton.setAttribute("aria-expanded", "false");
 }
 
+// Reset every dimension of the sim-log packet-list display filter.
+function clearLogFilter(): void {
+  state.dock.logFilter = { protocols: [], device: "", expr: "" };
+  syncSimLog();
+}
+
 // Bottom-right readout: cursor world coords (while over the canvas) plus the
 // selected device's coords.
 export function updateCoordReadout(world: { x: number; y: number } | null): void {
@@ -561,7 +567,9 @@ export function setupUI(): void {
     });
   });
   dom.simLogOutput.addEventListener("click", (event) => {
-    const row = (event.target as HTMLElement).closest("tr[data-no]") as HTMLElement | null;
+    const target = event.target as HTMLElement;
+    if (target.closest("[data-action='clear-log-filter']")) { clearLogFilter(); return; }
+    const row = target.closest("tr[data-no]") as HTMLElement | null;
     if (!row) return;
     const entry = state.simulation.capture.find(c => c.no === Number(row.dataset.no));
     if (!entry) return;
@@ -573,6 +581,27 @@ export function setupUI(): void {
     render();
     syncSimLog();
   });
+
+  // Packet-list display filter: the expression input, the device select, the
+  // protocol chips, and Clear. All three dimensions are ANDed (packet-filter.ts).
+  dom.simLogFilterInput.addEventListener("input", () => {
+    state.dock.logFilter.expr = dom.simLogFilterInput.value;
+    syncSimLog();
+  });
+  dom.simLogDeviceFilter.addEventListener("change", () => {
+    state.dock.logFilter.device = dom.simLogDeviceFilter.value;
+    syncSimLog();
+  });
+  dom.simLogChips.addEventListener("click", (event) => {
+    const chip = (event.target as HTMLElement).closest("[data-proto]") as HTMLElement | null;
+    if (!chip) return;
+    const token = chip.dataset.proto || "";
+    const active = state.dock.logFilter.protocols;
+    const i = active.indexOf(token);
+    if (i >= 0) active.splice(i, 1); else active.push(token);
+    syncSimLog();
+  });
+  dom.simLogFilterClear.addEventListener("click", clearLogFilter);
 
   // Inspector (network) panel. The close button lives in the panel heading,
   // which is rebuilt each sync, so it's wired by delegation.

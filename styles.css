@@ -640,8 +640,9 @@
     .simlog-toolbar {
       display: flex;
       align-items: center;
-      gap: 4px;
-      padding: 0 10px;
+      flex-wrap: wrap;
+      gap: 4px 6px;
+      padding: 4px 10px;
       background: #0d141b;
       border-bottom: 1px solid rgba(214, 224, 235, 0.12);
     }
@@ -667,6 +668,115 @@
       background: rgba(214, 224, 235, 0.10);
       border-color: rgba(214, 224, 235, 0.18);
     }
+
+    /* Packet-list display filter (the row of controls in the sim-log toolbar). */
+    .simlog-filter {
+      display: flex;
+      align-items: center;
+      flex-wrap: wrap;
+      gap: 4px 6px;
+      flex: 1 1 360px;
+      min-width: 0;
+      padding-left: 8px;
+      margin-left: 4px;
+      border-left: 1px solid rgba(214, 224, 235, 0.12);
+    }
+
+    .simlog-filter[hidden] { display: none; }
+
+    .simlog-filter-input {
+      flex: 1 1 180px;
+      min-width: 120px;
+      padding: 3px 8px;
+      border: 1px solid rgba(214, 224, 235, 0.18);
+      border-radius: 6px;
+      background: #0a0f15;
+      color: #e6edf3;
+      font: 11px/1.4 ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+    }
+
+    .simlog-filter-input::placeholder { color: #5f6e7d; }
+    .simlog-filter-input:focus {
+      outline: none;
+      border-color: rgba(96, 165, 250, 0.7);
+    }
+    .simlog-filter-input.invalid {
+      border-color: #f87171;
+      background: rgba(248, 113, 113, 0.08);
+    }
+
+    .simlog-filter-device {
+      flex: 0 1 auto;
+      max-width: 130px;
+      padding: 3px 6px;
+      border: 1px solid rgba(214, 224, 235, 0.18);
+      border-radius: 6px;
+      background: #0a0f15;
+      color: #d6e3ef;
+      font-size: 11px;
+    }
+
+    .simlog-chips {
+      display: flex;
+      align-items: center;
+      flex-wrap: wrap;
+      gap: 3px;
+    }
+
+    .simlog-chip {
+      appearance: none;
+      padding: 2px 7px;
+      border: 1px solid rgba(214, 224, 235, 0.18);
+      border-radius: 999px;
+      background: transparent;
+      color: #95a4b3;
+      font-size: 10px;
+      font-weight: 700;
+      cursor: pointer;
+    }
+
+    .simlog-chip:hover { color: #d6e3ef; }
+    .simlog-chip.active {
+      color: #0a0f15;
+      background: #7dd3fc;
+      border-color: #7dd3fc;
+    }
+    .simlog-chip.empty { opacity: 0.4; }
+
+    .simlog-filter-clear {
+      appearance: none;
+      padding: 2px 8px;
+      border: 1px solid rgba(214, 224, 235, 0.18);
+      border-radius: 6px;
+      background: transparent;
+      color: #95a4b3;
+      font-size: 10px;
+      font-weight: 700;
+      cursor: pointer;
+    }
+    .simlog-filter-clear:hover:not(:disabled) { color: #d6e3ef; }
+    .simlog-filter-clear:disabled { opacity: 0.35; cursor: default; }
+
+    .simlog-filter-status {
+      margin-left: auto;
+      color: #6f7e8d;
+      font-size: 10px;
+      white-space: nowrap;
+    }
+    .simlog-filter-status.error { color: #f87171; }
+
+    .sim-log-clear {
+      appearance: none;
+      padding: 1px 7px;
+      border: 1px solid rgba(214, 224, 235, 0.2);
+      border-radius: 6px;
+      background: transparent;
+      color: #7dd3fc;
+      font: inherit;
+      font-size: 11px;
+      cursor: pointer;
+    }
+    .sim-log-clear:hover { color: #bae6fd; }
 
     .terminal-output {
       min-height: 0;

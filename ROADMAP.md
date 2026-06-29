@@ -43,13 +43,21 @@ committed scope — it's a menu for "what next".
 ## Next up (ranked)
 
 ### 1. Sim log filtering & captures
-The packet list and **log ↔ canvas cross-linking** shipped (clicking a packet
-row glows its wire + endpoint devices amber on the canvas). What remains is
-making the list queryable: **protocol chips and a device filter** (aspiring to
-a Wireshark display-filter expression like `dns || icmp && !arp`) and
-**multi-run captures** kept side by side so a troubleshooting fix can be
-compared before/after. Effort: low–moderate, all renderer/filter-model work on
-data already captured.
+The packet list, **log ↔ canvas cross-linking** (clicking a packet row glows its
+wire + endpoint devices amber on the canvas), and now **display filtering** have
+shipped. What remains is **multi-run captures** kept side by side so a
+troubleshooting fix can be compared before/after. Effort: low–moderate, all
+renderer/filter-model work on data already captured.
+
+> **Display filtering — shipped (2026-06).** The packet list is queryable
+> (`src/packet-filter.ts`, `state.dock.logFilter`): clickable **protocol chips**
+> (OR within the set, dimmed when absent), a **device filter** `<select>`, and a
+> free-text **Wireshark-style display-filter expression** (`dns || icmp && !arp`,
+> `ip.addr == 10.0.0.0/24`, `tcp.port == 22 && device contains PC`) — a real
+> grammar with `&&`/`||`/`!`/parens, `==`/`!=`/`<`/`>`/`contains`, and CIDR over
+> `ip`/`eth`/`tcp`/`device`/`frame` fields. All three dimensions are ANDed; an
+> invalid expression flags red without emptying the list, and a "Showing N of M"
+> status reads out the result.
 
 > **STP / L2 loop handling — shipped (2026-06).** Managed switches run Spanning
 > Tree (802.1D) by default: `runStpConvergence` (`stp.ts`) elects a root bridge

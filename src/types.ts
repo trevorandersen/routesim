@@ -301,6 +301,16 @@ export interface NatEntry {
   destIp: string;
 }
 
+// A static destination-NAT (port-forward): an outside-facing IP:port is
+// published to an inside server. `ip nat inside source static tcp …`.
+export interface PortForward {
+  proto: "tcp";
+  outsideIp: string;
+  outsidePort: number;
+  insideIp: string;
+  insidePort: number;
+}
+
 export interface RouterConfig {
   ethernetPorts: number;
   serialPorts: number;
@@ -308,6 +318,7 @@ export interface RouterConfig {
   staticRoutes?: StaticRoute[];
   rip?: RipConfig;
   natTranslations?: NatEntry[];   // live PAT table (interfaces carry natRole marks)
+  portForwards?: PortForward[];   // static destination-NAT (port-forwarding) rules
   rules?: FirewallRule[];         // netfilter INPUT/FORWARD rules (always available)
   policy?: Record<string, "accept" | "drop">;
 }
@@ -695,6 +706,10 @@ export interface SimulationState {
   // Netfilter connection tracking, per filtering device (firewall/router), reset
   // each run — drives stateful `-m state` rule matching. deviceId → flow entries.
   conntrack: Record<string, ConntrackEntry[]>;
+  // Active DNAT (port-forward) sessions, per router, reset each run — records the
+  // outside client of each forwarded connection so the *return* leg is matched
+  // precisely (not just any traffic from the inside server's port). deviceId → sessions.
+  dnatSessions: Record<string, { clientIp: string; clientPort: number; insideIp: string; insidePort: number; outsideIp: string; outsidePort: number }[]>;
 }
 
 export interface PortOption {

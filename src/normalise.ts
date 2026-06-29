@@ -163,6 +163,16 @@ export function normaliseStaticRoutes(routes: unknown): StaticRoute[] {
     }));
 }
 
+// Static destination-NAT (port-forward) rules. Keeps only well-formed TCP
+// entries with valid IPs and ports.
+export function normalisePortForwards(forwards: unknown): { proto: "tcp"; outsideIp: string; outsidePort: number; insideIp: string; insidePort: number }[] {
+  if (!Array.isArray(forwards)) return [];
+  const validPort = (p: any) => Number.isInteger(p) && p >= 1 && p <= 65535;
+  return forwards
+    .filter(r => r && isValidIpv4(String(r.outsideIp)) && isValidIpv4(String(r.insideIp)) && validPort(Number(r.outsidePort)) && validPort(Number(r.insidePort)))
+    .map(r => ({ proto: "tcp" as const, outsideIp: String(r.outsideIp).trim(), outsidePort: Number(r.outsidePort), insideIp: String(r.insideIp).trim(), insidePort: Number(r.insidePort) }));
+}
+
 function generateRouterIfaceMac(routerId: string, ifaceIndex: number): string {
   // Deterministic MAC from a hash of the router id + interface index. Folds 24
   // bits of the hash into octets 2–4 (02:RR:HH:HH:II:01) so two router ids no
@@ -364,7 +374,9 @@ export function normaliseDeviceConfig(device: any): DeviceConfig {
       ...(rules.length ? { rules } : {}),
       ...(Object.keys(policy).length ? { policy } : {}),
       ...(Array.isArray(device.config?.natTranslations) && device.config.natTranslations.length
-        ? { natTranslations: device.config.natTranslations } : {})
+        ? { natTranslations: device.config.natTranslations } : {}),
+      ...(normalisePortForwards(device.config?.portForwards).length
+        ? { portForwards: normalisePortForwards(device.config.portForwards) } : {})
     };
   }
   if (device.type === "firewall") {

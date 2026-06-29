@@ -85,6 +85,7 @@ export function startSimulation(setup: PingSetup, originDeviceId: string, target
   sim.stormDetected = false;
   sim.scanOpen = []; sim.scanClosed = []; sim.sweepLive = [];
   sim.conntrack = {};   // connection tracking starts empty each run
+  sim.dnatSessions = {};
   // Each run reports only its own detections/findings — clear IDS alert logs and
   // attacker findings (like sim.log / sim.capture) so they don't accumulate.
   for (const d of state.devices) {
@@ -222,6 +223,7 @@ export function runSimulationHeadless(
   sim.stormDetected = false;
   sim.scanOpen = []; sim.scanClosed = []; sim.sweepLive = [];
   sim.conntrack = {};   // connection tracking starts empty each run
+  sim.dnatSessions = {};
   // Each run reports only its own detections/findings — clear IDS alert logs and
   // attacker findings (like sim.log / sim.capture) so they don't accumulate.
   for (const d of state.devices) {
@@ -1615,6 +1617,41 @@ function natRestoreInbound(device: Device, ipv4: Ipv4Payload, ifaces: any[]): Ip
   return null;
 }
 
+// Static destination-NAT (port-forward): a TCP segment to a published
+// outside IP:port is redirected to the inside server. The mirror of the PAT
+// return path — this is the *inbound* leg of a new, outside-initiated flow. The
+// outside client of the connection is recorded as a session so the reply leg is
+// matched precisely (a static rule alone would catch unrelated traffic the inside
+// server happens to source from the same port).
+function dnatInbound(device: Device, ipv4: Ipv4Payload): Ipv4Payload | null {
+  if (ipv4.payload.type !== "tcp") return null;
+  const tcp = ipv4.payload;
+  const rule = (device.config?.portForwards || []).find(r =>
+    r.proto === "tcp" && r.outsideIp === ipv4.dstIp && r.outsidePort === tcp.dstPort);
+  if (!rule) return null;
+  const sim = state.simulation;
+  if (!sim.dnatSessions) sim.dnatSessions = {};
+  const sessions = sim.dnatSessions[device.id] || (sim.dnatSessions[device.id] = []);
+  const known = sessions.some(s => s.clientIp === ipv4.srcIp && s.clientPort === tcp.srcPort && s.insideIp === rule.insideIp && s.insidePort === rule.insidePort);
+  if (!known) sessions.push({ clientIp: ipv4.srcIp, clientPort: tcp.srcPort, insideIp: rule.insideIp, insidePort: rule.insidePort, outsideIp: rule.outsideIp, outsidePort: rule.outsidePort });
+  return { ...ipv4, dstIp: rule.insideIp, payload: { ...tcp, dstPort: rule.insidePort } };
+}
+
+// The return leg of a port-forward: a reply from the inside server's published
+// port, addressed to a client of a recorded session, is source-translated back
+// to the outside IP:port that client connected to. Matching on the session (the
+// client endpoint too, not just the inside port) means an unrelated flow the
+// inside server sources from the same port is left untouched.
+function dnatReturn(device: Device, ipv4: Ipv4Payload): Ipv4Payload | null {
+  if (ipv4.payload.type !== "tcp") return null;
+  const tcp = ipv4.payload;
+  const sessions = state.simulation.dnatSessions?.[device.id] || [];
+  const session = sessions.find(s =>
+    s.insideIp === ipv4.srcIp && s.insidePort === tcp.srcPort && s.clientIp === ipv4.dstIp && s.clientPort === tcp.dstPort);
+  if (!session) return null;
+  return { ...ipv4, srcIp: session.outsideIp, payload: { ...tcp, srcPort: session.outsidePort } };
+}
+
 function routeIpv4Frame(device: Device, frame: EthernetFrame, ifaces: any[], ingressIface: any, fromDeviceId: string, ipv4: Ipv4Payload): OutgoingFrame[] {
   const sim = state.simulation;
   const outgoing: OutgoingFrame[] = [];
@@ -1626,6 +1663,17 @@ function routeIpv4Frame(device: Device, frame: EthernetFrame, ifaces: any[], ing
     logStep(device, "sim-nat", `NAT ${ipv4.dstIp} → ${restored.dstIp} (un-PAT return flow)`);
     ipv4 = restored;
     frame = { ...frame, payload: restored };
+  } else {
+    // DNAT (static port-forward): a new connection to a published outside
+    // IP:port is redirected to the inside server before the self/route decision,
+    // so the packet is forwarded on rather than consumed by the router.
+    const forwarded = dnatInbound(device, ipv4);
+    if (forwarded) {
+      const tcp = ipv4.payload as TcpPayload;
+      logStep(device, "sim-nat", `NAT ${ipv4.dstIp}:${tcp.dstPort} → ${forwarded.dstIp}:${(forwarded.payload as TcpPayload).dstPort} (port-forward)`);
+      ipv4 = forwarded;
+      frame = { ...frame, payload: forwarded };
+    }
   }
 
   // Check if it's for the router itself (e.g., ping the router's interface IP)
@@ -1699,9 +1747,18 @@ function routeIpv4Frame(device: Device, frame: EthernetFrame, ifaces: any[], ing
   }
   if (fwStateful) trackConnection(device, ipv4);   // remember the accepted flow (for ESTABLISHED)
 
-  // NAT (PAT overload): inside→outside flows are source-translated onto the
-  // egress interface address before leaving.
-  if (ingressIface.natRole === "inside" && egressIface.natRole === "outside" && egressIface.ipv4Address) {
+  // NAT. A port-forward reply (from an inside server's published port) is
+  // source-translated back to the outside IP:port the client connected to —
+  // checked first, so it isn't PAT'd to a fresh port instead.
+  const back = dnatReturn(device, ipv4);
+  if (back) {
+    const tcp = ipv4.payload as TcpPayload;
+    logStep(device, "sim-nat", `NAT ${ipv4.srcIp}:${tcp.srcPort} → ${back.srcIp}:${(back.payload as TcpPayload).srcPort} (port-forward reply)`);
+    ipv4 = back;
+    frame = { ...frame, payload: back };
+  } else if (ingressIface.natRole === "inside" && egressIface.natRole === "outside" && egressIface.ipv4Address) {
+    // PAT overload: inside→outside flows are source-translated onto the egress
+    // interface address before leaving.
     const translated = natTranslateOutbound(device, ipv4, egressIface);
     if (translated) {
       logStep(device, "sim-nat", `NAT ${ipv4.srcIp} → ${translated.srcIp} (PAT via ${ifaceName(egressIface)})`);

@@ -136,7 +136,8 @@ export const state: AppState = {
     scanOpen: [],
     scanClosed: [],
     sweepLive: [],
-    conntrack: {}
+    conntrack: {},
+    dnatSessions: {}
   },
   portSelection: null
 };

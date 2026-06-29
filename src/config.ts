@@ -8,7 +8,7 @@ import { DEFAULT_SSID } from "./device-registry";
 import {
   normaliseArpTable, normaliseMacTable, normaliseVlans, normalisePortVlans,
   normalisePortModes, normaliseTrunkAllowedVlans, normaliseDnsRecords, normaliseDhcpLeases,
-  normaliseRouterInterfaces, normaliseFirewallRules, normaliseConfig, normaliseStpConfig, normaliseIdsRules, normaliseMirror
+  normaliseRouterInterfaces, normaliseFirewallRules, normaliseConfig, normaliseStpConfig, normaliseIdsRules, normaliseMirror, normalisePortForwards
 } from "./normalise";
 import { connectedIds, clearNetwork, nextDeviceNumber } from "./devices";
 import { runStpConvergence } from "./stp";
@@ -90,6 +90,7 @@ export function buildConfigPayload(): SerialisedTopology {
           ...(config?.rules?.length ? { rules: normaliseFirewallRules(config.rules) } : {}),
           ...(config?.policy && Object.keys(config.policy).length ? { policy: config.policy } : {}),
           ...(config?.natTranslations?.length ? { natTranslations: config.natTranslations } : {}),
+          ...(normalisePortForwards(config?.portForwards).length ? { portForwards: normalisePortForwards(config.portForwards) } : {}),
           ...macsecPayload(config)
         }
       } : {}),

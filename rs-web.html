@@ -3164,6 +3164,11 @@ Full legal text: https://creativecommons.org/publicdomain/zero/1.0/legalcode</pr
       nextHop: String(r.nextHop).trim()
     }));
   }
+  function normalisePortForwards(forwards) {
+    if (!Array.isArray(forwards)) return [];
+    const validPort = (p) => Number.isInteger(p) && p >= 1 && p <= 65535;
+    return forwards.filter((r) => r && isValidIpv4(String(r.outsideIp)) && isValidIpv4(String(r.insideIp)) && validPort(Number(r.outsidePort)) && validPort(Number(r.insidePort))).map((r) => ({ proto: "tcp", outsideIp: String(r.outsideIp).trim(), outsidePort: Number(r.outsidePort), insideIp: String(r.insideIp).trim(), insidePort: Number(r.insidePort) }));
+  }
   function generateRouterIfaceMac(routerId, ifaceIndex) {
     let hash = 0;
     for (let i = 0; i < routerId.length; i++) {
@@ -3328,7 +3333,8 @@ Full legal text: https://creativecommons.org/publicdomain/zero/1.0/legalcode</pr
         ...ripConfig.enabled ? { rip: ripConfig } : {},
         ...rules.length ? { rules } : {},
         ...Object.keys(policy).length ? { policy } : {},
-        ...Array.isArray(device.config?.natTranslations) && device.config.natTranslations.length ? { natTranslations: device.config.natTranslations } : {}
+        ...Array.isArray(device.config?.natTranslations) && device.config.natTranslations.length ? { natTranslations: device.config.natTranslations } : {},
+        ...normalisePortForwards(device.config?.portForwards).length ? { portForwards: normalisePortForwards(device.config.portForwards) } : {}
       };
     }
     if (device.type === "firewall") {
@@ -3602,7 +3608,8 @@ Full legal text: https://creativecommons.org/publicdomain/zero/1.0/legalcode</pr
       scanOpen: [],
       scanClosed: [],
       sweepLive: [],
-      conntrack: {}
+      conntrack: {},
+      dnatSessions: {}
     },
     portSelection: null
   };
@@ -7092,6 +7099,7 @@ Full legal text: https://creativecommons.org/publicdomain/zero/1.0/legalcode</pr
     sim.scanClosed = [];
     sim.sweepLive = [];
     sim.conntrack = {};
+    sim.dnatSessions = {};
     for (const d of state.devices) {
       if (d.type === "ids" && d.config) d.config.alerts = [];
       if ((d.type === "attacker" || d.type === "kali") && d.config) d.config.attackLog = [];
@@ -7188,6 +7196,7 @@ Full legal text: https://creativecommons.org/publicdomain/zero/1.0/legalcode</pr
     sim.scanClosed = [];
     sim.sweepLive = [];
     sim.conntrack = {};
+    sim.dnatSessions = {};
     for (const d of state.devices) {
       if (d.type === "ids" && d.config) d.config.alerts = [];
       if ((d.type === "attacker" || d.type === "kali") && d.config) d.config.attackLog = [];
@@ -8304,6 +8313,26 @@ Full legal text: https://creativecommons.org/publicdomain/zero/1.0/legalcode</pr
     }
     return null;
   }
+  function dnatInbound(device, ipv4) {
+    if (ipv4.payload.type !== "tcp") return null;
+    const tcp = ipv4.payload;
+    const rule = (device.config?.portForwards || []).find((r) => r.proto === "tcp" && r.outsideIp === ipv4.dstIp && r.outsidePort === tcp.dstPort);
+    if (!rule) return null;
+    const sim = state.simulation;
+    if (!sim.dnatSessions) sim.dnatSessions = {};
+    const sessions = sim.dnatSessions[device.id] || (sim.dnatSessions[device.id] = []);
+    const known = sessions.some((s) => s.clientIp === ipv4.srcIp && s.clientPort === tcp.srcPort && s.insideIp === rule.insideIp && s.insidePort === rule.insidePort);
+    if (!known) sessions.push({ clientIp: ipv4.srcIp, clientPort: tcp.srcPort, insideIp: rule.insideIp, insidePort: rule.insidePort, outsideIp: rule.outsideIp, outsidePort: rule.outsidePort });
+    return { ...ipv4, dstIp: rule.insideIp, payload: { ...tcp, dstPort: rule.insidePort } };
+  }
+  function dnatReturn(device, ipv4) {
+    if (ipv4.payload.type !== "tcp") return null;
+    const tcp = ipv4.payload;
+    const sessions = state.simulation.dnatSessions?.[device.id] || [];
+    const session = sessions.find((s) => s.insideIp === ipv4.srcIp && s.insidePort === tcp.srcPort && s.clientIp === ipv4.dstIp && s.clientPort === tcp.dstPort);
+    if (!session) return null;
+    return { ...ipv4, srcIp: session.outsideIp, payload: { ...tcp, srcPort: session.outsidePort } };
+  }
   function routeIpv4Frame(device, frame, ifaces, ingressIface, fromDeviceId, ipv4) {
     const sim = state.simulation;
     const outgoing = [];
@@ -8312,6 +8341,14 @@ Full legal text: https://creativecommons.org/publicdomain/zero/1.0/legalcode</pr
       logStep(device, "sim-nat", `NAT ${ipv4.dstIp} \u2192 ${restored.dstIp} (un-PAT return flow)`);
       ipv4 = restored;
       frame = { ...frame, payload: restored };
+    } else {
+      const forwarded = dnatInbound(device, ipv4);
+      if (forwarded) {
+        const tcp = ipv4.payload;
+        logStep(device, "sim-nat", `NAT ${ipv4.dstIp}:${tcp.dstPort} \u2192 ${forwarded.dstIp}:${forwarded.payload.dstPort} (port-forward)`);
+        ipv4 = forwarded;
+        frame = { ...frame, payload: forwarded };
+      }
     }
     const selfIface = ifaces.find((iface) => iface.ipv4Address === ipv4.dstIp);
     if (selfIface) {
@@ -8377,7 +8414,13 @@ Full legal text: https://creativecommons.org/publicdomain/zero/1.0/legalcode</pr
       return outgoing;
     }
     if (fwStateful) trackConnection(device, ipv4);
-    if (ingressIface.natRole === "inside" && egressIface.natRole === "outside" && egressIface.ipv4Address) {
+    const back2 = dnatReturn(device, ipv4);
+    if (back2) {
+      const tcp = ipv4.payload;
+      logStep(device, "sim-nat", `NAT ${ipv4.srcIp}:${tcp.srcPort} \u2192 ${back2.srcIp}:${back2.payload.srcPort} (port-forward reply)`);
+      ipv4 = back2;
+      frame = { ...frame, payload: back2 };
+    } else if (ingressIface.natRole === "inside" && egressIface.natRole === "outside" && egressIface.ipv4Address) {
       const translated = natTranslateOutbound(device, ipv4, egressIface);
       if (translated) {
         logStep(device, "sim-nat", `NAT ${ipv4.srcIp} \u2192 ${translated.srcIp} (PAT via ${ifaceName(egressIface)})`);
@@ -9761,6 +9804,8 @@ ${sim.httpServerTitle || ""}`);
     { tokens: ["ip", "nat", "outside"], modes: ["interface"] },
     { tokens: ["no", "ip", "nat", "inside"], modes: ["interface"] },
     { tokens: ["no", "ip", "nat", "outside"], modes: ["interface"] },
+    { tokens: ["ip", "nat", "inside", "source", "static", "tcp"], args: true, modes: ["config"] },
+    { tokens: ["no", "ip", "nat", "inside", "source", "static", "tcp"], args: true, modes: ["config"] },
     { tokens: ["show", "ip", "nat", "translations"], modes: ALL_ROUTER_MODES },
     { tokens: ["clear", "ip", "nat", "translation"], args: true, modes: ["privileged", "config"] },
     { tokens: ["iptables"], args: true, modes: ["privileged", "config"] },
@@ -9819,8 +9864,10 @@ ${sim.httpServerTitle || ""}`);
   function showRouterNatTranslations(router) {
     const translations = router.config?.natTranslations || [];
     const marks = routerInterfacesWithNames(router).filter((i) => i.config?.natRole).map((i) => `${i.name}: ${i.config.natRole}`);
-    const header = marks.length ? [`NAT interfaces \u2014 ${marks.join(", ")}`, ""] : [];
-    if (!translations.length) return [...header, "Pro  Inside global        Inside local         Outside"].join("\n") + "\n(no translations)";
+    const forwards = (router.config?.portForwards || []).map((r) => `  ${r.proto} ${r.outsideIp}:${r.outsidePort} \u2192 ${r.insideIp}:${r.insidePort}`);
+    const fwBlock = forwards.length ? ["Static port-forwards:", ...forwards, ""] : [];
+    const header = [...marks.length ? [`NAT interfaces \u2014 ${marks.join(", ")}`, ""] : [], ...fwBlock];
+    if (!translations.length) return [...header, "Pro  Inside global        Inside local         Outside"].join("\n") + "\n(no dynamic translations)";
     return [
       ...header,
       "Pro  Inside global        Inside local         Outside",
@@ -9830,6 +9877,42 @@ ${sim.httpServerTitle || ""}`);
         return `${t.protocol.padEnd(5)}${ig.padEnd(26)}${il.padEnd(26)}${t.destIp}`;
       })
     ].join("\n");
+  }
+  function routerStaticNatCommand(router, lower) {
+    const m = lower.match(/^(no\s+)?ip\s+nat\s+inside\s+source\s+static\s+(\S+)\s+(\S+)\s+(\d+)\s+(\S+)\s+(\d+)$/);
+    if (!m) return false;
+    if (routerMode() !== "config") {
+      terminalLine("error", "% Configuration mode required (configure terminal).");
+      return true;
+    }
+    if (m[2] !== "tcp") {
+      terminalLine("error", "% Only 'tcp' static NAT (port-forwarding) is supported.");
+      return true;
+    }
+    const insideIp = m[3], insidePort = Number(m[4]), outsideIp = m[5], outsidePort = Number(m[6]);
+    if (!isValidIpv4(insideIp) || !isValidIpv4(outsideIp)) {
+      terminalLine("error", "% Invalid IPv4 address.");
+      return true;
+    }
+    if (![insidePort, outsidePort].every((p) => p >= 1 && p <= 65535)) {
+      terminalLine("error", "% Port must be 1-65535.");
+      return true;
+    }
+    pushUndo();
+    if (!router.config) router.config = {};
+    const list = router.config.portForwards || (router.config.portForwards = []);
+    const idx = list.findIndex((r) => r.outsideIp === outsideIp && r.outsidePort === outsidePort);
+    if (m[1]) {
+      if (idx >= 0) list.splice(idx, 1);
+      terminalLine("", `Removed port-forward ${outsideIp}:${outsidePort}.`);
+    } else {
+      const rule = { proto: "tcp", insideIp, insidePort, outsideIp, outsidePort };
+      if (idx >= 0) list[idx] = rule;
+      else list.push(rule);
+      terminalLine("", `Port-forward ${outsideIp}:${outsidePort} \u2192 ${insideIp}:${insidePort}.`);
+    }
+    sync().syncPanel();
+    return true;
   }
   function routerNatCommand(router, lower) {
     const natMatch = lower.match(/^(no\s+)?ip\s+nat\s+(inside|outside)$/);
@@ -9894,6 +9977,7 @@ ${sim.httpServerTitle || ""}`);
       if (error) terminalLine("error", `% ${error}`);
       return;
     }
+    if (routerStaticNatCommand(router, lower)) return;
     if (routerNatCommand(router, lower)) return;
     if (routerSessionCommand(lower)) return;
     if (routerShowCommand(router, lower)) return;
@@ -12791,6 +12875,29 @@ Snort successfully validated the configuration${bad ? " (with errors)" : "."}`);
       { kind: "tcp", from: "PC-A", to: "ISP-SRV", port: 80, label: "PC-A can reach the web server (80)" }
     ]
   };
+  var portForward = {
+    id: "port-forward",
+    name: "Publish a web server (port-forward)",
+    objective: "An outside client (203.0.113.5) should load the inside web server's home page through the router's public address \u2014 an HTTP GET to 203.0.113.1 must return 200. R1's NAT interfaces are already marked; add a static destination-NAT so TCP 80 on 203.0.113.1 is redirected to WEB (10.0.0.80:80). In R1's config mode: `ip nat inside source static tcp 10.0.0.80 80 203.0.113.1 80`.",
+    topology: {
+      version: 1,
+      devices: [
+        { id: "pf-c", type: "computer", name: "CLIENT", x: -440, y: 0, config: { ipv4Address: "203.0.113.5", gatewayIpv4Address: "203.0.113.1", macAddress: "02:00:00:00:2D:0C", arpTable: [] } },
+        { id: "pf-r1", type: "router", name: "R1", x: -50, y: 0, config: { ethernetPorts: 2, serialPorts: 0, interfaces: [
+          { peerId: "pf-c", type: "ethernet", ipv4Address: "203.0.113.1", natRole: "outside" },
+          { peerId: "pf-web", type: "ethernet", ipv4Address: "10.0.0.1", natRole: "inside" }
+        ] } },
+        { id: "pf-web", type: "server", name: "WEB", x: 360, y: 0, config: { ipv4Address: "10.0.0.80", gatewayIpv4Address: "10.0.0.1", macAddress: "02:00:00:00:2D:80", arpTable: [], dnsmasqRunning: false, openPorts: [80], httpEnabled: true } }
+      ],
+      links: [
+        { from: "pf-c", to: "pf-r1" },
+        { from: "pf-r1", to: "pf-web" }
+      ]
+    },
+    checks: [
+      { kind: "http", from: "CLIENT", to: "203.0.113.1", status: 200, label: "The outside client loads the inside web server via R1's public IP (HTTP 200)" }
+    ]
+  };
   var hardenGateway = {
     id: "harden-gateway",
     name: "Harden the gateway",
@@ -13153,6 +13260,7 @@ Snort successfully validated the configuration${bad ? " (with errors)" : "."}`);
     troubleshootFirewall,
     troubleshootStaticRoute,
     natGateway,
+    portForward,
     hardenGateway,
     dnsService,
     troubleshootDns,
@@ -13172,7 +13280,7 @@ Snort successfully validated the configuration${bad ? " (with errors)" : "."}`);
   var SCENARIO_GROUPS = [
     { label: "Getting started", ids: ["connect-lan"] },
     { label: "Switching & VLANs", ids: ["vlan-segmentation", "router-on-a-stick", "spanning-tree"] },
-    { label: "Routing", ids: ["static-routes", "rip-convergence", "nat-gateway"] },
+    { label: "Routing", ids: ["static-routes", "rip-convergence", "nat-gateway", "port-forward"] },
     { label: "Services (DHCP, DNS & HTTP)", ids: ["dhcp-service", "dns-service", "server-dhcp", "web-service"] },
     { label: "Wireless", ids: ["wifi-join", "wifi-dhcp"] },
     { label: "Security", ids: ["firewall-guard", "harden-gateway", "stateful-firewall", "port-auth-8021x", "macsec-link", "secure-access", "ids-monitor", "red-team-scan"] },
@@ -14175,6 +14283,7 @@ Snort successfully validated the configuration${bad ? " (with errors)" : "."}`);
             ...config?.rules?.length ? { rules: normaliseFirewallRules(config.rules) } : {},
             ...config?.policy && Object.keys(config.policy).length ? { policy: config.policy } : {},
             ...config?.natTranslations?.length ? { natTranslations: config.natTranslations } : {},
+            ...normalisePortForwards(config?.portForwards).length ? { portForwards: normalisePortForwards(config.portForwards) } : {},
             ...macsecPayload(config)
           }
         } : {},
@@ -15480,6 +15589,11 @@ Snort successfully validated the configuration${bad ? " (with errors)" : "."}`);
           }
         }
         for (const r of c.staticRoutes || []) lines.push(`route ${d.name} ${r.network} ${r.nextHop}`);
+        if ((c.portForwards || []).length) {
+          lines.push(`cli ${d.name} enable`, `cli ${d.name} configure terminal`);
+          for (const r of c.portForwards) lines.push(`cli ${d.name} ip nat inside source static tcp ${r.insideIp} ${r.insidePort} ${r.outsideIp} ${r.outsidePort}`);
+          lines.push(`cli ${d.name} end`);
+        }
       } else if (d.type === "access-point" && c.ssid) {
         lines.push(`ssid ${d.name} ${c.ssid}${c.wifiPassword ? ` ${c.wifiPassword}` : ""}`);
       }

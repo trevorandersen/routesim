@@ -52,6 +52,7 @@ export function resetState(): void {
     stepTimer: null,
     animFrame: null,
     conntrack: {},
+    dnatSessions: {},
   } as any;
   state.terminal = {
     deviceId: null,

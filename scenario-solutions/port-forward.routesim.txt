@@ -1,0 +1,15 @@
+# Publish a web server (port-forward)  ·  scenario id: port-forward
+#
+# An outside client should reach the inside web server through R1's public IP.
+# R1's NAT interfaces are already marked inside/outside; the missing piece is a
+# static destination-NAT (port-forward) redirecting TCP 80 on the public address
+# (203.0.113.1) to the inside server WEB (10.0.0.80:80).
+#
+# Loads the scenario, applies the solution, and checks the goal. Paste into
+# the command console (the >_ toolbar button) or run with routesim.run(...).
+
+scenario load port-forward
+cli R1 enable
+cli R1 configure terminal
+cli R1 ip nat inside source static tcp 10.0.0.80 80 203.0.113.1 80
+scenario check

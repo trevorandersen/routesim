@@ -114,9 +114,14 @@ HTTP GET rides the existing TCP handshake (`curl http://host` / `http <src>
 <host>`, sim mode `"http"`), and a server with its web service on (`web <host>
 on`, the inspector toggle, or the Web-server tool) answers **200 OK** —
 `HttpInfo` on a TCP segment, shown as HTTP in the packet list; the `web-service`
-scenario + `http` scenario-check ship with it. **Still to do:** DNAT/
-port-forwarding on NAT routers so inbound connections can reach an inside server,
-and upstream DNS forwarding. Effort: low–moderate each.
+scenario + `http` scenario-check ship with it. **DNAT / port-forwarding —
+shipped (2026-06):** a static destination-NAT (`ip nat inside source static tcp
+<insideIp> <insidePort> <outsideIp> <outsidePort>`, `config.portForwards`)
+redirects a connection to the router's published outside IP:port onward to an
+inside server and source-translates the reply back (`dnatInbound`/`dnatReturn`),
+so an outside client reaches an inside web server through the router — the
+`port-forward` scenario pairs it with the HTTP service. **Still to do:** upstream
+DNS forwarding. Effort: low–moderate.
 
 ### Multi-NIC hosts
 Hosts currently model a single NIC (eth0) and so take one cable. Allow

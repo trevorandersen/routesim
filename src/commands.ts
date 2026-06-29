@@ -1083,6 +1083,12 @@ export function exportTopologyScript(): string {
         }
       }
       for (const r of (c.staticRoutes || [])) lines.push(`route ${d.name} ${r.network} ${r.nextHop}`);
+      // Static port-forwards replay through the router's config-mode CLI.
+      if ((c.portForwards || []).length) {
+        lines.push(`cli ${d.name} enable`, `cli ${d.name} configure terminal`);
+        for (const r of c.portForwards) lines.push(`cli ${d.name} ip nat inside source static tcp ${r.insideIp} ${r.insidePort} ${r.outsideIp} ${r.outsidePort}`);
+        lines.push(`cli ${d.name} end`);
+      }
     } else if (d.type === "access-point" && c.ssid) {
       lines.push(`ssid ${d.name} ${c.ssid}${c.wifiPassword ? ` ${c.wifiPassword}` : ""}`);
     }

@@ -8,9 +8,9 @@
 import { describe, it, expect, beforeAll, beforeEach } from "bun:test";
 import { state } from "../src/state";
 import { runSimulationHeadless } from "../src/engine";
-import { buildPingEvents, buildConnectEvents } from "../src/simulation";
+import { buildPingEvents, buildConnectEvents, buildHttpEvents } from "../src/simulation";
 import { buildConfigPayload, parseConfig } from "../src/config";
-import { runConsoleScript, runConsoleCommand as exec } from "../src/commands";
+import { runConsoleScript, runConsoleCommand as exec, exportTopologyScript } from "../src/commands";
 import { registerNoopCallbacks, resetState } from "./helpers";
 
 beforeAll(() => registerNoopCallbacks());
@@ -132,6 +132,128 @@ describe("nat — PAT overload", () => {
     expect(r1.config.interfaces.map((i: any) => i.natRole)).toContain("outside");
     expect(r1.config.rules).toHaveLength(1);
     expect(r1.config.rules[0]).toMatchObject({ chain: "forward", target: "drop", protocol: "tcp", dport: 23 });
+  });
+});
+
+describe("DNAT / port-forwarding", () => {
+  beforeEach(() => resetState());
+
+  // CLIENT (outside) — R1 — WEB (inside web server). A port-forward publishes
+  // R1's outside IP:80 to WEB:80.
+  function pfTopology() {
+    runConsoleScript(`
+      add computer CLIENT at -300 0
+      add router R1 at 0 0
+      add server WEB at 300 0
+      link CLIENT R1
+      link R1 WEB
+      ip CLIENT 203.0.113.5/24
+      gateway CLIENT 203.0.113.1
+      interface R1 CLIENT ip 203.0.113.1/24
+      interface R1 WEB ip 10.0.0.1/24
+      ip WEB 10.0.0.80/24
+      gateway WEB 10.0.0.1
+      web WEB on
+    `);
+    return state.devices.find(d => d.name === "CLIENT")!;
+  }
+
+  function addPortForward() {
+    exec("cli R1 enable");
+    exec("cli R1 configure terminal");
+    exec("cli R1 ip nat inside source static tcp 10.0.0.80 80 203.0.113.1 80");
+    exec("cli R1 end");
+  }
+
+  it("a GET to the router's published IP reaches the inside server (DNAT + return SNAT)", () => {
+    const client = pfTopology();
+    addPortForward();
+    const r = runSimulationHeadless(buildHttpEvents(client, "203.0.113.1") as any, client.id, "203.0.113.1", "http", 80);
+    expect(r.httpStatus).toBe(200);
+    const nat = state.simulation.log.filter(l => l.kind === "sim-nat").map(l => l.action);
+    expect(nat.some(a => a.includes("203.0.113.1:80 → 10.0.0.80:80 (port-forward)"))).toBe(true);   // inbound DNAT
+    expect(nat.some(a => a.includes("port-forward reply"))).toBe(true);                              // return SNAT
+  });
+
+  it("without the port-forward the connection reaches only the router (no service)", () => {
+    const client = pfTopology();
+    const r = runSimulationHeadless(buildHttpEvents(client, "203.0.113.1") as any, client.id, "203.0.113.1", "http", 80);
+    expect(r.httpStatus).toBeNull();
+  });
+
+  it("the router CLI adds and removes a static port-forward", () => {
+    pfTopology();
+    addPortForward();
+    const r1 = state.devices.find(d => d.name === "R1")!;
+    expect(r1.config.portForwards).toHaveLength(1);
+    expect(r1.config.portForwards![0]).toMatchObject({ proto: "tcp", outsideIp: "203.0.113.1", outsidePort: 80, insideIp: "10.0.0.80", insidePort: 80 });
+    exec("cli R1 configure terminal");
+    exec("cli R1 no ip nat inside source static tcp 10.0.0.80 80 203.0.113.1 80");
+    expect(r1.config.portForwards).toHaveLength(0);
+  });
+
+  it("port-forwards round-trip through the config payload", () => {
+    pfTopology();
+    addPortForward();
+    const round = parseConfig(JSON.stringify(buildConfigPayload()));
+    const r1 = round.devices.find((d: any) => d.name === "R1")!;
+    expect(r1.config.portForwards).toHaveLength(1);
+    expect(r1.config.portForwards[0]).toMatchObject({ outsideIp: "203.0.113.1", outsidePort: 80, insideIp: "10.0.0.80", insidePort: 80 });
+  });
+
+  it("port-forwards survive a script export/replay", () => {
+    pfTopology();
+    addPortForward();
+    const script = exportTopologyScript();
+    expect(script).toContain("ip nat inside source static tcp 10.0.0.80 80 203.0.113.1 80");
+    resetState();
+    runConsoleScript(script);
+    expect(state.devices.find(d => d.name === "R1")!.config.portForwards).toHaveLength(1);
+  });
+
+  it("an unrelated inside→inside flow to the server's port is NOT source-translated", () => {
+    // CLIENT (outside) — R1 — { WEB (inside A), INSIDE2 (inside B) }, with WEB:80
+    // published. INSIDE2 connects directly to WEB:80 — a flow that never touches
+    // the public IP, so its reply must keep the real server source (the static
+    // rule alone would have wrongly rewritten any reply from WEB:80).
+    runConsoleScript(`
+      add computer CLIENT at -300 0
+      add router R1 at 0 0
+      add server WEB at 300 -120
+      add computer INSIDE2 at 300 120
+      link CLIENT R1
+      link R1 WEB
+      link R1 INSIDE2
+      ip CLIENT 203.0.113.5/24
+      gateway CLIENT 203.0.113.1
+      interface R1 CLIENT ip 203.0.113.1/24
+      interface R1 WEB ip 10.0.0.1/24
+      interface R1 INSIDE2 ip 10.0.1.1/24
+      ip WEB 10.0.0.80/24
+      gateway WEB 10.0.0.1
+      ip INSIDE2 10.0.1.20/24
+      gateway INSIDE2 10.0.1.1
+      web WEB on
+      cli R1 enable
+      cli R1 configure terminal
+      cli R1 ip nat inside source static tcp 10.0.0.80 80 203.0.113.1 80
+      cli R1 end
+    `);
+    const inside2 = state.devices.find(d => d.name === "INSIDE2")!;
+    const r = runSimulationHeadless(buildHttpEvents(inside2, "10.0.0.80") as any, inside2.id, "10.0.0.80", "http", 80);
+    expect(r.httpStatus).toBe(200);            // the direct connection works
+    expect(r.responderIp).toBe("10.0.0.80");   // answered as the real server, not the public IP
+    const nat = state.simulation.log.filter(l => l.kind === "sim-nat").map(l => l.action);
+    expect(nat.some(a => a.includes("port-forward reply"))).toBe(false); // not wrongly translated
+  });
+
+  it("rejects a non-tcp static NAT instead of creating a bogus rule", () => {
+    pfTopology();
+    exec("cli R1 enable");
+    exec("cli R1 configure terminal");
+    exec("cli R1 ip nat inside source static udp 10.0.0.80 80 203.0.113.1 80");
+    const r1 = state.devices.find(d => d.name === "R1")!;
+    expect(r1.config.portForwards || []).toHaveLength(0);
   });
 });
 

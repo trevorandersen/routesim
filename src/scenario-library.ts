@@ -351,6 +351,30 @@ const natGateway: Scenario = {
   ],
 };
 
+const portForward: Scenario = {
+  id: "port-forward",
+  name: "Publish a web server (port-forward)",
+  objective: "An outside client (203.0.113.5) should load the inside web server's home page through the router's public address — an HTTP GET to 203.0.113.1 must return 200. R1's NAT interfaces are already marked; add a static destination-NAT so TCP 80 on 203.0.113.1 is redirected to WEB (10.0.0.80:80). In R1's config mode: `ip nat inside source static tcp 10.0.0.80 80 203.0.113.1 80`.",
+  topology: {
+    version: 1,
+    devices: [
+      { id: "pf-c", type: "computer", name: "CLIENT", x: -440, y: 0, config: { ipv4Address: "203.0.113.5", gatewayIpv4Address: "203.0.113.1", macAddress: "02:00:00:00:2D:0C", arpTable: [] } },
+      { id: "pf-r1", type: "router", name: "R1", x: -50, y: 0, config: { ethernetPorts: 2, serialPorts: 0, interfaces: [
+        { peerId: "pf-c", type: "ethernet", ipv4Address: "203.0.113.1", natRole: "outside" },
+        { peerId: "pf-web", type: "ethernet", ipv4Address: "10.0.0.1", natRole: "inside" },
+      ] } },
+      { id: "pf-web", type: "server", name: "WEB", x: 360, y: 0, config: { ipv4Address: "10.0.0.80", gatewayIpv4Address: "10.0.0.1", macAddress: "02:00:00:00:2D:80", arpTable: [], dnsmasqRunning: false, openPorts: [80], httpEnabled: true } },
+    ],
+    links: [
+      { from: "pf-c", to: "pf-r1" },
+      { from: "pf-r1", to: "pf-web" },
+    ],
+  },
+  checks: [
+    { kind: "http", from: "CLIENT", to: "203.0.113.1", status: 200, label: "The outside client loads the inside web server via R1's public IP (HTTP 200)" },
+  ],
+};
+
 const hardenGateway: Scenario = {
   id: "harden-gateway",
   name: "Harden the gateway",
@@ -728,6 +752,7 @@ export const CURRICULUM: Scenario[] = [
   troubleshootFirewall,
   troubleshootStaticRoute,
   natGateway,
+  portForward,
   hardenGateway,
   dnsService,
   troubleshootDns,
@@ -752,7 +777,7 @@ export const CURRICULUM: Scenario[] = [
 export const SCENARIO_GROUPS: { label: string; ids: string[] }[] = [
   { label: "Getting started", ids: ["connect-lan"] },
   { label: "Switching & VLANs", ids: ["vlan-segmentation", "router-on-a-stick", "spanning-tree"] },
-  { label: "Routing", ids: ["static-routes", "rip-convergence", "nat-gateway"] },
+  { label: "Routing", ids: ["static-routes", "rip-convergence", "nat-gateway", "port-forward"] },
   { label: "Services (DHCP, DNS & HTTP)", ids: ["dhcp-service", "dns-service", "server-dhcp", "web-service"] },
   { label: "Wireless", ids: ["wifi-join", "wifi-dhcp"] },
   { label: "Security", ids: ["firewall-guard", "harden-gateway", "stateful-firewall", "port-auth-8021x", "macsec-link", "secure-access", "ids-monitor", "red-team-scan"] },

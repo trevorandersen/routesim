@@ -45,6 +45,34 @@ interface address is implicit (a deliberate simplification of Cisco's
 - Both directions log `sim-nat` (teal) lines: `NAT a.b.c.d → w.x.y.z (PAT …)`
   and `(un-PAT return flow)`.
 
+## DNAT / port-forwarding (the inbound mirror)
+
+Where PAT publishes *inside→outside* flows, a **static destination-NAT** publishes
+an *outside→inside* one: a port on the router's public address is forwarded to an
+inside server. Configure it in router config mode:
+
+```
+R1(config)# ip nat inside source static tcp 10.0.0.80 80 203.0.113.1 80
+```
+
+stored as `config.portForwards` (`PortForward`: proto/outsideIp/outsidePort/
+insideIp/insidePort) and listed by `show ip nat translations`.
+
+- **Inbound** (`dnatInbound`): a TCP segment to a published outside IP:port has
+  its **destination** rewritten to the inside server — applied *before* the
+  self/route decision, so the packet is forwarded inward rather than consumed by
+  the router. (The natRestoreInbound PAT-return check runs first; a new inbound
+  connection has no PAT entry, so it falls through to DNAT.)
+- **Return** (`dnatReturn`): a reply from the inside server's published port has
+  its **source** rewritten back to the outside IP:port the client connected to —
+  checked *before* the PAT block so the reply isn't source-PAT'd to a fresh port
+  instead. The client therefore sees the response come from the public address it
+  dialled.
+- It doesn't require the inside/outside interface marks (the rule is the
+  mapping); logs `NAT 203.0.113.1:80 → 10.0.0.80:80 (port-forward)` and
+  `(port-forward reply)`. The `port-forward` scenario pairs it with the HTTP web
+  service so an outside client loads an inside page through the router.
+
 ## What this teaches
 
 The reference scenario (`nat-gateway`) gives the outside server **no route

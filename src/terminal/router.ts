@@ -191,6 +191,8 @@ const ROUTER_COMMANDS: RouterCmdSpec[] = [
   { tokens: ["ip", "nat", "outside"], modes: ["interface"] },
   { tokens: ["no", "ip", "nat", "inside"], modes: ["interface"] },
   { tokens: ["no", "ip", "nat", "outside"], modes: ["interface"] },
+  { tokens: ["ip", "nat", "inside", "source", "static", "tcp"], args: true, modes: ["config"] },
+  { tokens: ["no", "ip", "nat", "inside", "source", "static", "tcp"], args: true, modes: ["config"] },
   { tokens: ["show", "ip", "nat", "translations"], modes: ALL_ROUTER_MODES },
   { tokens: ["clear", "ip", "nat", "translation"], args: true, modes: ["privileged", "config"] },
   { tokens: ["iptables"], args: true, modes: ["privileged", "config"] },
@@ -266,8 +268,11 @@ export function showRouterNatTranslations(router: Device): string {
   const marks = routerInterfacesWithNames(router)
     .filter((i: any) => i.config?.natRole)
     .map((i: any) => `${i.name}: ${i.config.natRole}`);
-  const header = marks.length ? [`NAT interfaces — ${marks.join(", ")}`, ""] : [];
-  if (!translations.length) return [...header, "Pro  Inside global        Inside local         Outside"].join("\n") + "\n(no translations)";
+  const forwards = (router.config?.portForwards || []).map((r: any) =>
+    `  ${r.proto} ${r.outsideIp}:${r.outsidePort} → ${r.insideIp}:${r.insidePort}`);
+  const fwBlock = forwards.length ? ["Static port-forwards:", ...forwards, ""] : [];
+  const header = [...(marks.length ? [`NAT interfaces — ${marks.join(", ")}`, ""] : []), ...fwBlock];
+  if (!translations.length) return [...header, "Pro  Inside global        Inside local         Outside"].join("\n") + "\n(no dynamic translations)";
   return [
     ...header,
     "Pro  Inside global        Inside local         Outside",
@@ -277,6 +282,32 @@ export function showRouterNatTranslations(router: Device): string {
       return `${t.protocol.padEnd(5)}${ig.padEnd(26)}${il.padEnd(26)}${t.destIp}`;
     })
   ].join("\n");
+}
+
+// Static destination-NAT (port-forward), config mode:
+// `[no] ip nat inside source static tcp <insideIp> <insidePort> <outsideIp> <outsidePort>`.
+function routerStaticNatCommand(router: Device, lower: string): boolean {
+  const m = lower.match(/^(no\s+)?ip\s+nat\s+inside\s+source\s+static\s+(\S+)\s+(\S+)\s+(\d+)\s+(\S+)\s+(\d+)$/);
+  if (!m) return false;
+  if (routerMode() !== "config") { terminalLine("error", "% Configuration mode required (configure terminal)."); return true; }
+  if (m[2] !== "tcp") { terminalLine("error", "% Only 'tcp' static NAT (port-forwarding) is supported."); return true; }
+  const insideIp = m[3], insidePort = Number(m[4]), outsideIp = m[5], outsidePort = Number(m[6]);
+  if (!isValidIpv4(insideIp) || !isValidIpv4(outsideIp)) { terminalLine("error", "% Invalid IPv4 address."); return true; }
+  if (![insidePort, outsidePort].every(p => p >= 1 && p <= 65535)) { terminalLine("error", "% Port must be 1-65535."); return true; }
+  pushUndo();
+  if (!router.config) (router as any).config = {};
+  const list = router.config.portForwards || (router.config.portForwards = []);
+  const idx = list.findIndex((r: any) => r.outsideIp === outsideIp && r.outsidePort === outsidePort);
+  if (m[1]) {
+    if (idx >= 0) list.splice(idx, 1);
+    terminalLine("", `Removed port-forward ${outsideIp}:${outsidePort}.`);
+  } else {
+    const rule = { proto: "tcp" as const, insideIp, insidePort, outsideIp, outsidePort };
+    if (idx >= 0) list[idx] = rule; else list.push(rule);
+    terminalLine("", `Port-forward ${outsideIp}:${outsidePort} → ${insideIp}:${insidePort}.`);
+  }
+  sync().syncPanel();
+  return true;
 }
 
 // Marks the selected interface `ip nat inside|outside` (or clears the mark).
@@ -347,6 +378,7 @@ export function runRouterTerminalCommand(router: Device, rawCommand: string): vo
     if (error) terminalLine("error", `% ${error}`);
     return;
   }
+  if (routerStaticNatCommand(router, lower)) return;
   if (routerNatCommand(router, lower)) return;
   if (routerSessionCommand(lower)) return;
   if (routerShowCommand(router, lower)) return;

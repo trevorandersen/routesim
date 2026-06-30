@@ -1,0 +1,22 @@
+# Reach a server across the internet  ·  scenario id: across-the-internet
+#
+# PC-A (private, behind R1) should reach WEB at the other site through R2's
+# public address, over the Internet cloud. R2 already publishes WEB with a
+# port-forward — the missing piece is NAT on R1: without it, PC-A's private
+# source address goes out unchanged and the reply has no route home. Marking
+# R1's LAN interface "inside" and its internet interface "outside" translates
+# PC-A onto R1's public address, so the round trip completes.
+#
+# Loads the scenario, applies the solution, and checks the goal. Paste into
+# the command console (the >_ toolbar button) or run with routesim.run(...).
+
+scenario load across-the-internet
+cli R1 enable
+cli R1 configure terminal
+cli R1 interface Ethernet1
+cli R1 ip nat inside
+cli R1 exit
+cli R1 interface Ethernet2
+cli R1 ip nat outside
+cli R1 end
+scenario check

@@ -51,7 +51,7 @@ export function addDevice(type: DeviceType, x: number, y: number, name?: string)
 
 // Tools that place a device on a canvas click. "managed-switch" is a UI variant
 // of the switch tool (the Switch tool group), not a distinct device type.
-export const PLACEMENT_TOOLS = new Set(["computer", "laptop", "kali", "server", "dns-server", "dhcp-server", "radius-server", "web-server", "switch", "managed-switch", "router", "border-router", "firewall", "ids", "attacker", "hub", "access-point"]);
+export const PLACEMENT_TOOLS = new Set(["computer", "laptop", "kali", "server", "dns-server", "dhcp-server", "radius-server", "web-server", "switch", "managed-switch", "router", "border-router", "internet", "firewall", "ids", "attacker", "hub", "access-point"]);
 
 // The Server tool group places a `server` pre-configured for a role. They are all
 // the same `server` device type — so the inspector, frame processing, and

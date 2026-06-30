@@ -1,4 +1,4 @@
-export type DeviceType = "computer" | "laptop" | "kali" | "server" | "switch" | "router" | "firewall" | "hub" | "access-point" | "ids" | "attacker" | "lan";
+export type DeviceType = "computer" | "laptop" | "kali" | "server" | "switch" | "router" | "firewall" | "hub" | "access-point" | "internet" | "ids" | "attacker" | "lan";
 export type PortMode = "access" | "trunk";
 
 export interface Point {

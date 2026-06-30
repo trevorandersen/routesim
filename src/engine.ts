@@ -634,6 +634,7 @@ const PROCESSORS: Partial<Record<DeviceType, (device: Device, frame: EthernetFra
   server: processAtServer,
   switch: processAtSwitch,
   "access-point": processAtSwitch,      // an AP bridges like an unmanaged switch
+  internet: processAtSwitch,            // the internet cloud is a transparent L2 transit between routers
   router: processAtRouter,
   firewall: processAtFirewall,
   hub: processAtHub,

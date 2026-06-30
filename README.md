@@ -54,7 +54,7 @@ routesim/
     ├── commands.ts     # Console command engine (also window.routesim + scripts)
     ├── console.ts      # Command console panel UI
     ├── scenarios.ts    # Scenario model, registry, goal checking
-    ├── scenario-library.ts # The built-in 28-scenario curriculum
+    ├── scenario-library.ts # The built-in 29-scenario curriculum
     ├── scenario-ui.ts  # Scenario goal banner
     ├── canvas.ts       # Canvas rendering (devices, links, labels, pan/zoom)
     ├── inspector.ts    # Right-side panel (device details, link history, options)
@@ -118,7 +118,7 @@ sync().render();
 ## Features
 
 - **Canvas editor** — pan, zoom, drag devices, auto-grid snapping; right-click a device for a quick menu (Terminal / Configure / Power / Delete), and a floating play/pause/step/stop pill appears over the canvas while a simulation runs (Ctrl+C in a terminal cancels it)
-- **Device types** — computers (PC/laptop), servers, switches (managed/unmanaged), routers (internal/core or border/edge — a "B" badge), firewalls (transparent inline iptables filter), hubs (layer-1 repeater), IDS sensors, Kali PCs (a hand-driven pentest box), Red Team actors (an autonomous Kali attacker)
+- **Device types** — computers (PC/laptop), servers, switches (managed/unmanaged), routers (internal/core or border/edge — a "B" badge), an **internet cloud** (a transparent transit that forwards between connected routers — multi-site over the WAN), firewalls (transparent inline iptables filter), hubs (layer-1 repeater), IDS sensors, Kali PCs (a hand-driven pentest box), Red Team actors (an autonomous Kali attacker)
 - **Server tool** — its own ribbon group with role-preset entries: a generic **Server** (dnsmasq: DNS + DHCP), a **DNS server**, a **DHCP server**, a **RADIUS server** (the 802.1X back-end), and a **Web server** (an HTTP service answering GET with 200 OK on TCP/80). All are the one `server` type, pre-named (`DNS-1`, `RAD-1`, …) and role-flagged; configure DNS records, the DHCP range, **RADIUS users**, the **HTTP service** (+ page title), and **listening ports** in the inspector
 - **PC terminal** — `ip addr`, `ip route`, `ping`, `traceroute`, `nslookup`, `nc -z`, `curl http://…`, `arp -n`, `/etc/resolv.conf`, `hostname` / `hostnamectl set-hostname`
 - **Hostname = canvas name** — a CLI device's name on the canvas *is* its hostname (also its prompt and the name it resolves as). Set it the real way — `hostname <name>` / `hostnamectl set-hostname <name>` / `echo <name> > /etc/hostname` on a host, `hostname <name>` (config mode) on a router, `config hostname <name>` on a managed switch — or just edit the **Hostname** field in the inspector
@@ -143,7 +143,7 @@ sync().render();
 - **Multi-run captures** — each run is archived; switch between past runs, or **Compare** two side by side (before vs after) to see exactly what a fix changed — both panes honour the display filter
 - **Silent protocols** — optionally resolve ARP/DHCP/DNS instantly with no animation or packet-list rows, to keep the higher-layer flow uncluttered
 - **Tutorial mode** — Help -> Tutorial plays a hands-off demo: a faux cursor builds two LANs joined by a router, configures the addresses and gateways **in the inspector**, and pings across it **from a device terminal**, narrating each step. Step through it at your own pace with back / pause / forward / replay / exit controls (or the arrow keys); back and forward deterministically rebuild the topology so you can scrub. It drives the real UI underneath, so it shows exactly what you would do by hand
-- **Scenarios** — a 28-entry guided curriculum with goal checking, every entry solvable (tested) — including WiFi joins, 802.1X port authentication, MACsec link encryption, breaking an L2 loop with spanning tree, catching an intruder with an IDS, writing a Snort rule to detect a Red Team port scan, publishing a web page, and building a stateful firewall that blocks inbound scans while letting hosts browse out
+- **Scenarios** — a 29-entry guided curriculum with goal checking, every entry solvable (tested) — including WiFi joins, 802.1X port authentication, MACsec link encryption, breaking an L2 loop with spanning tree, catching an intruder with an IDS, writing a Snort rule to detect a Red Team port scan, publishing a web page, and building a stateful firewall that blocks inbound scans while letting hosts browse out
 - **Undo/redo** — snapshot-based history for topology and config changes
 - **Persistence** — import/export configs, scenarios, scripts, and logs as JSON files
 - **WiFi** — a WiFi-only **laptop** that associates to an **access point** (a transparent L2 bridge) over a matching **SSID** (with an optional password); the wireless link is drawn dotted, and ARP/DHCP/IP work through the AP onto the wired LAN. `associate <laptop>` animates the real **802.11 join** — probe / authentication / association, plus the WPA2 4-way (EAPOL) key handshake on a secured network. A **wrong password** still associates but fails the key handshake (the AP deauthenticates), leaving the link unauthenticated and carrying no data until the password is fixed

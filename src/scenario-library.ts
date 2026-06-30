@@ -351,6 +351,37 @@ const natGateway: Scenario = {
   ],
 };
 
+const acrossTheInternet: Scenario = {
+  id: "across-the-internet",
+  name: "Reach a server across the internet",
+  objective: "PC-A (private, behind R1) should load WEB's page at the other site through R2's public address — an HTTP GET to 203.0.113.2 must return 200. R2 already publishes WEB with a port-forward, and the two edge routers meet over the Internet cloud. But R1 isn't translating PC-A's private address, so the reply can never get back. Mark R1's interfaces: `ip nat inside` on the LAN side (Ethernet1) and `ip nat outside` on the Internet side (Ethernet2).",
+  topology: {
+    version: 1,
+    devices: [
+      { id: "ix-a", type: "computer", name: "PC-A", x: -520, y: 0, config: { ipv4Address: "10.0.0.10", gatewayIpv4Address: "10.0.0.1", macAddress: "02:00:00:00:1A:0A", arpTable: [] } },
+      { id: "ix-r1", type: "router", name: "R1", x: -300, y: 0, config: { ethernetPorts: 2, serialPorts: 0, interfaces: [
+        { peerId: "ix-a", type: "ethernet", ipv4Address: "10.0.0.1" },
+        { peerId: "ix-net", type: "ethernet", ipv4Address: "203.0.113.1" },
+      ] } },
+      { id: "ix-net", type: "internet", name: "Internet", x: -40, y: 0, config: { ethernetPorts: 8, macTable: [] } },
+      { id: "ix-r2", type: "router", name: "R2", x: 240, y: 0, config: { ethernetPorts: 2, serialPorts: 0, role: "border", interfaces: [
+        { peerId: "ix-net", type: "ethernet", ipv4Address: "203.0.113.2", natRole: "outside" },
+        { peerId: "ix-web", type: "ethernet", ipv4Address: "10.0.1.1", natRole: "inside" },
+      ], portForwards: [{ proto: "tcp", outsideIp: "203.0.113.2", outsidePort: 80, insideIp: "10.0.1.80", insidePort: 80 }] } },
+      { id: "ix-web", type: "server", name: "WEB", x: 460, y: 0, config: { ipv4Address: "10.0.1.80", gatewayIpv4Address: "10.0.1.1", macAddress: "02:00:00:00:1A:80", arpTable: [], dnsmasqRunning: false, openPorts: [80], httpEnabled: true } },
+    ],
+    links: [
+      { from: "ix-a", to: "ix-r1" },
+      { from: "ix-r1", to: "ix-net" },
+      { from: "ix-r2", to: "ix-net" },
+      { from: "ix-web", to: "ix-r2" },
+    ],
+  },
+  checks: [
+    { kind: "http", from: "PC-A", to: "203.0.113.2", status: 200, label: "PC-A loads WEB across the internet (HTTP 200)" },
+  ],
+};
+
 const portForward: Scenario = {
   id: "port-forward",
   name: "Publish a web server (port-forward)",
@@ -753,6 +784,7 @@ export const CURRICULUM: Scenario[] = [
   troubleshootStaticRoute,
   natGateway,
   portForward,
+  acrossTheInternet,
   hardenGateway,
   dnsService,
   troubleshootDns,
@@ -777,7 +809,7 @@ export const CURRICULUM: Scenario[] = [
 export const SCENARIO_GROUPS: { label: string; ids: string[] }[] = [
   { label: "Getting started", ids: ["connect-lan"] },
   { label: "Switching & VLANs", ids: ["vlan-segmentation", "router-on-a-stick", "spanning-tree"] },
-  { label: "Routing", ids: ["static-routes", "rip-convergence", "nat-gateway", "port-forward"] },
+  { label: "Routing", ids: ["static-routes", "rip-convergence", "nat-gateway", "port-forward", "across-the-internet"] },
   { label: "Services (DHCP, DNS & HTTP)", ids: ["dhcp-service", "dns-service", "server-dhcp", "web-service"] },
   { label: "Wireless", ids: ["wifi-join", "wifi-dhcp"] },
   { label: "Security", ids: ["firewall-guard", "harden-gateway", "stateful-firewall", "port-auth-8021x", "macsec-link", "secure-access", "ids-monitor", "red-team-scan"] },

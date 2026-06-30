@@ -83,6 +83,10 @@
       --hub-stroke: #b89a3a;
       --hub-accent: #38311d;
       --hub-icon: #e6cd7a;
+      --internet-fill: #16263a;
+      --internet-stroke: #5aa0d6;
+      --internet-accent: #1b3147;
+      --internet-icon: #9ecbf0;
       --shadow: 0 18px 40px rgba(0, 0, 0, 0.34);
       --inspector-width: 320px;
       --terminal-height: 280px;
@@ -144,6 +148,10 @@
       --hub-stroke: #927a2a;
       --hub-accent: #efe4c6;
       --hub-icon: #6f5b18;
+      --internet-fill: #e8f1fb;
+      --internet-stroke: #3b7bbf;
+      --internet-accent: #d4e6f7;
+      --internet-icon: #1f5a96;
       --fw-fill: #fbf2f0;
       --fw-stroke: #b5443c;
       --fw-accent: #f6dedb;
@@ -235,6 +243,10 @@
       --hub-stroke: #d8b24f;
       --hub-accent: #0e3170;
       --hub-icon: #ffe7ac;
+      --internet-fill: #0e3a86;
+      --internet-stroke: #7fd0e8;
+      --internet-accent: #0c326f;
+      --internet-icon: #c8ecf7;
       --shadow: 0 14px 36px rgba(0, 0, 0, 0.4);
     }
 
@@ -2499,6 +2511,7 @@
             <div class="tool-menu" hidden>
               <button class="tool-menu-item active" data-tool="router" type="button"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 12m-9 0a9 9 0 1 0 18 0a9 9 0 1 0 -18 0"></path><path d="M6 12h5"></path><path d="M8 10l3 2l-3 2"></path><path d="M18 12h-5"></path><path d="M16 10l-3 2l3 2"></path></svg><span>Internal router</span></button>
               <button class="tool-menu-item" data-tool="border-router" type="button"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 12m-9 0a9 9 0 1 0 18 0a9 9 0 1 0 -18 0"></path><path d="M6 12h5"></path><path d="M8 10l3 2l-3 2"></path><path d="M18 12h-5"></path><path d="M16 10l-3 2l3 2"></path></svg><span>Border router</span></button>
+              <button class="tool-menu-item" data-tool="internet" type="button"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M6.657 18c-2.572 0 -4.657 -2.007 -4.657 -4.483c0 -2.475 2.085 -4.482 4.657 -4.482c.393 -1.762 1.794 -3.2 3.675 -3.773c1.88 -.572 3.956 -.193 5.444 1c1.488 1.19 2.162 3.007 1.77 4.769h.99c1.913 0 3.464 1.56 3.464 3.486c0 1.927 -1.551 3.487 -3.465 3.487h-12.15z"></path></svg><span>Internet</span></button>
             </div>
           </div>
 
@@ -3108,6 +3121,23 @@ Full legal text: https://creativecommons.org/publicdomain/zero/1.0/legalcode</pr
       // only associate if its SSID — and password, if set — match).
       defaultConfig: () => ({ managed: false, ethernetPorts: 1, macTable: [], ssid: DEFAULT_SSID })
     },
+    internet: {
+      label: "Internet",
+      namePrefix: "Internet",
+      width: 112,
+      height: 70,
+      paletteVar: "internet",
+      iconRadius: 10,
+      userAddable: true,
+      // A cloud — the external internet. A transparent L2 transit (unmanaged-switch
+      // semantics, engine routes it via processAtSwitch): connect several routers'
+      // WAN interfaces (on a shared public subnet) and it forwards frames between
+      // them, MAC-learning so traffic reaches the right router.
+      iconPaths: [
+        "M6.657 18c-2.572 0 -4.657 -2.007 -4.657 -4.483c0 -2.475 2.085 -4.482 4.657 -4.482c.393 -1.762 1.794 -3.2 3.675 -3.773c1.88 -.572 3.956 -.193 5.444 1c1.488 1.19 2.162 3.007 1.77 4.769h.99c1.913 0 3.464 1.56 3.464 3.486c0 1.927 -1.551 3.487 -3.465 3.487h-12.15z"
+      ],
+      defaultConfig: () => ({ ethernetPorts: 8, macTable: [] })
+    },
     ids: {
       label: "IDS",
       namePrefix: "IDS",
@@ -3427,6 +3457,12 @@ Full legal text: https://creativecommons.org/publicdomain/zero/1.0/legalcode</pr
   function normaliseDeviceConfig(device) {
     if (device.type === "hub") {
       return { ethernetPorts: clampPortCount(device.config?.ethernetPorts ?? device.ethernetPorts ?? 4) };
+    }
+    if (device.type === "internet") {
+      return {
+        ethernetPorts: clampPortCount(device.config?.ethernetPorts ?? device.ethernetPorts ?? 8),
+        macTable: normaliseMacTable(device.config?.macTable || device.macTable || [])
+      };
     }
     if (device.type === "switch") {
       const ethernetPorts = clampPortCount(device.config?.ethernetPorts ?? device.ethernetPorts ?? 8);
@@ -3790,6 +3826,7 @@ Full legal text: https://creativecommons.org/publicdomain/zero/1.0/legalcode</pr
     connect: ["Connect devices", "Click one device, then another to cable them (auto-picks free ports; Shift-click the second to choose ports)."],
     router: ["Add internal router", "Click the canvas to place an internal/core router (interior forwarding)."],
     "border-router": ["Add border router", "Click the canvas to place a border/edge router (faces the outside \u2014 pair it with NAT + a firewall)."],
+    internet: ["Add internet", "Click the canvas to place the internet cloud \u2014 connect router WAN interfaces (on a shared public subnet) and it transparently forwards between them."],
     firewall: ["Add firewall", "Click the canvas to place a firewall."],
     ids: ["Add IDS", "Click the canvas to place a Snort IDS sensor (cable it to a switch SPAN/monitor port)."],
     attacker: ["Add Red Team host", "Click the canvas to place a Red Team (Kali) host that launches simulated attacks against a target."],
@@ -4325,7 +4362,7 @@ Full legal text: https://creativecommons.org/publicdomain/zero/1.0/legalcode</pr
     sync().render();
     return device;
   }
-  var PLACEMENT_TOOLS = /* @__PURE__ */ new Set(["computer", "laptop", "kali", "server", "dns-server", "dhcp-server", "radius-server", "web-server", "switch", "managed-switch", "router", "border-router", "firewall", "ids", "attacker", "hub", "access-point"]);
+  var PLACEMENT_TOOLS = /* @__PURE__ */ new Set(["computer", "laptop", "kali", "server", "dns-server", "dhcp-server", "radius-server", "web-server", "switch", "managed-switch", "router", "border-router", "internet", "firewall", "ids", "attacker", "hub", "access-point"]);
   var SERVER_PRESETS = {
     "dns-server": { namePrefix: "DNS", config: () => ({ dnsmasqRunning: true, dnsRecords: [] }) },
     "dhcp-server": { namePrefix: "DHCP", config: () => ({ dnsmasqRunning: true, dnsRecords: [] }) },
@@ -7658,6 +7695,8 @@ Full legal text: https://creativecommons.org/publicdomain/zero/1.0/legalcode</pr
     switch: processAtSwitch,
     "access-point": processAtSwitch,
     // an AP bridges like an unmanaged switch
+    internet: processAtSwitch,
+    // the internet cloud is a transparent L2 transit between routers
     router: processAtRouter,
     firewall: processAtFirewall,
     hub: processAtHub,
@@ -13075,6 +13114,36 @@ Snort successfully validated the configuration${bad ? " (with errors)" : "."}`);
       { kind: "tcp", from: "PC-A", to: "ISP-SRV", port: 80, label: "PC-A can reach the web server (80)" }
     ]
   };
+  var acrossTheInternet = {
+    id: "across-the-internet",
+    name: "Reach a server across the internet",
+    objective: "PC-A (private, behind R1) should load WEB's page at the other site through R2's public address \u2014 an HTTP GET to 203.0.113.2 must return 200. R2 already publishes WEB with a port-forward, and the two edge routers meet over the Internet cloud. But R1 isn't translating PC-A's private address, so the reply can never get back. Mark R1's interfaces: `ip nat inside` on the LAN side (Ethernet1) and `ip nat outside` on the Internet side (Ethernet2).",
+    topology: {
+      version: 1,
+      devices: [
+        { id: "ix-a", type: "computer", name: "PC-A", x: -520, y: 0, config: { ipv4Address: "10.0.0.10", gatewayIpv4Address: "10.0.0.1", macAddress: "02:00:00:00:1A:0A", arpTable: [] } },
+        { id: "ix-r1", type: "router", name: "R1", x: -300, y: 0, config: { ethernetPorts: 2, serialPorts: 0, interfaces: [
+          { peerId: "ix-a", type: "ethernet", ipv4Address: "10.0.0.1" },
+          { peerId: "ix-net", type: "ethernet", ipv4Address: "203.0.113.1" }
+        ] } },
+        { id: "ix-net", type: "internet", name: "Internet", x: -40, y: 0, config: { ethernetPorts: 8, macTable: [] } },
+        { id: "ix-r2", type: "router", name: "R2", x: 240, y: 0, config: { ethernetPorts: 2, serialPorts: 0, role: "border", interfaces: [
+          { peerId: "ix-net", type: "ethernet", ipv4Address: "203.0.113.2", natRole: "outside" },
+          { peerId: "ix-web", type: "ethernet", ipv4Address: "10.0.1.1", natRole: "inside" }
+        ], portForwards: [{ proto: "tcp", outsideIp: "203.0.113.2", outsidePort: 80, insideIp: "10.0.1.80", insidePort: 80 }] } },
+        { id: "ix-web", type: "server", name: "WEB", x: 460, y: 0, config: { ipv4Address: "10.0.1.80", gatewayIpv4Address: "10.0.1.1", macAddress: "02:00:00:00:1A:80", arpTable: [], dnsmasqRunning: false, openPorts: [80], httpEnabled: true } }
+      ],
+      links: [
+        { from: "ix-a", to: "ix-r1" },
+        { from: "ix-r1", to: "ix-net" },
+        { from: "ix-r2", to: "ix-net" },
+        { from: "ix-web", to: "ix-r2" }
+      ]
+    },
+    checks: [
+      { kind: "http", from: "PC-A", to: "203.0.113.2", status: 200, label: "PC-A loads WEB across the internet (HTTP 200)" }
+    ]
+  };
   var portForward = {
     id: "port-forward",
     name: "Publish a web server (port-forward)",
@@ -13461,6 +13530,7 @@ Snort successfully validated the configuration${bad ? " (with errors)" : "."}`);
     troubleshootStaticRoute,
     natGateway,
     portForward,
+    acrossTheInternet,
     hardenGateway,
     dnsService,
     troubleshootDns,
@@ -13480,7 +13550,7 @@ Snort successfully validated the configuration${bad ? " (with errors)" : "."}`);
   var SCENARIO_GROUPS = [
     { label: "Getting started", ids: ["connect-lan"] },
     { label: "Switching & VLANs", ids: ["vlan-segmentation", "router-on-a-stick", "spanning-tree"] },
-    { label: "Routing", ids: ["static-routes", "rip-convergence", "nat-gateway", "port-forward"] },
+    { label: "Routing", ids: ["static-routes", "rip-convergence", "nat-gateway", "port-forward", "across-the-internet"] },
     { label: "Services (DHCP, DNS & HTTP)", ids: ["dhcp-service", "dns-service", "server-dhcp", "web-service"] },
     { label: "Wireless", ids: ["wifi-join", "wifi-dhcp"] },
     { label: "Security", ids: ["firewall-guard", "harden-gateway", "stateful-firewall", "port-auth-8021x", "macsec-link", "secure-access", "ids-monitor", "red-team-scan"] },

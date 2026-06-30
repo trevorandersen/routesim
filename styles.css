@@ -74,6 +74,10 @@
       --hub-stroke: #b89a3a;
       --hub-accent: #38311d;
       --hub-icon: #e6cd7a;
+      --internet-fill: #16263a;
+      --internet-stroke: #5aa0d6;
+      --internet-accent: #1b3147;
+      --internet-icon: #9ecbf0;
       --shadow: 0 18px 40px rgba(0, 0, 0, 0.34);
       --inspector-width: 320px;
       --terminal-height: 280px;
@@ -135,6 +139,10 @@
       --hub-stroke: #927a2a;
       --hub-accent: #efe4c6;
       --hub-icon: #6f5b18;
+      --internet-fill: #e8f1fb;
+      --internet-stroke: #3b7bbf;
+      --internet-accent: #d4e6f7;
+      --internet-icon: #1f5a96;
       --fw-fill: #fbf2f0;
       --fw-stroke: #b5443c;
       --fw-accent: #f6dedb;
@@ -226,6 +234,10 @@
       --hub-stroke: #d8b24f;
       --hub-accent: #0e3170;
       --hub-icon: #ffe7ac;
+      --internet-fill: #0e3a86;
+      --internet-stroke: #7fd0e8;
+      --internet-accent: #0c326f;
+      --internet-icon: #c8ecf7;
       --shadow: 0 14px 36px rgba(0, 0, 0, 0.4);
     }
 

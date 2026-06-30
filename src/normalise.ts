@@ -328,6 +328,14 @@ export function normaliseDeviceConfig(device: any): DeviceConfig {
     // A hub is a dumb layer-1 repeater — just a port count, no tables.
     return { ethernetPorts: clampPortCount(device.config?.ethernetPorts ?? device.ethernetPorts ?? 4) };
   }
+  if (device.type === "internet") {
+    // The internet cloud — a transparent L2 transit (unmanaged-switch semantics):
+    // a port count + a learned MAC table, nothing to configure.
+    return {
+      ethernetPorts: clampPortCount(device.config?.ethernetPorts ?? device.ethernetPorts ?? 8),
+      macTable: normaliseMacTable(device.config?.macTable || device.macTable || []),
+    };
+  }
   if (device.type === "switch") {
     const ethernetPorts = clampPortCount(device.config?.ethernetPorts ?? device.ethernetPorts ?? 8);
     const managed = Boolean(device.config?.managed ?? device.managed ?? false);

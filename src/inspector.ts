@@ -1106,6 +1106,13 @@ export function syncPanel(): void {
       </div>
     ` : "";
     const routerConfigFields = selected.type === "router" ? `
+      <div class="field">
+        <label for="selectedRouterRole">Role</label>
+        <select id="selectedRouterRole">
+          <option value="internal" ${selected.config?.role === "border" ? "" : "selected"}>Internal / core (interior forwarding)</option>
+          <option value="border" ${selected.config?.role === "border" ? "selected" : ""}>Border / edge (faces the outside)</option>
+        </select>
+      </div>
       <div class="field-row">
         <div class="field">
           <label for="selectedRouterEthernetPorts">Ethernet ports</label>
@@ -1352,6 +1359,17 @@ export function syncPanel(): void {
         }
       });
     });
+    const routerRole = document.getElementById("selectedRouterRole") as HTMLSelectElement | null;
+    if (routerRole) {
+      routerRole.addEventListener("change", (event: any) => {
+        pushUndo();
+        ensureConfig(selected);
+        if (event.target.value === "border") selected.config.role = "border";
+        else delete selected.config.role; // internal is the plain default
+        syncPanel();
+        sync().render(); // redraw the border badge
+      });
+    }
     const routerEthernetPorts = document.getElementById("selectedRouterEthernetPorts") as HTMLInputElement;
     const routerSerialPorts = document.getElementById("selectedRouterSerialPorts") as HTMLInputElement;
     [routerEthernetPorts, routerSerialPorts].filter(Boolean).forEach(input => {

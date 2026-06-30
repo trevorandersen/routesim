@@ -2371,7 +2371,14 @@
 
           <button class="ribbon-btn tool-button" data-tool="access-point" type="button"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 12l0 .01"></path><path d="M14.828 9.172a4 4 0 0 1 0 5.656"></path><path d="M17.657 6.343a8 8 0 0 1 0 11.314"></path><path d="M9.172 14.828a4 4 0 0 1 0 -5.656"></path><path d="M6.343 17.657a8 8 0 0 1 0 -11.314"></path></svg><span>Access Pt</span></button>
 
-          <button class="ribbon-btn tool-button" data-tool="router" type="button"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 12m-9 0a9 9 0 1 0 18 0a9 9 0 1 0 -18 0"></path><path d="M6 12h5"></path><path d="M8 10l3 2l-3 2"></path><path d="M18 12h-5"></path><path d="M16 10l-3 2l3 2"></path></svg><span>Router</span></button>
+          <div class="tool-split" data-group="router">
+            <button class="ribbon-btn tool-button tool-face" data-tool="router" type="button"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 12m-9 0a9 9 0 1 0 18 0a9 9 0 1 0 -18 0"></path><path d="M6 12h5"></path><path d="M8 10l3 2l-3 2"></path><path d="M18 12h-5"></path><path d="M16 10l-3 2l3 2"></path></svg><span>Router</span></button>
+            <button class="tool-caret" type="button" aria-label="Choose router role" aria-haspopup="true" aria-expanded="false"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M6 9l6 6l6 -6"></path></svg></button>
+            <div class="tool-menu" hidden>
+              <button class="tool-menu-item active" data-tool="router" type="button"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 12m-9 0a9 9 0 1 0 18 0a9 9 0 1 0 -18 0"></path><path d="M6 12h5"></path><path d="M8 10l3 2l-3 2"></path><path d="M18 12h-5"></path><path d="M16 10l-3 2l3 2"></path></svg><span>Internal router</span></button>
+              <button class="tool-menu-item" data-tool="border-router" type="button"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 12m-9 0a9 9 0 1 0 18 0a9 9 0 1 0 -18 0"></path><path d="M6 12h5"></path><path d="M8 10l3 2l-3 2"></path><path d="M18 12h-5"></path><path d="M16 10l-3 2l3 2"></path></svg><span>Border router</span></button>
+            </div>
+          </div>
 
           <div class="tool-split" data-group="security">
             <button class="ribbon-btn tool-button tool-face" data-tool="firewall" type="button"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 3a12 12 0 0 0 8.5 3a12 12 0 0 1 -8.5 15a12 12 0 0 1 -8.5 -15a12 12 0 0 0 8.5 -3"></path><path d="M9 12l2 2l4 -4"></path></svg><span>Security</span></button>
@@ -3328,6 +3335,7 @@ Full legal text: https://creativecommons.org/publicdomain/zero/1.0/legalcode</pr
       return {
         ethernetPorts,
         serialPorts,
+        ...device.config?.role === "border" || device.config?.role === "internal" ? { role: device.config.role } : {},
         interfaces,
         staticRoutes: normaliseStaticRoutes(device.config?.staticRoutes || []),
         ...ripConfig.enabled ? { rip: ripConfig } : {},
@@ -3647,7 +3655,8 @@ Full legal text: https://creativecommons.org/publicdomain/zero/1.0/legalcode</pr
     switch: ["Add switch", "Click the canvas to place a switch."],
     "managed-switch": ["Add managed switch", "Click the canvas to place a managed switch."],
     connect: ["Connect devices", "Click one device, then another to cable them (auto-picks free ports; Shift-click the second to choose ports)."],
-    router: ["Add router", "Click the canvas to place a router."],
+    router: ["Add internal router", "Click the canvas to place an internal/core router (interior forwarding)."],
+    "border-router": ["Add border router", "Click the canvas to place a border/edge router (faces the outside \u2014 pair it with NAT + a firewall)."],
     firewall: ["Add firewall", "Click the canvas to place a firewall."],
     ids: ["Add IDS", "Click the canvas to place a Snort IDS sensor (cable it to a switch SPAN/monitor port)."],
     attacker: ["Add Red Team host", "Click the canvas to place a Red Team (Kali) host that launches simulated attacks against a target."],
@@ -4176,7 +4185,7 @@ Full legal text: https://creativecommons.org/publicdomain/zero/1.0/legalcode</pr
     sync().render();
     return device;
   }
-  var PLACEMENT_TOOLS = /* @__PURE__ */ new Set(["computer", "laptop", "kali", "server", "dns-server", "dhcp-server", "radius-server", "web-server", "switch", "managed-switch", "router", "firewall", "ids", "attacker", "hub", "access-point"]);
+  var PLACEMENT_TOOLS = /* @__PURE__ */ new Set(["computer", "laptop", "kali", "server", "dns-server", "dhcp-server", "radius-server", "web-server", "switch", "managed-switch", "router", "border-router", "firewall", "ids", "attacker", "hub", "access-point"]);
   var SERVER_PRESETS = {
     "dns-server": { namePrefix: "DNS", config: () => ({ dnsmasqRunning: true, dnsRecords: [] }) },
     "dhcp-server": { namePrefix: "DHCP", config: () => ({ dnsmasqRunning: true, dnsRecords: [] }) },
@@ -4193,6 +4202,14 @@ Full legal text: https://creativecommons.org/publicdomain/zero/1.0/legalcode</pr
       const device = addDevice("switch", x, y);
       device.config = device.config || {};
       device.config.managed = true;
+      sync().syncPanel();
+      sync().render();
+      return device;
+    }
+    if (tool === "border-router") {
+      const device = addDevice("router", x, y, nextNameForPrefix("Border"));
+      device.config = device.config || {};
+      device.config.role = "border";
       sync().syncPanel();
       sync().render();
       return device;
@@ -6100,6 +6117,24 @@ Full legal text: https://creativecommons.org/publicdomain/zero/1.0/legalcode</pr
     ctx.fillText("R", x, y + 0.5);
     ctx.restore();
   }
+  function drawBorderBadge(device) {
+    const x = device.x + device.width / 2 - 18;
+    const y = device.y - device.height / 2 + 18;
+    ctx.save();
+    ctx.fillStyle = "#f59e0b";
+    ctx.strokeStyle = cssColor("--panel");
+    ctx.lineWidth = 1.6;
+    ctx.beginPath();
+    ctx.arc(x, y, 10, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.stroke();
+    ctx.fillStyle = "#1a1208";
+    ctx.font = "bold 12px system-ui, sans-serif";
+    ctx.textAlign = "center";
+    ctx.textBaseline = "middle";
+    ctx.fillText("B", x, y + 0.5);
+    ctx.restore();
+  }
   function drawDeviceIcon(device) {
     if (device.hidden) return;
     const selected = state.selectedId === device.id;
@@ -6124,6 +6159,7 @@ Full legal text: https://creativecommons.org/publicdomain/zero/1.0/legalcode</pr
     drawIconDevice(device, palette);
     if (device.type === "switch" && device.config?.managed) drawManagedBadge(device, palette);
     if (device.type === "switch" && isRootBridge(device)) drawRootBridgeBadge(device);
+    if (device.type === "router" && device.config?.role === "border") drawBorderBadge(device);
     ctx.restore();
   }
   function drawDevice(device) {
@@ -12234,6 +12270,13 @@ Snort successfully validated the configuration${bad ? " (with errors)" : "."}`);
       </div>
     ` : "";
       const routerConfigFields = selected.type === "router" ? `
+      <div class="field">
+        <label for="selectedRouterRole">Role</label>
+        <select id="selectedRouterRole">
+          <option value="internal" ${selected.config?.role === "border" ? "" : "selected"}>Internal / core (interior forwarding)</option>
+          <option value="border" ${selected.config?.role === "border" ? "selected" : ""}>Border / edge (faces the outside)</option>
+        </select>
+      </div>
       <div class="field-row">
         <div class="field">
           <label for="selectedRouterEthernetPorts">Ethernet ports</label>
@@ -12474,6 +12517,17 @@ Snort successfully validated the configuration${bad ? " (with errors)" : "."}`);
           }
         });
       });
+      const routerRole = document.getElementById("selectedRouterRole");
+      if (routerRole) {
+        routerRole.addEventListener("change", (event) => {
+          pushUndo();
+          ensureConfig(selected);
+          if (event.target.value === "border") selected.config.role = "border";
+          else delete selected.config.role;
+          syncPanel();
+          sync().render();
+        });
+      }
       const routerEthernetPorts = document.getElementById("selectedRouterEthernetPorts");
       const routerSerialPorts = document.getElementById("selectedRouterSerialPorts");
       [routerEthernetPorts, routerSerialPorts].filter(Boolean).forEach((input) => {
@@ -14277,6 +14331,7 @@ Snort successfully validated the configuration${bad ? " (with errors)" : "."}`);
           config: {
             ethernetPorts: clampRouterPortCount(config?.ethernetPorts ?? 4),
             serialPorts: clampRouterPortCount(config?.serialPorts ?? 4),
+            ...config?.role === "border" || config?.role === "internal" ? { role: config.role } : {},
             interfaces: routerInterfacesForPayload({ id, config }),
             ...config?.staticRoutes?.length ? { staticRoutes: config.staticRoutes } : {},
             ...config?.rip?.enabled ? { rip: config.rip } : {},
@@ -14959,6 +15014,20 @@ Snort successfully validated the configuration${bad ? " (with errors)" : "."}`);
     sync().syncPanel();
     return ok(`Web service enabled on ${dev.name}${title ? ` ("${title}")` : ""}.`);
   }
+  function cmdRole(args) {
+    const router = resolveDevice(args[0]);
+    if (typeof router === "string") return err(router);
+    if (router.type !== "router") return err(`${router.name} is not a router.`);
+    const role = (args[1] || "").toLowerCase();
+    if (role !== "border" && role !== "internal") return err(`role: expected "role <router> border|internal".`);
+    pushUndo();
+    ensureConfig(router);
+    if (role === "border") router.config.role = "border";
+    else delete router.config.role;
+    sync().syncPanel();
+    sync().render();
+    return ok(`${router.name} is now a ${role} router.`);
+  }
   function cmdMirror(args) {
     const sw = resolveDevice(args[0]);
     if (typeof sw === "string") return err(sw);
@@ -15408,6 +15477,7 @@ Snort successfully validated the configuration${bad ? " (with errors)" : "."}`);
     vlan: cmdVlan,
     port: cmdPort,
     managed: cmdManaged,
+    role: cmdRole,
     stp: cmdStp,
     mirror: cmdMirror,
     web: cmdWeb,
@@ -15475,6 +15545,7 @@ Snort successfully validated the configuration${bad ? " (with errors)" : "."}`);
     vlan: "vlan <switch> add|del <id>",
     port: "port <switch> <EthN> vlan|mode|native|allowed ...",
     managed: "managed <switch> [on|off] (enable the switch's management plane: VLANs, STP, port security)",
+    role: "role <router> border|internal (set the router's placement archetype \u2014 border faces the outside)",
     stp: "stp (animate the BPDU exchange) | stp <switch> on|off | stp <switch> priority <n> (default on for managed switches)",
     mirror: "mirror <switch> <dst-port> [src-port\u2026] | mirror <switch> off (SPAN: copy traffic to a monitor port for an IDS)",
     web: "web <server> on|off [title] (enable/disable the server's HTTP service)",
@@ -15582,6 +15653,7 @@ Snort successfully validated the configuration${bad ? " (with errors)" : "."}`);
         if (c.attackTarget) lines.push(`redteam ${d.name} target ${c.attackTarget}`);
         if (c.spoofIp) lines.push(`redteam ${d.name} spoof ${c.spoofIp}`);
       } else if (d.type === "router") {
+        if (c.role === "border") lines.push(`role ${d.name} border`);
         for (const i of c.interfaces || []) {
           const peer = idToName.get(i.peerId);
           if (peer && i.ipv4Address) {

@@ -535,6 +535,24 @@ function cmdWeb(args: string[]): CommandResult {
   return ok(`Web service enabled on ${dev.name}${title ? ` ("${title}")` : ""}.`);
 }
 
+// Set a router's placement archetype: `role <router> border|internal`. A border
+// router faces the outside (pair it with NAT + a firewall); internal is the
+// plain default (interior forwarding).
+function cmdRole(args: string[]): CommandResult {
+  const router = resolveDevice(args[0]);
+  if (typeof router === "string") return err(router);
+  if (router.type !== "router") return err(`${router.name} is not a router.`);
+  const role = (args[1] || "").toLowerCase();
+  if (role !== "border" && role !== "internal") return err(`role: expected "role <router> border|internal".`);
+  pushUndo();
+  ensureConfig(router);
+  if (role === "border") (router.config as any).role = "border";
+  else delete (router.config as any).role; // internal is the plain default
+  sync().syncPanel();
+  sync().render();
+  return ok(`${router.name} is now a ${role} router.`);
+}
+
 // SPAN port mirroring on a managed switch: `mirror <switch> <dst> [src...]`,
 // or `mirror <switch> off` to remove. Copies traffic to a monitor port (IDS).
 function cmdMirror(args: string[]): CommandResult {
@@ -936,7 +954,7 @@ const COMMANDS: Record<string, Handler> = {
   move: cmdMove, rename: cmdRename, clear: cmdClear, collapse: cmdCollapse, expand: cmdExpand,
   ip: cmdIp, gateway: cmdGateway, nameserver: cmdNameserver, mac: cmdMac, ssid: cmdSsid, interface: cmdInterface, route: cmdRoute,
   supplicant: cmdSupplicant, portauth: cmdPortAuth, radius: cmdRadius, ports: cmdPorts, dot1x: cmdDot1x, macsec: cmdMacsec,
-  vlan: cmdVlan, port: cmdPort, managed: cmdManaged, stp: cmdStp, mirror: cmdMirror, web: cmdWeb, idsrule: cmdIdsRule, attack: cmdAttack, redteam: cmdRedteam, cli: cmdCli,
+  vlan: cmdVlan, port: cmdPort, managed: cmdManaged, role: cmdRole, stp: cmdStp, mirror: cmdMirror, web: cmdWeb, idsrule: cmdIdsRule, attack: cmdAttack, redteam: cmdRedteam, cli: cmdCli,
   ping: cmdPing, dhcp: cmdDhcp, connect: cmdConnect, http: cmdHttp, associate: cmdAssociate, run: cmdRun, traceroute: cmdTraceroute, tracert: cmdTraceroute,
   play: cmdPlay, pause: cmdPause, step: cmdStep,
   stop: cmdStop, speed: cmdSpeed,
@@ -965,6 +983,7 @@ const HELP: Record<string, string> = {
   interface: "interface <router> <peer> ip <addr> [vlan <tag>]", route: "route <router> <net/prefix> <nextHop>",
   vlan: "vlan <switch> add|del <id>", port: "port <switch> <EthN> vlan|mode|native|allowed ...",
   managed: "managed <switch> [on|off] (enable the switch's management plane: VLANs, STP, port security)",
+  role: "role <router> border|internal (set the router's placement archetype — border faces the outside)",
   stp: "stp (animate the BPDU exchange) | stp <switch> on|off | stp <switch> priority <n> (default on for managed switches)",
   mirror: "mirror <switch> <dst-port> [src-port…] | mirror <switch> off (SPAN: copy traffic to a monitor port for an IDS)",
   web: "web <server> on|off [title] (enable/disable the server's HTTP service)",
@@ -1076,6 +1095,7 @@ export function exportTopologyScript(): string {
       if (c.attackTarget) lines.push(`redteam ${d.name} target ${c.attackTarget}`);
       if (c.spoofIp) lines.push(`redteam ${d.name} spoof ${c.spoofIp}`);
     } else if (d.type === "router") {
+      if (c.role === "border") lines.push(`role ${d.name} border`);
       for (const i of (c.interfaces || [])) {
         const peer = idToName.get(i.peerId);
         if (peer && i.ipv4Address) {

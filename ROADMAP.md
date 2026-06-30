@@ -158,22 +158,17 @@ channels/interference, multiple SSIDs mapped to VLANs, and beacons/roaming. The
 wireless link already carries loss/bandwidth (it's a normal link), so per-link
 signal degradation is cheap to layer on.
 
-### Router roles — border vs internal
-Give routers a **role** that sets sensible defaults and teaches placement, the
-way the Switch tool now splits basic/managed (a Router tool group mirroring
-Endpoint/Switch/Security):
-- **Border / edge router** — faces the outside: a designated outside/WAN
-  interface with `ip nat outside` and a default route pre-wired, naturally
-  pairing with a firewall. The AS boundary (BGP) lives here in the real world —
-  out of scope now, but this is where it would go.
-- **Internal / core router** — interior forwarding only: an IGP (RIP today,
-  OSPF later), no NAT.
-
-Terminology: **border/edge vs internal/core** is the clearest two-way split for
-teaching. The fuller hierarchy — **core / distribution / access**, or the
-routing-role framing **interior vs exterior (AS-boundary)** — is a later
-refinement if three-tier campus design becomes a teaching goal. Mostly a
-defaults + label/icon change, so effort: low–moderate.
+> **Router roles — shipped (2026-06).** A router carries a **role**
+> (`config.role`) that teaches placement, the way the Switch tool splits
+> basic/managed: a **Router** tool group with **Internal** (the plain default —
+> interior forwarding) and **Border** (`border-router` → `role:"border"`, a
+> `Border-N` name + an amber "B" badge — the edge archetype, the natural place
+> for NAT + a firewall). Set via the inspector Role select or the `role <router>
+> border|internal` console command; round-trips through JSON + the script export.
+> **Later:** pre-wiring the border defaults (a designated outside/WAN interface
+> with `ip nat outside` + a default route), and the fuller hierarchy (core /
+> distribution / access, or interior vs exterior/AS-boundary for BGP) if
+> three-tier campus design becomes a teaching goal.
 
 ### Configurable links
 Mostly shipped. Links are nameable, deletable, and carry **admin status** (shut

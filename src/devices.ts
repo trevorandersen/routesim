@@ -51,7 +51,7 @@ export function addDevice(type: DeviceType, x: number, y: number, name?: string)
 
 // Tools that place a device on a canvas click. "managed-switch" is a UI variant
 // of the switch tool (the Switch tool group), not a distinct device type.
-export const PLACEMENT_TOOLS = new Set(["computer", "laptop", "kali", "server", "dns-server", "dhcp-server", "radius-server", "web-server", "switch", "managed-switch", "router", "firewall", "ids", "attacker", "hub", "access-point"]);
+export const PLACEMENT_TOOLS = new Set(["computer", "laptop", "kali", "server", "dns-server", "dhcp-server", "radius-server", "web-server", "switch", "managed-switch", "router", "border-router", "firewall", "ids", "attacker", "hub", "access-point"]);
 
 // The Server tool group places a `server` pre-configured for a role. They are all
 // the same `server` device type — so the inspector, frame processing, and
@@ -86,6 +86,17 @@ export function placeToolDevice(tool: string, x: number, y: number): Device {
     const device = addDevice("switch", x, y);
     device.config = device.config || {};
     (device.config as any).managed = true;
+    sync().syncPanel();
+    sync().render();
+    return device;
+  }
+  // A border/edge router — a `router` with the role flag (the inside/outside NAT
+  // marks and the firewall are then yours to add). The plain "router" tool stays
+  // an internal/core router (no role). Mirrors the managed-switch variant.
+  if (tool === "border-router") {
+    const device = addDevice("router", x, y, nextNameForPrefix("Border"));
+    device.config = device.config || {};
+    (device.config as any).role = "border";
     sync().syncPanel();
     sync().render();
     return device;

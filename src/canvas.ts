@@ -290,6 +290,27 @@ function drawRootBridgeBadge(device: any): void {
   ctx.restore();
 }
 
+// A border/edge router carries a small amber "B" badge (top-right) — it faces
+// the outside, the natural place for NAT + a firewall.
+function drawBorderBadge(device: any): void {
+  const x = device.x + device.width / 2 - 18;
+  const y = device.y - device.height / 2 + 18;
+  ctx.save();
+  ctx.fillStyle = "#f59e0b";
+  ctx.strokeStyle = cssColor("--panel");
+  ctx.lineWidth = 1.6;
+  ctx.beginPath();
+  ctx.arc(x, y, 10, 0, Math.PI * 2);
+  ctx.fill();
+  ctx.stroke();
+  ctx.fillStyle = "#1a1208";
+  ctx.font = "bold 12px system-ui, sans-serif";
+  ctx.textAlign = "center";
+  ctx.textBaseline = "middle";
+  ctx.fillText("B", x, y + 0.5);
+  ctx.restore();
+}
+
 function drawDeviceIcon(device: any): void {
   if (device.hidden) return;
   const selected = state.selectedId === device.id;
@@ -314,6 +335,7 @@ function drawDeviceIcon(device: any): void {
   drawIconDevice(device, palette);
   if (device.type === "switch" && device.config?.managed) drawManagedBadge(device, palette);
   if (device.type === "switch" && isRootBridge(device)) drawRootBridgeBadge(device);
+  if (device.type === "router" && device.config?.role === "border") drawBorderBadge(device);
   ctx.restore();
 }
 

@@ -118,7 +118,7 @@ sync().render();
 ## Features
 
 - **Canvas editor** — pan, zoom, drag devices, auto-grid snapping
-- **Device types** — computers (PC/laptop), servers, switches (managed/unmanaged), routers, firewalls (transparent inline iptables filter), hubs (layer-1 repeater), IDS sensors, Kali PCs (a hand-driven pentest box), Red Team actors (an autonomous Kali attacker)
+- **Device types** — computers (PC/laptop), servers, switches (managed/unmanaged), routers (internal/core or border/edge — a "B" badge), firewalls (transparent inline iptables filter), hubs (layer-1 repeater), IDS sensors, Kali PCs (a hand-driven pentest box), Red Team actors (an autonomous Kali attacker)
 - **Server tool** — its own ribbon group with role-preset entries: a generic **Server** (dnsmasq: DNS + DHCP), a **DNS server**, a **DHCP server**, a **RADIUS server** (the 802.1X back-end), and a **Web server** (an HTTP service answering GET with 200 OK on TCP/80). All are the one `server` type, pre-named (`DNS-1`, `RAD-1`, …) and role-flagged; configure DNS records, the DHCP range, **RADIUS users**, the **HTTP service** (+ page title), and **listening ports** in the inspector
 - **PC terminal** — `ip addr`, `ip route`, `ping`, `traceroute`, `nslookup`, `nc -z`, `curl http://…`, `arp -n`, `/etc/resolv.conf`, `hostname` / `hostnamectl set-hostname`
 - **Hostname = canvas name** — a CLI device's name on the canvas *is* its hostname (also its prompt and the name it resolves as). Set it the real way — `hostname <name>` / `hostnamectl set-hostname <name>` / `echo <name> > /etc/hostname` on a host, `hostname <name>` (config mode) on a router, `config hostname <name>` on a managed switch — or just edit the **Hostname** field in the inspector

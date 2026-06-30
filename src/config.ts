@@ -84,6 +84,7 @@ export function buildConfigPayload(): SerialisedTopology {
         config: {
           ethernetPorts: clampRouterPortCount(config?.ethernetPorts ?? 4),
           serialPorts: clampRouterPortCount(config?.serialPorts ?? 4),
+          ...(config?.role === "border" || config?.role === "internal" ? { role: config.role } : {}),
           interfaces: routerInterfacesForPayload({ id, config }),
           ...(config?.staticRoutes?.length ? { staticRoutes: config.staticRoutes } : {}),
           ...(config?.rip?.enabled ? { rip: config.rip } : {}),

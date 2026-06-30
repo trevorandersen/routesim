@@ -368,6 +368,7 @@ export function normaliseDeviceConfig(device: any): DeviceConfig {
     return {
       ethernetPorts,
       serialPorts,
+      ...(device.config?.role === "border" || device.config?.role === "internal" ? { role: device.config.role } : {}),
       interfaces,
       staticRoutes: normaliseStaticRoutes(device.config?.staticRoutes || []),
       ...(ripConfig.enabled ? { rip: ripConfig } : {}),

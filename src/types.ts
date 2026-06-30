@@ -314,6 +314,11 @@ export interface PortForward {
 export interface RouterConfig {
   ethernetPorts: number;
   serialPorts: number;
+  // Placement archetype (teaching role): a "border"/edge router faces the
+  // outside (the natural place for NAT + a firewall), an "internal"/core router
+  // does interior forwarding only. Cosmetic + a default NAT-marking convenience;
+  // absent = a plain (internal) router.
+  role?: "border" | "internal";
   interfaces: RouterInterface[];
   staticRoutes?: StaticRoute[];
   rip?: RipConfig;

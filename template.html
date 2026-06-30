@@ -177,8 +177,8 @@
       <div class="scenario-panel" id="scenarioPanel" aria-label="Scenario goal">
         <div class="scenario-titlebar">
           <span class="scenario-name" id="scenarioName">Scenario</span>
-          <button class="panel-toggle" id="scenarioCloseButton" type="button" title="Dismiss scenario" aria-label="Dismiss scenario">
-            <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M18 6 6 18"></path><path d="m6 6 12 12"></path></svg>
+          <button class="panel-toggle" id="scenarioCloseButton" type="button" title="Collapse to a progress pill" aria-label="Collapse scenario">
+            <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M5 12h14"></path></svg>
           </button>
         </div>
         <p class="scenario-objective" id="scenarioObjective"></p>
@@ -188,7 +188,16 @@
           <span class="scenario-status" id="scenarioStatus"></span>
         </div>
       </div>
+      <div class="scenario-pill" id="scenarioPill">
+        <button class="scenario-pill-body" id="scenarioPillExpand" type="button" title="Expand the scenario goal"><span id="scenarioPillText">Scenario</span></button>
+        <button class="scenario-pill-x" id="scenarioPillDismiss" type="button" title="Dismiss scenario" aria-label="Dismiss scenario"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M18 6 6 18"></path><path d="m6 6 12 12"></path></svg></button>
+      </div>
       <div class="coord-readout" id="coordReadout" aria-live="off"></div>
+      <div class="sim-transport" id="simControls" aria-label="Simulation controls">
+        <button class="sim-transport-btn" id="simTransportPlayPause" type="button" title="Pause / resume (Space)" aria-label="Pause or resume"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M6 5h4v14H6z"></path><path d="M14 5h4v14h-4z"></path></svg></button>
+        <button class="sim-transport-btn" id="simTransportStep" type="button" title="Step one hop" aria-label="Step"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 5v14l12 -7z"></path><path d="M20 5v14"></path></svg></button>
+        <button class="sim-transport-btn" id="simTransportStop" type="button" title="Stop" aria-label="Stop"><svg viewBox="0 0 24 24" aria-hidden="true"><rect x="6" y="6" width="12" height="12" rx="1"></rect></svg></button>
+      </div>
     </section>
   </main>
 
@@ -364,6 +373,8 @@ Full legal text: https://creativecommons.org/publicdomain/zero/1.0/legalcode</pr
 
   <!-- Tutorial mode: a faux cursor drives the real UI; a catcher blocks stray
        clicks while it plays, and the bar carries the caption + controls. -->
+  <div class="context-menu" id="contextMenu" hidden></div>
+
   <div class="tutorial-layer" id="tutorialLayer" hidden>
     <div class="tutorial-catcher"></div>
     <div class="tutorial-cursor" id="tutorialCursor" aria-hidden="true">

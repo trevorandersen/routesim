@@ -1,17 +1,17 @@
-import { state, toolCopy, networkSnapshot, pushUndoSnapshot, undo, redo, THEMES, DEFAULT_THEME } from "./state";
+import { state, toolCopy, networkSnapshot, pushUndoSnapshot, pushUndo, undo, redo, THEMES, DEFAULT_THEME } from "./state";
 import type { DisplayOptions } from "./types";
 import { dom } from "./dom";
 import { addLink, deleteSelection, clearNetwork, findDeviceAt, findLinkAt, getDevice, configureDevice, openPortSelectionModal, confirmPortSelection, cancelPortSelection, placeToolDevice, PLACEMENT_TOOLS, toggleLinkShutdown, linkName } from "./devices";
 import { render, resizeCanvas, screenToWorld, setZoom, syncZoomLevel, fitNetwork, findTransitAt } from "./canvas";
-import { clearCssColorCache } from "./utils";
+import { clearCssColorCache, escapeHtml } from "./utils";
 import { syncPanel, syncOptionControls, syncNetworkPanel, setNetworkPanel, setInspectorWidth, startInspectorResize, moveInspectorResize, stopInspectorResize } from "./inspector";
 import {
-  openTerminalFor, syncTerminal, submitTerminalCommand, handleTerminalKeydown,
+  openTerminalFor, syncTerminal, submitTerminalCommand, handleTerminalKeydown, terminalLine, canOpenTerminal,
   toggleDockTab, closeDock, handleDockTabClick, startDockResize, moveDockResize, stopDockResize,
 } from "./terminal";
 import { openConsole, consoleLine, submitConsoleCommand, handleConsoleKeydown } from "./console";
 import { loadScenario } from "./scenarios";
-import { runActiveScenarioCheck, dismissScenario } from "./scenario-ui";
+import { runActiveScenarioCheck, dismissScenario, collapseScenario, expandScenario } from "./scenario-ui";
 import { loadTopology } from "./config";
 import { pauseSimulation, resumeSimulation, stepOnce, stopSimulation, syncSimLog, startNetworkBoot, launchRedTeam, captureEntriesFor } from "./engine";
 import { setupRibbon, renderScenarioOptions } from "./ribbon";
@@ -58,6 +58,64 @@ function closeScenarioMenu(): void {
   dom.scenarioMenu.querySelectorAll<HTMLElement>(".scenario-submenu").forEach(s => { s.hidden = true; });
   dom.scenarioMenu.querySelectorAll<HTMLElement>(".scenario-group").forEach(g => g.setAttribute("aria-expanded", "false"));
   dom.scenarioMenuButton.setAttribute("aria-expanded", "false");
+}
+
+// Ctrl+C in a terminal/console cancels a running (or paused) simulation, like a
+// shell sending SIGINT — echoes ^C and stops. Only intercepts when there's a sim
+// to interrupt (so an idle terminal's Ctrl+C, and Mac's Cmd+C copy, are untouched).
+function interruptSimOnCtrlC(event: KeyboardEvent, pane: "terminal" | "console"): boolean {
+  if (event.key !== "c" || !event.ctrlKey || event.metaKey || event.shiftKey || event.altKey) return false;
+  const status = state.simulation.status;
+  if (status !== "running" && status !== "paused") return false;
+  event.preventDefault();
+  const input = pane === "terminal" ? dom.terminalInput : dom.consoleInput;
+  const echo = `${input.value}^C`;
+  input.value = "";
+  if (pane === "terminal") terminalLine("", echo); else consoleLine("error", echo);
+  stopSimulation();
+  dom.terminalInput.disabled = false;
+  return true;
+}
+
+// Play/pause: while running pause, while paused resume; idle boots any
+// unconfigured cabled hosts (animated DHCP) or, with nothing to boot, lets a
+// ready Red Team host launch its attacks. Shared by the ribbon + the floating pill.
+function handleSimPlayPause(): void {
+  const sim = state.simulation;
+  if (sim.status === "running") pauseSimulation();
+  else if (sim.status === "paused") resumeSimulation();
+  else if (!startNetworkBoot()) launchRedTeam();
+}
+
+// Right-click device context menu (Terminal / Configure / Power / Delete) —
+// quick access to the actions otherwise reached via the inspector/ribbon.
+let contextActions: (() => void)[] = [];
+
+function closeContextMenu(): void { dom.contextMenu.hidden = true; }
+
+function openDeviceContextMenu(device: any, clientX: number, clientY: number): void {
+  const items: { label: string; action: () => void; danger?: boolean }[] = [];
+  if (canOpenTerminal(device)) items.push({ label: "Terminal", action: () => openTerminalFor(device) });
+  if (device.type !== "lan") {
+    items.push({ label: "Configure", action: () => configureDevice(device) });
+    items.push({ label: device.poweredOff ? "Power on" : "Power off", action: () => toggleDevicePower(device) });
+  }
+  items.push({ label: "Delete", danger: true, action: () => { state.selectedId = device.id; state.selectedLinkId = null; deleteSelection(); } });
+  contextActions = items.map(it => it.action);
+  dom.contextMenu.innerHTML = items.map((it, i) =>
+    `<button class="context-item${it.danger ? " danger" : ""}" data-i="${i}" type="button">${escapeHtml(it.label)}</button>`).join("");
+  dom.contextMenu.hidden = false;
+  // Position at the cursor, clamped inside the viewport.
+  const w = dom.contextMenu.offsetWidth, h = dom.contextMenu.offsetHeight;
+  dom.contextMenu.style.left = `${Math.min(clientX, window.innerWidth - w - 8)}px`;
+  dom.contextMenu.style.top = `${Math.min(clientY, window.innerHeight - h - 8)}px`;
+}
+
+function toggleDevicePower(device: any): void {
+  pushUndo();
+  device.poweredOff = !device.poweredOff;
+  syncPanel();
+  render();
 }
 
 // Reset every dimension of the sim-log packet-list display filter.
@@ -202,6 +260,7 @@ export function handleGlobalKeydown(event: KeyboardEvent): void {
     }
     closeToolMenus();
     closeScenarioMenu();
+    closeContextMenu();
     (document.activeElement as HTMLElement)?.blur?.();
     state.configuringId = null;
     state.linkStartId = null;
@@ -259,7 +318,7 @@ export function setupUI(): void {
       closeToolMenus();
     });
   });
-  document.addEventListener("click", () => { closeToolMenus(); closeScenarioMenu(); });
+  document.addEventListener("click", () => { closeToolMenus(); closeScenarioMenu(); closeContextMenu(); });
 
   dom.canvas.addEventListener("pointerdown", (event: PointerEvent) => {
     // Synthetic events (UI automation/tests) carry pointer ids the browser
@@ -447,10 +506,30 @@ export function setupUI(): void {
 
   dom.canvas.addEventListener("wheel", (event: WheelEvent) => {
     event.preventDefault();
+    closeContextMenu();
     const pointer = pointerFromEvent(event);
     const factor = Math.exp(-event.deltaY * 0.0015);
     setZoom(state.scale * factor, pointer);
   }, { passive: false });
+
+  // Right-click a device → the context menu; right-click empty canvas closes it.
+  dom.canvas.addEventListener("contextmenu", (event: MouseEvent) => {
+    event.preventDefault();
+    const device = findDeviceAt(screenToWorld(pointerFromEvent(event)));
+    if (!device) { closeContextMenu(); return; }
+    state.selectedId = device.id;
+    state.selectedLinkId = null;
+    syncPanel();
+    render();
+    openDeviceContextMenu(device, event.clientX, event.clientY);
+  });
+  dom.contextMenu.addEventListener("click", (event) => {
+    const btn = (event.target as HTMLElement).closest("[data-i]") as HTMLElement | null;
+    if (!btn) return;
+    const action = contextActions[Number(btn.dataset.i)];
+    closeContextMenu();
+    action?.();
+  });
 
   window.addEventListener("keydown", handleGlobalKeydown);
 
@@ -544,7 +623,9 @@ export function setupUI(): void {
 
   // Scenario goal banner.
   dom.scenarioCheckButton.addEventListener("click", runActiveScenarioCheck);
-  dom.scenarioCloseButton.addEventListener("click", dismissScenario);
+  dom.scenarioCloseButton.addEventListener("click", collapseScenario); // collapse to a pill, not abandon
+  dom.scenarioPillExpand.addEventListener("click", expandScenario);
+  dom.scenarioPillDismiss.addEventListener("click", dismissScenario);
 
   // The bottom dock: terminal sessions, console, and sim log share one panel.
   dom.dockTabs.addEventListener("click", handleDockTabClick);
@@ -554,9 +635,15 @@ export function setupUI(): void {
   window.addEventListener("pointerup", stopDockResize);
   window.addEventListener("pointercancel", stopDockResize);
   dom.terminalForm.addEventListener("submit", submitTerminalCommand);
-  dom.terminalInput.addEventListener("keydown", handleTerminalKeydown);
+  dom.terminalInput.addEventListener("keydown", (event) => {
+    if (interruptSimOnCtrlC(event, "terminal")) return;
+    handleTerminalKeydown(event);
+  });
   dom.consoleForm.addEventListener("submit", submitConsoleCommand);
-  dom.consoleInput.addEventListener("keydown", handleConsoleKeydown);
+  dom.consoleInput.addEventListener("keydown", (event) => {
+    if (interruptSimOnCtrlC(event, "console")) return;
+    handleConsoleKeydown(event);
+  });
 
   // Sim log: Packets/Events view toggle + click-a-row → frame breakdown
   // (same behaviour as clicking the transit dot on the canvas).
@@ -649,21 +736,15 @@ export function setupUI(): void {
   bindOptionToggle(dom.optInstantDns, "instantDns");
   window.addEventListener("resize", resizeCanvas);
 
-  // Simulation controls
-  dom.simPlayPause.addEventListener("click", () => {
-    const sim = state.simulation;
-    if (sim.status === "running") pauseSimulation();
-    else if (sim.status === "paused") resumeSimulation();
-    // Idle: boot any unconfigured cabled hosts (animated DHCP); if there's
-    // nothing to boot, a configured Red Team host autonomously launches its
-    // attacks (the "not user controlled" part). startNetworkBoot sets the hint.
-    else if (!startNetworkBoot()) launchRedTeam();
-  });
+  // Simulation controls — wired on the Main-tab ribbon and the floating
+  // on-canvas transport pill (reachable from any tab while a sim runs).
+  const simStopAction = () => { stopSimulation(); dom.terminalInput.disabled = false; };
+  dom.simPlayPause.addEventListener("click", handleSimPlayPause);
   dom.simStep.addEventListener("click", stepOnce);
-  dom.simStop.addEventListener("click", () => {
-    stopSimulation();
-    dom.terminalInput.disabled = false;
-  });
+  dom.simStop.addEventListener("click", simStopAction);
+  dom.simTransportPlayPause.addEventListener("click", handleSimPlayPause);
+  dom.simTransportStep.addEventListener("click", stepOnce);
+  dom.simTransportStop.addEventListener("click", simStopAction);
   dom.simSpeed.addEventListener("input", () => {
     state.simulation.speed = Number(dom.simSpeed.value) || 1000;
   });

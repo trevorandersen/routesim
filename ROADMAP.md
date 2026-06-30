@@ -242,16 +242,16 @@ The JSON import path already exists.
   not storage. Effort: low.
 
 ### UI polish (from the 2026-06 UI review)
-- **Floating sim transport** — a small play/pause/step/stop pill over the
-  canvas while a simulation is active. The transport now lives on the Main
-  tab beside the tools, which softens this; the pill would still help when
-  the ribbon sits on another tab.
-- **Scenario banner: collapse, don't dismiss** — shrink to a progress pill
-  ("Name service (DNS) — 1/3 ✓"); the ✕ currently abandons the scenario.
-- **Terminal QoL** — `Ctrl+C` cancels a running simulation from the terminal;
-  tab completion for the Linux host/server commands (the router already has
-  `?` + abbreviation); a right-click device context menu (Terminal /
-  Configure / Power / Delete).
+> **Shipped (2026-06):** the **floating sim transport** (a play/pause/step/stop
+> pill over the canvas while a run is active — `#simControls`, reachable from any
+> ribbon tab, lifted clear of the open dock); the **scenario banner collapse** (the
+> titlebar control shrinks it to a progress pill "Name — passed/total ✓" instead
+> of abandoning the scenario; the pill body re-expands, the pill ✕ dismisses); and
+> the **terminal QoL** wins — `Ctrl+C` cancels a running simulation from a terminal
+> or the console (echoes `^C`), and a **right-click device context menu** (Terminal
+> / Configure / Power / Delete).
+- **Terminal QoL (remaining)** — tab completion for the Linux host/server
+  commands (the router already has `?` + abbreviation).
 
 ### Polish
 - **Annotations / notes on the canvas** — labels and callouts for teaching.

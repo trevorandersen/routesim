@@ -109,6 +109,7 @@ export function startSimulation(setup: PingSetup, originDeviceId: string, target
   if (!state.dock.open) openDock("simlog");
   syncTerminal();
   syncSimLog();
+  updateSimControls(); // reveal the floating transport pill + set the pause icon
   startAnimationLoop();
   // With a seeded first-leg transit, the animation loop drives processing once
   // it lands; only kick the queue directly if nothing was seeded.
@@ -131,6 +132,7 @@ export function stopSimulation(): void {
   state.dock.captureView = state.savedCaptures.length ? state.savedCaptures[state.savedCaptures.length - 1].id : "live";
   if (state.dock.compareBaseId === state.dock.captureView) state.dock.compareBaseId = "";
   stopAnimationLoop();
+  updateSimControls(); // hide the floating transport pill
   syncSimLog();
   syncTerminal();
   sync().render();
@@ -2499,14 +2501,21 @@ function finishSimulation(): void {
   if (bootQueue.length) bootNextHost();
 }
 
+const PLAY_ICON = `<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M7 4v16l13 -8z"></path></svg>`;
+const PAUSE_ICON = `<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M6 5h4v14H6z"></path><path d="M14 5h4v14h-4z"></path></svg>`;
+
 function updateSimControls(): void {
+  const running = state.simulation.status === "running";
+  const active = running || state.simulation.status === "paused";
+  // The floating on-canvas transport pill: visible while a run is active, its
+  // play/pause button showing the action it would take next.
   const controls = document.getElementById("simControls");
+  if (controls) controls.classList.toggle("active", active);
+  const transportPlayPause = document.getElementById("simTransportPlayPause");
+  if (transportPlayPause) {
+    transportPlayPause.innerHTML = running ? PAUSE_ICON : PLAY_ICON;
+    transportPlayPause.setAttribute("title", running ? "Pause" : "Resume");
+  }
   const playPause = document.getElementById("simPlayPause");
-  const active = state.simulation.status === "running" || state.simulation.status === "paused";
-  if (controls) {
-    controls.classList.toggle("active", active);
-  }
-  if (playPause) {
-    playPause.textContent = state.simulation.status === "running" ? "⏸" : "▶";
-  }
+  if (playPause) playPause.textContent = running ? "⏸" : "▶";
 }

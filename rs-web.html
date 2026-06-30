@@ -426,6 +426,38 @@
     .tool-menu-item:hover { background: var(--panel-soft); border-color: var(--line); }
     .tool-menu-item.active { color: var(--accent); background: var(--accent-soft); border-color: rgba(20, 116, 111, 0.35); }
 
+    /* Right-click device context menu (positioned at the cursor by JS). */
+    .context-menu {
+      position: fixed;
+      z-index: 41;
+      min-width: 150px;
+      padding: 5px;
+      display: flex;
+      flex-direction: column;
+      gap: 2px;
+      border: 1px solid var(--line);
+      border-radius: 10px;
+      background: var(--panel);
+      box-shadow: 0 10px 28px rgba(19, 33, 46, 0.22);
+    }
+    .context-menu[hidden] { display: none; }
+    .context-item {
+      appearance: none;
+      width: 100%;
+      padding: 7px 10px;
+      border: 1px solid transparent;
+      border-radius: 7px;
+      background: transparent;
+      color: var(--text);
+      font: inherit;
+      font-size: 12px;
+      text-align: left;
+      cursor: pointer;
+    }
+    .context-item:hover { background: var(--panel-soft); border-color: var(--line); }
+    .context-item.danger { color: #ef4444; }
+    .context-item.danger:hover { background: rgba(239, 68, 68, 0.12); border-color: rgba(239, 68, 68, 0.3); }
+
     /* Scenario chooser: a button + a two-level flyout menu (groups → submenu of
        scenarios). Both levels are position:fixed to escape the ribbon's scroll
        clip (JS anchors them via getBoundingClientRect). */
@@ -498,6 +530,51 @@
       white-space: nowrap;
     }
     .coord-readout:empty { display: none; }
+
+    /* Floating simulation transport — a pill over the canvas while a run is
+       active, so play/pause/step/stop stay reachable from any ribbon tab. */
+    .sim-transport {
+      position: absolute;
+      bottom: 16px;
+      left: 50%;
+      transform: translateX(-50%);
+      display: none;
+      gap: 4px;
+      padding: 5px 6px;
+      border: 1px solid var(--border-strong, rgba(139, 152, 165, 0.4));
+      border-radius: 999px;
+      background: var(--panel);
+      box-shadow: 0 6px 20px rgba(0, 0, 0, 0.22);
+      z-index: 9;
+    }
+    .sim-transport.active { display: flex; }
+    /* Float clear of the bottom dock when it's open. */
+    body:not(.dock-closed) .sim-transport { bottom: calc(var(--terminal-height, 280px) + 16px); }
+
+    .sim-transport-btn {
+      display: grid;
+      place-items: center;
+      width: 34px;
+      height: 34px;
+      padding: 0;
+      border: none;
+      border-radius: 999px;
+      background: transparent;
+      color: var(--text);
+      cursor: pointer;
+    }
+    .sim-transport-btn:hover { background: var(--hover-bg, rgba(139, 152, 165, 0.18)); }
+    .sim-transport-btn svg {
+      width: 20px;
+      height: 20px;
+      fill: none;
+      stroke: currentColor;
+      stroke-width: 2;
+      stroke-linecap: round;
+      stroke-linejoin: round;
+    }
+    .sim-transport-btn svg path[d^="M6 5h4"], .sim-transport-btn svg path[d^="M14 5h4"],
+    .sim-transport-btn svg path[d^="M7 4v16"], .sim-transport-btn svg rect { fill: currentColor; stroke: none; }
 
     /* ─── Bottom dock: terminal sessions, console, sim log ── */
 
@@ -1710,7 +1787,52 @@
       z-index: 10;
       box-shadow: 0 6px 20px rgba(0,0,0,.3);
     }
-    body.scenario-active .scenario-panel { display: block; }
+    body.scenario-active:not(.scenario-collapsed) .scenario-panel { display: block; }
+
+    /* Collapsed progress pill (top-left, where the panel sits). */
+    .scenario-pill {
+      display: none;
+      position: absolute;
+      top: 14px;
+      left: 14px;
+      max-width: calc(100% - 28px);
+      align-items: stretch;
+      border: 1px solid var(--border);
+      border-radius: 999px;
+      background: var(--panel);
+      box-shadow: 0 6px 20px rgba(0,0,0,.3);
+      overflow: hidden;
+      z-index: 10;
+    }
+    body.scenario-active.scenario-collapsed .scenario-pill { display: inline-flex; }
+
+    .scenario-pill-body {
+      border: none;
+      background: transparent;
+      color: var(--text);
+      padding: 7px 6px 7px 14px;
+      font-size: 12px;
+      font-weight: 600;
+      cursor: pointer;
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      max-width: 320px;
+    }
+    .scenario-pill-body:hover { color: var(--accent, #2563eb); }
+
+    .scenario-pill-x {
+      display: grid;
+      place-items: center;
+      width: 30px;
+      border: none;
+      border-left: 1px solid var(--border);
+      background: transparent;
+      color: var(--hint-text);
+      cursor: pointer;
+    }
+    .scenario-pill-x:hover { color: #ef4444; }
+    .scenario-pill-x svg { width: 15px; height: 15px; fill: none; stroke: currentColor; stroke-width: 2; stroke-linecap: round; }
 
     .scenario-titlebar {
       display: flex;
@@ -2460,8 +2582,8 @@
       <div class="scenario-panel" id="scenarioPanel" aria-label="Scenario goal">
         <div class="scenario-titlebar">
           <span class="scenario-name" id="scenarioName">Scenario</span>
-          <button class="panel-toggle" id="scenarioCloseButton" type="button" title="Dismiss scenario" aria-label="Dismiss scenario">
-            <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M18 6 6 18"></path><path d="m6 6 12 12"></path></svg>
+          <button class="panel-toggle" id="scenarioCloseButton" type="button" title="Collapse to a progress pill" aria-label="Collapse scenario">
+            <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M5 12h14"></path></svg>
           </button>
         </div>
         <p class="scenario-objective" id="scenarioObjective"></p>
@@ -2471,7 +2593,16 @@
           <span class="scenario-status" id="scenarioStatus"></span>
         </div>
       </div>
+      <div class="scenario-pill" id="scenarioPill">
+        <button class="scenario-pill-body" id="scenarioPillExpand" type="button" title="Expand the scenario goal"><span id="scenarioPillText">Scenario</span></button>
+        <button class="scenario-pill-x" id="scenarioPillDismiss" type="button" title="Dismiss scenario" aria-label="Dismiss scenario"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M18 6 6 18"></path><path d="m6 6 12 12"></path></svg></button>
+      </div>
       <div class="coord-readout" id="coordReadout" aria-live="off"></div>
+      <div class="sim-transport" id="simControls" aria-label="Simulation controls">
+        <button class="sim-transport-btn" id="simTransportPlayPause" type="button" title="Pause / resume (Space)" aria-label="Pause or resume"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M6 5h4v14H6z"></path><path d="M14 5h4v14h-4z"></path></svg></button>
+        <button class="sim-transport-btn" id="simTransportStep" type="button" title="Step one hop" aria-label="Step"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 5v14l12 -7z"></path><path d="M20 5v14"></path></svg></button>
+        <button class="sim-transport-btn" id="simTransportStop" type="button" title="Stop" aria-label="Stop"><svg viewBox="0 0 24 24" aria-hidden="true"><rect x="6" y="6" width="12" height="12" rx="1"></rect></svg></button>
+      </div>
     </section>
   </main>
 
@@ -2647,6 +2778,8 @@ Full legal text: https://creativecommons.org/publicdomain/zero/1.0/legalcode</pr
 
   <!-- Tutorial mode: a faux cursor drives the real UI; a catcher blocks stray
        clicks while it plays, and the bar carries the caption + controls. -->
+  <div class="context-menu" id="contextMenu" hidden></div>
+
   <div class="tutorial-layer" id="tutorialLayer" hidden>
     <div class="tutorial-catcher"></div>
     <div class="tutorial-cursor" id="tutorialCursor" aria-hidden="true">
@@ -4118,14 +4251,21 @@ Full legal text: https://creativecommons.org/publicdomain/zero/1.0/legalcode</pr
     scenarioStatus: document.getElementById("scenarioStatus"),
     scenarioCheckButton: document.getElementById("scenarioCheckButton"),
     scenarioCloseButton: document.getElementById("scenarioCloseButton"),
+    scenarioPillText: document.getElementById("scenarioPillText"),
+    scenarioPillExpand: document.getElementById("scenarioPillExpand"),
+    scenarioPillDismiss: document.getElementById("scenarioPillDismiss"),
     themeButtons: Array.from(document.querySelectorAll("[data-theme-id]")),
     scenarioMenu: document.getElementById("scenarioMenu"),
+    contextMenu: document.getElementById("contextMenu"),
     scenarioMenuButton: document.getElementById("scenarioMenuButton"),
     topologySelect: document.getElementById("topologySelect"),
     coordReadout: document.getElementById("coordReadout"),
     simPlayPause: document.getElementById("simPlayPause"),
     simStep: document.getElementById("simStep"),
     simStop: document.getElementById("simStop"),
+    simTransportPlayPause: document.getElementById("simTransportPlayPause"),
+    simTransportStep: document.getElementById("simTransportStep"),
+    simTransportStop: document.getElementById("simTransportStop"),
     simSpeed: document.getElementById("simSpeed"),
     simLogOutput: document.getElementById("simLogOutput"),
     simLogFilterBar: document.getElementById("simLogFilterBar"),
@@ -7146,6 +7286,7 @@ Full legal text: https://creativecommons.org/publicdomain/zero/1.0/legalcode</pr
     if (!state.dock.open) openDock("simlog");
     syncTerminal();
     syncSimLog();
+    updateSimControls();
     startAnimationLoop();
     if (sim.autoPlay && sim.transits.length === 0) processNextStep();
   }
@@ -7164,6 +7305,7 @@ Full legal text: https://creativecommons.org/publicdomain/zero/1.0/legalcode</pr
     state.dock.captureView = state.savedCaptures.length ? state.savedCaptures[state.savedCaptures.length - 1].id : "live";
     if (state.dock.compareBaseId === state.dock.captureView) state.dock.compareBaseId = "";
     stopAnimationLoop();
+    updateSimControls();
     syncSimLog();
     syncTerminal();
     sync().render();
@@ -9057,16 +9199,20 @@ ${sim.httpServerTitle || ""}`);
     stopAnimationLoop();
     if (bootQueue.length) bootNextHost();
   }
+  var PLAY_ICON = `<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M7 4v16l13 -8z"></path></svg>`;
+  var PAUSE_ICON = `<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M6 5h4v14H6z"></path><path d="M14 5h4v14h-4z"></path></svg>`;
   function updateSimControls() {
+    const running = state.simulation.status === "running";
+    const active2 = running || state.simulation.status === "paused";
     const controls = document.getElementById("simControls");
+    if (controls) controls.classList.toggle("active", active2);
+    const transportPlayPause = document.getElementById("simTransportPlayPause");
+    if (transportPlayPause) {
+      transportPlayPause.innerHTML = running ? PAUSE_ICON : PLAY_ICON;
+      transportPlayPause.setAttribute("title", running ? "Pause" : "Resume");
+    }
     const playPause = document.getElementById("simPlayPause");
-    const active2 = state.simulation.status === "running" || state.simulation.status === "paused";
-    if (controls) {
-      controls.classList.toggle("active", active2);
-    }
-    if (playPause) {
-      playPause.textContent = state.simulation.status === "running" ? "\u23F8" : "\u25B6";
-    }
+    if (playPause) playPause.textContent = running ? "\u23F8" : "\u25B6";
   }
 
   // src/terminal/host.ts
@@ -13488,14 +13634,26 @@ Snort successfully validated the configuration${bad ? " (with errors)" : "."}`);
 
   // src/scenario-ui.ts
   var lastResult = null;
+  var collapsed = false;
+  var shownId = null;
   function syncScenarioPanel() {
     const scenario = getScenario(state.activeScenarioId);
     document.body.classList.toggle("scenario-active", !!scenario);
     if (!scenario) {
       lastResult = null;
+      collapsed = false;
+      shownId = null;
+      document.body.classList.remove("scenario-collapsed");
       return;
     }
     if (lastResult && (lastResult.id !== scenario.id || lastResult.checks.length !== scenario.checks.length)) lastResult = null;
+    if (scenario.id !== shownId) {
+      collapsed = false;
+      shownId = scenario.id;
+    }
+    document.body.classList.toggle("scenario-collapsed", collapsed);
+    const passed = lastResult ? lastResult.checks.filter((c) => c.passed).length : 0;
+    dom.scenarioPillText.textContent = `${scenario.name} \u2014 ${passed}/${scenario.checks.length}${lastResult?.passed ? " \u2713" : ""}`;
     dom.scenarioName.textContent = scenario.name;
     dom.scenarioObjective.textContent = scenario.objective;
     dom.scenarioChecks.innerHTML = scenario.checks.map((c, i) => {
@@ -13513,9 +13671,18 @@ Snort successfully validated the configuration${bad ? " (with errors)" : "."}`);
     lastResult = checkScenario(scenario);
     syncScenarioPanel();
   }
+  function collapseScenario() {
+    collapsed = true;
+    syncScenarioPanel();
+  }
+  function expandScenario() {
+    collapsed = false;
+    syncScenarioPanel();
+  }
   function dismissScenario() {
     state.activeScenarioId = null;
     lastResult = null;
+    collapsed = false;
     syncScenarioPanel();
   }
 
@@ -13707,6 +13874,55 @@ Snort successfully validated the configuration${bad ? " (with errors)" : "."}`);
     dom.scenarioMenu.querySelectorAll(".scenario-group").forEach((g) => g.setAttribute("aria-expanded", "false"));
     dom.scenarioMenuButton.setAttribute("aria-expanded", "false");
   }
+  function interruptSimOnCtrlC(event, pane) {
+    if (event.key !== "c" || !event.ctrlKey || event.metaKey || event.shiftKey || event.altKey) return false;
+    const status = state.simulation.status;
+    if (status !== "running" && status !== "paused") return false;
+    event.preventDefault();
+    const input = pane === "terminal" ? dom.terminalInput : dom.consoleInput;
+    const echo = `${input.value}^C`;
+    input.value = "";
+    if (pane === "terminal") terminalLine("", echo);
+    else consoleLine("error", echo);
+    stopSimulation();
+    dom.terminalInput.disabled = false;
+    return true;
+  }
+  function handleSimPlayPause() {
+    const sim = state.simulation;
+    if (sim.status === "running") pauseSimulation();
+    else if (sim.status === "paused") resumeSimulation();
+    else if (!startNetworkBoot()) launchRedTeam();
+  }
+  var contextActions = [];
+  function closeContextMenu() {
+    dom.contextMenu.hidden = true;
+  }
+  function openDeviceContextMenu(device, clientX, clientY) {
+    const items = [];
+    if (canOpenTerminal(device)) items.push({ label: "Terminal", action: () => openTerminalFor(device) });
+    if (device.type !== "lan") {
+      items.push({ label: "Configure", action: () => configureDevice(device) });
+      items.push({ label: device.poweredOff ? "Power on" : "Power off", action: () => toggleDevicePower(device) });
+    }
+    items.push({ label: "Delete", danger: true, action: () => {
+      state.selectedId = device.id;
+      state.selectedLinkId = null;
+      deleteSelection();
+    } });
+    contextActions = items.map((it) => it.action);
+    dom.contextMenu.innerHTML = items.map((it, i) => `<button class="context-item${it.danger ? " danger" : ""}" data-i="${i}" type="button">${escapeHtml(it.label)}</button>`).join("");
+    dom.contextMenu.hidden = false;
+    const w = dom.contextMenu.offsetWidth, h = dom.contextMenu.offsetHeight;
+    dom.contextMenu.style.left = `${Math.min(clientX, window.innerWidth - w - 8)}px`;
+    dom.contextMenu.style.top = `${Math.min(clientY, window.innerHeight - h - 8)}px`;
+  }
+  function toggleDevicePower(device) {
+    pushUndo();
+    device.poweredOff = !device.poweredOff;
+    syncPanel();
+    render();
+  }
   function clearLogFilter() {
     state.dock.logFilter = { protocols: [], device: "", expr: "" };
     syncSimLog();
@@ -13822,6 +14038,7 @@ Snort successfully validated the configuration${bad ? " (with errors)" : "."}`);
       }
       closeToolMenus();
       closeScenarioMenu();
+      closeContextMenu();
       document.activeElement?.blur?.();
       state.configuringId = null;
       state.linkStartId = null;
@@ -13875,6 +14092,7 @@ Snort successfully validated the configuration${bad ? " (with errors)" : "."}`);
     document.addEventListener("click", () => {
       closeToolMenus();
       closeScenarioMenu();
+      closeContextMenu();
     });
     dom.canvas.addEventListener("pointerdown", (event) => {
       try {
@@ -14045,10 +14263,31 @@ Snort successfully validated the configuration${bad ? " (with errors)" : "."}`);
     });
     dom.canvas.addEventListener("wheel", (event) => {
       event.preventDefault();
+      closeContextMenu();
       const pointer = pointerFromEvent(event);
       const factor = Math.exp(-event.deltaY * 15e-4);
       setZoom(state.scale * factor, pointer);
     }, { passive: false });
+    dom.canvas.addEventListener("contextmenu", (event) => {
+      event.preventDefault();
+      const device = findDeviceAt(screenToWorld(pointerFromEvent(event)));
+      if (!device) {
+        closeContextMenu();
+        return;
+      }
+      state.selectedId = device.id;
+      state.selectedLinkId = null;
+      syncPanel();
+      render();
+      openDeviceContextMenu(device, event.clientX, event.clientY);
+    });
+    dom.contextMenu.addEventListener("click", (event) => {
+      const btn = event.target.closest("[data-i]");
+      if (!btn) return;
+      const action = contextActions[Number(btn.dataset.i)];
+      closeContextMenu();
+      action?.();
+    });
     window.addEventListener("keydown", handleGlobalKeydown);
     setupRibbon();
     const ribbonActions = {
@@ -14145,7 +14384,9 @@ Snort successfully validated the configuration${bad ? " (with errors)" : "."}`);
       if (group && group.getAttribute("aria-expanded") !== "true") openScenarioSubmenu(group);
     });
     dom.scenarioCheckButton.addEventListener("click", runActiveScenarioCheck);
-    dom.scenarioCloseButton.addEventListener("click", dismissScenario);
+    dom.scenarioCloseButton.addEventListener("click", collapseScenario);
+    dom.scenarioPillExpand.addEventListener("click", expandScenario);
+    dom.scenarioPillDismiss.addEventListener("click", dismissScenario);
     dom.dockTabs.addEventListener("click", handleDockTabClick);
     dom.dockClose.addEventListener("click", closeDock);
     dom.dockResizeHandle.addEventListener("pointerdown", startDockResize);
@@ -14153,9 +14394,15 @@ Snort successfully validated the configuration${bad ? " (with errors)" : "."}`);
     window.addEventListener("pointerup", stopDockResize);
     window.addEventListener("pointercancel", stopDockResize);
     dom.terminalForm.addEventListener("submit", submitTerminalCommand);
-    dom.terminalInput.addEventListener("keydown", handleTerminalKeydown);
+    dom.terminalInput.addEventListener("keydown", (event) => {
+      if (interruptSimOnCtrlC(event, "terminal")) return;
+      handleTerminalKeydown(event);
+    });
     dom.consoleForm.addEventListener("submit", submitConsoleCommand);
-    dom.consoleInput.addEventListener("keydown", handleConsoleKeydown);
+    dom.consoleInput.addEventListener("keydown", (event) => {
+      if (interruptSimOnCtrlC(event, "console")) return;
+      handleConsoleKeydown(event);
+    });
     document.querySelectorAll("[data-logview]").forEach((btn) => {
       btn.addEventListener("click", () => {
         state.dock.logView = btn.dataset.logview;
@@ -14237,17 +14484,16 @@ Snort successfully validated the configuration${bad ? " (with errors)" : "."}`);
     bindOptionToggle(dom.optSilentStp, "silentStp");
     bindOptionToggle(dom.optInstantDns, "instantDns");
     window.addEventListener("resize", resizeCanvas);
-    dom.simPlayPause.addEventListener("click", () => {
-      const sim = state.simulation;
-      if (sim.status === "running") pauseSimulation();
-      else if (sim.status === "paused") resumeSimulation();
-      else if (!startNetworkBoot()) launchRedTeam();
-    });
-    dom.simStep.addEventListener("click", stepOnce);
-    dom.simStop.addEventListener("click", () => {
+    const simStopAction = () => {
       stopSimulation();
       dom.terminalInput.disabled = false;
-    });
+    };
+    dom.simPlayPause.addEventListener("click", handleSimPlayPause);
+    dom.simStep.addEventListener("click", stepOnce);
+    dom.simStop.addEventListener("click", simStopAction);
+    dom.simTransportPlayPause.addEventListener("click", handleSimPlayPause);
+    dom.simTransportStep.addEventListener("click", stepOnce);
+    dom.simTransportStop.addEventListener("click", simStopAction);
     dom.simSpeed.addEventListener("input", () => {
       state.simulation.speed = Number(dom.simSpeed.value) || 1e3;
     });

@@ -9,15 +9,28 @@ import { escapeHtml } from "./utils";
 import { getScenario, checkScenario, type ScenarioResult } from "./scenarios";
 
 let lastResult: ScenarioResult | null = null;
+let collapsed = false;       // showing the small progress pill instead of the full panel
+let shownId: string | null = null;
 
 export function syncScenarioPanel(): void {
   const scenario = getScenario(state.activeScenarioId);
   document.body.classList.toggle("scenario-active", !!scenario);
-  if (!scenario) { lastResult = null; return; }
+  if (!scenario) {
+    lastResult = null; collapsed = false; shownId = null;
+    document.body.classList.remove("scenario-collapsed");
+    return;
+  }
   // Discard a stale result when the active scenario changed id OR was replaced
   // (a same-id JSON import with a different checks array) — otherwise the marks
   // would be paired against the new labels positionally.
   if (lastResult && (lastResult.id !== scenario.id || lastResult.checks.length !== scenario.checks.length)) lastResult = null;
+  // A freshly loaded scenario starts expanded.
+  if (scenario.id !== shownId) { collapsed = false; shownId = scenario.id; }
+  document.body.classList.toggle("scenario-collapsed", collapsed);
+
+  // The collapsed progress pill: "Name — passed/total ✓".
+  const passed = lastResult ? lastResult.checks.filter(c => c.passed).length : 0;
+  dom.scenarioPillText.textContent = `${scenario.name} — ${passed}/${scenario.checks.length}${lastResult?.passed ? " ✓" : ""}`;
 
   dom.scenarioName.textContent = scenario.name;
   dom.scenarioObjective.textContent = scenario.objective;
@@ -40,8 +53,14 @@ export function runActiveScenarioCheck(): void {
   syncScenarioPanel();
 }
 
+// The titlebar control collapses the panel to a progress pill (it no longer
+// abandons the scenario); the pill body re-expands, the pill ✕ dismisses.
+export function collapseScenario(): void { collapsed = true; syncScenarioPanel(); }
+export function expandScenario(): void { collapsed = false; syncScenarioPanel(); }
+
 export function dismissScenario(): void {
   state.activeScenarioId = null;
   lastResult = null;
+  collapsed = false;
   syncScenarioPanel();
 }

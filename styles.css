@@ -417,6 +417,38 @@
     .tool-menu-item:hover { background: var(--panel-soft); border-color: var(--line); }
     .tool-menu-item.active { color: var(--accent); background: var(--accent-soft); border-color: rgba(20, 116, 111, 0.35); }
 
+    /* Right-click device context menu (positioned at the cursor by JS). */
+    .context-menu {
+      position: fixed;
+      z-index: 41;
+      min-width: 150px;
+      padding: 5px;
+      display: flex;
+      flex-direction: column;
+      gap: 2px;
+      border: 1px solid var(--line);
+      border-radius: 10px;
+      background: var(--panel);
+      box-shadow: 0 10px 28px rgba(19, 33, 46, 0.22);
+    }
+    .context-menu[hidden] { display: none; }
+    .context-item {
+      appearance: none;
+      width: 100%;
+      padding: 7px 10px;
+      border: 1px solid transparent;
+      border-radius: 7px;
+      background: transparent;
+      color: var(--text);
+      font: inherit;
+      font-size: 12px;
+      text-align: left;
+      cursor: pointer;
+    }
+    .context-item:hover { background: var(--panel-soft); border-color: var(--line); }
+    .context-item.danger { color: #ef4444; }
+    .context-item.danger:hover { background: rgba(239, 68, 68, 0.12); border-color: rgba(239, 68, 68, 0.3); }
+
     /* Scenario chooser: a button + a two-level flyout menu (groups → submenu of
        scenarios). Both levels are position:fixed to escape the ribbon's scroll
        clip (JS anchors them via getBoundingClientRect). */
@@ -489,6 +521,51 @@
       white-space: nowrap;
     }
     .coord-readout:empty { display: none; }
+
+    /* Floating simulation transport — a pill over the canvas while a run is
+       active, so play/pause/step/stop stay reachable from any ribbon tab. */
+    .sim-transport {
+      position: absolute;
+      bottom: 16px;
+      left: 50%;
+      transform: translateX(-50%);
+      display: none;
+      gap: 4px;
+      padding: 5px 6px;
+      border: 1px solid var(--border-strong, rgba(139, 152, 165, 0.4));
+      border-radius: 999px;
+      background: var(--panel);
+      box-shadow: 0 6px 20px rgba(0, 0, 0, 0.22);
+      z-index: 9;
+    }
+    .sim-transport.active { display: flex; }
+    /* Float clear of the bottom dock when it's open. */
+    body:not(.dock-closed) .sim-transport { bottom: calc(var(--terminal-height, 280px) + 16px); }
+
+    .sim-transport-btn {
+      display: grid;
+      place-items: center;
+      width: 34px;
+      height: 34px;
+      padding: 0;
+      border: none;
+      border-radius: 999px;
+      background: transparent;
+      color: var(--text);
+      cursor: pointer;
+    }
+    .sim-transport-btn:hover { background: var(--hover-bg, rgba(139, 152, 165, 0.18)); }
+    .sim-transport-btn svg {
+      width: 20px;
+      height: 20px;
+      fill: none;
+      stroke: currentColor;
+      stroke-width: 2;
+      stroke-linecap: round;
+      stroke-linejoin: round;
+    }
+    .sim-transport-btn svg path[d^="M6 5h4"], .sim-transport-btn svg path[d^="M14 5h4"],
+    .sim-transport-btn svg path[d^="M7 4v16"], .sim-transport-btn svg rect { fill: currentColor; stroke: none; }
 
     /* ─── Bottom dock: terminal sessions, console, sim log ── */
 
@@ -1701,7 +1778,52 @@
       z-index: 10;
       box-shadow: 0 6px 20px rgba(0,0,0,.3);
     }
-    body.scenario-active .scenario-panel { display: block; }
+    body.scenario-active:not(.scenario-collapsed) .scenario-panel { display: block; }
+
+    /* Collapsed progress pill (top-left, where the panel sits). */
+    .scenario-pill {
+      display: none;
+      position: absolute;
+      top: 14px;
+      left: 14px;
+      max-width: calc(100% - 28px);
+      align-items: stretch;
+      border: 1px solid var(--border);
+      border-radius: 999px;
+      background: var(--panel);
+      box-shadow: 0 6px 20px rgba(0,0,0,.3);
+      overflow: hidden;
+      z-index: 10;
+    }
+    body.scenario-active.scenario-collapsed .scenario-pill { display: inline-flex; }
+
+    .scenario-pill-body {
+      border: none;
+      background: transparent;
+      color: var(--text);
+      padding: 7px 6px 7px 14px;
+      font-size: 12px;
+      font-weight: 600;
+      cursor: pointer;
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      max-width: 320px;
+    }
+    .scenario-pill-body:hover { color: var(--accent, #2563eb); }
+
+    .scenario-pill-x {
+      display: grid;
+      place-items: center;
+      width: 30px;
+      border: none;
+      border-left: 1px solid var(--border);
+      background: transparent;
+      color: var(--hint-text);
+      cursor: pointer;
+    }
+    .scenario-pill-x:hover { color: #ef4444; }
+    .scenario-pill-x svg { width: 15px; height: 15px; fill: none; stroke: currentColor; stroke-width: 2; stroke-linecap: round; }
 
     .scenario-titlebar {
       display: flex;

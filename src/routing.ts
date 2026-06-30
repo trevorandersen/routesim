@@ -9,7 +9,7 @@ import type { Device, RouteEntry, RouterInterface, NamedRouterIface } from "./ty
 import { state } from "./state";
 import { getDevice, routerInterfacesWithNames } from "./devices";
 import { normaliseStaticRoutes } from "./normalise";
-import { isValidIpv4, sameSubnet, networkOf, cidrContains, prefixLengthOfCidr, prefixOf } from "./utils";
+import { isValidIpv4, sameSubnet, networkOf, cidrContains, prefixLengthOfCidr, prefixOf, internetGatewayIp } from "./utils";
 
 export function buildRoutingTable(router: Device): RouteEntry[] {
   const table: RouteEntry[] = [];
@@ -40,6 +40,22 @@ export function buildRoutingTable(router: Device): RouteEntry[] {
       if (seen.has(rr.network)) continue;
       seen.add(rr.network);
       table.push({ network: rr.network, nextHop: rr.nextHop, interface: rr.interface, type: "R", metric: rr.metric });
+    }
+  }
+
+  // 4. Implicit internet default — a router cabled to an Internet cloud reaches
+  // the rest of the world through it (the cloud routes by destination, so the
+  // router just needs a default toward it). The cloud answers ARP for this
+  // gateway address. Added after statics/RIP so an explicit default route wins.
+  if (!seen.has("0.0.0.0/0")) {
+    for (const iface of ifaces) {
+      const ip = iface.config?.ipv4Address;
+      if (!ip || !isValidIpv4(ip) || iface.peer?.type !== "internet") continue;
+      const gateway = internetGatewayIp(ip, prefixOf(iface.config));
+      if (!gateway) continue;
+      table.push({ network: "0.0.0.0/0", nextHop: gateway, interface: iface.name, type: "S", metric: 1 });
+      seen.add("0.0.0.0/0");
+      break;
     }
   }
 

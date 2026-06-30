@@ -34,7 +34,7 @@ export function l2Reachable(fromId: string, toId: string, vlanId: number | null)
       if (seen.has(nextId)) continue;
       const next = getDevice(nextId);
       if (!next || next.hidden || next.poweredOff) continue;
-      if (next.type === "router" && nextId !== toId) continue;
+      if ((next.type === "router" || next.type === "internet") && nextId !== toId) continue;  // the internet cloud is an L3 boundary, not an L2 bridge
       if (next.type === "switch" && next.config?.managed && vlanId != null) {
         const portVlans = normalisePortVlans(next.config.portVlans || {});
         const portModes = normalisePortModes(next.config.portModes || {});

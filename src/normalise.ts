@@ -329,12 +329,10 @@ export function normaliseDeviceConfig(device: any): DeviceConfig {
     return { ethernetPorts: clampPortCount(device.config?.ethernetPorts ?? device.ethernetPorts ?? 4) };
   }
   if (device.type === "internet") {
-    // The internet cloud — a transparent L2 transit (unmanaged-switch semantics):
-    // a port count + a learned MAC table, nothing to configure.
-    return {
-      ethernetPorts: clampPortCount(device.config?.ethernetPorts ?? device.ethernetPorts ?? 8),
-      macTable: normaliseMacTable(device.config?.macTable || device.macTable || []),
-    };
+    // The internet cloud — an L3 transit that routes between the routers cabled
+    // to it (each on its own public subnet). It routes by destination, so it
+    // keeps no MAC table; only a port count is configurable.
+    return { ethernetPorts: clampPortCount(device.config?.ethernetPorts ?? device.ethernetPorts ?? 8) };
   }
   if (device.type === "switch") {
     const ethernetPorts = clampPortCount(device.config?.ethernetPorts ?? device.ethernetPorts ?? 8);

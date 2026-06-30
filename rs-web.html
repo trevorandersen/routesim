@@ -2857,6 +2857,19 @@ Full legal text: https://creativecommons.org/publicdomain/zero/1.0/legalcode</pr
     const mask = maskOfPrefix(clampPrefixLength(prefixLength));
     return (ipv4ToInt(a) & mask) === (ipv4ToInt(b) & mask);
   }
+  function internetGatewayIp(routerIp, prefixLength) {
+    if (!isValidIpv4(routerIp)) return null;
+    const len = clampPrefixLength(prefixLength);
+    if (len >= 31) return null;
+    const ipInt = ipv4ToInt(routerIp);
+    const mask = maskOfPrefix(len);
+    const network = (ipInt & mask) >>> 0;
+    const broadcast = (network | ~mask >>> 0) >>> 0;
+    let gw = broadcast - 1 >>> 0;
+    if (gw === ipInt) gw = gw - 1 >>> 0;
+    if (gw <= network) return null;
+    return intToIpv4(gw);
+  }
   function networkOf(ip, prefixLength) {
     const len = clampPrefixLength(prefixLength);
     if (!isValidIpv4(ip)) return `${ip}/${len}`;
@@ -3129,14 +3142,13 @@ Full legal text: https://creativecommons.org/publicdomain/zero/1.0/legalcode</pr
       paletteVar: "internet",
       iconRadius: 10,
       userAddable: true,
-      // A cloud — the external internet. A transparent L2 transit (unmanaged-switch
-      // semantics, engine routes it via processAtSwitch): connect several routers'
-      // WAN interfaces (on a shared public subnet) and it forwards frames between
-      // them, MAC-learning so traffic reaches the right router.
+      // A cloud — the external internet. An L3 transit (engine: processAtInternet):
+      // connect several routers, each on its own public subnet, and it routes IPv4
+      // between them by destination, presenting a default gateway to each.
       iconPaths: [
         "M6.657 18c-2.572 0 -4.657 -2.007 -4.657 -4.483c0 -2.475 2.085 -4.482 4.657 -4.482c.393 -1.762 1.794 -3.2 3.675 -3.773c1.88 -.572 3.956 -.193 5.444 1c1.488 1.19 2.162 3.007 1.77 4.769h.99c1.913 0 3.464 1.56 3.464 3.486c0 1.927 -1.551 3.487 -3.465 3.487h-12.15z"
       ],
-      defaultConfig: () => ({ ethernetPorts: 8, macTable: [] })
+      defaultConfig: () => ({ ethernetPorts: 8 })
     },
     ids: {
       label: "IDS",
@@ -3459,10 +3471,7 @@ Full legal text: https://creativecommons.org/publicdomain/zero/1.0/legalcode</pr
       return { ethernetPorts: clampPortCount(device.config?.ethernetPorts ?? device.ethernetPorts ?? 4) };
     }
     if (device.type === "internet") {
-      return {
-        ethernetPorts: clampPortCount(device.config?.ethernetPorts ?? device.ethernetPorts ?? 8),
-        macTable: normaliseMacTable(device.config?.macTable || device.macTable || [])
-      };
+      return { ethernetPorts: clampPortCount(device.config?.ethernetPorts ?? device.ethernetPorts ?? 8) };
     }
     if (device.type === "switch") {
       const ethernetPorts = clampPortCount(device.config?.ethernetPorts ?? device.ethernetPorts ?? 8);
@@ -3826,7 +3835,7 @@ Full legal text: https://creativecommons.org/publicdomain/zero/1.0/legalcode</pr
     connect: ["Connect devices", "Click one device, then another to cable them (auto-picks free ports; Shift-click the second to choose ports)."],
     router: ["Add internal router", "Click the canvas to place an internal/core router (interior forwarding)."],
     "border-router": ["Add border router", "Click the canvas to place a border/edge router (faces the outside \u2014 pair it with NAT + a firewall)."],
-    internet: ["Add internet", "Click the canvas to place the internet cloud \u2014 connect router WAN interfaces (on a shared public subnet) and it transparently forwards between them."],
+    internet: ["Add internet", "Click the canvas to place the internet cloud \u2014 connect several routers (each on its own public subnet) and it routes between them by destination, presenting a default gateway to each."],
     firewall: ["Add firewall", "Click the canvas to place a firewall."],
     ids: ["Add IDS", "Click the canvas to place a Snort IDS sensor (cable it to a switch SPAN/monitor port)."],
     attacker: ["Add Red Team host", "Click the canvas to place a Red Team (Kali) host that launches simulated attacks against a target."],
@@ -6584,6 +6593,17 @@ Full legal text: https://creativecommons.org/publicdomain/zero/1.0/legalcode</pr
         table.push({ network: rr.network, nextHop: rr.nextHop, interface: rr.interface, type: "R", metric: rr.metric });
       }
     }
+    if (!seen.has("0.0.0.0/0")) {
+      for (const iface of ifaces) {
+        const ip = iface.config?.ipv4Address;
+        if (!ip || !isValidIpv4(ip) || iface.peer?.type !== "internet") continue;
+        const gateway = internetGatewayIp(ip, prefixOf(iface.config));
+        if (!gateway) continue;
+        table.push({ network: "0.0.0.0/0", nextHop: gateway, interface: iface.name, type: "S", metric: 1 });
+        seen.add("0.0.0.0/0");
+        break;
+      }
+    }
     table.sort((a, b) => a.metric - b.metric);
     return table;
   }
@@ -7695,8 +7715,8 @@ Full legal text: https://creativecommons.org/publicdomain/zero/1.0/legalcode</pr
     switch: processAtSwitch,
     "access-point": processAtSwitch,
     // an AP bridges like an unmanaged switch
-    internet: processAtSwitch,
-    // the internet cloud is a transparent L2 transit between routers
+    internet: processAtInternet,
+    // the internet cloud is an L3 transit — it routes between connected routers by destination
     router: processAtRouter,
     firewall: processAtFirewall,
     hub: processAtHub,
@@ -8339,6 +8359,57 @@ Full legal text: https://creativecommons.org/publicdomain/zero/1.0/legalcode</pr
       }
     }
     return processAtComputer(device, frame, fromDeviceId);
+  }
+  function internetFacingIface(router, internetId) {
+    const ifaces = router.config?.interfaces || [];
+    return ifaces.find((i) => i.peerId === internetId && i.vlanTag == null);
+  }
+  function processAtInternet(device, frame, fromDeviceId) {
+    if (device.poweredOff) return [];
+    const out = [];
+    const cloudMac = deriveMac(device.id);
+    const ports = linkedPortsFor(device.id);
+    if (frame.payload.type === "arp") {
+      const arp = frame.payload;
+      if (arp.operation !== "request" || !fromDeviceId) return out;
+      const ingress = getDevice(fromDeviceId);
+      if (!ingress || ingress.type !== "router") return out;
+      const wan = internetFacingIface(ingress, device.id);
+      if (!wan?.ipv4Address) return out;
+      const gw = internetGatewayIp(wan.ipv4Address, prefixOf(wan));
+      if (gw && arp.targetIp === gw) {
+        logStep(device, "sim-arp", `ARP: ${gw} is-at ${cloudMac} (internet gateway) \u2192 ${ingress.name}`);
+        out.push({ frame: createArpReply(cloudMac, gw, arp.senderMac, arp.senderIp, frame.vlanTag), toDeviceId: fromDeviceId });
+      }
+      return out;
+    }
+    if (frame.payload.type !== "ipv4") return out;
+    const ipv4 = frame.payload;
+    for (const port of ports) {
+      const peer = port?.peer;
+      if (!peer || peer.id === fromDeviceId || peer.type !== "router") continue;
+      const wan = internetFacingIface(peer, device.id);
+      if (!wan?.ipv4Address) continue;
+      if (ipv4.dstIp === wan.ipv4Address || sameSubnet(ipv4.dstIp, wan.ipv4Address, prefixOf(wan))) {
+        if (ipv4.ttl <= 1) {
+          logStep(device, "sim-drop", `TTL expired on the internet for ${ipv4.dstIp} \u2014 dropping`);
+          return out;
+        }
+        const routed = {
+          ...frame,
+          id: frame.id + "-inet",
+          srcMac: cloudMac,
+          dstMac: wan.macAddress || deriveMac(peer.id),
+          vlanTag: null,
+          payload: { ...ipv4, ttl: ipv4.ttl - 1 }
+        };
+        logStep(device, "sim-forward", `Internet routes ${ipv4.srcIp}\u2192${ipv4.dstIp} \u2192 ${peer.name} (TTL ${ipv4.ttl}\u2192${ipv4.ttl - 1})`);
+        out.push({ frame: routed, toDeviceId: peer.id });
+        return out;
+      }
+    }
+    logStep(device, "sim-drop", `No route to ${ipv4.dstIp} on the internet \u2014 dropping`);
+    return out;
   }
   function processAtRouter(device, frame, fromDeviceId) {
     const outgoing = [];
@@ -13117,20 +13188,20 @@ Snort successfully validated the configuration${bad ? " (with errors)" : "."}`);
   var acrossTheInternet = {
     id: "across-the-internet",
     name: "Reach a server across the internet",
-    objective: "PC-A (private, behind R1) should load WEB's page at the other site through R2's public address \u2014 an HTTP GET to 203.0.113.2 must return 200. R2 already publishes WEB with a port-forward, and the two edge routers meet over the Internet cloud. But R1 isn't translating PC-A's private address, so the reply can never get back. Mark R1's interfaces: `ip nat inside` on the LAN side (Ethernet1) and `ip nat outside` on the Internet side (Ethernet2).",
+    objective: "PC-A (private, behind R1) should load WEB's page at a different site through R2's public address \u2014 an HTTP GET to 198.51.100.1 must return 200. The two edge routers sit on separate public links (203.0.113.0/30 and 198.51.100.0/30) and the Internet cloud routes between them, handing each a default route. R2 already publishes WEB with a port-forward. But R1 isn't translating PC-A's private address, so the reply has no way back. Mark R1's interfaces: `ip nat inside` on the LAN side (Ethernet1) and `ip nat outside` on the Internet side (Ethernet2).",
     topology: {
       version: 1,
       devices: [
         { id: "ix-a", type: "computer", name: "PC-A", x: -520, y: 0, config: { ipv4Address: "10.0.0.10", gatewayIpv4Address: "10.0.0.1", macAddress: "02:00:00:00:1A:0A", arpTable: [] } },
         { id: "ix-r1", type: "router", name: "R1", x: -300, y: 0, config: { ethernetPorts: 2, serialPorts: 0, interfaces: [
           { peerId: "ix-a", type: "ethernet", ipv4Address: "10.0.0.1" },
-          { peerId: "ix-net", type: "ethernet", ipv4Address: "203.0.113.1" }
+          { peerId: "ix-net", type: "ethernet", ipv4Address: "203.0.113.1", prefixLength: 30 }
         ] } },
-        { id: "ix-net", type: "internet", name: "Internet", x: -40, y: 0, config: { ethernetPorts: 8, macTable: [] } },
+        { id: "ix-net", type: "internet", name: "Internet", x: -40, y: 0, config: { ethernetPorts: 8 } },
         { id: "ix-r2", type: "router", name: "R2", x: 240, y: 0, config: { ethernetPorts: 2, serialPorts: 0, role: "border", interfaces: [
-          { peerId: "ix-net", type: "ethernet", ipv4Address: "203.0.113.2", natRole: "outside" },
+          { peerId: "ix-net", type: "ethernet", ipv4Address: "198.51.100.1", prefixLength: 30, natRole: "outside" },
           { peerId: "ix-web", type: "ethernet", ipv4Address: "10.0.1.1", natRole: "inside" }
-        ], portForwards: [{ proto: "tcp", outsideIp: "203.0.113.2", outsidePort: 80, insideIp: "10.0.1.80", insidePort: 80 }] } },
+        ], portForwards: [{ proto: "tcp", outsideIp: "198.51.100.1", outsidePort: 80, insideIp: "10.0.1.80", insidePort: 80 }] } },
         { id: "ix-web", type: "server", name: "WEB", x: 460, y: 0, config: { ipv4Address: "10.0.1.80", gatewayIpv4Address: "10.0.1.1", macAddress: "02:00:00:00:1A:80", arpTable: [], dnsmasqRunning: false, openPorts: [80], httpEnabled: true } }
       ],
       links: [
@@ -13141,7 +13212,7 @@ Snort successfully validated the configuration${bad ? " (with errors)" : "."}`);
       ]
     },
     checks: [
-      { kind: "http", from: "PC-A", to: "203.0.113.2", status: 200, label: "PC-A loads WEB across the internet (HTTP 200)" }
+      { kind: "http", from: "PC-A", to: "198.51.100.1", status: 200, label: "PC-A loads WEB across the internet (HTTP 200)" }
     ]
   };
   var portForward = {

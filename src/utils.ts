@@ -53,6 +53,25 @@ export function sameSubnet(a: string, b: string, prefixLength: number): boolean 
   return (ipv4ToInt(a) & mask) === (ipv4ToInt(b) & mask);
 }
 
+// The address the Internet cloud presents as the gateway on a router's WAN
+// subnet: the subnet's highest usable host address (e.g. .254 of a /24, or the
+// other usable address of a /30), avoiding the router's own address. The router
+// reaches the rest of the world by default-routing to this. Returns null for a
+// subnet with no spare host (a /31 point-to-point or /32 host route).
+export function internetGatewayIp(routerIp: string, prefixLength: number): string | null {
+  if (!isValidIpv4(routerIp)) return null;
+  const len = clampPrefixLength(prefixLength);
+  if (len >= 31) return null;
+  const ipInt = ipv4ToInt(routerIp);
+  const mask = maskOfPrefix(len);
+  const network = (ipInt & mask) >>> 0;
+  const broadcast = (network | (~mask >>> 0)) >>> 0;
+  let gw = (broadcast - 1) >>> 0;          // highest host address in the subnet
+  if (gw === ipInt) gw = (gw - 1) >>> 0;   // never collide with the router itself
+  if (gw <= network) return null;          // subnet too small to spare an address
+  return intToIpv4(gw);
+}
+
 // Normalised CIDR network for an address, e.g. networkOf("10.1.2.3", 16) → "10.1.0.0/16".
 export function networkOf(ip: string, prefixLength: number): string {
   const len = clampPrefixLength(prefixLength);

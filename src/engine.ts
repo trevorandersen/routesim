@@ -1,9 +1,9 @@
-import type { EthernetFrame, ArpPayload, Ipv4Payload, DhcpPayload, TcpPayload, DnsPayload, Dot11Payload, Dot1xPayload, BpduPayload, NatEntry, SimEvent, SimLogEntry, ActiveTransit, FrameHistoryEntry, RouteEntry, Device, DeviceType, FirewallRule, FirewallTarget, ConnState } from "./types";
+import type { EthernetFrame, ArpPayload, Ipv4Payload, DhcpPayload, TcpPayload, DnsPayload, Dot11Payload, Dot1xPayload, BpduPayload, NatEntry, SimEvent, SimLogEntry, ActiveTransit, FrameHistoryEntry, RouteEntry, RouterInterface, Device, DeviceType, FirewallRule, FirewallTarget, ConnState } from "./types";
 import { state, pushUndo, sync } from "./state";
 import { dom } from "./dom";
 import { getDevice, linkedPortsFor, routerInterfacesWithNames, linkName, linkById, linksFor, linkAuthorizedForData, macsecState } from "./devices";
 import { normalisePortVlans, normalisePortModes, normaliseTrunkAllowedVlans, normaliseArpTable, normaliseMacTable, normaliseDhcpLeases, normaliseStaticRoutes, ensureConfig } from "./normalise";
-import { sameSubnet, prefixOf, isValidIpv4, escapeHtml, ipv4ToInt, intToIpv4, normaliseMacAddress, deriveMac } from "./utils";
+import { sameSubnet, prefixOf, isValidIpv4, escapeHtml, ipv4ToInt, intToIpv4, normaliseMacAddress, deriveMac, internetGatewayIp } from "./utils";
 import { createArpRequest, createArpReply, createIcmpEchoRequest, createIcmpEchoReply, createIcmpTimeExceeded, createIcmpDestUnreachable, createDhcpOffer, createDhcpRequest, createDhcpAck, createTcpSegment, createHttpRequest, createHttpResponse, createDnsResponse, createDot11Frame, createDot1xFrame, createBpduFrame, BROADCAST_MAC, frameLabel, packetColumns } from "./frame";
 import { terminalLine, terminalLineFor, sessionFor, syncTerminal, openDock, syncSimLogBadge } from "./terminal";
 import { buildPingEvents, buildResolveEvents, buildDhcpEvents, buildAttackEvents, findPingTarget, hostnameToIp } from "./simulation";
@@ -634,7 +634,7 @@ const PROCESSORS: Partial<Record<DeviceType, (device: Device, frame: EthernetFra
   server: processAtServer,
   switch: processAtSwitch,
   "access-point": processAtSwitch,      // an AP bridges like an unmanaged switch
-  internet: processAtSwitch,            // the internet cloud is a transparent L2 transit between routers
+  internet: processAtInternet,          // the internet cloud is an L3 transit — it routes between connected routers by destination
   router: processAtRouter,
   firewall: processAtFirewall,
   hub: processAtHub,
@@ -1395,6 +1395,80 @@ export function processAtAttacker(device: Device, frame: EthernetFrame, fromDevi
     }
   }
   return processAtComputer(device, frame, fromDeviceId);
+}
+
+// ─── Internet cloud (L3 transit between routers) ─────────────────────────────
+
+// A router's interface facing the cloud — the one whose peer is this Internet
+// device (a primary interface, not a VLAN sub-interface). Read straight off the
+// normalised config (its macAddress is already populated), so this stays cheap
+// on the per-frame path.
+function internetFacingIface(router: Device, internetId: string): RouterInterface | undefined {
+  const ifaces: RouterInterface[] = (router.config?.interfaces as RouterInterface[]) || [];
+  return ifaces.find((i) => i.peerId === internetId && i.vlanTag == null);
+}
+
+// The internet cloud is NOT an L2 bridge — it represents the public internet and
+// routes IPv4 between the routers cabled to it, each on its own public subnet.
+// It presents a gateway address per link (answering ARP for it, so a connected
+// router can default-route to it) and forwards each packet to the router whose
+// public (WAN) subnet owns the destination. It does not bridge, MAC-learn, or
+// flood. Unroutable destinations are dropped (no router on the internet owns
+// them). One L3 hop: TTL is decremented (no ICMP error is generated — a
+// documented abstraction of the many real hops it stands in for).
+export function processAtInternet(device: Device, frame: EthernetFrame, fromDeviceId: string | null): OutgoingFrame[] {
+  if (device.poweredOff) return [];
+  const out: OutgoingFrame[] = [];
+  const cloudMac = deriveMac(device.id);          // the gateway MAC the cloud presents on every link
+  const ports = linkedPortsFor(device.id);
+
+  // ARP: answer for our gateway address on the asking router's WAN subnet, so
+  // the router can resolve its default next-hop (us).
+  if (frame.payload.type === "arp") {
+    const arp = frame.payload;
+    if (arp.operation !== "request" || !fromDeviceId) return out;
+    const ingress = getDevice(fromDeviceId);
+    if (!ingress || ingress.type !== "router") return out;
+    const wan = internetFacingIface(ingress, device.id);
+    if (!wan?.ipv4Address) return out;
+    const gw = internetGatewayIp(wan.ipv4Address, prefixOf(wan));
+    if (gw && arp.targetIp === gw) {
+      logStep(device, "sim-arp", `ARP: ${gw} is-at ${cloudMac} (internet gateway) → ${ingress.name}`);
+      out.push({ frame: createArpReply(cloudMac, gw, arp.senderMac, arp.senderIp, frame.vlanTag), toDeviceId: fromDeviceId });
+    }
+    return out;
+  }
+
+  if (frame.payload.type !== "ipv4") return out;  // the cloud only routes IPv4
+  const ipv4 = frame.payload;
+
+  // Route by destination: hand the frame to the connected router whose public
+  // subnet owns the destination address (or is the destination itself).
+  for (const port of ports) {
+    const peer = port?.peer;
+    if (!peer || peer.id === fromDeviceId || peer.type !== "router") continue;
+    const wan = internetFacingIface(peer, device.id);
+    if (!wan?.ipv4Address) continue;
+    if (ipv4.dstIp === wan.ipv4Address || sameSubnet(ipv4.dstIp, wan.ipv4Address, prefixOf(wan))) {
+      if (ipv4.ttl <= 1) {
+        logStep(device, "sim-drop", `TTL expired on the internet for ${ipv4.dstIp} — dropping`);
+        return out;
+      }
+      const routed: EthernetFrame = {
+        ...frame,
+        id: frame.id + "-inet",
+        srcMac: cloudMac,
+        dstMac: wan.macAddress || deriveMac(peer.id),
+        vlanTag: null,
+        payload: { ...ipv4, ttl: ipv4.ttl - 1 }
+      };
+      logStep(device, "sim-forward", `Internet routes ${ipv4.srcIp}→${ipv4.dstIp} → ${peer.name} (TTL ${ipv4.ttl}→${ipv4.ttl - 1})`);
+      out.push({ frame: routed, toDeviceId: peer.id });
+      return out;
+    }
+  }
+  logStep(device, "sim-drop", `No route to ${ipv4.dstIp} on the internet — dropping`);
+  return out;
 }
 
 // ─── Router processing ──────────────────────────────────────────────────────

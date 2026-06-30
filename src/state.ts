@@ -187,7 +187,7 @@ export const toolCopy: Record<string, [string, string]> = {
   connect: ["Connect devices", "Click one device, then another to cable them (auto-picks free ports; Shift-click the second to choose ports)."],
   router: ["Add internal router", "Click the canvas to place an internal/core router (interior forwarding)."],
   "border-router": ["Add border router", "Click the canvas to place a border/edge router (faces the outside — pair it with NAT + a firewall)."],
-  internet: ["Add internet", "Click the canvas to place the internet cloud — connect router WAN interfaces (on a shared public subnet) and it transparently forwards between them."],
+  internet: ["Add internet", "Click the canvas to place the internet cloud — connect several routers (each on its own public subnet) and it routes between them by destination, presenting a default gateway to each."],
   firewall: ["Add firewall", "Click the canvas to place a firewall."],
   ids: ["Add IDS", "Click the canvas to place a Snort IDS sensor (cable it to a switch SPAN/monitor port)."],
   attacker: ["Add Red Team host", "Click the canvas to place a Red Team (Kali) host that launches simulated attacks against a target."],

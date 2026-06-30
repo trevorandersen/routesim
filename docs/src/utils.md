@@ -26,6 +26,8 @@ Small, dependency-free utility functions used everywhere. All are pure except th
 ### Subnet prefix maths
 `sameSubnet(a, b, prefixLength)`, `networkOf(ip, prefixLength)`, `cidrContains(cidr, ip)`, `prefixLengthOfCidr(cidr)`, `clampPrefixLength(n)`, and `prefixOf(holder)` (reads a config/interface's `prefixLength`, defaulting to **/24**). All subnet decisions in the simulator go through these — there is no hardwired /24 logic.
 
+- **`internetGatewayIp(routerIp, prefixLength)`** — the address the **Internet cloud** presents as the gateway on a router's WAN subnet: the subnet's highest usable host (e.g. `.254` of a `/24`, or the other usable address of a `/30`), never colliding with the router's own address; `null` for a subnet too small to spare one (`/31`/`/32`). The cloud answers ARP for it and `buildRoutingTable` (routing.ts) points the router's implicit default route at it. See [engine.md](engine.md).
+
 ## How it fits
 
 A leaf module — it imports nothing from the app, so everything else can import it freely. The `cssColor` cache is the one stateful piece; its only invalidation point is the theme setter.

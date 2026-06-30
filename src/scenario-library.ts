@@ -354,20 +354,20 @@ const natGateway: Scenario = {
 const acrossTheInternet: Scenario = {
   id: "across-the-internet",
   name: "Reach a server across the internet",
-  objective: "PC-A (private, behind R1) should load WEB's page at the other site through R2's public address — an HTTP GET to 203.0.113.2 must return 200. R2 already publishes WEB with a port-forward, and the two edge routers meet over the Internet cloud. But R1 isn't translating PC-A's private address, so the reply can never get back. Mark R1's interfaces: `ip nat inside` on the LAN side (Ethernet1) and `ip nat outside` on the Internet side (Ethernet2).",
+  objective: "PC-A (private, behind R1) should load WEB's page at a different site through R2's public address — an HTTP GET to 198.51.100.1 must return 200. The two edge routers sit on separate public links (203.0.113.0/30 and 198.51.100.0/30) and the Internet cloud routes between them, handing each a default route. R2 already publishes WEB with a port-forward. But R1 isn't translating PC-A's private address, so the reply has no way back. Mark R1's interfaces: `ip nat inside` on the LAN side (Ethernet1) and `ip nat outside` on the Internet side (Ethernet2).",
   topology: {
     version: 1,
     devices: [
       { id: "ix-a", type: "computer", name: "PC-A", x: -520, y: 0, config: { ipv4Address: "10.0.0.10", gatewayIpv4Address: "10.0.0.1", macAddress: "02:00:00:00:1A:0A", arpTable: [] } },
       { id: "ix-r1", type: "router", name: "R1", x: -300, y: 0, config: { ethernetPorts: 2, serialPorts: 0, interfaces: [
         { peerId: "ix-a", type: "ethernet", ipv4Address: "10.0.0.1" },
-        { peerId: "ix-net", type: "ethernet", ipv4Address: "203.0.113.1" },
+        { peerId: "ix-net", type: "ethernet", ipv4Address: "203.0.113.1", prefixLength: 30 },
       ] } },
-      { id: "ix-net", type: "internet", name: "Internet", x: -40, y: 0, config: { ethernetPorts: 8, macTable: [] } },
+      { id: "ix-net", type: "internet", name: "Internet", x: -40, y: 0, config: { ethernetPorts: 8 } },
       { id: "ix-r2", type: "router", name: "R2", x: 240, y: 0, config: { ethernetPorts: 2, serialPorts: 0, role: "border", interfaces: [
-        { peerId: "ix-net", type: "ethernet", ipv4Address: "203.0.113.2", natRole: "outside" },
+        { peerId: "ix-net", type: "ethernet", ipv4Address: "198.51.100.1", prefixLength: 30, natRole: "outside" },
         { peerId: "ix-web", type: "ethernet", ipv4Address: "10.0.1.1", natRole: "inside" },
-      ], portForwards: [{ proto: "tcp", outsideIp: "203.0.113.2", outsidePort: 80, insideIp: "10.0.1.80", insidePort: 80 }] } },
+      ], portForwards: [{ proto: "tcp", outsideIp: "198.51.100.1", outsidePort: 80, insideIp: "10.0.1.80", insidePort: 80 }] } },
       { id: "ix-web", type: "server", name: "WEB", x: 460, y: 0, config: { ipv4Address: "10.0.1.80", gatewayIpv4Address: "10.0.1.1", macAddress: "02:00:00:00:1A:80", arpTable: [], dnsmasqRunning: false, openPorts: [80], httpEnabled: true } },
     ],
     links: [
@@ -378,7 +378,7 @@ const acrossTheInternet: Scenario = {
     ],
   },
   checks: [
-    { kind: "http", from: "PC-A", to: "203.0.113.2", status: 200, label: "PC-A loads WEB across the internet (HTTP 200)" },
+    { kind: "http", from: "PC-A", to: "198.51.100.1", status: 200, label: "PC-A loads WEB across the internet (HTTP 200)" },
   ],
 };
 

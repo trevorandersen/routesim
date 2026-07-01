@@ -4,6 +4,8 @@
  */
 import { describe, it, expect, beforeAll, beforeEach } from "bun:test";
 import { state } from "../src/state";
+import { runSimulationHeadless } from "../src/engine";
+import { buildPingEvents } from "../src/simulation";
 import { linkName, deleteLink, deleteSelection, addLink, toggleLinkShutdown } from "../src/devices";
 import { buildConfigPayload, parseConfig } from "../src/config";
 import { runConsoleScript, runConsoleCommand as exec } from "../src/commands";
@@ -195,5 +197,23 @@ describe("links — bandwidth / latency / loss", () => {
     expect(p2.loss).toBe(100);
     expect(p2.bandwidth).toBeUndefined();
     expect(p2.latency).toBeUndefined();
+  });
+
+  it("a headless run notes a lossy link once instead of silently ignoring it", () => {
+    // Loss is animated-only (checks stay deterministic) — the divergence must
+    // be SURFACED: a headless run crossing a lossy link logs one note per link.
+    runConsoleScript(`
+      add computer PC1 at 0 0
+      add computer PC2 at 300 0
+      link PC1 PC2
+      ip PC1 192.168.1.10/24
+      ip PC2 192.168.1.20/24
+    `);
+    state.links[0].loss = 40;
+    const pc1 = state.devices.find(d => d.name === "PC1")!;
+    const r = runSimulationHeadless(buildPingEvents(pc1, "192.168.1.20") as any, pc1.id, "192.168.1.20", "ping");
+    expect(r.success).toBe(true);   // deterministic — loss never drops headless frames
+    const notes = state.simulation.log.filter(l => l.action.includes("not applied in this headless run"));
+    expect(notes.length).toBe(1);   // once per link per run, though several frames crossed it
   });
 });

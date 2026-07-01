@@ -1,4 +1,4 @@
-import type { EthernetFrame, ArpPayload, Ipv4Payload, IcmpPayload, DhcpPayload, TcpPayload, TcpFlags, HttpInfo, DnsPayload, Dot11Payload, Dot11Subtype, Dot1xPayload, Dot1xSubtype, BpduPayload } from "./types";
+import type { EthernetFrame, ArpPayload, Ipv4Payload, IcmpPayload, IcmpOriginal, DhcpPayload, TcpPayload, TcpFlags, HttpInfo, DnsPayload, Dot11Payload, Dot11Subtype, Dot1xPayload, Dot1xSubtype, BpduPayload } from "./types";
 
 let frameCounter = 0;
 function nextFrameId(): string {
@@ -98,6 +98,19 @@ export function createIcmpEchoReply(
   };
 }
 
+// The embedded-original summary an ICMP error carries — derived from the
+// offending datagram at the point of failure (post-NAT, exactly as a real
+// router copies the in-flight header). A NAT router on the return path uses it
+// to match the error to a translation (natRestoreInbound), which is what makes
+// traceroute work from behind NAT.
+export function icmpOriginalOf(ipv4: Ipv4Payload): IcmpOriginal | undefined {
+  const p = ipv4.payload;
+  if (p.type === "icmp") return { srcIp: ipv4.srcIp, dstIp: ipv4.dstIp, proto: "icmp", flowId: p.sequence };
+  if (p.type === "tcp") return { srcIp: ipv4.srcIp, dstIp: ipv4.dstIp, proto: "tcp", flowId: p.srcPort };
+  if (p.type === "dns") return { srcIp: ipv4.srcIp, dstIp: ipv4.dstIp, proto: "udp", flowId: p.id };
+  return undefined;
+}
+
 // ICMP Time-Exceeded (type 11) — sent by a router when a packet's TTL hits 0.
 // This is the mechanism traceroute relies on to discover each hop.
 export function createIcmpTimeExceeded(
@@ -106,9 +119,10 @@ export function createIcmpTimeExceeded(
   srcIp: string,
   dstIp: string,
   ttl: number = 64,
-  vlanTag: number | null = null
+  vlanTag: number | null = null,
+  original?: IcmpOriginal
 ): EthernetFrame {
-  const icmp: IcmpPayload = { type: "icmp", icmpType: 11, sequence: 0 };
+  const icmp: IcmpPayload = { type: "icmp", icmpType: 11, sequence: 0, ...(original ? { original } : {}) };
   const ipv4: Ipv4Payload = { type: "ipv4", srcIp, dstIp, ttl, protocol: 1, payload: icmp };
   return { id: nextFrameId(), srcMac, dstMac, etherType: 0x0800, vlanTag, payload: ipv4 };
 }
@@ -122,9 +136,10 @@ export function createIcmpDestUnreachable(
   srcIp: string,
   dstIp: string,
   ttl: number = 64,
-  vlanTag: number | null = null
+  vlanTag: number | null = null,
+  original?: IcmpOriginal
 ): EthernetFrame {
-  const icmp: IcmpPayload = { type: "icmp", icmpType: 3, sequence: 0 };
+  const icmp: IcmpPayload = { type: "icmp", icmpType: 3, sequence: 0, ...(original ? { original } : {}) };
   const ipv4: Ipv4Payload = { type: "ipv4", srcIp, dstIp, ttl, protocol: 1, payload: icmp };
   return { id: nextFrameId(), srcMac, dstMac, etherType: 0x0800, vlanTag, payload: ipv4 };
 }

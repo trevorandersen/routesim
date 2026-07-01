@@ -1,6 +1,6 @@
 import { describe, it, expect, beforeAll, beforeEach } from "bun:test";
 import { state } from "../src/state";
-import { addDevice, addLink, deleteSelection, clearNetwork, findDeviceAt, getDevice, connectedIds, linkedPortsFor, linkById, routerInterfaceFor, routerInterfaceForName, routerInterfacesWithNames, placeToolDevice, PLACEMENT_TOOLS } from "../src/devices";
+import { addDevice, addLink, deleteLink, deleteSelection, clearNetwork, findDeviceAt, getDevice, connectedIds, linkedPortsFor, linkById, routerInterfaceFor, routerInterfaceForName, routerInterfacesWithNames, placeToolDevice, PLACEMENT_TOOLS } from "../src/devices";
 import { freshNameCounters } from "../src/device-registry";
 import { registerNoopCallbacks, resetState } from "./helpers";
 
@@ -43,6 +43,36 @@ describe("router interface entries — deterministic per-router MACs", () => {
   it("routerInterfaceForName entries carry a MAC too", () => {
     const rtr = addDevice("router", 0, 0);
     expect(routerInterfaceForName(rtr, "Ethernet3").macAddress).toMatch(MAC_RE);
+  });
+});
+
+describe("router interface identity under re-cabling (the pinned invariant)", () => {
+  beforeEach(() => { resetState(); state.nameCounters = freshNameCounters(); });
+
+  it("peer-keyed config follows the peer; positional NAMES shift when an earlier link goes", () => {
+    const rtr = addDevice("router", 0, 0);
+    const sw1 = addDevice("switch", -200, 0);
+    const sw2 = addDevice("switch", 200, 0);
+    addLink(rtr.id, sw1.id);               // Ethernet1
+    addLink(rtr.id, sw2.id);               // Ethernet2
+    routerInterfaceFor(rtr, sw1.id).ipv4Address = "10.0.1.1";
+    const if2 = routerInterfaceFor(rtr, sw2.id);
+    if2.ipv4Address = "10.0.2.1";
+    if2.natRole = "outside";
+
+    // Remove the FIRST link: names are positional (derived from link order),
+    // so sw2's port is renumbered Ethernet2 → Ethernet1 …
+    const l1 = state.links.find(l => [l.from, l.to].includes(sw1.id))!;
+    deleteLink(l1.id);
+    const rows = routerInterfacesWithNames(rtr).filter((r: any) => r.peer);
+    expect(rows.length).toBe(1);
+    expect(rows[0].name).toBe("Ethernet1");        // the name SHIFTED —
+    expect(rows[0].peer.id).toBe(sw2.id);
+    // … but everything keyed on the PEER (address, NAT role) is intact. This is
+    // the invariant the sim relies on; anything keyed by NAME (e.g. RIP
+    // passiveInterfaces) does NOT follow a renumbering — a documented caveat.
+    expect(rows[0].config.ipv4Address).toBe("10.0.2.1");
+    expect(rows[0].config.natRole).toBe("outside");
   });
 });
 

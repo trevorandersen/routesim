@@ -5386,13 +5386,20 @@ Full legal text: https://creativecommons.org/publicdomain/zero/1.0/legalcode</pr
       payload: ipv4
     };
   }
-  function createIcmpTimeExceeded(srcMac, dstMac, srcIp, dstIp, ttl = 64, vlanTag = null) {
-    const icmp = { type: "icmp", icmpType: 11, sequence: 0 };
+  function icmpOriginalOf(ipv4) {
+    const p = ipv4.payload;
+    if (p.type === "icmp") return { srcIp: ipv4.srcIp, dstIp: ipv4.dstIp, proto: "icmp", flowId: p.sequence };
+    if (p.type === "tcp") return { srcIp: ipv4.srcIp, dstIp: ipv4.dstIp, proto: "tcp", flowId: p.srcPort };
+    if (p.type === "dns") return { srcIp: ipv4.srcIp, dstIp: ipv4.dstIp, proto: "udp", flowId: p.id };
+    return void 0;
+  }
+  function createIcmpTimeExceeded(srcMac, dstMac, srcIp, dstIp, ttl = 64, vlanTag = null, original) {
+    const icmp = { type: "icmp", icmpType: 11, sequence: 0, ...original ? { original } : {} };
     const ipv4 = { type: "ipv4", srcIp, dstIp, ttl, protocol: 1, payload: icmp };
     return { id: nextFrameId(), srcMac, dstMac, etherType: 2048, vlanTag, payload: ipv4 };
   }
-  function createIcmpDestUnreachable(srcMac, dstMac, srcIp, dstIp, ttl = 64, vlanTag = null) {
-    const icmp = { type: "icmp", icmpType: 3, sequence: 0 };
+  function createIcmpDestUnreachable(srcMac, dstMac, srcIp, dstIp, ttl = 64, vlanTag = null, original) {
+    const icmp = { type: "icmp", icmpType: 3, sequence: 0, ...original ? { original } : {} };
     const ipv4 = { type: "ipv4", srcIp, dstIp, ttl, protocol: 1, payload: icmp };
     return { id: nextFrameId(), srcMac, dstMac, etherType: 2048, vlanTag, payload: ipv4 };
   }
@@ -7346,6 +7353,7 @@ Full legal text: https://creativecommons.org/publicdomain/zero/1.0/legalcode</pr
     sim.sweepLive = [];
     sim.conntrack = {};
     sim.dnatSessions = {};
+    sim.lossNoted = /* @__PURE__ */ new Set();
     for (const d of state.devices) {
       if (d.type === "ids" && d.config) d.config.alerts = [];
       if ((d.type === "attacker" || d.type === "kali") && d.config) d.config.attackLog = [];
@@ -7445,6 +7453,7 @@ Full legal text: https://creativecommons.org/publicdomain/zero/1.0/legalcode</pr
     sim.sweepLive = [];
     sim.conntrack = {};
     sim.dnatSessions = {};
+    sim.lossNoted = /* @__PURE__ */ new Set();
     for (const d of state.devices) {
       if (d.type === "ids" && d.config) d.config.alerts = [];
       if ((d.type === "attacker" || d.type === "kali") && d.config) d.config.attackLog = [];
@@ -7697,6 +7706,10 @@ Full legal text: https://creativecommons.org/publicdomain/zero/1.0/legalcode</pr
         logStep(device, "sim-drop", `${linkName(link)} dropped ${frameLabel(out.frame)} (${link.loss}% loss)`);
         continue;
       }
+      if (sim.headless && Number(link.loss) > 0 && !(sim.lossNoted ||= /* @__PURE__ */ new Set()).has(link.id)) {
+        sim.lossNoted.add(link.id);
+        logStep(device, "sim-learn", `${linkName(link)} carries ${link.loss}% loss \u2014 not applied in this headless run (checks stay deterministic; the animated run may drop frames here)`);
+      }
       sim.transits.push({
         frame: out.frame,
         linkId: link.id,
@@ -7936,6 +7949,10 @@ Full legal text: https://creativecommons.org/publicdomain/zero/1.0/legalcode</pr
             sim.pingResponderIp = ipv4.srcIp;
             sim.pingTimeExceeded = true;
             logStep(device, "sim-icmp", `Received ICMP Time-Exceeded from ${ipv4.srcIp}`);
+          }
+        } else if (ipv4.payload.icmpType === 3) {
+          if (device.id === sim.originDeviceId) {
+            logStep(device, "sim-icmp", `Received ICMP Destination Unreachable from ${ipv4.srcIp}`);
           }
         }
       } else if (ipv4.payload.type === "tcp") {
@@ -8410,7 +8427,7 @@ Full legal text: https://creativecommons.org/publicdomain/zero/1.0/legalcode</pr
           const gwIp = ingressWan?.ipv4Address ? internetGatewayIp(ingressWan.ipv4Address, prefixOf(ingressWan)) : null;
           if (gwIp && fromDeviceId) {
             logStep(device, "sim-drop", `TTL expired on the internet for ${ipv4.dstIp} \u2014 sending ICMP Time-Exceeded to ${ipv4.srcIp}`);
-            out.push({ frame: createIcmpTimeExceeded(cloudMac, frame.srcMac, gwIp, ipv4.srcIp, 64, null), toDeviceId: fromDeviceId });
+            out.push({ frame: createIcmpTimeExceeded(cloudMac, frame.srcMac, gwIp, ipv4.srcIp, 64, null, icmpOriginalOf(ipv4)), toDeviceId: fromDeviceId });
           } else {
             logStep(device, "sim-drop", `TTL expired on the internet for ${ipv4.dstIp} \u2014 dropping`);
           }
@@ -8610,6 +8627,14 @@ Full legal text: https://creativecommons.org/publicdomain/zero/1.0/legalcode</pr
       const entry = translations.find((t) => t.protocol === "icmp" && t.outsidePort === icmp.sequence && t.destIp === ipv4.srcIp);
       if (entry) return { ...ipv4, dstIp: entry.insideIp, payload: { ...icmp, sequence: entry.insidePort } };
     }
+    if (ipv4.payload.type === "icmp" && (ipv4.payload.icmpType === 11 || ipv4.payload.icmpType === 3) && ipv4.payload.original) {
+      const icmp = ipv4.payload;
+      const o = icmp.original;
+      const entry = translations.find((t) => t.protocol === o.proto && t.outsidePort === o.flowId && t.destIp === o.dstIp);
+      if (entry) {
+        return { ...ipv4, dstIp: entry.insideIp, payload: { ...icmp, original: { ...o, srcIp: entry.insideIp, flowId: entry.insidePort } } };
+      }
+    }
     if (ipv4.payload.type === "tcp") {
       const tcp = ipv4.payload;
       const entry = translations.find((t) => t.protocol === "tcp" && t.outsidePort === tcp.dstPort && t.destIp === ipv4.srcIp);
@@ -8697,7 +8722,8 @@ Full legal text: https://creativecommons.org/publicdomain/zero/1.0/legalcode</pr
           ingressIface.ipv4Address,
           ipv4.srcIp,
           64,
-          ingressIface.vlanTag ?? null
+          ingressIface.vlanTag ?? null,
+          icmpOriginalOf(ipv4)
         );
         outgoing.push({ frame: timeExceeded, toDeviceId: fromDeviceId });
       } else {
@@ -8830,7 +8856,7 @@ Full legal text: https://creativecommons.org/publicdomain/zero/1.0/legalcode</pr
       const rst = createTcpSegment(srcMac, frame.srcMac, ipv4.dstIp, ipv4.srcIp, inner.dstPort, inner.srcPort, "rst", 64, vlanTag);
       return { frame: rst, toDeviceId: fromDeviceId };
     }
-    const unreach = createIcmpDestUnreachable(srcMac, frame.srcMac, icmpSrcIp, ipv4.srcIp, 64, vlanTag);
+    const unreach = createIcmpDestUnreachable(srcMac, frame.srcMac, icmpSrcIp, ipv4.srcIp, 64, vlanTag, icmpOriginalOf(ipv4));
     return { frame: unreach, toDeviceId: fromDeviceId };
   }
   function evaluateFirewall(device, ipv4, chain = "forward", conn = "new") {
@@ -12409,8 +12435,11 @@ Snort successfully validated the configuration${bad ? " (with errors)" : "."}`);
       );
       const inner = p.payload;
       if (inner.type === "icmp") {
-        const names = { 8: "echo request", 0: "echo reply", 11: "time exceeded" };
+        const names = { 8: "echo request", 0: "echo reply", 11: "time exceeded", 3: "destination unreachable" };
         rows.push(["ICMP type", `${inner.icmpType} (${names[inner.icmpType] || "?"})`], ["Sequence", String(inner.sequence)]);
+        if (inner.original) {
+          rows.push(["Original datagram", `${inner.original.proto.toUpperCase()} ${inner.original.srcIp} \u2192 ${inner.original.dstIp} (flow id ${inner.original.flowId})`]);
+        }
       } else if (inner.type === "tcp") {
         rows.push(["Src port", String(inner.srcPort)], ["Dst port", String(inner.dstPort)], ["TCP flags", inner.flags.toUpperCase()]);
       } else if (inner.type === "dhcp") {

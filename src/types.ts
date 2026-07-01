@@ -510,10 +510,23 @@ export interface ArpPayload {
   targetIp: string;
 }
 
+// The embedded original datagram of an ICMP error (types 11/3). Real ICMP
+// carries the original IP header + first 8 bytes — enough to identify the flow
+// the error refers to; this is the sim's equivalent. It is what lets a NAT
+// router match the error to a translation and deliver it to the inside sender
+// (traceroute from behind NAT depends on it).
+export interface IcmpOriginal {
+  srcIp: string;
+  dstIp: string;
+  proto: "icmp" | "tcp" | "udp";
+  flowId: number;   // icmp echo sequence / tcp source port / dns transaction id
+}
+
 export interface IcmpPayload {
   type: "icmp";
   icmpType: 8 | 0 | 11 | 3;   // 8 = echo request, 0 = echo reply, 11 = time exceeded, 3 = dest unreachable
   sequence: number;
+  original?: IcmpOriginal;    // errors (11/3) carry the offending datagram's summary
 }
 
 export type TcpFlags = "syn" | "syn-ack" | "ack" | "rst";
@@ -715,6 +728,10 @@ export interface SimulationState {
   // outside client of each forwarded connection so the *return* leg is matched
   // precisely (not just any traffic from the inside server's port). deviceId → sessions.
   dnatSessions: Record<string, { clientIp: string; clientPort: number; insideIp: string; insidePort: number; outsideIp: string; outsidePort: number }[]>;
+  // Link ids already noted as "loss ignored" this headless run — loss is
+  // animated-only (checks stay deterministic), and the divergence is surfaced
+  // once per link in the events log rather than silently skipped.
+  lossNoted?: Set<string>;
 }
 
 export interface PortOption {

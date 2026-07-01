@@ -37,6 +37,16 @@ interface address is implicit (a deliberate simplification of Cisco's
   routed inward. No match → the packet is genuinely for the router (INPUT
   chain + self handling apply), so pinging the public IP still gets the
   router's own reply.
+- **ICMP errors** (Time-Exceeded / Dest-Unreachable): the sender is an
+  intermediate router, not the flow's destination, so the reply-tuple match
+  can't work — instead the error carries the **embedded original datagram**
+  (`IcmpPayload.original`, the sim's equivalent of real ICMP quoting the
+  original header + 8 bytes, populated by every error-generation site from the
+  in-flight, already-translated packet). `natRestoreInbound` matches it on the
+  translated flow id + real destination, restores the outer destination *and*
+  rewrites the quoted header (as real NAT does). This is what makes
+  **traceroute from behind NAT** show every hop — including the internet
+  cloud's gateway — instead of dying at the edge.
 - **Composition with netfilter**: the un-NAT runs *before* the FORWARD chain,
   so connection tracking sees consistent, un-translated tuples in both
   directions — an inside→outside flow's return traffic is correctly classified

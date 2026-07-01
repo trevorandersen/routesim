@@ -10,7 +10,7 @@
  */
 import { describe, it, expect, beforeAll, beforeEach } from "bun:test";
 import { state } from "../src/state";
-import { runSimulationHeadless, processAtInternet } from "../src/engine";
+import { runSimulationHeadless, processAtInternet, runTraceroute } from "../src/engine";
 import { buildRoutingTable, runRipConvergence } from "../src/routing";
 import { buildPingEvents, buildHttpEvents, l2Reachable } from "../src/simulation";
 import { buildConfigPayload, parseConfig } from "../src/config";
@@ -219,6 +219,41 @@ describe("the internet cloud", () => {
     expect(p.srcIp).toBe("203.0.113.2");          // sourced from the cloud's gateway on R1's link
     expect(p.dstIp).toBe("203.0.113.1");          // back to the sender
     expect(out[0].toDeviceId).toBe(r1.id);
+  });
+
+  it("traceroute from behind NAT sees every hop — errors are un-NAT'd via the embedded original", () => {
+    // PC-A (private) — R1 (NAT) — Internet — R2. The cloud's Time-Exceeded is
+    // addressed to R1's outside IP; without the embedded-original restore it
+    // would die at R1 and the cloud hop would read "* no response".
+    runConsoleScript(`
+      add computer PC-A at -500 0
+      add router R1 at -300 0
+      add internet NET at 0 0
+      add router R2 at 300 0
+      link PC-A R1
+      link R1 NET
+      link R2 NET
+      ip PC-A 10.0.0.10/24
+      gateway PC-A 10.0.0.1
+      interface R1 PC-A ip 10.0.0.1/24
+      interface R1 NET ip 203.0.113.1/30
+      interface R2 NET ip 198.51.100.1/30
+      cli R1 enable
+      cli R1 configure terminal
+      cli R1 interface Ethernet1
+      cli R1 ip nat inside
+      cli R1 exit
+      cli R1 interface Ethernet2
+      cli R1 ip nat outside
+      cli R1 end
+    `);
+    const res = runTraceroute(dev("PC-A"), "198.51.100.1") as any;
+    expect(res.reached).toBe(true);
+    expect(res.hops.map((h: any) => h.ip)).toEqual([
+      "10.0.0.1",       // R1 (the NAT gateway itself)
+      "203.0.113.2",    // the internet cloud's gateway — visible THROUGH the NAT
+      "198.51.100.1",   // R2's public address (destination reached)
+    ]);
   });
 
   it("round-trips through the config payload", () => {

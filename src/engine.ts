@@ -4,7 +4,7 @@ import { dom } from "./dom";
 import { getDevice, linkedPortsFor, routerInterfacesWithNames, linkName, linkById, linksFor, linkAuthorizedForData, macsecState } from "./devices";
 import { normalisePortVlans, normalisePortModes, normaliseTrunkAllowedVlans, normaliseArpTable, normaliseMacTable, normaliseDhcpLeases, normaliseStaticRoutes, ensureConfig } from "./normalise";
 import { sameSubnet, prefixOf, isValidIpv4, escapeHtml, ipv4ToInt, intToIpv4, normaliseMacAddress, deriveMac, internetGatewayIp } from "./utils";
-import { createArpRequest, createArpReply, createIcmpEchoRequest, createIcmpEchoReply, createIcmpTimeExceeded, createIcmpDestUnreachable, createDhcpOffer, createDhcpRequest, createDhcpAck, createTcpSegment, createHttpRequest, createHttpResponse, createDnsResponse, createDot11Frame, createDot1xFrame, createBpduFrame, BROADCAST_MAC, frameLabel, packetColumns } from "./frame";
+import { createArpRequest, createArpReply, createIcmpEchoRequest, createIcmpEchoReply, createIcmpTimeExceeded, createIcmpDestUnreachable, icmpOriginalOf, createDhcpOffer, createDhcpRequest, createDhcpAck, createTcpSegment, createHttpRequest, createHttpResponse, createDnsResponse, createDot11Frame, createDot1xFrame, createBpduFrame, BROADCAST_MAC, frameLabel, packetColumns } from "./frame";
 import { terminalLine, terminalLineFor, sessionFor, syncTerminal, openDock, syncSimLogBadge } from "./terminal";
 import { buildPingEvents, buildResolveEvents, buildDhcpEvents, buildAttackEvents, findPingTarget, hostnameToIp } from "./simulation";
 import type { PingSetup } from "./simulation";
@@ -86,6 +86,7 @@ export function startSimulation(setup: PingSetup, originDeviceId: string, target
   sim.scanOpen = []; sim.scanClosed = []; sim.sweepLive = [];
   sim.conntrack = {};   // connection tracking starts empty each run
   sim.dnatSessions = {};
+  sim.lossNoted = new Set();
   // Each run reports only its own detections/findings — clear IDS alert logs and
   // attacker findings (like sim.log / sim.capture) so they don't accumulate.
   for (const d of state.devices) {
@@ -226,6 +227,7 @@ export function runSimulationHeadless(
   sim.scanOpen = []; sim.scanClosed = []; sim.sweepLive = [];
   sim.conntrack = {};   // connection tracking starts empty each run
   sim.dnatSessions = {};
+  sim.lossNoted = new Set();
   // Each run reports only its own detections/findings — clear IDS alert logs and
   // attacker findings (like sim.log / sim.capture) so they don't accumulate.
   for (const d of state.devices) {
@@ -585,10 +587,16 @@ function processNextStep(): void {
       continue;
     }
     // Per-link packet loss — a probabilistic drop, only in animated runs so
-    // headless reachability checks (scenarios, `run`) stay deterministic.
+    // headless reachability checks (scenarios, `run`) stay deterministic. The
+    // divergence is surfaced, not silent: a headless run notes each lossy link
+    // it crosses once, so a passing check on a flaky wire explains itself.
     if (!sim.headless && Number(link.loss) > 0 && Math.random() * 100 < link.loss) {
       logStep(device, "sim-drop", `${linkName(link)} dropped ${frameLabel(out.frame)} (${link.loss}% loss)`);
       continue;
+    }
+    if (sim.headless && Number(link.loss) > 0 && !(sim.lossNoted ||= new Set()).has(link.id)) {
+      sim.lossNoted.add(link.id);
+      logStep(device, "sim-learn", `${linkName(link)} carries ${link.loss}% loss — not applied in this headless run (checks stay deterministic; the animated run may drop frames here)`);
     }
     sim.transits.push({
       frame: out.frame,
@@ -868,6 +876,12 @@ export function processAtComputer(device: Device, frame: EthernetFrame, fromDevi
           sim.pingResponderIp = ipv4.srcIp;
           sim.pingTimeExceeded = true;
           logStep(device, "sim-icmp", `Received ICMP Time-Exceeded from ${ipv4.srcIp}`);
+        }
+      } else if (ipv4.payload.icmpType === 3) {
+        // ICMP Destination Unreachable — a filter REJECTed the flow somewhere
+        // along the path (real ping prints this; the run still reads as failed).
+        if (device.id === sim.originDeviceId) {
+          logStep(device, "sim-icmp", `Received ICMP Destination Unreachable from ${ipv4.srcIp}`);
         }
       }
     } else if (ipv4.payload.type === "tcp") {
@@ -1460,7 +1474,7 @@ export function processAtInternet(device: Device, frame: EthernetFrame, fromDevi
         const gwIp = ingressWan?.ipv4Address ? internetGatewayIp(ingressWan.ipv4Address, prefixOf(ingressWan)) : null;
         if (gwIp && fromDeviceId) {
           logStep(device, "sim-drop", `TTL expired on the internet for ${ipv4.dstIp} — sending ICMP Time-Exceeded to ${ipv4.srcIp}`);
-          out.push({ frame: createIcmpTimeExceeded(cloudMac, frame.srcMac, gwIp, ipv4.srcIp, 64, null), toDeviceId: fromDeviceId });
+          out.push({ frame: createIcmpTimeExceeded(cloudMac, frame.srcMac, gwIp, ipv4.srcIp, 64, null, icmpOriginalOf(ipv4)), toDeviceId: fromDeviceId });
         } else {
           logStep(device, "sim-drop", `TTL expired on the internet for ${ipv4.dstIp} — dropping`);
         }
@@ -1693,6 +1707,21 @@ function natRestoreInbound(device: Device, ipv4: Ipv4Payload, ifaces: any[]): Ip
     const entry = translations.find(t => t.protocol === "icmp" && t.outsidePort === icmp.sequence && t.destIp === ipv4.srcIp);
     if (entry) return { ...ipv4, dstIp: entry.insideIp, payload: { ...icmp, sequence: entry.insidePort } };
   }
+  if (ipv4.payload.type === "icmp" && (ipv4.payload.icmpType === 11 || ipv4.payload.icmpType === 3) && ipv4.payload.original) {
+    // An ICMP error from beyond the NAT (Time-Exceeded / Dest-Unreachable): the
+    // sender is an intermediate router, not the flow's destination, so the
+    // translation is matched on the error's EMBEDDED original datagram — the
+    // translated flow id + the flow's real destination — like a real NAT parsing
+    // the quoted header. This is what lets traceroute work from behind NAT.
+    const icmp = ipv4.payload;
+    const o = icmp.original!;
+    const entry = translations.find(t => t.protocol === o.proto && t.outsidePort === o.flowId && t.destIp === o.dstIp);
+    if (entry) {
+      // Rewrite the embedded original too (real NAT does), so the inside host
+      // sees its own address/flow id quoted back.
+      return { ...ipv4, dstIp: entry.insideIp, payload: { ...icmp, original: { ...o, srcIp: entry.insideIp, flowId: entry.insidePort } } };
+    }
+  }
   if (ipv4.payload.type === "tcp") {
     const tcp = ipv4.payload;
     const entry = translations.find(t => t.protocol === "tcp" && t.outsidePort === tcp.dstPort && t.destIp === ipv4.srcIp);
@@ -1805,7 +1834,8 @@ function routeIpv4Frame(device: Device, frame: EthernetFrame, ifaces: any[], ing
       const timeExceeded = createIcmpTimeExceeded(
         ingressIface.macAddress, frame.srcMac,
         ingressIface.ipv4Address, ipv4.srcIp,
-        64, ingressIface.vlanTag ?? null
+        64, ingressIface.vlanTag ?? null,
+        icmpOriginalOf(ipv4)
       );
       outgoing.push({ frame: timeExceeded, toDeviceId: fromDeviceId });
     } else {
@@ -1984,7 +2014,7 @@ function rejectResponse(frame: EthernetFrame, ipv4: Ipv4Payload, srcMac: string,
     const rst = createTcpSegment(srcMac, frame.srcMac, ipv4.dstIp, ipv4.srcIp, inner.dstPort, inner.srcPort, "rst", 64, vlanTag);
     return { frame: rst, toDeviceId: fromDeviceId };
   }
-  const unreach = createIcmpDestUnreachable(srcMac, frame.srcMac, icmpSrcIp, ipv4.srcIp, 64, vlanTag);
+  const unreach = createIcmpDestUnreachable(srcMac, frame.srcMac, icmpSrcIp, ipv4.srcIp, 64, vlanTag, icmpOriginalOf(ipv4));
   return { frame: unreach, toDeviceId: fromDeviceId };
 }
 

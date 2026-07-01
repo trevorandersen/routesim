@@ -966,8 +966,13 @@ export function renderFramePanel(frame: any): void {
       ["Protocol", p.protocol === 1 ? "1 (ICMP)" : p.protocol === 6 ? "6 (TCP)" : p.protocol === 17 ? "17 (UDP)" : String(p.protocol)]);
     const inner = p.payload;
     if (inner.type === "icmp") {
-      const names: Record<number, string> = { 8: "echo request", 0: "echo reply", 11: "time exceeded" };
+      const names: Record<number, string> = { 8: "echo request", 0: "echo reply", 11: "time exceeded", 3: "destination unreachable" };
       rows.push(["ICMP type", `${inner.icmpType} (${names[inner.icmpType] || "?"})`], ["Sequence", String(inner.sequence)]);
+      // An ICMP error quotes the offending datagram (real ICMP embeds the
+      // original header) — show the flow the error refers to.
+      if (inner.original) {
+        rows.push(["Original datagram", `${inner.original.proto.toUpperCase()} ${inner.original.srcIp} → ${inner.original.dstIp} (flow id ${inner.original.flowId})`]);
+      }
     } else if (inner.type === "tcp") {
       rows.push(["Src port", String(inner.srcPort)], ["Dst port", String(inner.dstPort)], ["TCP flags", inner.flags.toUpperCase()]);
     } else if (inner.type === "dhcp") {

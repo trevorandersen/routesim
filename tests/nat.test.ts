@@ -7,7 +7,8 @@
  */
 import { describe, it, expect, beforeAll, beforeEach } from "bun:test";
 import { state } from "../src/state";
-import { runSimulationHeadless } from "../src/engine";
+import { runSimulationHeadless, processAtRouter } from "../src/engine";
+import { createIcmpTimeExceeded } from "../src/frame";
 import { buildPingEvents, buildConnectEvents, buildHttpEvents } from "../src/simulation";
 import { buildConfigPayload, parseConfig } from "../src/config";
 import { runConsoleScript, runConsoleCommand as exec, exportTopologyScript } from "../src/commands";
@@ -132,6 +133,47 @@ describe("nat — PAT overload", () => {
     expect(r1.config.interfaces.map((i: any) => i.natRole)).toContain("outside");
     expect(r1.config.rules).toHaveLength(1);
     expect(r1.config.rules[0]).toMatchObject({ chain: "forward", target: "drop", protocol: "tcp", dport: 23 });
+  });
+});
+
+describe("nat — ICMP errors restored via the embedded original datagram", () => {
+  beforeEach(() => resetState());
+
+  it("un-NATs a Time-Exceeded from beyond the edge back to the inside sender", () => {
+    const { pc1, r1, srv } = natTopology();
+    enableNat();
+    // Prime the translation (and ARP caches) with a real NAT'd ping.
+    const setup = buildPingEvents(pc1, "203.0.113.10");
+    expect(runSimulationHeadless(setup as any, pc1.id, "203.0.113.10", "ping").success).toBe(true);
+    const entry = r1.config!.natTranslations!.find(t => t.protocol === "icmp")!;
+
+    // An ICMP error arrives from an intermediate router beyond the NAT,
+    // addressed to R1's outside IP, quoting the TRANSLATED flow — as the
+    // internet cloud's TTL branch (or any far router) would send it.
+    const te = createIcmpTimeExceeded(
+      "02:99:99:99:99:99", "02:00:00:00:00:01",
+      "203.0.113.99", "203.0.113.2", 64, null,
+      { srcIp: entry.outsideIp, dstIp: entry.destIp, proto: "icmp", flowId: entry.outsidePort });
+    const out = processAtRouter(r1, te, srv.id);
+    expect(out.length).toBe(1);
+    const restored = out[0].frame.payload as any;
+    expect(restored.dstIp).toBe("192.168.1.10");                 // delivered inside
+    expect(restored.srcIp).toBe("203.0.113.99");                 // the reporting hop is preserved
+    expect(restored.payload.original.srcIp).toBe("192.168.1.10"); // quoted header un-NAT'd too
+    expect(restored.payload.original.flowId).toBe(entry.insidePort);
+    expect(out[0].toDeviceId).toBe(pc1.id);
+  });
+
+  it("an error quoting no known flow is not restored (stays router-destined)", () => {
+    const { r1, srv } = natTopology();
+    enableNat();
+    const te = createIcmpTimeExceeded(
+      "02:99:99:99:99:99", "02:00:00:00:00:01",
+      "203.0.113.99", "203.0.113.2", 64, null,
+      { srcIp: "203.0.113.2", dstIp: "203.0.113.77", proto: "icmp", flowId: 4242 });
+    // No matching translation → the self-destined branch consumes it (no echo
+    // to answer), and nothing is forwarded inside.
+    expect(processAtRouter(r1, te, srv.id)).toEqual([]);
   });
 });
 

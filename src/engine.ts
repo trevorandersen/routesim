@@ -1451,7 +1451,18 @@ export function processAtInternet(device: Device, frame: EthernetFrame, fromDevi
     if (!wan?.ipv4Address) continue;
     if (ipv4.dstIp === wan.ipv4Address || sameSubnet(ipv4.dstIp, wan.ipv4Address, prefixOf(wan))) {
       if (ipv4.ttl <= 1) {
-        logStep(device, "sim-drop", `TTL expired on the internet for ${ipv4.dstIp} — dropping`);
+        // One L3 hop: an expired packet earns an ICMP Time-Exceeded from the
+        // gateway the cloud presents to the sending router — so the internet
+        // shows up as a real traceroute hop, not a silent gap.
+        const ingress = fromDeviceId ? getDevice(fromDeviceId) : undefined;
+        const ingressWan = ingress?.type === "router" ? internetFacingIface(ingress, device.id) : undefined;
+        const gwIp = ingressWan?.ipv4Address ? internetGatewayIp(ingressWan.ipv4Address, prefixOf(ingressWan)) : null;
+        if (gwIp && fromDeviceId) {
+          logStep(device, "sim-drop", `TTL expired on the internet for ${ipv4.dstIp} — sending ICMP Time-Exceeded to ${ipv4.srcIp}`);
+          out.push({ frame: createIcmpTimeExceeded(cloudMac, frame.srcMac, gwIp, ipv4.srcIp, 64, null), toDeviceId: fromDeviceId });
+        } else {
+          logStep(device, "sim-drop", `TTL expired on the internet for ${ipv4.dstIp} — dropping`);
+        }
         return out;
       }
       const routed: EthernetFrame = {

@@ -34,7 +34,21 @@ export function buildRoutingTable(router: Device): RouteEntry[] {
     table.push({ network: sr.network, nextHop: sr.nextHop, type: "S", metric: 1 });
   }
 
-  // 3. RIP learned routes
+  // 3. Implicit internet default — a router cabled to an Internet cloud reaches
+  // the rest of the world through it (the cloud routes by destination, so the
+  // router just needs a default toward it; the cloud answers ARP for the
+  // gateway address). Placed after statics so an explicit default route wins,
+  // but before RIP so the router directly on the internet prefers its own real
+  // path over a default it might otherwise learn back from a LAN neighbour.
+  if (!seen.has("0.0.0.0/0")) {
+    const def = internetDefaultGateway(ifaces);
+    if (def) {
+      table.push({ network: "0.0.0.0/0", nextHop: def.gateway, interface: def.ifaceName, type: "S", metric: 1 });
+      seen.add("0.0.0.0/0");
+    }
+  }
+
+  // 4. RIP learned routes (may carry a default originated by an edge router)
   if (router.config?.rip?.enabled && Array.isArray(router.config.rip.learnedRoutes)) {
     for (const rr of router.config.rip.learnedRoutes) {
       if (seen.has(rr.network)) continue;
@@ -43,25 +57,25 @@ export function buildRoutingTable(router: Device): RouteEntry[] {
     }
   }
 
-  // 4. Implicit internet default — a router cabled to an Internet cloud reaches
-  // the rest of the world through it (the cloud routes by destination, so the
-  // router just needs a default toward it). The cloud answers ARP for this
-  // gateway address. Added after statics/RIP so an explicit default route wins.
-  if (!seen.has("0.0.0.0/0")) {
-    for (const iface of ifaces) {
-      const ip = iface.config?.ipv4Address;
-      if (!ip || !isValidIpv4(ip) || iface.peer?.type !== "internet") continue;
-      const gateway = internetGatewayIp(ip, prefixOf(iface.config));
-      if (!gateway) continue;
-      table.push({ network: "0.0.0.0/0", nextHop: gateway, interface: iface.name, type: "S", metric: 1 });
-      seen.add("0.0.0.0/0");
-      break;
-    }
-  }
-
   // Sort: connected first, then static, then RIP (by metric)
   table.sort((a, b) => a.metric - b.metric);
   return table;
+}
+
+// The cloud gateway a router cabled to an Internet device default-routes toward
+// (with the interface it faces the cloud on), or null if it isn't cabled to one
+// — or the WAN subnet is too small to spare a gateway address (a /31 or /32).
+// Shared by buildRoutingTable (which installs the default) and
+// buildRipAdvertisements (which originates it into RIP, like Cisco's
+// `default-information originate`), so the two never disagree.
+function internetDefaultGateway(ifaces: NamedRouterIface[]): { gateway: string; ifaceName: string } | null {
+  for (const iface of ifaces) {
+    const ip = iface.config?.ipv4Address;
+    if (!ip || !isValidIpv4(ip) || iface.peer?.type !== "internet") continue;
+    const gateway = internetGatewayIp(ip, prefixOf(iface.config));
+    if (gateway) return { gateway, ifaceName: iface.name };
+  }
+  return null;
 }
 
 // The interface whose connected network contains the address (per-iface prefix).
@@ -130,6 +144,15 @@ function buildRipAdvertisements(ifaces: NamedRouterIface[], ripNetworks: string[
   for (const lr of learnedRoutes) {
     if (lr.metric >= 15) continue; // metric 16 = unreachable
     advertisements.push({ network: lr.network, metric: lr.metric + 1, sourceInterface: lr.interface || "" });
+  }
+
+  // Originate a default route when cabled to the internet (like Cisco's
+  // `default-information originate`), so RIP neighbours several hops from the
+  // edge still learn a way out. Metric 1 (locally originated), sourced on the
+  // internet-facing interface so split-horizon never sends it back to the ISP.
+  const def = internetDefaultGateway(ifaces);
+  if (def && !learnedRoutes.some((lr: any) => lr.network === "0.0.0.0/0")) {
+    advertisements.push({ network: "0.0.0.0/0", metric: 1, sourceInterface: def.ifaceName });
   }
 
   return advertisements;

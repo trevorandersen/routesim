@@ -177,7 +177,7 @@ Routers forward IPv4 frames using a merged routing table built by `buildRoutingT
 
 ### RIP
 
-`runRipConvergence()` runs automatically before each simulation starts. It iterates up to 15 rounds, exchanging route advertisements between RIP-enabled routers until the network converges (no changes in a round). Split-horizon prevents re-advertising routes back toward the interface they were learned from. Metric 16 = unreachable. RIP config per router: `config.rip = { enabled, networks, passiveInterfaces, learnedRoutes }`.
+`runRipConvergence()` runs automatically before each simulation starts. It iterates up to 15 rounds, exchanging route advertisements between RIP-enabled routers until the network converges (no changes in a round). Split-horizon prevents re-advertising routes back toward the interface they were learned from. Metric 16 = unreachable. A router cabled to an **internet cloud** also **originates a default** (`0.0.0.0/0`) into RIP (like `default-information originate`), so routers several hops from the edge learn a way out. RIP config per router: `config.rip = { enabled, networks, passiveInterfaces, learnedRoutes }`.
 
 ### Spanning Tree (STP)
 

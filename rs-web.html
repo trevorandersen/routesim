@@ -6586,6 +6586,13 @@ Full legal text: https://creativecommons.org/publicdomain/zero/1.0/legalcode</pr
       seen.add(sr.network);
       table.push({ network: sr.network, nextHop: sr.nextHop, type: "S", metric: 1 });
     }
+    if (!seen.has("0.0.0.0/0")) {
+      const def = internetDefaultGateway(ifaces);
+      if (def) {
+        table.push({ network: "0.0.0.0/0", nextHop: def.gateway, interface: def.ifaceName, type: "S", metric: 1 });
+        seen.add("0.0.0.0/0");
+      }
+    }
     if (router.config?.rip?.enabled && Array.isArray(router.config.rip.learnedRoutes)) {
       for (const rr of router.config.rip.learnedRoutes) {
         if (seen.has(rr.network)) continue;
@@ -6593,19 +6600,17 @@ Full legal text: https://creativecommons.org/publicdomain/zero/1.0/legalcode</pr
         table.push({ network: rr.network, nextHop: rr.nextHop, interface: rr.interface, type: "R", metric: rr.metric });
       }
     }
-    if (!seen.has("0.0.0.0/0")) {
-      for (const iface of ifaces) {
-        const ip = iface.config?.ipv4Address;
-        if (!ip || !isValidIpv4(ip) || iface.peer?.type !== "internet") continue;
-        const gateway = internetGatewayIp(ip, prefixOf(iface.config));
-        if (!gateway) continue;
-        table.push({ network: "0.0.0.0/0", nextHop: gateway, interface: iface.name, type: "S", metric: 1 });
-        seen.add("0.0.0.0/0");
-        break;
-      }
-    }
     table.sort((a, b) => a.metric - b.metric);
     return table;
+  }
+  function internetDefaultGateway(ifaces) {
+    for (const iface of ifaces) {
+      const ip = iface.config?.ipv4Address;
+      if (!ip || !isValidIpv4(ip) || iface.peer?.type !== "internet") continue;
+      const gateway = internetGatewayIp(ip, prefixOf(iface.config));
+      if (gateway) return { gateway, ifaceName: iface.name };
+    }
+    return null;
   }
   function ifaceOnSubnet(ifaces, ip) {
     return ifaces.find(
@@ -6649,6 +6654,10 @@ Full legal text: https://creativecommons.org/publicdomain/zero/1.0/legalcode</pr
     for (const lr of learnedRoutes) {
       if (lr.metric >= 15) continue;
       advertisements.push({ network: lr.network, metric: lr.metric + 1, sourceInterface: lr.interface || "" });
+    }
+    const def = internetDefaultGateway(ifaces);
+    if (def && !learnedRoutes.some((lr) => lr.network === "0.0.0.0/0")) {
+      advertisements.push({ network: "0.0.0.0/0", metric: 1, sourceInterface: def.ifaceName });
     }
     return advertisements;
   }
@@ -8392,7 +8401,15 @@ Full legal text: https://creativecommons.org/publicdomain/zero/1.0/legalcode</pr
       if (!wan?.ipv4Address) continue;
       if (ipv4.dstIp === wan.ipv4Address || sameSubnet(ipv4.dstIp, wan.ipv4Address, prefixOf(wan))) {
         if (ipv4.ttl <= 1) {
-          logStep(device, "sim-drop", `TTL expired on the internet for ${ipv4.dstIp} \u2014 dropping`);
+          const ingress = fromDeviceId ? getDevice(fromDeviceId) : void 0;
+          const ingressWan = ingress?.type === "router" ? internetFacingIface(ingress, device.id) : void 0;
+          const gwIp = ingressWan?.ipv4Address ? internetGatewayIp(ingressWan.ipv4Address, prefixOf(ingressWan)) : null;
+          if (gwIp && fromDeviceId) {
+            logStep(device, "sim-drop", `TTL expired on the internet for ${ipv4.dstIp} \u2014 sending ICMP Time-Exceeded to ${ipv4.srcIp}`);
+            out.push({ frame: createIcmpTimeExceeded(cloudMac, frame.srcMac, gwIp, ipv4.srcIp, 64, null), toDeviceId: fromDeviceId });
+          } else {
+            logStep(device, "sim-drop", `TTL expired on the internet for ${ipv4.dstIp} \u2014 dropping`);
+          }
           return out;
         }
         const routed = {

@@ -10,10 +10,11 @@
  */
 import { describe, it, expect, beforeAll, beforeEach } from "bun:test";
 import { state } from "../src/state";
-import { runSimulationHeadless } from "../src/engine";
-import { buildRoutingTable } from "../src/routing";
+import { runSimulationHeadless, processAtInternet } from "../src/engine";
+import { buildRoutingTable, runRipConvergence } from "../src/routing";
 import { buildPingEvents, buildHttpEvents, l2Reachable } from "../src/simulation";
 import { buildConfigPayload, parseConfig } from "../src/config";
+import { createIcmpEchoRequest } from "../src/frame";
 import { runConsoleScript, runConsoleCommand as exec } from "../src/commands";
 import { registerNoopCallbacks, resetState } from "./helpers";
 
@@ -110,6 +111,64 @@ describe("the internet cloud", () => {
     const r = runSimulationHeadless(buildPingEvents(pcA, "8.8.8.8") as any, pcA.id, "8.8.8.8", "ping");
     expect(r.success).toBe(false);
     expect(netLog().some(a => a.includes("No route to 8.8.8.8 on the internet"))).toBe(true);
+  });
+
+  it("originates a default into RIP so a router several hops from the edge still gets out", () => {
+    // PC — R-INNER (RIP) — R-EDGE (RIP + internet) — Internet. R-INNER has no
+    // internet interface of its own; it must learn the way out via RIP.
+    runConsoleScript(`
+      add router R-EDGE at 0 0
+      add internet NET at 200 0
+      add router R-INNER at -300 0
+      link R-EDGE NET
+      link R-INNER R-EDGE
+      interface R-EDGE NET ip 203.0.113.1/30
+      interface R-EDGE R-INNER ip 10.10.10.1/30
+      interface R-INNER R-EDGE ip 10.10.10.2/30
+      cli R-EDGE enable
+      cli R-EDGE configure terminal
+      cli R-EDGE router rip
+      cli R-EDGE network 10.10.10.0/30
+      cli R-EDGE end
+      cli R-INNER enable
+      cli R-INNER configure terminal
+      cli R-INNER router rip
+      cli R-INNER network 10.10.10.0/30
+      cli R-INNER end
+    `);
+    runRipConvergence();
+    // The edge keeps its own real (static) default toward the cloud...
+    const edgeDef = buildRoutingTable(dev("R-EDGE")).find(r => r.network === "0.0.0.0/0");
+    expect(edgeDef?.type).toBe("S");
+    expect(edgeDef?.nextHop).toBe("203.0.113.2");
+    // ...and the inner router learns one via RIP, next-hopping the edge.
+    const innerDef = buildRoutingTable(dev("R-INNER")).find(r => r.network === "0.0.0.0/0");
+    expect(innerDef?.type).toBe("R");
+    expect(innerDef?.nextHop).toBe("10.10.10.1");
+  });
+
+  it("emits an ICMP Time-Exceeded when a packet expires on it (so it is a real traceroute hop)", () => {
+    runConsoleScript(`
+      add router R1 at -200 0
+      add internet NET at 0 0
+      add router R2 at 200 0
+      link R1 NET
+      link R2 NET
+      interface R1 NET ip 203.0.113.1/30
+      interface R2 NET ip 198.51.100.1/30
+    `);
+    const net = dev("NET"), r1 = dev("R1");
+    const r1mac = r1.config!.interfaces!.find(i => i.peerId === net.id)!.macAddress;
+    // A packet destined across the cloud (to R2) arriving with TTL 1 must expire here.
+    const frame = createIcmpEchoRequest(r1mac, "02:00:00:00:00:99", "203.0.113.1", "198.51.100.1", 1);
+    const out = processAtInternet(net, frame, r1.id);
+    expect(out.length).toBe(1);
+    const p = out[0].frame.payload as any;
+    expect(p.type).toBe("ipv4");
+    expect(p.payload.icmpType).toBe(11);          // Time-Exceeded
+    expect(p.srcIp).toBe("203.0.113.2");          // sourced from the cloud's gateway on R1's link
+    expect(p.dstIp).toBe("203.0.113.1");          // back to the sender
+    expect(out[0].toDeviceId).toBe(r1.id);
   });
 
   it("round-trips through the config payload", () => {

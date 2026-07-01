@@ -1,7 +1,10 @@
 import { describe, it, expect, beforeAll, beforeEach } from "bun:test";
 import { state } from "../src/state";
 import { processAtSwitch, processAtRouter, processAtComputer, processAtHub, runSimulationHeadless, runTraceroute, linkLatencyFactor } from "../src/engine";
+import { buildRoutingTable, runRipConvergence } from "../src/routing";
 import { buildPingEvents } from "../src/simulation";
+import { deleteLink, linksFor } from "../src/devices";
+import { buildConfigPayload } from "../src/config";
 import { createArpRequest, createArpReply, createIcmpEchoRequest, createIcmpEchoReply, createDhcpOffer, createDhcpAck, BROADCAST_MAC } from "../src/frame";
 import { runConsoleScript } from "../src/commands";
 import { registerNoopCallbacks, resetState } from "./helpers";
@@ -753,5 +756,72 @@ describe("traceroute", () => {
     expect(result.reached).toBe(true);
     expect(result.hops.length).toBe(1);
     expect(result.hops[0].reached).toBe(true);
+  });
+});
+
+// ── RIP learned routes are derived state ─────────────────────────────────────
+
+describe("runRipConvergence — derived state", () => {
+  beforeEach(() => resetState());
+
+  const dev = (name: string) => state.devices.find(d => d.name === name)!;
+
+  function buildRipPair(): void {
+    runConsoleScript(`
+      add computer PC-A at -600 0
+      add router R1 at -400 0
+      add router R2 at -100 0
+      add computer PC-B at 100 0
+      link PC-A R1
+      link R1 R2
+      link PC-B R2
+      ip PC-A 192.168.1.10/24
+      gateway PC-A 192.168.1.1
+      interface R1 PC-A ip 192.168.1.1/24
+      interface R1 R2 ip 10.0.12.1/30
+      interface R2 R1 ip 10.0.12.2/30
+      interface R2 PC-B ip 192.168.2.1/24
+      ip PC-B 192.168.2.10/24
+      gateway PC-B 192.168.2.1
+      cli R1 enable
+      cli R1 configure terminal
+      cli R1 router rip
+      cli R1 network 192.168.1.0/24
+      cli R1 network 10.0.12.0/30
+      cli R1 end
+      cli R2 enable
+      cli R2 configure terminal
+      cli R2 router rip
+      cli R2 network 192.168.2.0/24
+      cli R2 network 10.0.12.0/30
+      cli R2 end
+    `);
+  }
+
+  it("recomputes from scratch — a removed link takes its learned route with it", () => {
+    buildRipPair();
+    runRipConvergence();
+    const r1 = dev("R1");
+    expect(buildRoutingTable(r1).find(r => r.network === "192.168.2.0/24")?.type).toBe("R");
+
+    // Cut the inter-router link: the next convergence must NOT resurrect the
+    // route from the previous run's learned state (a stale entry would outrank
+    // a genuine alternative and black-hole the traffic).
+    const inter = linksFor(r1.id).find(l => [l.from, l.to].includes(dev("R2").id))!;
+    deleteLink(inter.id);
+    runRipConvergence();
+    expect(buildRoutingTable(r1).find(r => r.network === "192.168.2.0/24")).toBeUndefined();
+    expect(r1.config!.rip!.learnedRoutes).toEqual([]);
+  });
+
+  it("does not serialise learned routes — only the RIP configuration round-trips", () => {
+    buildRipPair();
+    runRipConvergence();
+    expect(dev("R1").config!.rip!.learnedRoutes!.length).toBeGreaterThan(0);  // live state is populated…
+    const payload = JSON.parse(JSON.stringify(buildConfigPayload()));
+    const r1rip = payload.devices.find((d: any) => d.name === "R1").config.rip;
+    expect(r1rip.enabled).toBe(true);
+    expect(r1rip.networks).toContain("192.168.1.0/24");                       // …config round-trips…
+    expect(r1rip.learnedRoutes).toBeUndefined();                              // …derived state does not
   });
 });

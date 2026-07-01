@@ -148,10 +148,12 @@ function buildRipAdvertisements(ifaces: NamedRouterIface[], ripNetworks: string[
 
   // Originate a default route when cabled to the internet (like Cisco's
   // `default-information originate`), so RIP neighbours several hops from the
-  // edge still learn a way out. Metric 1 (locally originated), sourced on the
+  // edge still learn a way out. Unconditional — an edge never *learns* a
+  // default (applyRipUpdates skips it), so origination can't be suppressed by
+  // hearsay from another edge. Metric 1 (locally originated), sourced on the
   // internet-facing interface so split-horizon never sends it back to the ISP.
   const def = internetDefaultGateway(ifaces);
-  if (def && !learnedRoutes.some((lr: any) => lr.network === "0.0.0.0/0")) {
+  if (def) {
     advertisements.push({ network: "0.0.0.0/0", metric: 1, sourceInterface: def.ifaceName });
   }
 
@@ -171,6 +173,12 @@ function applyRipUpdates(
     // Split horizon: don't re-advertise a route back toward the interface it was learned from
     if (ad.sourceInterface === egressIfaceName && ad.metric > 1) continue;
     if (ad.metric > 15) continue; // unreachable
+
+    // An internet-edge router never learns a default — it has its own implicit
+    // one toward the cloud (the default-route analogue of the connected-network
+    // skip below). Keeps dual-edge topologies symmetric: each edge originates,
+    // neither depends on the other's word for a way out.
+    if (ad.network === "0.0.0.0/0" && internetDefaultGateway(neighborIfaces)) continue;
 
     // Check if neighbor already knows this route with equal or better metric
     const existingRoutes: any[] = neighborRip.learnedRoutes || [];
@@ -211,6 +219,12 @@ function applyRipUpdates(
 export function runRipConvergence(): { iterations: number; routesExchanged: number } {
   const ripRouters = state.devices.filter(d => d.type === "router" && !d.hidden && !d.poweredOff && d.config?.rip?.enabled);
   if (ripRouters.length === 0) return { iterations: 0, routesExchanged: 0 };
+
+  // Learned routes are derived state (like STP's port roles): recompute from
+  // scratch each convergence, so a removed link, router, or network statement
+  // doesn't leave a stale route behind. Real RIP ages routes out on timers;
+  // the sim converges instantly, so a clean slate is the honest equivalent.
+  for (const router of ripRouters) router.config!.rip!.learnedRoutes = [];
 
   let totalExchanged = 0;
   let iterations = 0;

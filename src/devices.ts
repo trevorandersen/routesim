@@ -721,7 +721,7 @@ export function expandLan(lan: any): void {
 
 export function routerInterfaceFor(router: any, peerId: string, vlanTag?: number | null): any {
   ensureConfig(router);
-  router.config.interfaces = normaliseRouterInterfaces(router.config.interfaces || []);
+  router.config.interfaces = normaliseRouterInterfaces(router.config.interfaces || [], router.id);
   let iface: any;
   if (vlanTag != null) {
     // Find sub-interface with matching peerId AND vlanTag
@@ -734,8 +734,15 @@ export function routerInterfaceFor(router: any, peerId: string, vlanTag?: number
   if (!iface) {
     const peer = getDevice(peerId);
     const type = peer?.type === "router" ? "serial" : "ethernet";
-    iface = { peerId, type, ipv4Address: "", vlanTag: vlanTag ?? null };
-    router.config.interfaces.push(iface);
+    // Push, then re-normalise, so the new entry is fully formed from birth
+    // (deterministic MAC, arpTable, …) — a bare entry would otherwise leak an
+    // undefined MAC into ARP replies until something re-normalised this router.
+    router.config.interfaces.push({ peerId, type, ipv4Address: "", vlanTag: vlanTag ?? null });
+    router.config.interfaces = normaliseRouterInterfaces(router.config.interfaces, router.id);
+    iface = (vlanTag != null
+      ? router.config.interfaces.find((entry: any) => entry.peerId === peerId && entry.vlanTag === vlanTag)
+      : router.config.interfaces.find((entry: any) => entry.peerId === peerId && entry.vlanTag == null))
+      || router.config.interfaces.find((entry: any) => entry.peerId === peerId);
   }
   return iface;
 }
@@ -746,11 +753,14 @@ export function routerInterfaceFor(router: any, peerId: string, vlanTag?: number
 // a name. If a cable later occupies that port, the by-peer entry takes over.
 export function routerInterfaceForName(router: any, name: string): any {
   ensureConfig(router);
-  router.config.interfaces = normaliseRouterInterfaces(router.config.interfaces || []);
+  router.config.interfaces = normaliseRouterInterfaces(router.config.interfaces || [], router.id);
   let iface = router.config.interfaces.find((entry: any) => entry.peerId === "" && entry.name === name);
   if (!iface) {
-    iface = { peerId: "", name, type: /^serial/i.test(name) ? "serial" : "ethernet", ipv4Address: "", vlanTag: null };
-    router.config.interfaces.push(iface);
+    // Push, then re-normalise — same as routerInterfaceFor, so the by-name
+    // entry carries a deterministic MAC and empty tables from birth.
+    router.config.interfaces.push({ peerId: "", name, type: /^serial/i.test(name) ? "serial" : "ethernet", ipv4Address: "", vlanTag: null });
+    router.config.interfaces = normaliseRouterInterfaces(router.config.interfaces, router.id);
+    iface = router.config.interfaces.find((entry: any) => entry.peerId === "" && entry.name === name);
   }
   return iface;
 }
@@ -758,7 +768,7 @@ export function routerInterfaceForName(router: any, name: string): any {
 export function routerInterfacesWithNames(router: any): NamedRouterIface[] {
   const ethernetPorts = clampRouterPortCount(router.config?.ethernetPorts ?? 4);
   const serialPorts = clampRouterPortCount(router.config?.serialPorts ?? 4);
-  const configured = normaliseRouterInterfaces(router.config?.interfaces || []);
+  const configured = normaliseRouterInterfaces(router.config?.interfaces || [], router.id);
   const linked = linkedPortsFor(router.id).filter((port: any) => port).map(port => {   // drop null gaps from sparse port arrays
     const type = port.peer.type === "router" ? "serial" : "ethernet";
     // Find ALL configured interfaces for this peer (supports sub-interfaces)

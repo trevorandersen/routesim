@@ -147,6 +147,56 @@ describe("the internet cloud", () => {
     expect(innerDef?.nextHop).toBe("10.10.10.1");
   });
 
+  it("dual-edge: both edges keep originating; neither learns the other's default", () => {
+    // R-A and R-B are BOTH cabled to the internet (separate /30s) and are RIP
+    // neighbours; R-C sits behind R-B. Each edge must originate its own default
+    // (an edge never learns one), so R-C hears a metric-1 default from R-B —
+    // not a metric-2 relay of R-A's, and no edge depends on the other's word.
+    runConsoleScript(`
+      add internet NET at 0 200
+      add router R-A at -200 0
+      add router R-B at 200 0
+      add router R-C at 500 0
+      link R-A NET
+      link R-B NET
+      link R-A R-B
+      link R-B R-C
+      interface R-A NET ip 203.0.113.1/30
+      interface R-B NET ip 198.51.100.1/30
+      interface R-A R-B ip 10.0.0.1/30
+      interface R-B R-A ip 10.0.0.2/30
+      interface R-B R-C ip 10.0.1.1/30
+      interface R-C R-B ip 10.0.1.2/30
+      cli R-A enable
+      cli R-A configure terminal
+      cli R-A router rip
+      cli R-A network 10.0.0.0/30
+      cli R-A end
+      cli R-B enable
+      cli R-B configure terminal
+      cli R-B router rip
+      cli R-B network 10.0.0.0/30
+      cli R-B network 10.0.1.0/30
+      cli R-B end
+      cli R-C enable
+      cli R-C configure terminal
+      cli R-C router rip
+      cli R-C network 10.0.1.0/30
+      cli R-C end
+    `);
+    runRipConvergence();
+    const noDefault = (name: string) =>
+      (dev(name).config!.rip!.learnedRoutes || []).every(r => r.network !== "0.0.0.0/0");
+    expect(noDefault("R-A")).toBe(true);   // edges never learn a default…
+    expect(noDefault("R-B")).toBe(true);
+    const cDef = dev("R-C").config!.rip!.learnedRoutes!.find(r => r.network === "0.0.0.0/0");
+    expect(cDef?.metric).toBe(1);          // …and R-C hears R-B's own origination, not a relay
+    expect(cDef?.nextHop).toBe("10.0.1.1");
+    // Both edges keep their real (static) default toward their own cloud link.
+    expect(buildRoutingTable(dev("R-A")).find(r => r.network === "0.0.0.0/0")?.nextHop).toBe("203.0.113.2");
+    expect(buildRoutingTable(dev("R-B")).find(r => r.network === "0.0.0.0/0")?.nextHop).toBe("198.51.100.2");
+  });
+
   it("emits an ICMP Time-Exceeded when a packet expires on it (so it is a real traceroute hop)", () => {
     runConsoleScript(`
       add router R1 at -200 0

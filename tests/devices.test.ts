@@ -1,11 +1,49 @@
 import { describe, it, expect, beforeAll, beforeEach } from "bun:test";
 import { state } from "../src/state";
-import { addDevice, addLink, deleteSelection, clearNetwork, findDeviceAt, getDevice, connectedIds, linkedPortsFor, linkById, routerInterfaceForName, routerInterfacesWithNames, placeToolDevice, PLACEMENT_TOOLS } from "../src/devices";
+import { addDevice, addLink, deleteSelection, clearNetwork, findDeviceAt, getDevice, connectedIds, linkedPortsFor, linkById, routerInterfaceFor, routerInterfaceForName, routerInterfacesWithNames, placeToolDevice, PLACEMENT_TOOLS } from "../src/devices";
 import { freshNameCounters } from "../src/device-registry";
 import { registerNoopCallbacks, resetState } from "./helpers";
 
 beforeAll(() => {
   registerNoopCallbacks();
+});
+
+const MAC_RE = /^02(?::[0-9a-f]{2}){5}$/i;
+
+describe("router interface entries — deterministic per-router MACs", () => {
+  beforeEach(() => { resetState(); state.nameCounters = freshNameCounters(); });
+
+  it("routerInterfaceFor creates a fully-formed entry (MAC + tables) from birth", () => {
+    const rtr = addDevice("router", 0, 0);
+    const sw = addDevice("switch", 200, 0);
+    addLink(rtr.id, sw.id);
+    const iface = routerInterfaceFor(rtr, sw.id);
+    // No window where the entry is bare: an ARP reply sent before any later
+    // re-normalisation must already carry a real MAC.
+    expect(iface.macAddress).toMatch(MAC_RE);
+    expect(Array.isArray(iface.arpTable)).toBe(true);
+    // And it is the live array member, so caller mutations persist.
+    iface.ipv4Address = "192.168.1.1";
+    expect(rtr.config!.interfaces![0].ipv4Address).toBe("192.168.1.1");
+  });
+
+  it("two routers never share an interface MAC (the router id seeds the hash)", () => {
+    const r1 = addDevice("router", 0, 0);
+    const r2 = addDevice("router", 300, 0);
+    const sw = addDevice("switch", 150, 200);
+    addLink(r1.id, sw.id);
+    addLink(r2.id, sw.id);
+    const m1 = routerInterfaceFor(r1, sw.id).macAddress;
+    const m2 = routerInterfaceFor(r2, sw.id).macAddress;
+    expect(m1).toMatch(MAC_RE);
+    expect(m2).toMatch(MAC_RE);
+    expect(m1).not.toBe(m2);   // was 02:00:00:00:01:01 for BOTH when the router id wasn't passed
+  });
+
+  it("routerInterfaceForName entries carry a MAC too", () => {
+    const rtr = addDevice("router", 0, 0);
+    expect(routerInterfaceForName(rtr, "Ethernet3").macAddress).toMatch(MAC_RE);
+  });
 });
 
 describe("routerInterfaceForName — IP on an unconnected port", () => {

@@ -4887,7 +4887,7 @@ Full legal text: https://creativecommons.org/publicdomain/zero/1.0/legalcode</pr
   }
   function routerInterfaceFor(router, peerId, vlanTag) {
     ensureConfig(router);
-    router.config.interfaces = normaliseRouterInterfaces(router.config.interfaces || []);
+    router.config.interfaces = normaliseRouterInterfaces(router.config.interfaces || [], router.id);
     let iface;
     if (vlanTag != null) {
       iface = router.config.interfaces.find((entry) => entry.peerId === peerId && entry.vlanTag === vlanTag);
@@ -4897,25 +4897,27 @@ Full legal text: https://creativecommons.org/publicdomain/zero/1.0/legalcode</pr
     if (!iface) {
       const peer = getDevice(peerId);
       const type = peer?.type === "router" ? "serial" : "ethernet";
-      iface = { peerId, type, ipv4Address: "", vlanTag: vlanTag ?? null };
-      router.config.interfaces.push(iface);
+      router.config.interfaces.push({ peerId, type, ipv4Address: "", vlanTag: vlanTag ?? null });
+      router.config.interfaces = normaliseRouterInterfaces(router.config.interfaces, router.id);
+      iface = (vlanTag != null ? router.config.interfaces.find((entry) => entry.peerId === peerId && entry.vlanTag === vlanTag) : router.config.interfaces.find((entry) => entry.peerId === peerId && entry.vlanTag == null)) || router.config.interfaces.find((entry) => entry.peerId === peerId);
     }
     return iface;
   }
   function routerInterfaceForName(router, name) {
     ensureConfig(router);
-    router.config.interfaces = normaliseRouterInterfaces(router.config.interfaces || []);
+    router.config.interfaces = normaliseRouterInterfaces(router.config.interfaces || [], router.id);
     let iface = router.config.interfaces.find((entry) => entry.peerId === "" && entry.name === name);
     if (!iface) {
-      iface = { peerId: "", name, type: /^serial/i.test(name) ? "serial" : "ethernet", ipv4Address: "", vlanTag: null };
-      router.config.interfaces.push(iface);
+      router.config.interfaces.push({ peerId: "", name, type: /^serial/i.test(name) ? "serial" : "ethernet", ipv4Address: "", vlanTag: null });
+      router.config.interfaces = normaliseRouterInterfaces(router.config.interfaces, router.id);
+      iface = router.config.interfaces.find((entry) => entry.peerId === "" && entry.name === name);
     }
     return iface;
   }
   function routerInterfacesWithNames(router) {
     const ethernetPorts = clampRouterPortCount(router.config?.ethernetPorts ?? 4);
     const serialPorts = clampRouterPortCount(router.config?.serialPorts ?? 4);
-    const configured = normaliseRouterInterfaces(router.config?.interfaces || []);
+    const configured = normaliseRouterInterfaces(router.config?.interfaces || [], router.id);
     const linked = linkedPortsFor(router.id).filter((port) => port).map((port) => {
       const type = port.peer.type === "router" ? "serial" : "ethernet";
       const allConfigs = configured.filter((entry) => entry.peerId === port.peer.id);
@@ -6656,7 +6658,7 @@ Full legal text: https://creativecommons.org/publicdomain/zero/1.0/legalcode</pr
       advertisements.push({ network: lr.network, metric: lr.metric + 1, sourceInterface: lr.interface || "" });
     }
     const def = internetDefaultGateway(ifaces);
-    if (def && !learnedRoutes.some((lr) => lr.network === "0.0.0.0/0")) {
+    if (def) {
       advertisements.push({ network: "0.0.0.0/0", metric: 1, sourceInterface: def.ifaceName });
     }
     return advertisements;
@@ -6668,6 +6670,7 @@ Full legal text: https://creativecommons.org/publicdomain/zero/1.0/legalcode</pr
     for (const ad of advertisements) {
       if (ad.sourceInterface === egressIfaceName && ad.metric > 1) continue;
       if (ad.metric > 15) continue;
+      if (ad.network === "0.0.0.0/0" && internetDefaultGateway(neighborIfaces)) continue;
       const existingRoutes = neighborRip.learnedRoutes || [];
       const existing = existingRoutes.find((r) => r.network === ad.network);
       if (existing) {
@@ -6701,6 +6704,7 @@ Full legal text: https://creativecommons.org/publicdomain/zero/1.0/legalcode</pr
   function runRipConvergence() {
     const ripRouters = state.devices.filter((d) => d.type === "router" && !d.hidden && !d.poweredOff && d.config?.rip?.enabled);
     if (ripRouters.length === 0) return { iterations: 0, routesExchanged: 0 };
+    for (const router of ripRouters) router.config.rip.learnedRoutes = [];
     let totalExchanged = 0;
     let iterations = 0;
     const MAX_ITERATIONS = 15;
@@ -14738,7 +14742,9 @@ Snort successfully validated the configuration${bad ? " (with errors)" : "."}`);
             ...config?.role === "border" || config?.role === "internal" ? { role: config.role } : {},
             interfaces: routerInterfacesForPayload({ id, config }),
             ...config?.staticRoutes?.length ? { staticRoutes: config.staticRoutes } : {},
-            ...config?.rip?.enabled ? { rip: config.rip } : {},
+            // RIP: only the configuration round-trips — learnedRoutes are derived
+            // state, cleared and recomputed at each convergence (like STP's ports).
+            ...config?.rip?.enabled ? { rip: { enabled: true, networks: config.rip.networks || [], passiveInterfaces: config.rip.passiveInterfaces || [] } } : {},
             ...config?.rules?.length ? { rules: normaliseFirewallRules(config.rules) } : {},
             ...config?.policy && Object.keys(config.policy).length ? { policy: config.policy } : {},
             ...config?.natTranslations?.length ? { natTranslations: config.natTranslations } : {},
@@ -14830,7 +14836,7 @@ Snort successfully validated the configuration${bad ? " (with errors)" : "."}`);
   }
   function routerInterfacesForPayload(device) {
     const connectedPeerIds = new Set(connectedIds(device.id));
-    return normaliseRouterInterfaces(device.config?.interfaces || []).filter((entry) => !entry.peerId || connectedPeerIds.has(entry.peerId));
+    return normaliseRouterInterfaces(device.config?.interfaces || [], device.id).filter((entry) => !entry.peerId || connectedPeerIds.has(entry.peerId));
   }
   function parseConfig(text) {
     let parsed;

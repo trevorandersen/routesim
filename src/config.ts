@@ -87,7 +87,9 @@ export function buildConfigPayload(): SerialisedTopology {
           ...(config?.role === "border" || config?.role === "internal" ? { role: config.role } : {}),
           interfaces: routerInterfacesForPayload({ id, config }),
           ...(config?.staticRoutes?.length ? { staticRoutes: config.staticRoutes } : {}),
-          ...(config?.rip?.enabled ? { rip: config.rip } : {}),
+          // RIP: only the configuration round-trips — learnedRoutes are derived
+          // state, cleared and recomputed at each convergence (like STP's ports).
+          ...(config?.rip?.enabled ? { rip: { enabled: true, networks: config.rip.networks || [], passiveInterfaces: config.rip.passiveInterfaces || [] } } : {}),
           ...(config?.rules?.length ? { rules: normaliseFirewallRules(config.rules) } : {}),
           ...(config?.policy && Object.keys(config.policy).length ? { policy: config.policy } : {}),
           ...(config?.natTranslations?.length ? { natTranslations: config.natTranslations } : {}),
@@ -187,7 +189,7 @@ function hostConfigForPayload(config: any): any {
 
 export function routerInterfacesForPayload(device: any): any[] {
   const connectedPeerIds = new Set(connectedIds(device.id));
-  return normaliseRouterInterfaces(device.config?.interfaces || [])
+  return normaliseRouterInterfaces(device.config?.interfaces || [], device.id)
     .filter((entry: any) => !entry.peerId || connectedPeerIds.has(entry.peerId));
 }
 

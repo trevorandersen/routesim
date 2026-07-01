@@ -1414,8 +1414,9 @@ function internetFacingIface(router: Device, internetId: string): RouterInterfac
 // router can default-route to it) and forwards each packet to the router whose
 // public (WAN) subnet owns the destination. It does not bridge, MAC-learn, or
 // flood. Unroutable destinations are dropped (no router on the internet owns
-// them). One L3 hop: TTL is decremented (no ICMP error is generated — a
-// documented abstraction of the many real hops it stands in for).
+// them). One L3 hop: TTL is decremented, and an expired packet earns an ICMP
+// Time-Exceeded from the gateway the cloud presents to the sender — so
+// traceroute sees the cloud as a single hop standing in for the many real ones.
 export function processAtInternet(device: Device, frame: EthernetFrame, fromDeviceId: string | null): OutgoingFrame[] {
   if (device.poweredOff) return [];
   const out: OutgoingFrame[] = [];

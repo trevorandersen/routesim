@@ -74,6 +74,36 @@ committed scope — it's a menu for "what next".
 
 ## Later
 
+### Teaching affordances (from the learner principles)
+Three items that flow directly from the learner-facing principles in
+`CLAUDE.md` (*Explain, don't just show* · *Failure is a lesson* · *Perceivable
+by everyone*). They add teaching depth without a new engine — each composes data
+the sim already produces — and they're the clearest near-term expression of the
+north star, so they rank ahead of the deeper simulation work below.
+
+- **"Why?" affordance** — turn the causal data the engine already logs into an
+  explanation the learner can read. The frame inspector holds every field and
+  `logStep` already records the reason for each hop/drop/route/NAT-rewrite; wire
+  a per-packet (and per-failed-goal-check) **explain** that composes those reason
+  strings into a plain-language causal chain ("PC-A had no ARP entry for
+  10.0.0.1 → sent an ARP request → R1 replied → the ICMP echo forwarded out
+  Ethernet2"). No new engine — it reads `sim.log`/`sim.capture`/`CaptureEntry`.
+  Supersedes the old Reach "explain-mode overlays" line. Effort: low–moderate.
+- **Colour-blind-safe encoding** — meaning must never ride on colour alone
+  (*Perceivable by everyone*). The packet list and transit dots encode protocol
+  by colour (`.pkt-*` classes, `frameColor`); add a **redundant glyph/shape/
+  label** so ARP/ICMP/DHCP/DNS/TCP and the error tones are distinguishable
+  without hue. The palette is already centralised, so this is contained. Effort:
+  low; high reach. (The broader accessibility pass — keyboard nav, ARIA,
+  screen-reader, touch/mobile — remains under Reach.)
+- **Scenario hint/diagnosis layer** — a failed goal check should teach, not just
+  score (*Failure is a lesson*). When a check fails, run a **nearest-cause
+  probe** over the headless result (unset/wrong default gateway, host off its
+  subnet, a firewall rule dropping the flow, a missing route, an unauthenticated
+  link) and surface the most likely cause on the goal banner. Builds on
+  `runSimulationHeadless` + the existing check kinds and the drop-reason log
+  lines. Effort: moderate.
+
 ### Simulation modes — frame/packet · physical · streams
 Three complementary lenses on the same topology, switchable per run, so a
 learner can move from one packet, to the wires beneath, to a network under
@@ -262,6 +292,9 @@ The JSON import path already exists.
 ## Reach
 
 - **IPv6** (addressing, NDP instead of ARP). Large.
-- **Guided interactive tutorials / explain-mode overlays.**
+- **Guided interactive tutorials.** (Explain-mode is promoted to the **"Why?"
+  affordance** under Later → Teaching affordances.)
 - **Quiz mode** built on the scenario checks.
-- **Accessibility pass** (keyboard nav, ARIA, screen-reader) and **touch/mobile**.
+- **Accessibility pass** — keyboard nav, ARIA, screen-reader, and touch/mobile.
+  (Colour-blind-safe encoding — the most urgent slice, since the tool conveys
+  meaning by colour — is promoted to Later → Teaching affordances.)

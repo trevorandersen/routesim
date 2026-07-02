@@ -63,6 +63,7 @@ export const dom = {
   simLogFilterBar: document.getElementById("simLogFilterBar")!,
   simLogFilterInput: document.getElementById("simLogFilterInput") as HTMLInputElement,
   simLogDeviceFilter: document.getElementById("simLogDeviceFilter") as HTMLSelectElement,
+  simLogLinkFilter: document.getElementById("simLogLinkFilter") as HTMLButtonElement,
   simLogChips: document.getElementById("simLogChips")!,
   simLogFilterClear: document.getElementById("simLogFilterClear") as HTMLButtonElement,
   simLogFilterStatus: document.getElementById("simLogFilterStatus")!,

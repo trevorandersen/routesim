@@ -2438,6 +2438,20 @@ function syncSimLogFilterBar(packets: boolean, stats: { shown: number; total: nu
 
   populateDeviceFilter(filter);
 
+  // The link filter is set by the link inspector's "open in packet log" jump —
+  // surfaced as a dismissible pill (there's no always-present link <select>).
+  const linkPill = dom.simLogLinkFilter as HTMLButtonElement;
+  if (linkPill) {
+    const filteredLink = filter.link ? linkById(filter.link) : null;
+    if (filter.link && !filteredLink) filter.link = "";   // drop a deleted link
+    if (filteredLink) {
+      linkPill.hidden = false;
+      linkPill.textContent = `Link: ${linkName(filteredLink)} ✕`;
+    } else {
+      linkPill.hidden = true;
+    }
+  }
+
   const status = dom.simLogFilterStatus as HTMLElement;
   if (status) {
     status.textContent = stats.error

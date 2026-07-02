@@ -240,12 +240,12 @@ describe("compileFilter — parse errors", () => {
   }
 });
 
-describe("applyLogFilter — the three ANDed dimensions", () => {
+describe("applyLogFilter — the ANDed dimensions", () => {
   const rows = [
-    row(arpReq, { no: 1, fromName: "PC-A", toName: "SW-1", fromId: "pc", toId: "sw" }),
-    row(icmpEcho, { no: 2, fromName: "PC-A", toName: "SW-1", fromId: "pc", toId: "sw" }),
-    row(tcpSyn, { no: 3, fromName: "SW-1", toName: "SRV", fromId: "sw", toId: "srv" }),
-    row(dnsQuery, { no: 4, fromName: "PC-A", toName: "SW-1", fromId: "pc", toId: "sw" }),
+    row(arpReq, { no: 1, fromName: "PC-A", toName: "SW-1", fromId: "pc", toId: "sw", linkId: "l-pc-sw" }),
+    row(icmpEcho, { no: 2, fromName: "PC-A", toName: "SW-1", fromId: "pc", toId: "sw", linkId: "l-pc-sw" }),
+    row(tcpSyn, { no: 3, fromName: "SW-1", toName: "SRV", fromId: "sw", toId: "srv", linkId: "l-sw-srv" }),
+    row(dnsQuery, { no: 4, fromName: "PC-A", toName: "SW-1", fromId: "pc", toId: "sw", linkId: "l-pc-sw" }),
   ];
   const empty = (): LogFilter => ({ protocols: [], device: "", expr: "" });
 
@@ -263,6 +263,16 @@ describe("applyLogFilter — the three ANDed dimensions", () => {
   it("device filter keeps frames crossing that device id", () => {
     const out = applyLogFilter(rows, { ...empty(), device: "srv" }).rows;
     expect(out.map(r => r.no)).toEqual([3]);
+  });
+
+  it("link filter keeps only frames that crossed that wire (the inspector jump)", () => {
+    const out = applyLogFilter(rows, { ...empty(), link: "l-pc-sw" }).rows;
+    expect(out.map(r => r.no)).toEqual([1, 2, 4]);
+  });
+
+  it("link combines with the other dimensions", () => {
+    const out = applyLogFilter(rows, { ...empty(), link: "l-pc-sw", protocols: ["icmp", "dns"] }).rows;
+    expect(out.map(r => r.no)).toEqual([2, 4]);
   });
 
   it("expr AND device AND chips all combine", () => {
@@ -291,6 +301,7 @@ describe("isFilterActive", () => {
     expect(isFilterActive({ protocols: [], device: "", expr: "" })).toBe(false);
     expect(isFilterActive({ protocols: ["arp"], device: "", expr: "" })).toBe(true);
     expect(isFilterActive({ protocols: [], device: "x", expr: "" })).toBe(true);
+    expect(isFilterActive({ protocols: [], device: "", link: "l1", expr: "" })).toBe(true);
     expect(isFilterActive({ protocols: [], device: "", expr: "icmp" })).toBe(true);
     expect(isFilterActive({ protocols: [], device: "", expr: "   " })).toBe(false);
   });

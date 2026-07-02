@@ -6,18 +6,22 @@ display-filter expression into a predicate. The engine ([engine.md](engine.md))
 owns the toolbar DOM and calls in here; the filter state itself is
 `state.dock.logFilter` (a `LogFilter`).
 
-## The three dimensions
+## The dimensions
 
-A `LogFilter` has three orthogonal parts, **ANDed** together (`applyLogFilter`):
+A `LogFilter` has orthogonal parts, **ANDed** together (`applyLogFilter`):
 
 - **`protocols: string[]`** — the active protocol **chips**. Empty = all; a
   non-empty set is an **OR** (a frame shows if it matches any selected token).
 - **`device: string`** — a device **id**. A frame shows only if the wire it
   crossed has that device as an endpoint. `""` = any.
+- **`link?: string`** — a link **id** (optional). A frame shows only if it
+  crossed that specific wire (`row.linkId === filter.link`). Set by the link
+  inspector's **View frames in the packet log** jump; surfaced as a dismissible
+  pill, not an always-present control. Absent/`""` = any.
 - **`expr: string`** — a free-text **display-filter expression** (the power
   tool). `""` = no constraint.
 
-A frame is shown iff it passes all three. `isFilterActive` reports whether any
+A frame is shown iff it passes all of them. `isFilterActive` reports whether any
 dimension is set (drives the "Showing N of M" line and the Clear button).
 
 ## Protocol tokens

@@ -68,6 +68,7 @@ export interface SavedCapture {
 export interface LogFilter {
   protocols: string[];
   device: string;
+  link?: string;   // a link id — a frame shows only if it crossed this wire (undefined/"" = any); set by the link inspector's "open in packet log" jump
   expr: string;
 }
 

@@ -10,11 +10,10 @@ import {
   deleteSelection, deleteLink, collapseLan, expandLan, configureDevice, hasHostname
 } from "./devices";
 import {
-  openTerminalFor, syncTerminal, runDeviceCommand,
+  openTerminalFor, syncTerminal, runDeviceCommand, openDock,
   addSwitchVlan, removeSwitchVlan, setSwitchPortVlan, setSwitchPortMode, setSwitchTrunkNative, setSwitchStp, setSwitchMirror
 } from "./terminal";
 import { resizeCanvas } from "./canvas";
-import { frameLabel } from "./frame";
 import { syncSimLog, startSimulation } from "./engine";
 import { buildAssociationEvents, buildAttackEvents } from "./simulation";
 
@@ -857,23 +856,12 @@ function renderLinkPanel(link: Link): void {
     </div>
     <div style="height: 12px"></div>
     <div class="field">
-      <label>Frame History (${history.length})</label>
-      ${history.length ? `
-        <div class="frame-history-list">
-          ${history.map((entry: any) => {
-            const dir = getDevice(entry.fromDeviceId)?.name || entry.fromDeviceId;
-            const label = frameLabel(entry.frame);
-            const p = entry.frame.payload;
-            const kind = entry.frame.etherType === 0x0806 ? "arp"
-              : (p.type === "ipv4" && p.payload.type === "dhcp" ? "dhcp" : "icmp");
-            return `<div class="frame-history-entry ${kind}">
-              <span class="frame-step">Step ${entry.step}</span>
-              <span class="frame-label">${escapeHtml(label)}</span>
-              <span class="frame-dir">${escapeHtml(dir)} &rarr;</span>
-            </div>`;
-          }).join("")}
-        </div>
-      ` : `<p class="empty-state">No frames recorded.</p>`}
+      <label>Frame history</label>
+      <p class="field-note">This wire has carried ${history.length} frame${history.length === 1 ? "" : "s"}. Open the packet log to see each one, filtered to this link.</p>
+      <button class="wide-button" id="viewLinkInLog" type="button">
+        <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 6h16"></path><path d="M4 12h16"></path><path d="M4 18h10"></path></svg>
+        View frames in the packet log
+      </button>
     </div>
     <button class="wide-button danger" id="deleteLink">
       <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M3 6h18"></path><path d="M8 6V4h8v2"></path><path d="M19 6l-1 14H6L5 6"></path></svg>
@@ -884,6 +872,14 @@ function renderLinkPanel(link: Link): void {
   `;
   const deleteLinkBtn = document.getElementById("deleteLink");
   if (deleteLinkBtn) deleteLinkBtn.addEventListener("click", () => deleteLink(link.id));
+  const viewLogBtn = document.getElementById("viewLinkInLog");
+  if (viewLogBtn) viewLogBtn.addEventListener("click", () => {
+    // Jump to the packet log filtered to just this wire's frames.
+    state.dock.logFilter = { protocols: [], device: "", link: link.id, expr: "" };
+    state.dock.logView = "packets";
+    openDock("simlog");
+    syncSimLog();
+  });
   const clearBtn = document.getElementById("clearLinkHistory");
   if (clearBtn) clearBtn.addEventListener("click", () => {
     link.frameHistory = [];

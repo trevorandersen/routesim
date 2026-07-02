@@ -120,7 +120,7 @@ function toggleDevicePower(device: any): void {
 
 // Reset every dimension of the sim-log packet-list display filter.
 function clearLogFilter(): void {
-  state.dock.logFilter = { protocols: [], device: "", expr: "" };
+  state.dock.logFilter = { protocols: [], device: "", link: "", expr: "" };
   syncSimLog();
 }
 
@@ -680,6 +680,10 @@ export function setupUI(): void {
   });
   dom.simLogDeviceFilter.addEventListener("change", () => {
     state.dock.logFilter.device = dom.simLogDeviceFilter.value;
+    syncSimLog();
+  });
+  dom.simLogLinkFilter.addEventListener("click", () => {
+    state.dock.logFilter.link = "";   // the pill clears just the link dimension
     syncSimLog();
   });
   dom.simLogChips.addEventListener("click", (event) => {

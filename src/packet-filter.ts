@@ -356,10 +356,12 @@ export function applyLogFilter(rows: FilterRow[], filter: LogFilter): { rows: Fi
   const exprTest = compiled.ok ? compiled.test : null;
   const protocols = filter.protocols;
   const device = filter.device;
+  const link = filter.link;
   try {
     const out = rows.filter(row => {
       if (protocols.length && !protocols.some(t => frameMatchesToken(row, t))) return false;
       if (device && row.fromId !== device && row.toId !== device) return false;
+      if (link && row.linkId !== link) return false;
       if (exprTest && !exprTest(row)) return false;
       return true;
     });
@@ -375,5 +377,5 @@ export function applyLogFilter(rows: FilterRow[], filter: LogFilter): { rows: Fi
 // Is any dimension of a filter active? (Drives the "Showing N of M" line and
 // the Clear button's enabled state.)
 export function isFilterActive(filter: LogFilter): boolean {
-  return filter.protocols.length > 0 || filter.device !== "" || filter.expr.trim() !== "";
+  return filter.protocols.length > 0 || filter.device !== "" || !!filter.link || filter.expr.trim() !== "";
 }

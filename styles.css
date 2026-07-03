@@ -2174,6 +2174,71 @@
       overflow-x: auto;
     }
 
+    /* Help → Guide: a wider, scrollable reference modal reusing the about shell.
+       Not draggable, so the header cursor stays a pointer, not a move handle. */
+    .help-modal { width: min(860px, calc(100vw - 48px)); }
+    .help-modal .about-header { cursor: default; }
+    .help-intro {
+      margin: 0 0 4px;
+      font-size: 13px;
+      line-height: 1.55;
+      color: var(--muted);
+    }
+    .help-heading {
+      margin: 20px 0 10px;
+      font-size: 12px;
+      font-weight: 700;
+      text-transform: uppercase;
+      letter-spacing: 0.06em;
+      color: var(--fg);
+      border-bottom: 1px solid var(--border);
+      padding-bottom: 6px;
+    }
+    .help-devices {
+      display: grid;
+      grid-template-columns: repeat(auto-fill, minmax(360px, 1fr));
+      gap: 10px;
+    }
+    .help-device {
+      display: grid;
+      grid-template-columns: 34px 1fr;
+      gap: 10px;
+      padding: 10px 12px;
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      background: var(--panel-soft, var(--bg));
+    }
+    .help-device-icon {
+      display: grid;
+      place-items: center;
+    }
+    .help-device-icon svg { width: 26px; height: 26px; }
+    .help-device-name {
+      display: block;
+      font-size: 13px;
+      font-weight: 700;
+      color: var(--fg);
+      margin-bottom: 3px;
+    }
+    .help-device-text p { margin: 0; font-size: 12px; line-height: 1.5; color: var(--muted); }
+    .help-device-text code, .help-intro code {
+      font: 11px ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+      background: var(--bg);
+      padding: 0 3px;
+      border-radius: 3px;
+    }
+    .help-setting-group { margin-bottom: 14px; }
+    .help-setting-group h4 {
+      margin: 0 0 2px;
+      font-size: 13px;
+      font-weight: 700;
+      color: var(--fg);
+    }
+    .help-setting-blurb { margin: 0 0 8px; font-size: 12px; line-height: 1.5; color: var(--muted); }
+    .help-setting-group dl { margin: 0; display: grid; grid-template-columns: minmax(120px, 160px) 1fr; gap: 4px 12px; }
+    .help-setting-group dt { font-size: 12px; font-weight: 600; color: var(--fg); }
+    .help-setting-group dd { margin: 0; font-size: 12px; line-height: 1.45; color: var(--muted); }
+
     /* Settings: a right-docked pane mirroring the inspector (not a modal). It
        shares the inspector's grid cell (column 2, row 2); opening it forces the
        2-column layout even when the inspector itself is closed, and hides the

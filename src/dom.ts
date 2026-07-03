@@ -79,6 +79,11 @@ export const dom = {
   aboutModal: document.getElementById("aboutModal")!,
   aboutHeader: document.getElementById("aboutHeader")!,
   aboutClose: document.getElementById("aboutClose")!,
+  helpOverlay: document.getElementById("helpOverlay")!,
+  helpModal: document.getElementById("helpModal")!,
+  helpHeader: document.getElementById("helpHeader")!,
+  helpClose: document.getElementById("helpClose")!,
+  helpBody: document.getElementById("helpBody")!,
   settingsPane: document.getElementById("settingsPane")!,
   settingsClose: document.getElementById("settingsClose")!,
 };

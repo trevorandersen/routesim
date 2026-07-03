@@ -2183,6 +2183,71 @@
       overflow-x: auto;
     }
 
+    /* Help → Guide: a wider, scrollable reference modal reusing the about shell.
+       Not draggable, so the header cursor stays a pointer, not a move handle. */
+    .help-modal { width: min(860px, calc(100vw - 48px)); }
+    .help-modal .about-header { cursor: default; }
+    .help-intro {
+      margin: 0 0 4px;
+      font-size: 13px;
+      line-height: 1.55;
+      color: var(--muted);
+    }
+    .help-heading {
+      margin: 20px 0 10px;
+      font-size: 12px;
+      font-weight: 700;
+      text-transform: uppercase;
+      letter-spacing: 0.06em;
+      color: var(--fg);
+      border-bottom: 1px solid var(--border);
+      padding-bottom: 6px;
+    }
+    .help-devices {
+      display: grid;
+      grid-template-columns: repeat(auto-fill, minmax(360px, 1fr));
+      gap: 10px;
+    }
+    .help-device {
+      display: grid;
+      grid-template-columns: 34px 1fr;
+      gap: 10px;
+      padding: 10px 12px;
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      background: var(--panel-soft, var(--bg));
+    }
+    .help-device-icon {
+      display: grid;
+      place-items: center;
+    }
+    .help-device-icon svg { width: 26px; height: 26px; }
+    .help-device-name {
+      display: block;
+      font-size: 13px;
+      font-weight: 700;
+      color: var(--fg);
+      margin-bottom: 3px;
+    }
+    .help-device-text p { margin: 0; font-size: 12px; line-height: 1.5; color: var(--muted); }
+    .help-device-text code, .help-intro code {
+      font: 11px ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+      background: var(--bg);
+      padding: 0 3px;
+      border-radius: 3px;
+    }
+    .help-setting-group { margin-bottom: 14px; }
+    .help-setting-group h4 {
+      margin: 0 0 2px;
+      font-size: 13px;
+      font-weight: 700;
+      color: var(--fg);
+    }
+    .help-setting-blurb { margin: 0 0 8px; font-size: 12px; line-height: 1.5; color: var(--muted); }
+    .help-setting-group dl { margin: 0; display: grid; grid-template-columns: minmax(120px, 160px) 1fr; gap: 4px 12px; }
+    .help-setting-group dt { font-size: 12px; font-weight: 600; color: var(--fg); }
+    .help-setting-group dd { margin: 0; font-size: 12px; line-height: 1.45; color: var(--muted); }
+
     /* Settings: a right-docked pane mirroring the inspector (not a modal). It
        shares the inspector's grid cell (column 2, row 2); opening it forces the
        2-column layout even when the inspector itself is closed, and hides the
@@ -2555,6 +2620,7 @@
 
       <div class="ribbon-panel" data-tab="help">
         <div class="ribbon-group"><div class="ribbon-items">
+          <button class="ribbon-btn" data-action="help-guide" type="button"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 19a2 2 0 0 1 2 -2h12v2a2 2 0 0 1 -2 2h-10a2 2 0 0 1 -2 -2v-13a2 2 0 0 1 2 -2h10a2 2 0 0 1 2 2v11"></path><path d="M9 8h6M9 12h4"></path></svg><span>Guide</span></button>
           <button class="ribbon-btn" data-action="help-shortcuts" type="button"><svg viewBox="0 0 24 24" aria-hidden="true"><rect x="3" y="6" width="18" height="12" rx="2"></rect><path d="M7 10h.01M11 10h.01M15 10h.01M8 14h8"></path></svg><span>Shortcuts</span></button>
           <button class="ribbon-btn" data-action="help-commands" type="button"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M7 8l-4 4l4 4"></path><path d="M17 8l4 4l-4 4"></path><path d="M14 4l-4 16"></path></svg><span>Commands</span></button>
           <button class="ribbon-btn" id="startTutorial" type="button"><svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="9"></circle><path d="M10 9l5 3l-5 3z"></path></svg><span>Tutorial</span></button>
@@ -2763,6 +2829,16 @@ The work is provided as-is, without warranties of any kind.
 
 Full legal text: https://creativecommons.org/publicdomain/zero/1.0/legalcode</pre>
       </div>
+    </div>
+  </div>
+
+  <div class="about-overlay" id="helpOverlay">
+    <div class="about-modal help-modal" id="helpModal">
+      <div class="about-header" id="helpHeader">
+        <h3>RouteSim guide — devices &amp; settings</h3>
+        <button class="panel-toggle" id="helpClose" type="button" title="Close" aria-label="Close guide dialog">&#x2715;</button>
+      </div>
+      <div class="about-body help-body" id="helpBody"></div>
     </div>
   </div>
 
@@ -4310,6 +4386,11 @@ Full legal text: https://creativecommons.org/publicdomain/zero/1.0/legalcode</pr
     aboutModal: document.getElementById("aboutModal"),
     aboutHeader: document.getElementById("aboutHeader"),
     aboutClose: document.getElementById("aboutClose"),
+    helpOverlay: document.getElementById("helpOverlay"),
+    helpModal: document.getElementById("helpModal"),
+    helpHeader: document.getElementById("helpHeader"),
+    helpClose: document.getElementById("helpClose"),
+    helpBody: document.getElementById("helpBody"),
     settingsPane: document.getElementById("settingsPane"),
     settingsClose: document.getElementById("settingsClose")
   };
@@ -12892,6 +12973,90 @@ Snort successfully validated the configuration${bad ? " (with errors)" : "."}`);
     });
   }
 
+  // src/help.ts
+  var DEVICE_DOCS = [
+    { type: "computer", body: "A general-purpose host with a single NIC. Give it an IP, gateway and DNS from the inspector or its Linux terminal (`ip addr`, `ip route`, `/etc/resolv.conf`), then run `ping`, `arp -n`, `nslookup`, `curl`, `nc`, and `traceroute`." },
+    { type: "laptop", body: "A WiFi-only host. Instead of a cable it associates to an access point whose SSID (and password, if secured) matches \u2014 otherwise it behaves exactly like a client PC on the wired LAN it reaches through the AP." },
+    { type: "kali", body: "A hand-driven pentest workstation. Its terminal is an ordinary Linux shell plus `nmap -sS` (SYN port scan), `nmap -sn` (ping sweep) and `arpspoof` \u2014 you launch the attacks yourself, one command at a time." },
+    { type: "server", body: "A host that also runs dnsmasq \u2014 DNS A-records and a DHCP pool \u2014 and can serve HTTP. The DNS / DHCP / RADIUS / Web tool variants are the same device with a different service switched on; enable more from the inspector." },
+    { type: "switch", body: "Forwards frames by learning which MAC lives on each port (floods the unknown). The basic switch is unmanaged; the Managed variant adds 802.1Q VLANs, a SONiC-style CLI, SPAN port mirroring (to feed an IDS), and spanning tree." },
+    { type: "router", body: "Forwards IP packets between subnets \u2014 longest-prefix routing, static routes and RIP \u2014 over an FRR-style CLI, with NAT and netfilter INPUT/FORWARD chains. The Border variant is the edge archetype (a \u201CB\u201D badge): the natural home for NAT and a firewall." },
+    { type: "internet", body: "Stands in for the public internet. Cable several routers to it \u2014 each on its own public subnet \u2014 and it routes between them by destination, handing each a default route and answering ARP for the gateway it presents. Pair with NAT + port-forwarding for the full multi-site story." },
+    { type: "firewall", body: "A transparent inline packet filter (the netfilter FORWARD chain). Write `iptables` rules to accept / drop / reject by protocol, address, port and connection state; a stateful `-m state ESTABLISHED,RELATED` ruleset lets replies back while blocking new inbound flows." },
+    { type: "ids", body: "A passive Snort sensor. Cable it to a managed switch's SPAN/monitor port; it matches the mirrored traffic against your Snort rules (`local.rules`) and raises alerts. It only detects \u2014 it never forwards or drops." },
+    { type: "attacker", body: "An autonomous Red Team (Kali) adversary. Set a target and a plan, and on Play it launches a port scan, ping sweep or ARP spoof and reports nmap-style findings. Pair it with an IDS for a red-vs-blue detection exercise." },
+    { type: "access-point", body: "A WiFi access point. It bridges associated laptops onto the wired LAN (like an unmanaged switch over the air) and broadcasts an SSID, optionally secured with a WPA2 password so only matching laptops authenticate." },
+    { type: "hub", body: "A layer-1 repeater: it floods every frame out all other ports with no MAC learning \u2014 the dumb predecessor to a switch. Useful for showing a single collision/broadcast domain and why switches are better." }
+  ];
+  var SETTING_GROUPS = [
+    {
+      title: "Network boot",
+      blurb: "How unconfigured hosts behave when the simulation starts. Both are off by default, so addressing stays explicit until you opt in.",
+      items: [
+        { id: "optAutoDhcp", title: "Auto-DHCP on boot", body: "When you press Play, every unconfigured, cabled, powered-on host tries DHCP \u2014 an animated Discover / Offer / Request / Ack in turn." },
+        { id: "optApipa", title: "APIPA fallback", body: "A host that gets no DHCP lease self-assigns a link-local `169.254.x.y/16` address (no gateway) \u2014 like a real machine that finds no DHCP server." }
+      ]
+    },
+    {
+      title: "Name resolution",
+      blurb: "How a device name used as a target (e.g. `ping PC-A1`) turns into an IP. A DNS server always resolves device hostnames; this controls whether names also resolve without one.",
+      items: [
+        { id: "optInstantDns", title: "Instant DNS", body: "Resolve a device name straight to its IP with no query \u2014 a built-in hosts file. Off: a name needs a reachable nameserver, like the real world. On by default in topologies, off when a scenario loads." }
+      ]
+    },
+    {
+      title: "Silent protocols",
+      blurb: "Resolve these instantly with no animated frames or packet-list rows. The exchange still happens \u2014 it just isn't shown \u2014 so the higher-layer flow stays uncluttered once you understand it.",
+      items: [
+        { id: "optSilentArp", title: "Silent ARP", body: "Skip the ARP request/reply animation; MAC addresses resolve instantly." },
+        { id: "optSilentDhcp", title: "Silent DHCP", body: "Skip the DORA animation; a host takes its lease instantly." },
+        { id: "optSilentDns", title: "Silent DNS", body: "Skip the query/response animation; names resolve instantly before the ping or connection." },
+        { id: "optSilentWifi", title: "Silent WiFi association", body: "Skip the 802.11 probe / auth / association (and WPA2) frames when a laptop joins an access point." },
+        { id: "optSilentStp", title: "Silent spanning tree", body: "Skip the BPDU frames when the spanning tree advertises. The tree still converges and blocks loops \u2014 only the control-plane animation is hidden." }
+      ]
+    },
+    {
+      title: "Running a simulation",
+      blurb: "The transport controls in the Main ribbon (and the floating pill over the canvas while a run is active). Press Play on an idle network to boot unconfigured hosts first.",
+      items: [
+        { id: "sim-play", title: "Play / Pause", body: "Start, or pause and resume, the animated run. From an idle network it first boots any unconfigured cabled hosts (per the Network-boot settings above)." },
+        { id: "sim-step", title: "Step", body: "Advance the simulation one hop at a time \u2014 watch a single frame move from one device to the next." },
+        { id: "sim-stop", title: "Stop", body: "End the run and reset it to idle. `Ctrl+C` in a device terminal or the console does the same." },
+        { id: "sim-speed", title: "Speed (ms / hop)", body: "How long each hop's animation takes. A link's own latency stretches its frames further, so a WAN link visibly crawls." }
+      ]
+    }
+  ];
+  function deviceIcon(type) {
+    const spec = DEVICE_SPECS[type];
+    const paths = spec.iconPaths.map((d) => `<path d="${d}"></path>`).join("");
+    const sw = spec.iconStrokeWidth ?? 1.6;
+    return `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="${sw}" stroke-linecap="round" stroke-linejoin="round" style="color: var(--${spec.paletteVar}-icon, var(--${spec.paletteVar}-stroke))" aria-hidden="true">${paths}</svg>`;
+  }
+  function buildHelpHtml() {
+    const devices = DEVICE_DOCS.map((doc) => `
+    <div class="help-device">
+      <span class="help-device-icon">${deviceIcon(doc.type)}</span>
+      <div class="help-device-text">
+        <span class="help-device-name">${escapeHtml(DEVICE_SPECS[doc.type].label)}</span>
+        <p>${escapeHtml(doc.body)}</p>
+      </div>
+    </div>`).join("");
+    const settings = SETTING_GROUPS.map((g) => `
+    <div class="help-setting-group">
+      <h4>${escapeHtml(g.title)}</h4>
+      <p class="help-setting-blurb">${escapeHtml(g.blurb)}</p>
+      <dl>
+        ${g.items.map((i) => `<dt>${escapeHtml(i.title)}</dt><dd>${escapeHtml(i.body)}</dd>`).join("")}
+      </dl>
+    </div>`).join("");
+    return `
+    <p class="help-intro">RouteSim simulates real Ethernet frames hopping through a network you build. Drop devices on the canvas, cable them with the Connect tool, address them, then press Play (or run <code>ping</code> from a device terminal) and watch each frame move. Below is every device you can place and every setting that shapes a run.</p>
+    <h3 class="help-heading">Devices</h3>
+    <div class="help-devices">${devices}</div>
+    <h3 class="help-heading">Simulation settings</h3>
+    <div class="help-settings">${settings}</div>`;
+  }
+
   // src/scenario-library.ts
   var vlanSegmentation = {
     id: "vlan-segmentation",
@@ -14152,6 +14317,18 @@ Snort successfully validated the configuration${bad ? " (with errors)" : "."}`);
   function closeAbout() {
     dom.aboutOverlay.classList.remove("open");
   }
+  function openHelp() {
+    dom.helpModal.style.position = "";
+    dom.helpModal.style.left = "";
+    dom.helpModal.style.top = "";
+    dom.helpModal.style.margin = "";
+    dom.helpBody.innerHTML = buildHelpHtml();
+    dom.helpBody.scrollTop = 0;
+    dom.helpOverlay.classList.add("open");
+  }
+  function closeHelp() {
+    dom.helpOverlay.classList.remove("open");
+  }
   function openSettings() {
     document.body.classList.add("settings-open");
     requestAnimationFrame(resizeCanvas);
@@ -14203,6 +14380,10 @@ Snort successfully validated the configuration${bad ? " (with errors)" : "."}`);
       return;
     }
     if (event.key === "Escape") {
+      if (dom.helpOverlay.classList.contains("open")) {
+        closeHelp();
+        return;
+      }
       if (dom.aboutOverlay.classList.contains("open")) {
         closeAbout();
         return;
@@ -14500,6 +14681,7 @@ Snort successfully validated the configuration${bad ? " (with errors)" : "."}`);
         consoleLine("output", "Shortcuts: V select \xB7 C computer \xB7 E server \xB7 S switch \xB7 R router \xB7 F firewall \xB7 H hub \xB7 L connect \xB7 W configure \xB7 Del delete \xB7 Esc cancel \xB7 Ctrl/Cmd+Z undo \xB7 Ctrl/Cmd+Shift+Z redo \xB7 scroll to zoom.");
       },
       "help-commands": () => openConsole(),
+      "help-guide": openHelp,
       "help-about": openAbout,
       "open-settings": openSettings
     };
@@ -14688,6 +14870,10 @@ Snort successfully validated the configuration${bad ? " (with errors)" : "."}`);
     dom.aboutClose.addEventListener("click", closeAbout);
     dom.aboutOverlay.addEventListener("click", (event) => {
       if (event.target === dom.aboutOverlay) closeAbout();
+    });
+    dom.helpClose.addEventListener("click", closeHelp);
+    dom.helpOverlay.addEventListener("click", (event) => {
+      if (event.target === dom.helpOverlay) closeHelp();
     });
     dom.settingsClose.addEventListener("click", closeSettings);
     dom.aboutHeader.addEventListener("pointerdown", startAboutDrag);

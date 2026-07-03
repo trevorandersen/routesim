@@ -113,6 +113,7 @@ describe("setSwitchPortVlan", () => {
 | `tests/inspector.test.ts` | `renderSwitchPorts` / `renderSwitchVlans` HTML |
 | `tests/ui.test.ts` | `handleGlobalKeydown` (Escape + tool shortcuts), theme registry |
 | `tests/parity.test.ts` | Theme CSS-var parity; ribbon `data-action`/tool/theme-button ↔ code parity |
+| `tests/help.test.ts` | In-app Help → Guide coverage (`src/help.ts`): every user-addable device type has a `DEVICE_DOCS` entry (no gaps, no strays) and every `id="opt…"` Settings-pane toggle scraped from `template.html` has a `SETTING_GROUPS` doc, plus `buildHelpHtml` names every device (via `DEVICE_SPECS` labels) and setting and renders an icon each |
 | `tests/utils.test.ts` | Pure helpers |
 | `tests/bench.test.ts` | Hot-path benchmarks with p99 budgets |
 

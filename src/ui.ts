@@ -10,6 +10,7 @@ import {
   toggleDockTab, closeDock, handleDockTabClick, startDockResize, moveDockResize, stopDockResize,
 } from "./terminal";
 import { openConsole, consoleLine, submitConsoleCommand, handleConsoleKeydown } from "./console";
+import { buildHelpHtml } from "./help";
 import { loadScenario } from "./scenarios";
 import { runActiveScenarioCheck, dismissScenario, collapseScenario, expandScenario } from "./scenario-ui";
 import { loadTopology } from "./config";
@@ -186,6 +187,19 @@ export function openAbout(): void {
 }
 export function closeAbout(): void { dom.aboutOverlay.classList.remove("open"); }
 
+// The reference guide (Help → Guide): device + settings docs, rebuilt from
+// help.ts on open so it always reflects the current registries.
+export function openHelp(): void {
+  dom.helpModal.style.position = "";
+  dom.helpModal.style.left = "";
+  dom.helpModal.style.top = "";
+  dom.helpModal.style.margin = "";
+  dom.helpBody.innerHTML = buildHelpHtml();
+  dom.helpBody.scrollTop = 0;
+  dom.helpOverlay.classList.add("open");
+}
+export function closeHelp(): void { dom.helpOverlay.classList.remove("open"); }
+
 // Settings is a right-docked pane (like the device-config inspector), not a
 // modal: toggle a body class and reflow the canvas so the stage gives up width.
 export function openSettings(): void {
@@ -246,6 +260,10 @@ export function handleGlobalKeydown(event: KeyboardEvent): void {
   // Escape is handled before the input guard so it also works while a field
   // is focused (it blurs the field and reverts to the select tool).
   if (event.key === "Escape") {
+    if (dom.helpOverlay.classList.contains("open")) {
+      closeHelp();
+      return;
+    }
     if (dom.aboutOverlay.classList.contains("open")) {
       closeAbout();
       return;
@@ -558,6 +576,7 @@ export function setupUI(): void {
     "fit": fitNetwork,
     "help-shortcuts": () => { openConsole(); consoleLine("output", "Shortcuts: V select · C computer · E server · S switch · R router · F firewall · H hub · L connect · W configure · Del delete · Esc cancel · Ctrl/Cmd+Z undo · Ctrl/Cmd+Shift+Z redo · scroll to zoom."); },
     "help-commands": () => openConsole(),
+    "help-guide": openHelp,
     "help-about": openAbout,
     "open-settings": openSettings,
   };
@@ -764,6 +783,10 @@ export function setupUI(): void {
   dom.aboutClose.addEventListener("click", closeAbout);
   dom.aboutOverlay.addEventListener("click", (event) => {
     if (event.target === dom.aboutOverlay) closeAbout();
+  });
+  dom.helpClose.addEventListener("click", closeHelp);
+  dom.helpOverlay.addEventListener("click", (event) => {
+    if (event.target === dom.helpOverlay) closeHelp();
   });
   dom.settingsClose.addEventListener("click", closeSettings);
   dom.aboutHeader.addEventListener("pointerdown", startAboutDrag);

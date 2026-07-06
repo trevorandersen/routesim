@@ -101,8 +101,8 @@ describe("stateful firewall — persistence", () => {
     exec("cli FW1 iptables -A FORWARD -m state --state ESTABLISHED,RELATED -j ACCEPT");
     exec("cli FW1 iptables -A FORWARD -p tcp --dport 23 -j REJECT --reject-with tcp-reset");
     const re = normaliseConfig(buildConfigPayload() as any).devices.find((d: any) => d.name === "FW1")!;
-    expect(re.config.rules[0].states).toEqual(["established", "related"]);
-    expect(re.config.rules[1].target).toBe("reject");
-    expect(re.config.rules[1].rejectWith).toBe("tcp-reset");
+    expect(re.config.rules![0].states).toEqual(["established", "related"]);
+    expect(re.config.rules![1].target).toBe("reject");
+    expect(re.config.rules![1].rejectWith).toBe("tcp-reset");
   });
 });

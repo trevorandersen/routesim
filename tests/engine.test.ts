@@ -108,7 +108,7 @@ describe("processAtSwitch — unmanaged", () => {
     const sw = state.devices.find(d => d.id === "sw1")!;
     const frame = createArpRequest("02:00:00:00:01:10", "192.168.1.10", "192.168.1.20");
     processAtSwitch(sw, frame, "pc1");
-    const entry = sw.config.macTable.find((e: any) => e.macAddress === "02:00:00:00:01:10");
+    const entry = sw.config.macTable!.find((e: any) => e.macAddress === "02:00:00:00:01:10")!;
     expect(entry).toBeDefined();
     expect(entry.port).toBe("Ethernet1");
   });
@@ -234,7 +234,7 @@ describe("processAtSwitch — managed 802.1Q", () => {
     const msw = state.devices.find(d => d.id === "msw")!;
     const frame = createArpRequest("02:00:0A:00:01:10", "192.168.10.10", "192.168.10.1");
     processAtSwitch(msw, frame, "pc-v10");
-    const entry = msw.config.macTable.find((e: any) => e.macAddress === "02:00:0A:00:01:10");
+    const entry = msw.config.macTable!.find((e: any) => e.macAddress === "02:00:0A:00:01:10")!;
     expect(entry).toBeDefined();
     expect(entry.port).toBe("Ethernet2");
     expect(entry.vlan).toBe("10");
@@ -298,7 +298,7 @@ describe("processAtRouter", () => {
     state.links = topo.links as any;
     const rtr = state.devices.find(d => d.id === "rtr")!;
     // Pre-populate egress ARP so we don't get ARP miss
-    rtr.config.interfaces[1].arpTable = [
+    rtr.config.interfaces![1].arpTable = [
       { ipv4Address: "192.168.20.10", macAddress: "02:00:00:00:20:10" },
     ];
     // ICMP from PC-A to PC-B arriving at router
@@ -322,7 +322,7 @@ describe("processAtRouter", () => {
     state.devices = topo.devices as any;
     state.links = topo.links as any;
     const rtr = state.devices.find(d => d.id === "rtr")!;
-    rtr.config.interfaces[1].arpTable = [
+    rtr.config.interfaces![1].arpTable = [
       { ipv4Address: "192.168.20.10", macAddress: "02:00:00:00:20:10" },
     ];
     // TTL = 1: the router drops the packet and replies with a Time-Exceeded.
@@ -348,7 +348,7 @@ describe("processAtRouter", () => {
     state.simulation.pendingArp = {};
     const rtr = state.devices.find(d => d.id === "rtr")!;
     // Ensure egress ARP table is empty
-    rtr.config.interfaces[1].arpTable = [];
+    rtr.config.interfaces![1].arpTable = [];
     const frame = createIcmpEchoRequest(
       "02:00:00:00:10:10", "02:01:00:00:01:01",
       "192.168.10.10", "192.168.20.10", 64
@@ -460,7 +460,7 @@ describe("processAtRouter — sub-interfaces (VLAN)", () => {
     state.links = topo.links as any;
     const rtr = state.devices.find(d => d.id === "rtr-v")!;
     // Pre-populate egress ARP
-    rtr.config.interfaces[1].arpTable = [
+    rtr.config.interfaces![1].arpTable = [
       { ipv4Address: "192.168.20.10", macAddress: "02:00:14:00:01:10" },
     ];
     // ICMP from VLAN 10 to VLAN 20
@@ -506,8 +506,8 @@ describe("processAtRouter — sub-interfaces (VLAN)", () => {
     frame.vlanTag = 10;
     processAtRouter(rtr, frame, "msw");
     // Check that ARP was learned on the VLAN 10 interface
-    const iface10 = rtr.config.interfaces.find((i: any) => i.vlanTag === 10);
-    const learned = iface10.arpTable.find((e: any) => e.ipv4Address === "192.168.10.10");
+    const iface10 = rtr.config.interfaces!.find((i: any) => i.vlanTag === 10)!;
+    const learned = iface10.arpTable!.find((e: any) => e.ipv4Address === "192.168.10.10")!;
     expect(learned).toBeDefined();
     expect(learned.macAddress).toBe("02:00:0A:00:01:10");
   });
@@ -529,7 +529,7 @@ describe("processAtComputer", () => {
     expect(outgoing).toHaveLength(1);
     expect((outgoing[0].frame.payload as any).operation).toBe("reply");
     // PC-1 should have learnt PC-2's MAC
-    const learned = pc1.config.arpTable.find((e: any) => e.ipv4Address === "192.168.1.20");
+    const learned = pc1.config.arpTable!.find((e: any) => e.ipv4Address === "192.168.1.20")!;
     expect(learned).toBeDefined();
     expect(learned.macAddress).toBe("02:00:00:00:01:20");
   });
@@ -559,7 +559,7 @@ describe("processAtComputer", () => {
     const frame = createArpReply("02:00:00:00:01:20", "192.168.1.20", "02:00:00:00:01:10", "192.168.1.10");
     const outgoing = processAtComputer(pc1, frame, "sw1");
     // Should have learnt PC-2's MAC
-    const learned = pc1.config.arpTable.find((e: any) => e.ipv4Address === "192.168.1.20");
+    const learned = pc1.config.arpTable!.find((e: any) => e.ipv4Address === "192.168.1.20")!;
     expect(learned).toBeDefined();
     expect(learned.macAddress).toBe("02:00:00:00:01:20");
     // Should have drained the deferred ICMP
@@ -626,7 +626,7 @@ describe("processAtComputer", () => {
     expect(pc1.config.gatewayIpv4Address).toBe("192.168.1.1");
     expect(state.simulation.dhcpSuccess).toBe(true);
     // Should have learnt gateway MAC in ARP table
-    const gwArp = pc1.config.arpTable.find((e: any) => e.ipv4Address === "192.168.1.1");
+    const gwArp = pc1.config.arpTable!.find((e: any) => e.ipv4Address === "192.168.1.1")!;
     expect(gwArp).toBeDefined();
     expect(gwArp.macAddress).toBe("02:01:00:00:01:01");
   });

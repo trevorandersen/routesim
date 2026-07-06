@@ -294,8 +294,8 @@ describe("normaliseDeviceConfig", () => {
     expect(result.managed).toBe(true);
     // normaliseVlans always includes VLAN 1 default + the passed VLANs
     expect(result.vlans).toHaveLength(2);
-    expect(result.portModes).toBeDefined();
-    expect(result.portModes.Ethernet1).toBe("trunk");
+    expect(result.portModes!).toBeDefined();
+    expect(result.portModes!.Ethernet1).toBe("trunk");
     expect(result.trunkAllowedVlans).toBeDefined();
     expect(result.trunkNativeVlans).toBeDefined();
   });
@@ -305,7 +305,7 @@ describe("normaliseDeviceConfig", () => {
     const result = normaliseDeviceConfig(device as any);
     expect(result.managed).toBe(false);
     expect(result.vlans).toBeUndefined();
-    expect(result.portModes).toBeUndefined();
+    expect(result.portModes!).toBeUndefined();
   });
 
   it("normalises router config with interfaces", () => {
@@ -317,8 +317,8 @@ describe("normaliseDeviceConfig", () => {
       },
     };
     const result = normaliseDeviceConfig(device as any);
-    expect(result.interfaces).toHaveLength(1);
-    expect(result.interfaces[0].vlanTag).toBe(10);
+    expect(result.interfaces!).toHaveLength(1);
+    expect(result.interfaces![0].vlanTag).toBe(10);
   });
 });
 

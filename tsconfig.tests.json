@@ -1,0 +1,5 @@
+{
+  "//": "Secondary type-check for the test suite. `bunx tsc --noEmit -p tsconfig.tests.json` checks tests/ against the strict src types — catching bad imports, wrong signatures, and stale fixture shapes the runtime `bun test` wouldn't surface until it ran. Same strict settings as the build (deviating changes inference and produces false positives in src), with bun:test / node builtins shimmed in tests/_ambient.d.ts since the project has no node_modules.",
+  "extends": "./tsconfig.json",
+  "include": ["src/**/*.ts", "tests/**/*.ts"]
+}

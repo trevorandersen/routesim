@@ -39,10 +39,11 @@ The project uses only two tools: `esbuild` (bundler) and `bun` (runtime, test ru
 bun test                        # all tests
 bun test tests/engine.test.ts   # specific file
 bun test tests/bench.test.ts    # benchmark suite (p99 budgets in µs)
-bunx tsc --noEmit               # type-check (the codebase is kept tsc-clean)
+bunx tsc --noEmit               # type-check src (the codebase is kept tsc-clean)
+bunx tsc --noEmit -p tsconfig.tests.json   # ALSO type-check the tests
 ```
 
-esbuild does not type-check, so run `bunx tsc --noEmit` to catch type errors (it pulls TypeScript into bun's cache transiently — nothing is added to the repo). Keep it at zero errors.
+esbuild does not type-check, so run `bunx tsc --noEmit` to catch type errors (it pulls TypeScript into bun's cache transiently — nothing is added to the repo). Keep it at zero errors. **`tsconfig.tests.json`** type-checks `tests/` against the same strict `src` types — catching bad imports, wrong signatures, and stale fixture shapes that `bun test` wouldn't surface until it ran. It uses the *identical* strict settings (deviating changes inference and produces false positives in `src`); `bun:test` and the node builtins tests use (`fs`/`path`, `import.meta.dir`) are shimmed in `tests/_ambient.d.ts` since the project has no `node_modules`. Both tsc invocations are part of "green" — keep both at zero.
 
 Test infrastructure:
 
@@ -69,7 +70,7 @@ Open `http://localhost:8767/rs-web.html` for the app (`/` redirects there), `/te
 
 ## Git workflow
 
-**Commit and push automatically** when a unit of work is complete and green — you do **not** need to wait to be asked (this is a standing, project-specific authorisation that overrides the default "commit only when asked"). "Complete and green" means `bunx tsc --noEmit` is clean, the relevant `bun test` suites pass, and `bash build.sh` succeeds (so `rs-web.html` is rebuilt and committed). Keep each commit scoped to one logical change with a clear message; if a turn spans unrelated changes, split them into separate commits. End every commit message with the `Co-Authored-By: Claude Opus 4.8 <noreply@anthropic.com>` trailer, and push to `origin main` (the working branch for this repo). Never commit broken, half-finished, or unverified work, and keep docs/tests in lockstep within the same commit (see Goals & principles).
+**Commit and push automatically** when a unit of work is complete and green — you do **not** need to wait to be asked (this is a standing, project-specific authorisation that overrides the default "commit only when asked"). "Complete and green" means `bunx tsc --noEmit` **and** `bunx tsc --noEmit -p tsconfig.tests.json` are clean, the relevant `bun test` suites pass, and `bash build.sh` succeeds (so `rs-web.html` is rebuilt and committed). Keep each commit scoped to one logical change with a clear message; if a turn spans unrelated changes, split them into separate commits. End every commit message with the `Co-Authored-By: Claude Opus 4.8 <noreply@anthropic.com>` trailer, and push to `origin main` (the working branch for this repo). Never commit broken, half-finished, or unverified work, and keep docs/tests in lockstep within the same commit (see Goals & principles).
 
 ## Architecture
 
@@ -274,7 +275,7 @@ Every link records frames that traverse it (`link.frameHistory[]`), capped at 20
 
 **Adding a simulation protocol**: Create frame factories in `frame.ts`, handle in the appropriate `processAt*` function in `engine.ts`, update `frameLabel`/`frameColor` for display.
 
-**Adding a console command**: Add a handler to the `COMMANDS` registry (and a `HELP` entry) in `commands.ts`, reusing existing action functions. It's automatically available in the console panel, `window.routesim`, and scripts. For commands that build/observe state, prefer the headless `runSimulationHeadless` (engine.ts) over the animated path. See `docs/scripting.md`.
+**Adding a console command**: Add a handler to the `COMMANDS` registry (and a `HELP` entry) in `commands.ts`, reusing existing action functions. It's automatically available in the console panel, `window.routesim`, and scripts. For commands that build/observe state, prefer the headless `runSimulationHeadless` (engine.ts) over the animated path. **Undo contract:** a command that mutates the topology/config must be undoable — either call a helper that already pushes undo (`addLink`/`deleteLink`/`addDevice`/`deleteSelection`/switch mutators) or `pushUndo()` yourself *after validation, before the first mutation* (so a rejected command adds no spurious undo entry). Sim-running commands (`ping`/`run`/`attack`/…) and pure read/UI commands don't push. `tests/commands.test.ts` pins this — undo a representative command and assert the state is restored. See `docs/scripting.md`.
 
 **Adding a scenario**: Add a `Scenario` (initial `topology` + a `checks` goal) to `src/scenario-library.ts`, append it to `CURRICULUM`, and add its id to a group in `SCENARIO_GROUPS` (the curated, ordered grouping that drives the chooser's flyout submenus and `scenario list`; a `tests/scenarios.test.ts` check enforces that every scenario is grouped exactly once — an ungrouped one would otherwise land under "Other"). Check kinds: `link`, `config`, `ping`, `ping-fail` (isolation), `tcp`/`tcp-fail` (port reachability), `http` (an HTTP GET returns 2xx, or a given `status`), `dns` (name resolution, optionally to a given address), `dhcp`, `alert` (an IDS raises an alert containing a substring for a flow). It appears automatically in the chooser, the console (`scenario list/load/check`), and the goal banner; checks reuse the headless runner. Add a runnable reference solution as `scenario-solutions/<id>.routesim.txt` (a console script: `scenario load <id>` → the fix → `scenario check`) — these are the single source of truth, both the learner-facing answer key and what the solvability suite runs. `tests/scenarios.test.ts` reads every script and asserts the scenario starts unsolved and passes after, so the scripts can't drift. See `docs/scenarios.md`.
 

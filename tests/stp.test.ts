@@ -207,8 +207,8 @@ describe("STP — console + CLI + round-trip", () => {
     expect((sw2.config as any).stp).toEqual({ enabled: true, priority: 4096 });
     expect((sw1.config as any).stp.ports).toBeUndefined();
     const re = normaliseConfig(payload as any);
-    expect(re.devices.find((d: any) => d.name === "SW1")!.config.stp.enabled).toBe(false);
-    expect(re.devices.find((d: any) => d.name === "SW2")!.config.stp.priority).toBe(4096);
+    expect(re.devices.find((d: any) => d.name === "SW1")!.config.stp!.enabled).toBe(false);
+    expect(re.devices.find((d: any) => d.name === "SW2")!.config.stp!.priority).toBe(4096);
 
     // Script export emits the deviations and replays them.
     const script = exportTopologyScript();

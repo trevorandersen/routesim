@@ -231,7 +231,7 @@ describe("addSwitchVlan", () => {
     state.links = topo.links as any;
     const sw = state.devices.find(d => d.id === "msw")!;
     addSwitchVlan(sw, "30");
-    expect(sw.config.vlans.some((v: any) => v.id === 30)).toBe(true);
+    expect(sw.config.vlans!.some((v: any) => v.id === 30)).toBe(true);
   });
 });
 
@@ -244,7 +244,7 @@ describe("removeSwitchVlan", () => {
     state.links = topo.links as any;
     const sw = state.devices.find(d => d.id === "msw")!;
     removeSwitchVlan(sw, "10");
-    expect(sw.config.vlans.some((v: any) => v.id === 10)).toBe(false);
+    expect(sw.config.vlans!.some((v: any) => v.id === 10)).toBe(false);
   });
 });
 
@@ -257,7 +257,7 @@ describe("setSwitchPortVlan", () => {
     state.links = topo.links as any;
     const sw = state.devices.find(d => d.id === "msw")!;
     setSwitchPortVlan(sw, "Ethernet4", "20");
-    expect(sw.config.portVlans.Ethernet4).toBe(20);
+    expect(sw.config.portVlans!.Ethernet4).toBe(20);
   });
 });
 
@@ -270,7 +270,7 @@ describe("setSwitchPortMode", () => {
     state.links = topo.links as any;
     const sw = state.devices.find(d => d.id === "msw")!;
     setSwitchPortMode(sw, "Ethernet2", "trunk");
-    expect(sw.config.portModes.Ethernet2).toBe("trunk");
+    expect(sw.config.portModes!.Ethernet2).toBe("trunk");
   });
 });
 
@@ -287,14 +287,14 @@ describe("setSwitchTrunkNative", () => {
   it("sets the native VLAN on a trunk port", () => {
     const sw = loadManagedSwitch();
     setSwitchTrunkNative(sw, "Ethernet1", "99");
-    expect(sw.config.trunkNativeVlans.Ethernet1).toBe(99);
+    expect(sw.config.trunkNativeVlans!.Ethernet1).toBe(99);
   });
 
   it("clears the entry when set back to VLAN 1", () => {
     const sw = loadManagedSwitch();
     setSwitchTrunkNative(sw, "Ethernet1", "99");
     setSwitchTrunkNative(sw, "Ethernet1", "1");
-    expect(sw.config.trunkNativeVlans.Ethernet1).toBeUndefined();
+    expect(sw.config.trunkNativeVlans!.Ethernet1).toBeUndefined();
   });
 
   it("rejects an unknown interface", () => {
@@ -311,14 +311,14 @@ describe("modifySwitchTrunkAllowed", () => {
     const sw = loadManagedSwitch();
     modifySwitchTrunkAllowed(sw, "Ethernet1", "30", "add");
     modifySwitchTrunkAllowed(sw, "Ethernet1", "20", "add");
-    expect(sw.config.trunkAllowedVlans.Ethernet1).toEqual([20, 30]);
+    expect(sw.config.trunkAllowedVlans!.Ethernet1).toEqual([20, 30]);
   });
 
   it("removes a VLAN and prunes the empty entry", () => {
     const sw = loadManagedSwitch();
     modifySwitchTrunkAllowed(sw, "Ethernet1", "30", "add");
     modifySwitchTrunkAllowed(sw, "Ethernet1", "30", "remove");
-    expect(sw.config.trunkAllowedVlans.Ethernet1).toBeUndefined();
+    expect(sw.config.trunkAllowedVlans!.Ethernet1).toBeUndefined();
   });
 });
 
@@ -332,8 +332,8 @@ describe("config vlan member del — non-member must not demote a trunk", () => 
     runSwitchTerminalCommand(sw, "config vlan member del 50 Ethernet2"); // 50 is not a member
     // The bug deleted portModes[Ethernet2] (demoting to access) and removed the
     // native; both must survive an unrelated non-member delete.
-    expect((sw.config.portModes || {}).Ethernet2).toBe("trunk");   // still a trunk
-    expect((sw.config.trunkNativeVlans || {}).Ethernet2).toBe(99); // native preserved
+    expect((sw.config.portModes! || {}).Ethernet2).toBe("trunk");   // still a trunk
+    expect((sw.config.trunkNativeVlans! || {}).Ethernet2).toBe(99); // native preserved
   });
 
   it("deleting the last tagged member still collapses to access (unchanged)", () => {
@@ -341,7 +341,7 @@ describe("config vlan member del — non-member must not demote a trunk", () => 
     setSwitchPortMode(sw, "Ethernet2", "trunk");
     modifySwitchTrunkAllowed(sw, "Ethernet2", "20", "add");
     runSwitchTerminalCommand(sw, "config vlan member del 20 Ethernet2"); // removes the last member
-    expect((sw.config.portModes || {}).Ethernet2).toBeUndefined();   // collapsed back to access
+    expect((sw.config.portModes! || {}).Ethernet2).toBeUndefined();   // collapsed back to access
   });
 });
 

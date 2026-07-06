@@ -60,7 +60,7 @@ describe("nat — PAT overload", () => {
   it("ip nat inside/outside marks the interfaces", () => {
     const { r1 } = natTopology();
     enableNat();
-    const roles = (r1.config.interfaces || []).map(i => i.natRole);
+    const roles = (r1.config.interfaces! || []).map(i => i.natRole);
     expect(roles).toContain("inside");
     expect(roles).toContain("outside");
   });
@@ -130,9 +130,9 @@ describe("nat — PAT overload", () => {
     exec("cli R1 iptables -A FORWARD -p tcp --dport 23 -j DROP");
     const round = parseConfig(JSON.stringify(buildConfigPayload()));
     const r1 = round.devices.find((d: any) => d.name === "R1")!;
-    expect(r1.config.interfaces.map((i: any) => i.natRole)).toContain("outside");
-    expect(r1.config.rules).toHaveLength(1);
-    expect(r1.config.rules[0]).toMatchObject({ chain: "forward", target: "drop", protocol: "tcp", dport: 23 });
+    expect(r1.config.interfaces!.map((i: any) => i.natRole)).toContain("outside");
+    expect(r1.config.rules!).toHaveLength(1);
+    expect(r1.config.rules![0]).toMatchObject({ chain: "forward", target: "drop", protocol: "tcp", dport: 23 });
   });
 });
 
@@ -227,11 +227,11 @@ describe("DNAT / port-forwarding", () => {
     pfTopology();
     addPortForward();
     const r1 = state.devices.find(d => d.name === "R1")!;
-    expect(r1.config.portForwards).toHaveLength(1);
+    expect(r1.config.portForwards!).toHaveLength(1);
     expect(r1.config.portForwards![0]).toMatchObject({ proto: "tcp", outsideIp: "203.0.113.1", outsidePort: 80, insideIp: "10.0.0.80", insidePort: 80 });
     exec("cli R1 configure terminal");
     exec("cli R1 no ip nat inside source static tcp 10.0.0.80 80 203.0.113.1 80");
-    expect(r1.config.portForwards).toHaveLength(0);
+    expect(r1.config.portForwards!).toHaveLength(0);
   });
 
   it("port-forwards round-trip through the config payload", () => {
@@ -239,8 +239,8 @@ describe("DNAT / port-forwarding", () => {
     addPortForward();
     const round = parseConfig(JSON.stringify(buildConfigPayload()));
     const r1 = round.devices.find((d: any) => d.name === "R1")!;
-    expect(r1.config.portForwards).toHaveLength(1);
-    expect(r1.config.portForwards[0]).toMatchObject({ outsideIp: "203.0.113.1", outsidePort: 80, insideIp: "10.0.0.80", insidePort: 80 });
+    expect(r1.config.portForwards!).toHaveLength(1);
+    expect(r1.config.portForwards![0]).toMatchObject({ outsideIp: "203.0.113.1", outsidePort: 80, insideIp: "10.0.0.80", insidePort: 80 });
   });
 
   it("port-forwards survive a script export/replay", () => {
@@ -295,7 +295,7 @@ describe("DNAT / port-forwarding", () => {
     exec("cli R1 configure terminal");
     exec("cli R1 ip nat inside source static udp 10.0.0.80 80 203.0.113.1 80");
     const r1 = state.devices.find(d => d.name === "R1")!;
-    expect(r1.config.portForwards || []).toHaveLength(0);
+    expect(r1.config.portForwards! || []).toHaveLength(0);
   });
 });
 

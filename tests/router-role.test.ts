@@ -43,7 +43,7 @@ describe("router roles", () => {
     runConsoleScript(`add router R1 at 0 0\nrole R1 border`);
     // JSON
     const round = parseConfig(JSON.stringify(buildConfigPayload()));
-    expect(round.devices.find((d: any) => d.name === "R1").config.role).toBe("border");
+    expect(round.devices.find((d: any) => d.name === "R1")!.config.role).toBe("border");
     // script
     const script = exportTopologyScript();
     expect(script).toContain("role R1 border");

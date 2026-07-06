@@ -259,7 +259,7 @@ describe("the internet cloud", () => {
   it("round-trips through the config payload", () => {
     runConsoleScript(`add internet NET at 0 0`);
     const round = parseConfig(JSON.stringify(buildConfigPayload()));
-    const net = round.devices.find((d: any) => d.name === "NET");
+    const net = round.devices.find((d: any) => d.name === "NET")!;
     expect(net.type).toBe("internet");
     expect(net.config.ethernetPorts).toBe(8);
   });

@@ -67,7 +67,7 @@ describe("router interface identity under re-cabling (the pinned invariant)", ()
     const rows = routerInterfacesWithNames(rtr).filter((r: any) => r.peer);
     expect(rows.length).toBe(1);
     expect(rows[0].name).toBe("Ethernet1");        // the name SHIFTED —
-    expect(rows[0].peer.id).toBe(sw2.id);
+    expect(rows[0].peer!.id).toBe(sw2.id);
     // … but everything keyed on the PEER (address, NAT role) is intact. This is
     // the invariant the sim relies on; anything keyed by NAME (e.g. RIP
     // passiveInterfaces) does NOT follow a renumbering — a documented caveat.
@@ -87,12 +87,12 @@ describe("routerInterfaceForName — IP on an unconnected port", () => {
     iface.prefixLength = 30;
     // Re-enumerating must surface that saved address on the same empty port.
     const rows = routerInterfacesWithNames(rtr);
-    const eth3 = rows.find((r: any) => r.name === "Ethernet3");
+    const eth3 = rows.find((r: any) => r.name === "Ethernet3")!;
     expect(eth3.peer).toBeNull();
     expect(eth3.config.ipv4Address).toBe("10.0.0.1");
     // A second call returns the same stored entry, not a duplicate.
     expect(routerInterfaceForName(rtr, "Ethernet3").ipv4Address).toBe("10.0.0.1");
-    expect(rtr.config.interfaces.filter((i: any) => i.name === "Ethernet3")).toHaveLength(1);
+    expect(rtr.config.interfaces!.filter((i: any) => i.name === "Ethernet3")).toHaveLength(1);
   });
 });
 

@@ -223,7 +223,7 @@ describe("IDS — console, CLI, and round-trip", () => {
     const payload = buildConfigPayload();
     const reSw = normaliseConfig(payload as any).devices.find((d: any) => d.name === "SW1")!;
     const reIds = normaliseConfig(payload as any).devices.find((d: any) => d.name === "IDS1")!;
-    expect(reSw.config.mirror.dest).toBe("Ethernet1");
+    expect(reSw.config.mirror!.dest).toBe("Ethernet1");
     expect(reIds.config.idsRules).toEqual([`alert tcp any any -> any 22 (msg:"SSH"; sid:42; rev:1;)`]);
 
     // Script export replays the exact rule set + the SPAN session.

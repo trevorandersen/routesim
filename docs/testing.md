@@ -30,6 +30,8 @@ bun test-server.ts                # then open http://localhost:8767/test.html
 | `tests/preload.ts` | Stubs browser globals (`document`, `window`, `requestAnimationFrame`) and mocks `dom.ts` so importing DOM-touching modules doesn't crash |
 | `tests/helpers.ts` | `registerNoopCallbacks()` and `resetState()` |
 | `tests/fixtures.ts` | Reusable topologies: `basicTopology`, `routedTopology`, `vlanTopology`, `trunkTopology` |
+| `tsconfig.tests.json` | Type-checks `tests/` (plus `src/`) against the strict src types: `bunx tsc --noEmit -p tsconfig.tests.json`. Catches bad imports, wrong signatures, and stale fixture shapes `bun test` wouldn't surface until runtime. Same strict settings as the build (deviating changes inference and yields false positives in `src`), so fixture accesses of optional config fields carry `!`. Part of the "green" check. |
+| `tests/_ambient.d.ts` | Ambient shims (`bun:test`, `fs`/`node:fs`/`node:path`, `import.meta.dir`) so the tests tsc resolves imports **without** npm type packages — the project has no `node_modules`. Deliberately loose: the check guards import/fixture drift, not bun's API internals. |
 
 ### DOM mocking (`preload.ts`)
 
@@ -95,7 +97,7 @@ describe("setSwitchPortVlan", () => {
 | `tests/firstboot.test.ts` | Network boot: cabling/power no longer auto-configures; Play (`startNetworkBoot`) boots unconfigured hosts via animated DHCP → APIPA (rAF-stub harness); the global Auto-DHCP / APIPA toggles |
 | `tests/terminal.test.ts` | Terminal display + mutator helpers (host/router/switch, VLAN, trunk) |
 | `tests/terminal-commands.test.ts` | The command **dispatchers**, router mode machine, abbreviation + `?`, the host inspector-set commands (`ip link set`/`ip route del`/`rm resolv.conf`), `runDeviceCommand` (injected), and the **hostname** commands (host `hostname`/`hostnamectl`/`/etc/hostname`, router `hostname` in config mode, switch `config hostname` — each renames the device, with RFC-1123 validation) |
-| `tests/commands.test.ts` | The console command engine (verbs, headless runs, script round-trip) |
+| `tests/commands.test.ts` | The console command engine (verbs, headless runs, script round-trip), and the **undo contract** — a representative state-changing command (`unlink`/`rename`/`move`/`mac`) is undone and the state asserted restored; a rejected sub-command adds no spurious undo entry |
 | `tests/simulation.test.ts` | `l2Reachable`, `getVlanForDevice`, `buildPing/DhcpEvents` |
 | `tests/scenarios.test.ts` | Scenario loading/goal checks, positive-coordinate invariants, and the **curriculum solvability** proof (every entry starts unsolved and passes after its reference solution in `SOLUTIONS`) |
 | `tests/io.test.ts` | JSON import/export round-trips |

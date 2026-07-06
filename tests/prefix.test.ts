@@ -127,7 +127,7 @@ describe("prefixes — config round-trip", () => {
     const pc1 = round.devices.find((d: any) => d.name === "PC1")!;
     const r1 = round.devices.find((d: any) => d.name === "R1")!;
     expect(pc1.config.prefixLength).toBe(16);
-    expect(r1.config.interfaces[0].prefixLength).toBe(16);
+    expect(r1.config.interfaces![0].prefixLength).toBe(16);
   });
 });
 

@@ -531,7 +531,7 @@ describe("bench: routing", () => {
     } as any;
     const router = state.devices.find(d => d.id === "rtr-0")!;
     // Pre-populate ARP on egress interface so the frame actually routes
-    const iface0 = router.config.interfaces[0];
+    const iface0 = router.config.interfaces![0];
     iface0.arpTable = [{ ipv4Address: "192.168.1.10", macAddress: "02:00:01:00:0a:01" }];
     // ICMP from subnet 2 to subnet 1 (connected route)
     const frame = createIcmpEchoRequest(
@@ -564,7 +564,7 @@ describe("bench: routing", () => {
     } as any;
     const router = state.devices.find(d => d.id === "rtr-0")!;
     // Pre-populate ARP for next-hop
-    const iface0 = router.config.interfaces[0];
+    const iface0 = router.config.interfaces![0];
     iface0.arpTable = [{ ipv4Address: "192.168.1.2", macAddress: "02:aa:bb:cc:dd:ee" }];
     // ICMP to a static-routed destination
     const frame = createIcmpEchoRequest(
@@ -587,7 +587,7 @@ describe("bench: routing", () => {
       pendingArp: {}, speed: 1000, autoPlay: false, stepIndex: 0,
     } as any;
     const router = state.devices.find(d => d.id === "rtr-0")!;
-    const ifaces = router.config.interfaces;
+    const ifaces = router.config.interfaces!;
     ifaces[0].arpTable = [{ ipv4Address: "192.168.1.2", macAddress: "02:aa:bb:cc:dd:ee" }];
     // Mark NAT roles so the forward path translates every frame.
     ifaces.forEach((i: any, idx: number) => { i.natRole = idx === 0 ? "outside" : "inside"; });

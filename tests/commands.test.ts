@@ -2,7 +2,7 @@
  * Command engine tests — the text-command interface (commands.ts).
  */
 import { describe, it, expect, beforeAll, beforeEach } from "bun:test";
-import { state } from "../src/state";
+import { state, undo } from "../src/state";
 import { runConsoleCommand as exec, runConsoleScript, exportTopologyScript } from "../src/commands";
 import { registerNoopCallbacks, resetState } from "./helpers";
 import { routedTopology } from "./fixtures";
@@ -73,8 +73,8 @@ describe("commands — config verbs", () => {
     sw.config.managed = true;
     exec("vlan SW1 add 30");
     exec("port SW1 Ethernet2 vlan 30");
-    expect(sw.config.vlans.some((v: any) => v.id === 30)).toBe(true);
-    expect(sw.config.portVlans.Ethernet2).toBe(30);
+    expect(sw.config.vlans!.some((v: any) => v.id === 30)).toBe(true);
+    expect(sw.config.portVlans!.Ethernet2).toBe(30);
   });
 
   it("ports sets a host's listening TCP ports, clears them, and round-trips through export", () => {
@@ -289,5 +289,63 @@ describe("commands — linkset and export round-trip", () => {
     exec("linkset A B latency 0");
     expect(state.links[0].latency).toBeUndefined();
     expect(exec("linkset A B latency -5").ok).toBe(false);
+  });
+});
+
+describe("commands — state-changing commands are undoable", () => {
+  beforeEach(reset);
+
+  const dev = (name: string) => state.devices.find(d => d.name === name)!;
+
+  it("unlink is undoable and recomputes spanning tree (not a bare state.links filter)", () => {
+    runConsoleScript(`
+      add switch SW1 at 0 0
+      add switch SW2 at 200 0
+      link SW1 SW2
+    `);
+    const linkId = state.links[0].id;
+    expect(exec("unlink SW1 SW2").ok).toBe(true);
+    expect(state.links.length).toBe(0);
+    undo();
+    expect(state.links.some(l => l.id === linkId)).toBe(true);   // the link came back
+  });
+
+  it("rename is undoable (though permissive — no hostname validation)", () => {
+    runConsoleScript(`add computer PC-A at 0 0`);
+    const id = dev("PC-A").id;
+    expect(exec("rename PC-A EDGE").ok).toBe(true);
+    expect(state.devices.find(d => d.id === id)!.name).toBe("EDGE");
+    undo();
+    expect(state.devices.find(d => d.id === id)!.name).toBe("PC-A");
+  });
+
+  it("move is undoable", () => {
+    runConsoleScript(`add computer PC-A at 10 20`);
+    const id = dev("PC-A").id;
+    exec("move PC-A 400 500");
+    expect(state.devices.find(d => d.id === id)!.x).toBe(400);
+    undo();
+    expect(state.devices.find(d => d.id === id)!.x).toBe(10);
+  });
+
+  it("a config verb (mac) is undoable", () => {
+    runConsoleScript(`add computer PC-A at 0 0`);
+    const id = dev("PC-A").id;
+    exec("mac PC-A 02:AA:BB:CC:DD:EE");
+    expect(state.devices.find(d => d.id === id)!.config!.macAddress).toBe("02:AA:BB:CC:DD:EE");
+    undo();
+    expect(state.devices.find(d => d.id === id)!.config!.macAddress).not.toBe("02:AA:BB:CC:DD:EE");
+  });
+
+  it("a malformed sub-command does not push a spurious undo entry", () => {
+    runConsoleScript(`
+      add switch SW1 at 0 0
+      managed SW1 on
+    `);
+    // A managed switch exists; rename it, then issue an invalid stp sub-command.
+    exec("rename SW1 CORE");
+    expect(exec("stp CORE bogus").ok).toBe(false);   // rejected before any mutation
+    undo();                                           // should undo the rename, not the no-op stp
+    expect(dev("SW1")).toBeTruthy();
   });
 });

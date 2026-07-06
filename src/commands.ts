@@ -11,7 +11,7 @@ import { state, undo, redo, sync, pushUndo, THEMES } from "./state";
 import { USER_ADDABLE_TYPES } from "./device-registry";
 import { dom } from "./dom";
 import {
-  addDevice, addLink, linkBlockReason, deleteSelection, clearNetwork, collapseLan, expandLan,
+  addDevice, addLink, deleteLink, linkBlockReason, deleteSelection, clearNetwork, collapseLan, expandLan,
   getDevice, moveDevice, linkName,
 } from "./devices";
 import {
@@ -120,12 +120,13 @@ function cmdUnlink(args: string[]): CommandResult {
   if (typeof a === "string") return err(a);
   const b = resolveDevice(args[1]);
   if (typeof b === "string") return err(b);
-  const before = state.links.length;
-  state.links = state.links.filter(l =>
-    !((l.from === a.id && l.to === b.id) || (l.from === b.id && l.to === a.id)));
-  if (state.links.length === before) return err(`No link between ${a.name} and ${b.name}.`);
-  sync().syncPanel();
-  sync().render();
+  const link = state.links.find(l =>
+    (l.from === a.id && l.to === b.id) || (l.from === b.id && l.to === a.id));
+  if (!link) return err(`No link between ${a.name} and ${b.name}.`);
+  // Route through deleteLink so the removal is undoable and recomputes spanning
+  // tree — a direct state.links filter left both stale (a redundant link removed
+  // this way kept the survivor's port wrongly blocked until the next run).
+  deleteLink(link.id);
   return ok(`Unlinked ${a.name} ↔ ${b.name}.`);
 }
 
@@ -179,6 +180,7 @@ function cmdMove(args: string[]): CommandResult {
   if (typeof device === "string") return err(device);
   const x = Number(args[1]); const y = Number(args[2]);
   if (!Number.isFinite(x) || !Number.isFinite(y)) return err(`move: invalid coordinates.`);
+  pushUndo();
   moveDevice(device, x, y);
   return ok(`Moved ${device.name} to ${x},${y}.`);
 }
@@ -188,6 +190,9 @@ function cmdRename(args: string[]): CommandResult {
   if (typeof device === "string") return err(device);
   const name = args[1];
   if (!name) return err(`rename: missing new name.`);
+  // `rename` stays permissive (a meta tool — no hostname validation, unlike the
+  // terminal's `hostname`), but it must still be undoable like every other edit.
+  pushUndo();
   device.name = name;
   sync().syncPanel(); sync().syncTerminal(); sync().render();
   return ok(`Renamed to ${name}.`);
@@ -210,6 +215,10 @@ function cmdExpand(args: string[]): CommandResult {
 }
 
 // ── Config verbs (call the exported mutators directly — no mode machine) ──────
+// Undo contract: a state-changing command must be undoable. Either delegate to a
+// helper that already pushes undo (addLink/deleteLink/addDevice/deleteSelection/
+// the switch mutators), or call pushUndo() here *after* validation and *before*
+// the first mutation, so a rejected command leaves no spurious undo entry.
 
 function hostMutator(args: string[], fn: (d: Device, v: string) => string): CommandResult {
   const device = resolveDevice(args[0]);
@@ -227,6 +236,7 @@ function cmdMac(args: string[]): CommandResult {
   if (typeof device === "string") return err(device);
   const mac = normaliseMacAddress(args[1] || "");
   if (!isValidMac(mac)) return err(`Invalid MAC address: ${args[1]}`);
+  pushUndo();
   ensureConfig(device);
   device.config.macAddress = mac;
   sync().render();
@@ -244,6 +254,7 @@ function cmdSsid(args: string[]): CommandResult {
   }
   const ssid = normaliseSsid(args[1] || "");
   if (!ssid) return err("Usage: ssid <laptop|access-point> <name> [password]");
+  pushUndo();
   ensureConfig(device);
   device.config.ssid = ssid;
   const password = normaliseWifiPassword(args[2] ?? "");
@@ -280,6 +291,7 @@ function cmdRoute(args: string[]): CommandResult {
   if (typeof router === "string") return err(router);
   const network = args[1]; const nextHop = args[2];
   if (!network || !nextHop) return err(`route: expected "<network/prefix> <nextHop>".`);
+  pushUndo();
   ensureConfig(router);
   const routes = router.config.staticRoutes || [];
   routes.push({ network, nextHop });
@@ -401,6 +413,7 @@ function cmdSupplicant(args: string[]): CommandResult {
   if (!["computer", "laptop", "kali", "server"].includes(host.type)) return err(`${host.name} is not a host.`);
   const identity = args[1], password = args[2];
   if (!identity || password == null) return err("Usage: supplicant <host> <identity> <password>");
+  pushUndo();
   ensureConfig(host);
   host.config.dot1x = { identity, password };
   sync().syncPanel();
@@ -417,6 +430,7 @@ function cmdPortAuth(args: string[]): CommandResult {
   const mode = (args[2] || "").toLowerCase();
   if (!port) return err("Usage: portauth <switch> <EthN> <auto|force-authorized|force-unauthorized>");
   if (!["auto", "force-authorized", "force-unauthorized"].includes(mode)) return err("portauth mode: auto|force-authorized|force-unauthorized");
+  pushUndo();
   ensureConfig(sw);
   sw.config.portAuth = sw.config.portAuth || {};
   sw.config.portAuth[port] = mode as any;
@@ -431,6 +445,7 @@ function cmdRadius(args: string[]): CommandResult {
   if (server.type !== "server") return err(`${server.name} is not a server.`);
   const identity = args[1], password = args[2];
   if (!identity || password == null) return err("Usage: radius <server> <identity> <password>");
+  pushUndo();
   ensureConfig(server);
   const cfg: any = server.config;
   cfg.radius = cfg.radius || { users: [] };
@@ -447,6 +462,7 @@ function cmdPorts(args: string[]): CommandResult {
   if (typeof host === "string") return err(host);
   if (!["computer", "laptop", "kali", "server"].includes(host.type)) return err(`${host.name} is not a host (only computers/laptops/servers listen on ports).`);
   const spec = args.slice(1).join(" ").trim();
+  pushUndo();
   ensureConfig(host);
   const cfg: any = host.config;
   if (!spec || /^(none|off|clear)$/i.test(spec)) {
@@ -469,6 +485,7 @@ function cmdMacsec(args: string[]): CommandResult {
   if (typeof peer === "string") return err(peer);
   const key = args[2];
   if (!key) return err("Usage: macsec <device> <peer> <key|dot1x> [must|should]  (key 'off' clears)");
+  pushUndo();
   ensureConfig(dev);
   const cfg: any = dev.config;
   cfg.macsec = cfg.macsec || {};
@@ -505,6 +522,7 @@ function cmdManaged(args: string[]): CommandResult {
   if (typeof sw === "string") return err(sw);
   if (sw.type !== "switch") return err(`${sw.name} is not a switch.`);
   const on = !args[1] || /^(on|true|yes|enable)$/i.test(args[1]);
+  pushUndo();
   ensureConfig(sw);
   (sw.config as any).managed = on;
   sync().recomputeStp();
@@ -571,6 +589,7 @@ function cmdIdsRule(args: string[], rest: string): CommandResult {
   if (ids.type !== "ids") return err(`${ids.name} is not an IDS sensor.`);
   const ruleText = rest.slice(rest.toLowerCase().indexOf(args[0].toLowerCase()) + args[0].length).trim();
   if (!ruleText) return err("Usage: idsrule <ids> <snort rule>  |  idsrule <ids> clear");
+  pushUndo();
   if (/^(clear|flush)$/i.test(ruleText)) { ensureConfig(ids); (ids.config as any).idsRules = []; sync().syncPanel(); return ok(`${ids.name}: rules cleared.`); }
   const result = addIdsRule(ids, ruleText);
   sync().syncPanel();
@@ -604,9 +623,13 @@ function cmdRedteam(args: string[]): CommandResult {
   const node = resolveDevice(args[0]);
   if (typeof node === "string") return err(node);
   if (node.type !== "attacker") return err(`${node.name} is not a Red Team host.`);
+  const sub = (args[1] || "").toLowerCase();
+  if (!["target", "spoof", "attacks"].includes(sub)) {
+    return err("Usage: redteam <node> target <ip> | attacks <scan,sweep,arp-spoof> | spoof <ip>");
+  }
+  pushUndo();
   ensureConfig(node);
   const cfg: any = node.config;
-  const sub = (args[1] || "").toLowerCase();
   const after = (msg: string) => { sync().syncPanel(); return ok(msg); };
   if (sub === "target") { cfg.attackTarget = args[2] || ""; return after(`${node.name}: target ${cfg.attackTarget || "(none)"}.`); }
   if (sub === "spoof") { cfg.spoofIp = args[2] || ""; return after(`${node.name}: ARP-spoof target ${cfg.spoofIp || "(gateway)"}.`); }
@@ -632,10 +655,18 @@ function cmdStp(args: string[]): CommandResult {
   const sw = resolveDevice(args[0]);
   if (typeof sw === "string") return err(sw);
   if (sw.type !== "switch" || !sw.config?.managed) return err(`${sw.name} is not a managed switch (spanning tree runs on managed switches).`);
+  const sub = (args[1] || "").toLowerCase();
+  if (!["on", "enable", "off", "disable", "priority"].includes(sub)) {
+    return err(`stp: expected "<switch> on|off" or "<switch> priority <n>".`);
+  }
+  if (sub === "priority") {
+    const n = Number(args[2]);
+    if (!Number.isInteger(n) || n < 0 || n > 61440 || n % 4096 !== 0) return err("stp priority: an integer 0–61440 in steps of 4096.");
+  }
+  pushUndo();
   ensureConfig(sw);
   const cfg: any = sw.config;
   cfg.stp = cfg.stp || { enabled: true };
-  const sub = (args[1] || "").toLowerCase();
   const after = (msg: string) => { sync().recomputeStp(); sync().syncPanel(); return ok(msg); };
   if (sub === "on" || sub === "enable") { cfg.stp.enabled = true; return after(`${sw.name}: spanning tree enabled.`); }
   if (sub === "off" || sub === "disable") { cfg.stp.enabled = false; return after(`${sw.name}: spanning tree disabled.`); }

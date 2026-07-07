@@ -2,7 +2,9 @@ import type { EthernetFrame, ArpPayload, Ipv4Payload, IcmpPayload, IcmpOriginal,
 
 let frameCounter = 0;
 function nextFrameId(): string {
-  return `frame-${++frameCounter}-${Date.now()}`;
+  // A monotonic counter already makes this unique per session; no wall-clock
+  // component, so an identical run reproduces identical frame ids (determinism).
+  return `frame-${++frameCounter}`;
 }
 
 export const BROADCAST_MAC = "FF:FF:FF:FF:FF:FF";

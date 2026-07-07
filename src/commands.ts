@@ -33,6 +33,7 @@ import { isValidMac, normaliseMacAddress, prefixOf, networkOf, normaliseSsid, no
 import { SCENARIOS, getScenario, loadScenario, checkScenario } from "./scenarios";
 import { SCENARIO_GROUPS } from "./scenario-library";
 import { SPEED_MIN, SPEED_MAX } from "./settings-url";
+import { setSeedOverride, getSeedOverride, currentSimSeed } from "./prng";
 
 export interface CommandResult {
   ok: boolean;
@@ -793,6 +794,28 @@ function cmdSpeed(args: string[]): CommandResult {
   return ok(`Speed set to ${clamped} ms/hop.`);
 }
 
+// Pin (or clear) the simulation's random seed. By default each run reseeds from
+// the wall clock, so identical topologies still produce varying traffic; pinning
+// a seed makes ephemeral ports / DHCP ids / NAT translations reproducible, so a
+// saved-capture Compare is a true before/after diff.
+function cmdSeed(args: string[]): CommandResult {
+  const arg = (args[0] || "").trim().toLowerCase();
+  if (!arg) {
+    const pinned = getSeedOverride();
+    return pinned != null
+      ? ok(`Seed pinned to ${pinned} — every run reproduces the same traffic. "seed off" to unpin.`)
+      : ok(`Seed follows the clock (each run varies). Last run used ${currentSimSeed()}; "seed ${currentSimSeed()}" reproduces it, or "seed <n>" pins a new one.`);
+  }
+  if (/^(off|clear|none|random|clock)$/.test(arg)) {
+    setSeedOverride(null);
+    return ok("Seed unpinned — each run reseeds from the clock.");
+  }
+  const n = Number(arg);
+  if (!Number.isInteger(n) || n < 0 || n > 0xffffffff) return err(`seed: expected a whole number 0–4294967295, or "off".`);
+  setSeedOverride(n);
+  return ok(`Seed pinned to ${n} — runs are now reproducible. "seed off" to unpin.`);
+}
+
 // ── Management ───────────────────────────────────────────────────────────────
 
 function cmdTopology(args: string[]): CommandResult {
@@ -988,7 +1011,7 @@ const COMMANDS: Record<string, Handler> = {
   vlan: cmdVlan, port: cmdPort, managed: cmdManaged, role: cmdRole, stp: cmdStp, mirror: cmdMirror, web: cmdWeb, idsrule: cmdIdsRule, attack: cmdAttack, redteam: cmdRedteam, cli: cmdCli,
   ping: cmdPing, dhcp: cmdDhcp, connect: cmdConnect, http: cmdHttp, associate: cmdAssociate, run: cmdRun, traceroute: cmdTraceroute, tracert: cmdTraceroute,
   play: cmdPlay, pause: cmdPause, step: cmdStep,
-  stop: cmdStop, speed: cmdSpeed,
+  stop: cmdStop, speed: cmdSpeed, seed: cmdSeed,
   topology: cmdTopology, save: cmdSave, load: cmdLoad, undo: cmdUndo, redo: cmdRedo, export: cmdExport,
   list: cmdList, show: cmdShow, status: cmdStatus, log: cmdLog,
   select: cmdSelect, tool: cmdTool, theme: cmdTheme, zoom: cmdZoom, fit: cmdFit,
@@ -1028,6 +1051,7 @@ const HELP: Record<string, string> = {
   run: "run ping <src> <dst> | run connect <src> <dst> <port> | run http <src> <host> | run resolve <src> <name> | run dhcp <host> | run associate <laptop> | run dot1x <host> | run stp (headless, returns result)",
   traceroute: "traceroute <src> <dst> (hop-by-hop via TTL)",
   play: "resume", pause: "pause", step: "advance one hop", stop: "stop", speed: "speed <ms-per-hop>",
+  seed: "seed [<n>|off] — pin the run's random seed for reproducible ports/ids (default: clock)",
   topology: "topology basic|vlan-roas|router-mesh|wifi-vlan", save: "save <name>", load: "load <name>",
   undo: "undo", redo: "redo", export: "export topology as a reproducible script",
   list: "list [links]", show: "show <device>", status: "simulation status + last result", log: "hop-by-hop log",

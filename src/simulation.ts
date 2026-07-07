@@ -5,6 +5,7 @@ import { runStpConvergence, isStpParticipant } from "./stp";
 import { normalisePortVlans, normalisePortModes, normaliseTrunkAllowedVlans, memoPortVlans } from "./normalise";
 import { isValidIpv4, sameSubnet, prefixOf, deriveMac, networkOf, prefixLengthOfCidr, ipv4ToInt, intToIpv4 } from "./utils";
 import { createArpRequest, createArpReply, createIcmpEchoRequest, createDhcpDiscover, createTcpSegment, createDnsQuery, createDot11Frame, createDot1xFrame, createBpduFrame, BROADCAST_MAC } from "./frame";
+import { simRandomInt, seedSimRng } from "./prng";
 
 export interface PingSetup {
   events: SimEvent[];
@@ -119,6 +120,7 @@ export function hostnameToIp(name: string): string | null {
  * Returns a string error message if validation fails, or a PingSetup object.
  */
 export function buildPingEvents(source: any, targetText: string, options: { ttl?: number } = {}): PingSetup | string {
+  seedSimRng();   // reseed the run's PRNG (clock by default; pinned via `seed <n>`)
   const ttl = options.ttl ?? 64;
   if (!source.config?.ipv4Address) return `${source.name}: eth0 has no IPv4 address.`;
   if (!source.config?.macAddress) return `${source.name}: eth0 has no MAC address.`;
@@ -224,13 +226,14 @@ export function buildPingEvents(source: any, targetText: string, options: { ttl?
  * handshake itself (SYN-ACK / ACK / RST) runs in the engine.
  */
 export function buildConnectEvents(source: any, targetText: string, port: number): PingSetup | string {
+  seedSimRng();   // reseed the run's PRNG (also covers buildHttpEvents, which delegates here)
   if (!source.config?.ipv4Address) return `${source.name}: eth0 has no IPv4 address.`;
   if (!source.config?.macAddress) return `${source.name}: eth0 has no MAC address.`;
   if (!Number.isInteger(port) || port < 1 || port > 65535) return `nc: invalid port ${port}`;
 
   const srcIp = source.config.ipv4Address;
   const srcMac = source.config.macAddress;
-  const srcPort = 30000 + Math.floor(Math.random() * 20000); // ephemeral
+  const srcPort = simRandomInt(30000, 50000); // ephemeral (seeded — reproducible when the seed is pinned)
 
   const target = findPingTarget(targetText);
   const instant = state.options?.instantDns !== false;   // default on
@@ -373,12 +376,13 @@ export function buildResolveEvents(source: any, name: string, then: "ping" | "tc
 }
 
 export function buildDhcpEvents(source: any): PingSetup | string {
+  seedSimRng();   // reseed the run's PRNG (the DHCP transaction id draws from it)
   if (!source.config?.macAddress) return `${source.name}: eth0 has no MAC address.`;
   const firstHop = findFirstHop(source);
   if (!firstHop) return `dhcp: Network is unreachable (no link)`;
 
   const srcMac = source.config.macAddress;
-  const transactionId = `dhcp-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`;
+  const transactionId = `dhcp-${simRandomInt(0x1000, 0x100000).toString(16)}`; // seeded xid
   const discover = createDhcpDiscover(srcMac, transactionId);
 
   return {
@@ -494,6 +498,7 @@ function attackTargetIp(text: string): string | null {
 // SYN-ACK, closed ones RST — the sensor (if a SPAN port mirrors the segment)
 // sees a burst of SYNs. ARP-resolves the next hop first (like nc).
 export function buildScanEvents(attacker: any, targetText: string): PingSetup | string {
+  seedSimRng();   // reseed the run's PRNG (the scan's source port draws from it)
   const cfg = attacker.config;
   if (!cfg?.ipv4Address || !cfg?.macAddress) return `${attacker.name}: eth0 has no address.`;
   const dstIp = attackTargetIp(targetText);
@@ -503,7 +508,7 @@ export function buildScanEvents(attacker: any, targetText: string): PingSetup | 
   const hop = attackNextHop(attacker, dstIp);
   if (!hop) return `nmap: no route to ${dstIp}`;
 
-  const srcPort = 40000 + Math.floor(Math.random() * 20000);
+  const srcPort = simRandomInt(40000, 60000);
   const syn = (port: number, dstMac: string) => createTcpSegment(cfg.macAddress, dstMac, cfg.ipv4Address, dstIp, srcPort, port, "syn");
   const arpEntry = (cfg.arpTable || []).find((e: any) => e.ipv4Address === hop.nextHopIp);
   const seed = (frame: EthernetFrame) => ({ type: "frame_arrive" as const, frame, deviceId: firstHop.peerId, fromDeviceId: attacker.id, linkId: firstHop.linkId });

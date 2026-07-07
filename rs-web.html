@@ -5382,7 +5382,7 @@ Full legal text: https://creativecommons.org/publicdomain/zero/1.0/legalcode</pr
   // src/frame.ts
   var frameCounter = 0;
   function nextFrameId() {
-    return `frame-${++frameCounter}-${Date.now()}`;
+    return `frame-${++frameCounter}`;
   }
   var BROADCAST_MAC = "FF:FF:FF:FF:FF:FF";
   function createArpRequest(senderMac, senderIp, targetIp, vlanTag = null) {
@@ -5710,6 +5710,38 @@ Full legal text: https://creativecommons.org/publicdomain/zero/1.0/legalcode</pr
     return "#22c55e";
   }
 
+  // src/prng.ts
+  var override = null;
+  var currentSeed = 0;
+  var rng = mulberry32(1);
+  function mulberry32(seed) {
+    let a = seed >>> 0;
+    return function() {
+      a |= 0;
+      a = a + 1831565813 | 0;
+      let t = Math.imul(a ^ a >>> 15, 1 | a);
+      t = t + Math.imul(t ^ t >>> 7, 61 | t) ^ t;
+      return ((t ^ t >>> 14) >>> 0) / 4294967296;
+    };
+  }
+  function setSeedOverride(seed) {
+    override = seed == null ? null : seed >>> 0;
+  }
+  function getSeedOverride() {
+    return override;
+  }
+  function currentSimSeed() {
+    return currentSeed;
+  }
+  function seedSimRng() {
+    currentSeed = override != null ? override : Date.now() >>> 0;
+    rng = mulberry32(currentSeed);
+    return currentSeed;
+  }
+  function simRandomInt(loInclusive, hiExclusive) {
+    return loInclusive + Math.floor(rng() * (hiExclusive - loInclusive));
+  }
+
   // src/simulation.ts
   function getVlanForDevice(deviceId) {
     for (const link of linksFor(deviceId)) {
@@ -5740,6 +5772,7 @@ Full legal text: https://creativecommons.org/publicdomain/zero/1.0/legalcode</pr
     return d?.config?.ipv4Address || null;
   }
   function buildPingEvents(source, targetText, options = {}) {
+    seedSimRng();
     const ttl = options.ttl ?? 64;
     if (!source.config?.ipv4Address) return `${source.name}: eth0 has no IPv4 address.`;
     if (!source.config?.macAddress) return `${source.name}: eth0 has no MAC address.`;
@@ -5815,12 +5848,13 @@ Full legal text: https://creativecommons.org/publicdomain/zero/1.0/legalcode</pr
     };
   }
   function buildConnectEvents(source, targetText, port) {
+    seedSimRng();
     if (!source.config?.ipv4Address) return `${source.name}: eth0 has no IPv4 address.`;
     if (!source.config?.macAddress) return `${source.name}: eth0 has no MAC address.`;
     if (!Number.isInteger(port) || port < 1 || port > 65535) return `nc: invalid port ${port}`;
     const srcIp = source.config.ipv4Address;
     const srcMac = source.config.macAddress;
-    const srcPort = 3e4 + Math.floor(Math.random() * 2e4);
+    const srcPort = simRandomInt(3e4, 5e4);
     const target = findPingTarget(targetText);
     const instant = state.options?.instantDns !== false;
     const trimmed = targetText.trim();
@@ -5934,11 +5968,12 @@ Full legal text: https://creativecommons.org/publicdomain/zero/1.0/legalcode</pr
     };
   }
   function buildDhcpEvents(source) {
+    seedSimRng();
     if (!source.config?.macAddress) return `${source.name}: eth0 has no MAC address.`;
     const firstHop = findFirstHop(source);
     if (!firstHop) return `dhcp: Network is unreachable (no link)`;
     const srcMac = source.config.macAddress;
-    const transactionId = `dhcp-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`;
+    const transactionId = `dhcp-${simRandomInt(4096, 1048576).toString(16)}`;
     const discover = createDhcpDiscover(srcMac, transactionId);
     return {
       events: [{
@@ -6028,6 +6063,7 @@ Full legal text: https://creativecommons.org/publicdomain/zero/1.0/legalcode</pr
     return dev?.config?.ipv4Address || null;
   }
   function buildScanEvents(attacker, targetText) {
+    seedSimRng();
     const cfg = attacker.config;
     if (!cfg?.ipv4Address || !cfg?.macAddress) return `${attacker.name}: eth0 has no address.`;
     const dstIp = attackTargetIp(targetText);
@@ -6036,7 +6072,7 @@ Full legal text: https://creativecommons.org/publicdomain/zero/1.0/legalcode</pr
     if (!firstHop) return `nmap: network is unreachable (no link)`;
     const hop = attackNextHop(attacker, dstIp);
     if (!hop) return `nmap: no route to ${dstIp}`;
-    const srcPort = 4e4 + Math.floor(Math.random() * 2e4);
+    const srcPort = simRandomInt(4e4, 6e4);
     const syn = (port, dstMac) => createTcpSegment(cfg.macAddress, dstMac, cfg.ipv4Address, dstIp, srcPort, port, "syn");
     const arpEntry = (cfg.arpTable || []).find((e) => e.ipv4Address === hop.nextHopIp);
     const seed = (frame) => ({ type: "frame_arrive", frame, deviceId: firstHop.peerId, fromDeviceId: attacker.id, linkId: firstHop.linkId });
@@ -15914,6 +15950,21 @@ Snort successfully validated the configuration${bad ? " (with errors)" : "."}`);
     dom.simSpeed.value = String(clamped);
     return ok(`Speed set to ${clamped} ms/hop.`);
   }
+  function cmdSeed(args) {
+    const arg = (args[0] || "").trim().toLowerCase();
+    if (!arg) {
+      const pinned = getSeedOverride();
+      return pinned != null ? ok(`Seed pinned to ${pinned} \u2014 every run reproduces the same traffic. "seed off" to unpin.`) : ok(`Seed follows the clock (each run varies). Last run used ${currentSimSeed()}; "seed ${currentSimSeed()}" reproduces it, or "seed <n>" pins a new one.`);
+    }
+    if (/^(off|clear|none|random|clock)$/.test(arg)) {
+      setSeedOverride(null);
+      return ok("Seed unpinned \u2014 each run reseeds from the clock.");
+    }
+    const n = Number(arg);
+    if (!Number.isInteger(n) || n < 0 || n > 4294967295) return err(`seed: expected a whole number 0\u20134294967295, or "off".`);
+    setSeedOverride(n);
+    return ok(`Seed pinned to ${n} \u2014 runs are now reproducible. "seed off" to unpin.`);
+  }
   function cmdTopology(args) {
     const name = (args[0] || "").toLowerCase();
     if (!["basic", "vlan-roas", "router-mesh", "wifi-vlan"].includes(name)) {
@@ -16137,6 +16188,7 @@ Snort successfully validated the configuration${bad ? " (with errors)" : "."}`);
     step: cmdStep,
     stop: cmdStop,
     speed: cmdSpeed,
+    seed: cmdSeed,
     topology: cmdTopology,
     save: cmdSave,
     load: cmdLoad,
@@ -16204,6 +16256,7 @@ Snort successfully validated the configuration${bad ? " (with errors)" : "."}`);
     step: "advance one hop",
     stop: "stop",
     speed: "speed <ms-per-hop>",
+    seed: "seed [<n>|off] \u2014 pin the run's random seed for reproducible ports/ids (default: clock)",
     topology: "topology basic|vlan-roas|router-mesh|wifi-vlan",
     save: "save <name>",
     load: "load <name>",

@@ -34,6 +34,7 @@ import { SCENARIOS, getScenario, loadScenario, checkScenario } from "./scenarios
 import { SCENARIO_GROUPS } from "./scenario-library";
 import { SPEED_MIN, SPEED_MAX } from "./settings-url";
 import { setSeedOverride, getSeedOverride, currentSimSeed } from "./prng";
+import { parseSnortRule } from "./snort";
 
 export interface CommandResult {
   ok: boolean;
@@ -142,8 +143,10 @@ function cmdLinkSet(args: string[]): CommandResult {
   if (!link) return err(`No link between ${a.name} and ${b.name}.`);
   const attr = (args[2] || "").toLowerCase();
   const value = args.slice(3).join(" "); // names may contain spaces
-  pushUndo();
+  // pushUndo per-branch, AFTER value validation — a rejected linkset must not
+  // push a spurious snapshot (which would also wipe the redo stack).
   if (attr === "name") {
+    pushUndo();
     if (value) link.name = value; else delete link.name;
     sync().syncPanel(); sync().render();
     return ok(value ? `Named link ${a.name} ↔ ${b.name} "${value}".` : `Cleared link name.`);
@@ -152,6 +155,7 @@ function cmdLinkSet(args: string[]): CommandResult {
     const n = Number(value);
     if (!Number.isFinite(n) || n < 0) return err(`linkset: ${attr} must be a non-negative number (0 clears it).`);
     const v = attr === "loss" ? Math.min(100, n) : n;
+    pushUndo();
     if (v > 0) (link as any)[attr] = v; else delete (link as any)[attr];
     sync().syncPanel(); sync().render();
     return ok(`Set ${a.name} ↔ ${b.name} ${attr} to ${v}.`);
@@ -463,19 +467,20 @@ function cmdPorts(args: string[]): CommandResult {
   if (typeof host === "string") return err(host);
   if (!["computer", "laptop", "kali", "server"].includes(host.type)) return err(`${host.name} is not a host (only computers/laptops/servers listen on ports).`);
   const spec = args.slice(1).join(" ").trim();
-  pushUndo();
-  ensureConfig(host);
-  const cfg: any = host.config;
   if (!spec || /^(none|off|clear)$/i.test(spec)) {
-    delete cfg.openPorts;
+    pushUndo();
+    ensureConfig(host);
+    delete (host.config as any).openPorts;
     sync().syncPanel();
     return ok(`${host.name}: listening ports cleared.`);
   }
   const ports = spec.split(/[\s,]+/).filter(Boolean).map(Number);
   if (!ports.every(p => Number.isInteger(p) && p >= 1 && p <= 65535)) return err("ports: each port must be an integer 1–65535.");
-  cfg.openPorts = [...new Set(ports)];
+  pushUndo();   // AFTER validation — a rejected port list must not push undo / wipe redo
+  ensureConfig(host);
+  (host.config as any).openPorts = [...new Set(ports)];
   sync().syncPanel();
-  return ok(`${host.name} listening on ${cfg.openPorts.join(", ")}.`);
+  return ok(`${host.name} listening on ${(host.config as any).openPorts.join(", ")}.`);
 }
 
 // MACsec: set (or clear, with "off") the pre-shared key for the link to a peer.
@@ -590,8 +595,11 @@ function cmdIdsRule(args: string[], rest: string): CommandResult {
   if (ids.type !== "ids") return err(`${ids.name} is not an IDS sensor.`);
   const ruleText = rest.slice(rest.toLowerCase().indexOf(args[0].toLowerCase()) + args[0].length).trim();
   if (!ruleText) return err("Usage: idsrule <ids> <snort rule>  |  idsrule <ids> clear");
+  if (/^(clear|flush)$/i.test(ruleText)) { pushUndo(); ensureConfig(ids); (ids.config as any).idsRules = []; sync().syncPanel(); return ok(`${ids.name}: rules cleared.`); }
+  // Validate the rule BEFORE pushUndo — a bad rule must not push a spurious
+  // snapshot (which would also wipe the redo stack).
+  if (!parseSnortRule(ruleText)) return err(`ERROR: bad rule (expected: alert proto src sport -> dst dport (msg:"..."; sid:N;))`);
   pushUndo();
-  if (/^(clear|flush)$/i.test(ruleText)) { ensureConfig(ids); (ids.config as any).idsRules = []; sync().syncPanel(); return ok(`${ids.name}: rules cleared.`); }
   const result = addIdsRule(ids, ruleText);
   sync().syncPanel();
   return result.startsWith("ERROR") ? err(result) : ok(result);
@@ -672,8 +680,7 @@ function cmdStp(args: string[]): CommandResult {
   if (sub === "on" || sub === "enable") { cfg.stp.enabled = true; return after(`${sw.name}: spanning tree enabled.`); }
   if (sub === "off" || sub === "disable") { cfg.stp.enabled = false; return after(`${sw.name}: spanning tree disabled.`); }
   if (sub === "priority") {
-    const n = Number(args[2]);
-    if (!Number.isInteger(n) || n < 0 || n > 61440 || n % 4096 !== 0) return err("stp priority: an integer 0–61440 in steps of 4096.");
+    const n = Number(args[2]);   // already validated by the up-front guard
     cfg.stp.priority = n;
     return after(`${sw.name}: bridge priority ${n}.`);
   }

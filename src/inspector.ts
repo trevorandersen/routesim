@@ -555,10 +555,11 @@ export function renderMacAddressTable(device: any): string {
 export function bindPortRemoveButtons(): void {
   document.querySelectorAll(".port-remove").forEach(button => {
     button.addEventListener("click", () => {
-      pushUndo();
-      state.links = state.links.filter(link => link.id !== (button as HTMLElement).dataset.linkId);
-      sync().syncPanel();
-      sync().render();
+      // Route through deleteLink (undo + selection clear + recomputeStp) — a bare
+      // state.links filter left spanning tree stale, leaving the survivor of a
+      // redundant loop wrongly blocked until the next run.
+      const id = (button as HTMLElement).dataset.linkId;
+      if (id && deleteLink(id)) sync().render();
     });
   });
 }

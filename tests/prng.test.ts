@@ -7,7 +7,7 @@
 import { describe, it, expect, beforeAll, beforeEach, afterEach } from "bun:test";
 import { state } from "../src/state";
 import { setSeedOverride, getSeedOverride, seedSimRng, currentSimSeed, simRandomInt } from "../src/prng";
-import { buildConnectEvents } from "../src/simulation";
+import { buildConnectEvents, buildResolveEvents } from "../src/simulation";
 import { runConsoleScript, runConsoleCommand as exec } from "../src/commands";
 import { registerNoopCallbacks, resetState } from "./helpers";
 
@@ -99,5 +99,36 @@ describe("the seed command", () => {
     expect(exec("seed banana").ok).toBe(false);
     expect(exec("seed -1").ok).toBe(false);
     expect(getSeedOverride()).toBeNull();          // a rejected seed changes nothing
+  });
+});
+
+describe("prng — DNS transaction id is seeded (reproducible)", () => {
+  beforeEach(() => { resetState(); setSeedOverride(null); });
+
+  function dnsId(setup: any): number | undefined {
+    const frames = [
+      ...setup.events.map((e: any) => e.frame),
+      ...Object.values(setup.pendingArp || {}).flat() as any[],
+    ];
+    const q = frames.find((f: any) => f?.payload?.type === "ipv4" && f.payload.payload?.type === "dns");
+    return q?.payload.payload.id;
+  }
+
+  it("a pinned seed makes an nslookup's transaction id reproducible", () => {
+    runConsoleScript(`
+      add computer PC1 at 0 0
+      add server SRV at 200 0
+      link PC1 SRV
+      ip PC1 192.168.1.10/24
+      ip SRV 192.168.1.53/24
+      nameserver PC1 192.168.1.53
+    `);
+    const pc1 = state.devices.find(d => d.name === "PC1")!;
+    setSeedOverride(2024);
+    const a = dnsId(buildResolveEvents(pc1, "srv.test") as any);
+    setSeedOverride(2024);
+    const b = dnsId(buildResolveEvents(pc1, "srv.test") as any);
+    expect(a).toBeGreaterThanOrEqual(0x1000);
+    expect(b).toBe(a);   // identical run → identical xid (was a session counter before)
   });
 });

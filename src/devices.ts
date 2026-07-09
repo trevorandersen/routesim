@@ -776,7 +776,7 @@ export function routerInterfacesWithNames(router: any): NamedRouterIface[] {
     if (allConfigs.length === 0) {
       allConfigs.push({ peerId: port.peer.id, type, name: "", ipv4Address: "", macAddress: "", arpTable: [], dhcpLeases: [], vlanTag: null });
     }
-    return { peer: port.peer, peerId: port.peer.id, type: allConfigs[0].type || type, configs: allConfigs };
+    return { peer: port.peer, peerId: port.peer.id, type: allConfigs[0].type || type, configs: allConfigs, link: port.link };
   });
   let ethernetIndex = 0;
   let serialIndex = 0;
@@ -797,7 +797,8 @@ export function routerInterfacesWithNames(router: any): NamedRouterIface[] {
           type: entry.type,
           peer: entry.peer ?? null,
           peerId: entry.peerId,
-          config
+          config,
+          link: entry.link
         });
       }
     } else {
@@ -807,7 +808,8 @@ export function routerInterfacesWithNames(router: any): NamedRouterIface[] {
         type: entry.type,
         peer: entry.peer,
         peerId: entry.peerId,
-        config: entry.configs[0]
+        config: entry.configs[0],
+        link: entry.link
       });
     }
   }

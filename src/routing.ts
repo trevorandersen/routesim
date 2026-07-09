@@ -19,7 +19,7 @@ export function buildRoutingTable(router: Device): RouteEntry[] {
   // 1. Connected routes — interfaces with valid IPs and an active peer
   for (const iface of ifaces) {
     const ip = iface.config?.ipv4Address;
-    if (!ip || !isValidIpv4(ip) || !iface.peer) continue;
+    if (!ip || !isValidIpv4(ip) || !iface.peer || iface.link?.shutdown) continue;  // a shut cable carries no routes / RIP
     const network = networkOf(ip, prefixOf(iface.config));
     if (seen.has(network)) continue;
     seen.add(network);
@@ -71,7 +71,7 @@ export function buildRoutingTable(router: Device): RouteEntry[] {
 function internetDefaultGateway(ifaces: NamedRouterIface[]): { gateway: string; ifaceName: string } | null {
   for (const iface of ifaces) {
     const ip = iface.config?.ipv4Address;
-    if (!ip || !isValidIpv4(ip) || iface.peer?.type !== "internet") continue;
+    if (!ip || !isValidIpv4(ip) || iface.peer?.type !== "internet" || iface.link?.shutdown) continue;
     const gateway = internetGatewayIp(ip, prefixOf(iface.config));
     if (gateway) return { gateway, ifaceName: iface.name };
   }
@@ -131,7 +131,7 @@ function buildRipAdvertisements(ifaces: NamedRouterIface[], ripNetworks: string[
   // Connected routes matching RIP networks
   for (const iface of ifaces) {
     const ip = iface.config?.ipv4Address;
-    if (!ip || !isValidIpv4(ip) || !iface.peer) continue;
+    if (!ip || !isValidIpv4(ip) || !iface.peer || iface.link?.shutdown) continue;  // a shut cable carries no routes / RIP
     const network = networkOf(ip, prefixOf(iface.config));
     // `network <cidr>` enables RIP for interfaces whose address that cidr covers.
     const isAdvertised = ripNetworks.some(rn => cidrContains(rn, ip));
@@ -257,7 +257,7 @@ export function runRipConvergence(): { iterations: number; routesExchanged: numb
       // Send advertisements to each RIP-enabled neighbor
       const passiveInterfaces: string[] = rip.passiveInterfaces || [];
       for (const iface of ifaces) {
-        if (!iface.peer || !iface.config?.ipv4Address) continue;
+        if (!iface.peer || !iface.config?.ipv4Address || iface.link?.shutdown) continue;
         if (passiveInterfaces.includes(iface.name)) continue;
 
         const neighbor = getDevice(iface.peer.id);

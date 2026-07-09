@@ -4996,7 +4996,7 @@ Full legal text: https://creativecommons.org/publicdomain/zero/1.0/legalcode</pr
       if (allConfigs.length === 0) {
         allConfigs.push({ peerId: port.peer.id, type, name: "", ipv4Address: "", macAddress: "", arpTable: [], dhcpLeases: [], vlanTag: null });
       }
-      return { peer: port.peer, peerId: port.peer.id, type: allConfigs[0].type || type, configs: allConfigs };
+      return { peer: port.peer, peerId: port.peer.id, type: allConfigs[0].type || type, configs: allConfigs, link: port.link };
     });
     let ethernetIndex = 0;
     let serialIndex = 0;
@@ -5016,7 +5016,8 @@ Full legal text: https://creativecommons.org/publicdomain/zero/1.0/legalcode</pr
             type: entry.type,
             peer: entry.peer ?? null,
             peerId: entry.peerId,
-            config
+            config,
+            link: entry.link
           });
         }
       } else {
@@ -5025,7 +5026,8 @@ Full legal text: https://creativecommons.org/publicdomain/zero/1.0/legalcode</pr
           type: entry.type,
           peer: entry.peer,
           peerId: entry.peerId,
-          config: entry.configs[0]
+          config: entry.configs[0],
+          link: entry.link
         });
       }
     }
@@ -5963,6 +5965,7 @@ Full legal text: https://creativecommons.org/publicdomain/zero/1.0/legalcode</pr
     return setup;
   }
   function buildResolveEvents(source, name, then = null, port = null) {
+    seedSimRng();
     if (!source.config?.ipv4Address) return `${source.name}: eth0 has no IPv4 address.`;
     if (!source.config?.macAddress) return `${source.name}: eth0 has no MAC address.`;
     const dnsIp = source.config?.dnsServerIp;
@@ -5980,12 +5983,13 @@ Full legal text: https://creativecommons.org/publicdomain/zero/1.0/legalcode</pr
     }
     const pendingArp = {};
     const arpEntry = (source.config.arpTable || []).find((e) => e.ipv4Address === nextHopIp);
+    const dnsId = simRandomInt(4096, 65536);
     let initialFrame;
     if (arpEntry) {
-      initialFrame = createDnsQuery(srcMac, arpEntry.macAddress, srcIp, dnsIp, name);
+      initialFrame = createDnsQuery(srcMac, arpEntry.macAddress, srcIp, dnsIp, name, dnsId);
     } else {
       initialFrame = createArpRequest(srcMac, srcIp, nextHopIp, null);
-      pendingArp[`${source.id}:${nextHopIp}`] = [createDnsQuery(srcMac, "00:00:00:00:00:00", srcIp, dnsIp, name)];
+      pendingArp[`${source.id}:${nextHopIp}`] = [createDnsQuery(srcMac, "00:00:00:00:00:00", srcIp, dnsIp, name, dnsId)];
     }
     return {
       events: [{
@@ -6716,7 +6720,7 @@ Full legal text: https://creativecommons.org/publicdomain/zero/1.0/legalcode</pr
     const seen = /* @__PURE__ */ new Set();
     for (const iface of ifaces) {
       const ip = iface.config?.ipv4Address;
-      if (!ip || !isValidIpv4(ip) || !iface.peer) continue;
+      if (!ip || !isValidIpv4(ip) || !iface.peer || iface.link?.shutdown) continue;
       const network = networkOf(ip, prefixOf(iface.config));
       if (seen.has(network)) continue;
       seen.add(network);
@@ -6748,7 +6752,7 @@ Full legal text: https://creativecommons.org/publicdomain/zero/1.0/legalcode</pr
   function internetDefaultGateway(ifaces) {
     for (const iface of ifaces) {
       const ip = iface.config?.ipv4Address;
-      if (!ip || !isValidIpv4(ip) || iface.peer?.type !== "internet") continue;
+      if (!ip || !isValidIpv4(ip) || iface.peer?.type !== "internet" || iface.link?.shutdown) continue;
       const gateway = internetGatewayIp(ip, prefixOf(iface.config));
       if (gateway) return { gateway, ifaceName: iface.name };
     }
@@ -6786,7 +6790,7 @@ Full legal text: https://creativecommons.org/publicdomain/zero/1.0/legalcode</pr
     const advertisements = [];
     for (const iface of ifaces) {
       const ip = iface.config?.ipv4Address;
-      if (!ip || !isValidIpv4(ip) || !iface.peer) continue;
+      if (!ip || !isValidIpv4(ip) || !iface.peer || iface.link?.shutdown) continue;
       const network = networkOf(ip, prefixOf(iface.config));
       const isAdvertised = ripNetworks.some((rn) => cidrContains(rn, ip));
       if (isAdvertised) {
@@ -6868,7 +6872,7 @@ Full legal text: https://creativecommons.org/publicdomain/zero/1.0/legalcode</pr
         const advertisements = buildRipAdvertisements(ifaces, ripNetworks, learnedRoutes);
         const passiveInterfaces = rip.passiveInterfaces || [];
         for (const iface of ifaces) {
-          if (!iface.peer || !iface.config?.ipv4Address) continue;
+          if (!iface.peer || !iface.config?.ipv4Address || iface.link?.shutdown) continue;
           if (passiveInterfaces.includes(iface.name)) continue;
           const neighbor = getDevice(iface.peer.id);
           if (!neighbor || neighbor.type !== "router" || !neighbor.config?.rip?.enabled) continue;
@@ -9028,9 +9032,7 @@ Full legal text: https://creativecommons.org/publicdomain/zero/1.0/legalcode</pr
     return outgoing;
   }
   function generateApipaAddress() {
-    const second = 1 + Math.floor(Math.random() * 254);
-    const fourth = 1 + Math.floor(Math.random() * 254);
-    return `169.254.${second}.${fourth}`;
+    return `169.254.${simRandomInt(1, 255)}.${simRandomInt(1, 255)}`;
   }
   function assignApipa(device) {
     const apipaIp = generateApipaAddress();
@@ -12184,10 +12186,8 @@ Snort successfully validated the configuration${bad ? " (with errors)" : "."}`);
   function bindPortRemoveButtons() {
     document.querySelectorAll(".port-remove").forEach((button) => {
       button.addEventListener("click", () => {
-        pushUndo();
-        state.links = state.links.filter((link) => link.id !== button.dataset.linkId);
-        sync().syncPanel();
-        sync().render();
+        const id = button.dataset.linkId;
+        if (id && deleteLink(id)) sync().render();
       });
     });
   }
@@ -15340,8 +15340,8 @@ Snort successfully validated the configuration${bad ? " (with errors)" : "."}`);
     if (!link) return err(`No link between ${a.name} and ${b.name}.`);
     const attr = (args[2] || "").toLowerCase();
     const value = args.slice(3).join(" ");
-    pushUndo();
     if (attr === "name") {
+      pushUndo();
       if (value) link.name = value;
       else delete link.name;
       sync().syncPanel();
@@ -15352,6 +15352,7 @@ Snort successfully validated the configuration${bad ? " (with errors)" : "."}`);
       const n = Number(value);
       if (!Number.isFinite(n) || n < 0) return err(`linkset: ${attr} must be a non-negative number (0 clears it).`);
       const v = attr === "loss" ? Math.min(100, n) : n;
+      pushUndo();
       if (v > 0) link[attr] = v;
       else delete link[attr];
       sync().syncPanel();
@@ -15634,19 +15635,20 @@ Snort successfully validated the configuration${bad ? " (with errors)" : "."}`);
     if (typeof host === "string") return err(host);
     if (!["computer", "laptop", "kali", "server"].includes(host.type)) return err(`${host.name} is not a host (only computers/laptops/servers listen on ports).`);
     const spec = args.slice(1).join(" ").trim();
-    pushUndo();
-    ensureConfig(host);
-    const cfg = host.config;
     if (!spec || /^(none|off|clear)$/i.test(spec)) {
-      delete cfg.openPorts;
+      pushUndo();
+      ensureConfig(host);
+      delete host.config.openPorts;
       sync().syncPanel();
       return ok(`${host.name}: listening ports cleared.`);
     }
     const ports = spec.split(/[\s,]+/).filter(Boolean).map(Number);
     if (!ports.every((p) => Number.isInteger(p) && p >= 1 && p <= 65535)) return err("ports: each port must be an integer 1\u201365535.");
-    cfg.openPorts = [...new Set(ports)];
+    pushUndo();
+    ensureConfig(host);
+    host.config.openPorts = [...new Set(ports)];
     sync().syncPanel();
-    return ok(`${host.name} listening on ${cfg.openPorts.join(", ")}.`);
+    return ok(`${host.name} listening on ${host.config.openPorts.join(", ")}.`);
   }
   function cmdMacsec(args) {
     const dev = resolveDevice(args[0]);
@@ -15742,13 +15744,15 @@ Snort successfully validated the configuration${bad ? " (with errors)" : "."}`);
     if (ids.type !== "ids") return err(`${ids.name} is not an IDS sensor.`);
     const ruleText = rest.slice(rest.toLowerCase().indexOf(args[0].toLowerCase()) + args[0].length).trim();
     if (!ruleText) return err("Usage: idsrule <ids> <snort rule>  |  idsrule <ids> clear");
-    pushUndo();
     if (/^(clear|flush)$/i.test(ruleText)) {
+      pushUndo();
       ensureConfig(ids);
       ids.config.idsRules = [];
       sync().syncPanel();
       return ok(`${ids.name}: rules cleared.`);
     }
+    if (!parseSnortRule(ruleText)) return err(`ERROR: bad rule (expected: alert proto src sport -> dst dport (msg:"..."; sid:N;))`);
+    pushUndo();
     const result = addIdsRule(ids, ruleText);
     sync().syncPanel();
     return result.startsWith("ERROR") ? err(result) : ok(result);
@@ -15836,7 +15840,6 @@ Snort successfully validated the configuration${bad ? " (with errors)" : "."}`);
     }
     if (sub === "priority") {
       const n = Number(args[2]);
-      if (!Number.isInteger(n) || n < 0 || n > 61440 || n % 4096 !== 0) return err("stp priority: an integer 0\u201361440 in steps of 4096.");
       cfg.stp.priority = n;
       return after(`${sw.name}: bridge priority ${n}.`);
     }

@@ -141,6 +141,7 @@ export interface NamedRouterIface {
   peer: Device | null;
   peerId: string;
   config: Partial<RouterInterface>;
+  link?: Link | null;   // the cable to the peer (so routing/RIP can honour link.shutdown)
 }
 
 export interface RouteEntry {

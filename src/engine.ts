@@ -4,6 +4,7 @@ import { dom } from "./dom";
 import { getDevice, linkedPortsFor, routerInterfacesWithNames, linkName, linkById, linksFor, linkAuthorizedForData, macsecState } from "./devices";
 import { normalisePortVlans, normalisePortModes, normaliseTrunkAllowedVlans, normaliseArpTable, normaliseMacTable, normaliseDhcpLeases, normaliseStaticRoutes, ensureConfig } from "./normalise";
 import { sameSubnet, prefixOf, isValidIpv4, escapeHtml, ipv4ToInt, intToIpv4, normaliseMacAddress, deriveMac, internetGatewayIp } from "./utils";
+import { simRandomInt } from "./prng";
 import { createArpRequest, createArpReply, createIcmpEchoRequest, createIcmpEchoReply, createIcmpTimeExceeded, createIcmpDestUnreachable, icmpOriginalOf, createDhcpOffer, createDhcpRequest, createDhcpAck, createTcpSegment, createHttpRequest, createHttpResponse, createDnsResponse, createDot11Frame, createDot1xFrame, createBpduFrame, BROADCAST_MAC, frameLabel, packetColumns, toneGlyph } from "./frame";
 import { terminalLine, terminalLineFor, sessionFor, syncTerminal, openDock, syncSimLogBadge } from "./terminal";
 import { buildPingEvents, buildResolveEvents, buildDhcpEvents, buildAttackEvents, findPingTarget, hostnameToIp } from "./simulation";
@@ -2064,9 +2065,9 @@ export function processAtFirewall(device: Device, frame: EthernetFrame, fromDevi
 }
 
 function generateApipaAddress(): string {
-  const second = 1 + Math.floor(Math.random() * 254); // 1–254
-  const fourth = 1 + Math.floor(Math.random() * 254); // 1–254
-  return `169.254.${second}.${fourth}`;
+  // Seeded (not Math.random) — an APIPA address is config-visible, so a pinned
+  // seed reproduces the same link-local fallback.
+  return `169.254.${simRandomInt(1, 255)}.${simRandomInt(1, 255)}`;
 }
 
 // Self-assign a link-local 169.254.0.0/16 address (no DHCP, no gateway). Used

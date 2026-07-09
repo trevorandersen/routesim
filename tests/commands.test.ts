@@ -349,3 +349,24 @@ describe("commands — state-changing commands are undoable", () => {
     expect(dev("SW1")).toBeTruthy();
   });
 });
+
+describe("commands — a rejected command pushes no spurious undo entry", () => {
+  beforeEach(reset);
+
+  it("rejected linkset / ports / idsrule leave the undo stack untouched", () => {
+    runConsoleScript(`
+      add computer PC-A at 0 0
+      add switch SW at 100 0
+      add ids IDS at 200 0
+      link PC-A SW
+    `);
+    const id = state.devices.find(d => d.name === "PC-A")!.id;
+    exec("rename PC-A EDGE");                                    // one real, undoable edit
+    expect(exec("linkset PC-A SW bogus 5").ok).toBe(false);      // rejected — no mutation
+    expect(exec("linkset PC-A SW latency abc").ok).toBe(false);  // rejected value
+    expect(exec("ports PC-A 99999").ok).toBe(false);             // rejected value
+    expect(exec("idsrule IDS not a valid rule").ok).toBe(false); // rejected rule
+    undo();                                                      // must revert the rename, not a no-op
+    expect(state.devices.find(d => d.id === id)!.name).toBe("PC-A");
+  });
+});

@@ -79,7 +79,7 @@ describe("setSwitchPortVlan", () => {
 
 | Test file | Covers |
 |-----------|--------|
-| `tests/engine.test.ts` | `processAtComputer/Switch/Router`, routing, sub-interfaces, traceroute, headless runs; RIP learned routes as **derived state** (cleared + recomputed each convergence — a removed link takes its route with it; excluded from the config payload) |
+| `tests/engine.test.ts` | `processAtComputer/Switch/Router`, routing, sub-interfaces, traceroute, headless runs; RIP learned routes as **derived state** (cleared + recomputed each convergence — a removed link takes its route with it; excluded from the config payload); routing + RIP honour link.shutdown (a shut cable drops its connected route and RIP reroutes over the alternate instead of black-holing) |
 | `tests/firewall.test.ts` | Firewall rule matching/evaluation, the iptables CLI, filtering in the sim |
 | `tests/firewall-stateful.test.ts` | The stateful firewall (inline PC1—FW1—SW1—PC2, headless flows): connection tracking (`-m state`/`--ctstate`) and REJECT — an ESTABLISHED,RELATED rule lets the reply back without an inbound rule (allowing only the outbound isn't enough — the reply drops), an outside-initiated NEW is blocked while the inside host still reaches out, `connectionState` classifies the echo NEW and its reply ESTABLISHED, REJECT `--reject-with tcp-reset` refuses a TCP connect with a RST (vs DROP timing out), and the `states`/`--reject-with` JSON config round-trip |
 | `tests/router-role.test.ts` | Router roles: the `border-router` tool variant (a `router` flagged `role:"border"` with a `Border-N` name; the plain `router` tool has no role), the `role <router> border\|internal` console command (set/clear, non-router/bad-value rejection), the JSON config + script-export round-trips, and the normalise keep-valid/drop-bogus rule |
@@ -97,7 +97,7 @@ describe("setSwitchPortVlan", () => {
 | `tests/firstboot.test.ts` | Network boot: cabling/power no longer auto-configures; Play (`startNetworkBoot`) boots unconfigured hosts via animated DHCP → APIPA (rAF-stub harness); the global Auto-DHCP / APIPA toggles |
 | `tests/terminal.test.ts` | Terminal display + mutator helpers (host/router/switch, VLAN, trunk) |
 | `tests/terminal-commands.test.ts` | The command **dispatchers**, router mode machine, abbreviation + `?`, the host inspector-set commands (`ip link set`/`ip route del`/`rm resolv.conf`), `runDeviceCommand` (injected), and the **hostname** commands (host `hostname`/`hostnamectl`/`/etc/hostname`, router `hostname` in config mode, switch `config hostname` — each renames the device, with RFC-1123 validation) |
-| `tests/commands.test.ts` | The console command engine (verbs, headless runs, script round-trip), and the **undo contract** — a representative state-changing command (`unlink`/`rename`/`move`/`mac`) is undone and the state asserted restored; a rejected sub-command adds no spurious undo entry |
+| `tests/commands.test.ts` | The console command engine (verbs, headless runs, script round-trip), and the **undo contract** — a representative state-changing command (`unlink`/`rename`/`move`/`mac`) is undone and the state asserted restored; a rejected sub-command adds no spurious undo entry; a rejected linkset/ports/idsrule pushes no undo either |
 | `tests/simulation.test.ts` | `l2Reachable`, `getVlanForDevice`, `buildPing/DhcpEvents` |
 | `tests/scenarios.test.ts` | Scenario loading/goal checks, positive-coordinate invariants, and the **curriculum solvability** proof (every entry starts unsolved and passes after its reference solution in `SOLUTIONS`) |
 | `tests/io.test.ts` | JSON import/export round-trips |
@@ -116,7 +116,7 @@ describe("setSwitchPortVlan", () => {
 | `tests/ui.test.ts` | `handleGlobalKeydown` (Escape + tool shortcuts), theme registry |
 | `tests/parity.test.ts` | Theme CSS-var parity; ribbon `data-action`/tool/theme-button ↔ code parity |
 | `tests/help.test.ts` | In-app Help → Guide coverage (`src/help.ts`): every user-addable device type has a `DEVICE_DOCS` entry (no gaps, no strays) and every `id="opt…"` Settings-pane toggle scraped from `template.html` has a `SETTING_GROUPS` doc, plus `buildHelpHtml` names every device (via `DEVICE_SPECS` labels) and setting and renders an icon each |
-| `tests/prng.test.ts` | Seeded determinism (`src/prng.ts` + the `seed` command): a pinned seed reseeds to the same stream, different seeds diverge, unpinned reseeds from the clock; end-to-end a pinned seed makes a TCP connect's source port reproducible; the `seed` command pins/reports/clears and rejects bad input |
+| `tests/prng.test.ts` | Seeded determinism (`src/prng.ts` + the `seed` command): a pinned seed reseeds to the same stream, different seeds diverge, unpinned reseeds from the clock; end-to-end a pinned seed makes a TCP connect's source port reproducible; the `seed` command pins/reports/clears and rejects bad input; the DNS transaction id is seeded too (a pinned seed reproduces an nslookup xid) |
 | `tests/utils.test.ts` | Pure helpers |
 | `tests/bench.test.ts` | Hot-path benchmarks with p99 budgets |
 

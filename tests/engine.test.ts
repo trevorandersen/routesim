@@ -825,3 +825,50 @@ describe("runRipConvergence — derived state", () => {
     expect(r1rip.learnedRoutes).toBeUndefined();                              // …derived state does not
   });
 });
+
+// ── Routing honours link.shutdown ─────────────────────────────────────────────
+
+describe("routing + RIP honour link.shutdown", () => {
+  beforeEach(() => resetState());
+  const dev = (name: string) => state.devices.find(d => d.name === name)!;
+
+  function ripPair() {
+    runConsoleScript(`
+      add router R1 at 0 0
+      add router R2 at 200 0
+      add computer PC-B at 400 0
+      link R1 R2
+      link R2 PC-B
+      interface R1 R2 ip 10.0.12.1/30
+      interface R2 R1 ip 10.0.12.2/30
+      interface R2 PC-B ip 192.168.2.1/24
+      cli R1 enable
+      cli R1 configure terminal
+      cli R1 router rip
+      cli R1 network 10.0.12.0/30
+      cli R1 end
+      cli R2 enable
+      cli R2 configure terminal
+      cli R2 router rip
+      cli R2 network 10.0.12.0/30
+      cli R2 network 192.168.2.0/24
+      cli R2 end
+    `);
+  }
+
+  it("drops the shut link's connected route and stops RIP converging over it", () => {
+    ripPair();
+    runRipConvergence();
+    // Baseline: R1 has the connected /30 and learns R2's LAN via RIP.
+    expect(buildRoutingTable(dev("R1")).find(r => r.network === "10.0.12.0/30")?.type).toBe("C");
+    expect(buildRoutingTable(dev("R1")).find(r => r.network === "192.168.2.0/24")?.type).toBe("R");
+
+    // Shut the inter-router link and re-converge.
+    expect(runConsoleScript("shut R1 R2").at(-1)!.ok).toBe(true);
+    runRipConvergence();
+
+    // The connected route is gone, and RIP no longer carries R2's LAN over the shut cable.
+    expect(buildRoutingTable(dev("R1")).find(r => r.network === "10.0.12.0/30")).toBeUndefined();
+    expect(buildRoutingTable(dev("R1")).find(r => r.network === "192.168.2.0/24")).toBeUndefined();
+  });
+});

@@ -332,6 +332,7 @@ export function buildHttpEvents(source: any, targetText: string, port = 80, path
  * lookup (nslookup). The engine handles the response (engine.ts).
  */
 export function buildResolveEvents(source: any, name: string, then: "ping" | "tcp" | "http" | null = null, port: number | null = null): PingSetup | string {
+  seedSimRng();   // reseed the run's PRNG (the DNS transaction id draws from it)
   if (!source.config?.ipv4Address) return `${source.name}: eth0 has no IPv4 address.`;
   if (!source.config?.macAddress) return `${source.name}: eth0 has no MAC address.`;
   const dnsIp = source.config?.dnsServerIp;
@@ -354,12 +355,13 @@ export function buildResolveEvents(source: any, name: string, then: "ping" | "tc
 
   const pendingArp: Record<string, EthernetFrame[]> = {};
   const arpEntry = (source.config.arpTable || []).find((e: any) => e.ipv4Address === nextHopIp);
+  const dnsId = simRandomInt(0x1000, 0x10000);   // seeded xid — reproducible when the seed is pinned (also the PAT flow id)
   let initialFrame: EthernetFrame;
   if (arpEntry) {
-    initialFrame = createDnsQuery(srcMac, arpEntry.macAddress, srcIp, dnsIp, name);
+    initialFrame = createDnsQuery(srcMac, arpEntry.macAddress, srcIp, dnsIp, name, dnsId);
   } else {
     initialFrame = createArpRequest(srcMac, srcIp, nextHopIp, null);
-    pendingArp[`${source.id}:${nextHopIp}`] = [createDnsQuery(srcMac, "00:00:00:00:00:00", srcIp, dnsIp, name)];
+    pendingArp[`${source.id}:${nextHopIp}`] = [createDnsQuery(srcMac, "00:00:00:00:00:00", srcIp, dnsIp, name, dnsId)];
   }
 
   return {

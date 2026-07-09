@@ -1,7 +1,7 @@
 # `src/prng.ts` — the seeded per-run PRNG
 
 The simulation's source of the **ephemeral, protocol-visible random values**:
-TCP source ports, DHCP transaction ids, and attack scan ports. Everything else
+TCP source ports, DHCP and DNS transaction ids, attack scan ports, and APIPA fallback addresses. Everything else
 about a run is already deterministic; these three were the only `Math.random()`
 / `Date.now()` sites, and they leaked run-to-run variation into captures and NAT
 translations.

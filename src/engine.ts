@@ -988,8 +988,12 @@ export function processAtComputer(device: Device, frame: EthernetFrame, fromDevi
         if (dhcp.prefixLength != null) config.prefixLength = dhcp.prefixLength; // subnet-mask option
         config.gatewayIpv4Address = dhcp.gatewayIp || "";
         if (dhcp.dnsServerIp) config.dnsServerIp = dhcp.dnsServerIp; // DNS option (6)
-        // Learn router MAC in ARP table
-        if (dhcp.gatewayIp && frame.srcMac && frame.srcMac !== BROADCAST_MAC) {
+        // Learn router MAC in ARP table — but only when the box that answered
+        // IS the gateway (server==gateway, the usual router-runs-DHCP case). A
+        // standalone DHCP server on a different IP has a different MAC, so
+        // binding it to the gateway IP would poison the client's ARP table;
+        // there, let the client ARP for its gateway on the first off-subnet send.
+        if (dhcp.gatewayIp && dhcp.gatewayIp === dhcp.serverIp && frame.srcMac && frame.srcMac !== BROADCAST_MAC) {
           learnArp(config, dhcp.gatewayIp, frame.srcMac);
         }
         sim.dhcpSuccess = true;

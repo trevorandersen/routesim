@@ -4,8 +4,30 @@ import {
   normalisePortVlans, normalisePortModes, normaliseTrunkAllowedVlans,
   normaliseRouterInterfaces, normaliseDeviceConfig, normaliseConfig,
   defaultDeviceConfig, normaliseConfigName, deviceSize, ensureConfig,
-  memoPortModes, memoPortVlans,
+  memoPortModes, memoPortVlans, normaliseMirror, normaliseRipConfig,
 } from "../src/normalise";
+
+describe("normaliseMirror — canonical Ethernet spelling", () => {
+  it("canonicalises a lowercase dest/source to the exact spelling the engine matches", () => {
+    // The engine compares `Ethernet${idx+1}` === mirror.dest case-sensitively;
+    // a lowercased dest that slipped past the /i regex would silently disable SPAN.
+    const m = normaliseMirror({ name: "MON", dest: "ethernet2", sources: ["ethernet1", "  Ethernet3 "] });
+    expect(m?.dest).toBe("Ethernet2");
+    expect(m?.sources).toEqual(["Ethernet1", "Ethernet3"]);
+  });
+  it("rejects a non-port dest", () => {
+    expect(normaliseMirror({ dest: "wlan0" })).toBeUndefined();
+    expect(normaliseMirror(null)).toBeUndefined();
+  });
+});
+
+describe("normaliseRipConfig — hostile import robustness", () => {
+  it("survives a null entry in learnedRoutes instead of throwing", () => {
+    const rip = normaliseRipConfig({ enabled: true, learnedRoutes: [null, { network: "10.0.0.0/8", nextHop: "10.0.0.1" }] });
+    expect(rip.enabled).toBe(true);
+    expect(rip.learnedRoutes).toEqual([{ network: "10.0.0.0/8", nextHop: "10.0.0.1", interface: undefined, metric: 2 }]);
+  });
+});
 
 describe("memoPortModes / memoPortVlans (read-only render-path cache)", () => {
   it("returns the same shared empty object for null/undefined", () => {

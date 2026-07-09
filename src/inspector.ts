@@ -505,7 +505,10 @@ function bindDnsmasqControls(selected: any): void {
       if (!valid) { event.target.setCustomValidity("Enter comma-separated ports (1–65535)."); return; }
       event.target.setCustomValidity("");
       ensureConfig(selected);
-      selected.config.openPorts = [...new Set(ports)];
+      // Empty field = clear the listener list (accept on any port), NOT an empty
+      // array — an empty openPorts means "listen on nothing" and RSTs everything.
+      if (parts.length === 0) delete (selected.config as any).openPorts;
+      else selected.config.openPorts = [...new Set(ports)];
     });
   }
 }

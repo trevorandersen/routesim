@@ -3398,10 +3398,10 @@ Full legal text: https://creativecommons.org/publicdomain/zero/1.0/legalcode</pr
       networks: Array.isArray(rip.networks) ? rip.networks.map((n) => String(n).trim()).filter(Boolean) : [],
       passiveInterfaces: Array.isArray(rip.passiveInterfaces) ? rip.passiveInterfaces.map((n) => String(n).trim()).filter(Boolean) : [],
       learnedRoutes: Array.isArray(rip.learnedRoutes) ? rip.learnedRoutes.map((r) => ({
-        network: String(r.network || "").trim(),
-        nextHop: String(r.nextHop || "").trim(),
-        interface: r.interface ? String(r.interface).trim() : void 0,
-        metric: Number(r.metric) || 2
+        network: String(r?.network || "").trim(),
+        nextHop: String(r?.nextHop || "").trim(),
+        interface: r?.interface ? String(r.interface).trim() : void 0,
+        metric: Number(r?.metric) || 2
       })).filter((r) => r.network && r.nextHop) : []
     };
   }
@@ -3518,9 +3518,13 @@ Full legal text: https://creativecommons.org/publicdomain/zero/1.0/legalcode</pr
   }
   function normaliseMirror(raw) {
     const r = raw && typeof raw === "object" ? raw : null;
-    const dest = String(r?.dest || "").trim();
-    if (!/^Ethernet\d+$/i.test(dest)) return void 0;
-    const sources = Array.isArray(r?.sources) ? r.sources.map((s) => String(s).trim()).filter((s) => /^Ethernet\d+$/i.test(s)) : [];
+    const canon = (s) => {
+      const m = /^Ethernet(\d+)$/i.exec(String(s ?? "").trim());
+      return m ? `Ethernet${m[1]}` : null;
+    };
+    const dest = canon(r?.dest);
+    if (!dest) return void 0;
+    const sources = Array.isArray(r?.sources) ? r.sources.map(canon).filter(Boolean) : [];
     const name = String(r?.name || "MON").trim() || "MON";
     return { name, dest, ...sources.length ? { sources } : {} };
   }
@@ -8186,7 +8190,7 @@ Full legal text: https://creativecommons.org/publicdomain/zero/1.0/legalcode</pr
           if (dhcp.prefixLength != null) config.prefixLength = dhcp.prefixLength;
           config.gatewayIpv4Address = dhcp.gatewayIp || "";
           if (dhcp.dnsServerIp) config.dnsServerIp = dhcp.dnsServerIp;
-          if (dhcp.gatewayIp && frame.srcMac && frame.srcMac !== BROADCAST_MAC) {
+          if (dhcp.gatewayIp && dhcp.gatewayIp === dhcp.serverIp && frame.srcMac && frame.srcMac !== BROADCAST_MAC) {
             learnArp(config, dhcp.gatewayIp, frame.srcMac);
           }
           sim.dhcpSuccess = true;
@@ -12139,7 +12143,8 @@ Snort successfully validated the configuration${bad ? " (with errors)" : "."}`);
         }
         event.target.setCustomValidity("");
         ensureConfig(selected);
-        selected.config.openPorts = [...new Set(ports)];
+        if (parts.length === 0) delete selected.config.openPorts;
+        else selected.config.openPorts = [...new Set(ports)];
       });
     }
   }

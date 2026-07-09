@@ -631,6 +631,21 @@ describe("processAtComputer", () => {
     expect(gwArp.macAddress).toBe("02:01:00:00:01:01");
   });
 
+  it("does NOT bind the gateway IP to a standalone DHCP server's MAC (no ARP poisoning)", () => {
+    const topo = basicTopology();
+    state.devices = topo.devices as any;
+    state.links = topo.links as any;
+    state.simulation.status = "running";
+    const pc1 = state.devices.find(d => d.id === "pc1")!;
+    // Server 192.168.1.50 (MAC ...:50:50) hands out gateway 192.168.1.1 — a
+    // different box. Its MAC must not be learnt for the gateway IP.
+    const frame = createDhcpAck("02:01:00:00:50:50", "192.168.1.50", "02:00:00:00:01:10", "192.168.1.100", "txn-1", null, undefined, "192.168.1.1");
+    processAtComputer(pc1, frame, "sw1");
+    expect(pc1.config.gatewayIpv4Address).toBe("192.168.1.1");
+    const poisoned = pc1.config.arpTable!.find((e: any) => e.ipv4Address === "192.168.1.1");
+    expect(poisoned).toBeUndefined();     // client will ARP for the real gateway itself
+  });
+
   it("returns empty array when device is powered off", () => {
     const topo = basicTopology();
     state.devices = topo.devices as any;

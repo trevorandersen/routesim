@@ -145,10 +145,10 @@ export function normaliseRipConfig(rip: any): RipConfig {
     networks: Array.isArray(rip.networks) ? rip.networks.map((n: any) => String(n).trim()).filter(Boolean) : [],
     passiveInterfaces: Array.isArray(rip.passiveInterfaces) ? rip.passiveInterfaces.map((n: any) => String(n).trim()).filter(Boolean) : [],
     learnedRoutes: Array.isArray(rip.learnedRoutes) ? rip.learnedRoutes.map((r: any) => ({
-      network: String(r.network || "").trim(),
-      nextHop: String(r.nextHop || "").trim(),
-      interface: r.interface ? String(r.interface).trim() : undefined,
-      metric: Number(r.metric) || 2
+      network: String(r?.network || "").trim(),
+      nextHop: String(r?.nextHop || "").trim(),
+      interface: r?.interface ? String(r.interface).trim() : undefined,
+      metric: Number(r?.metric) || 2
     })).filter((r: any) => r.network && r.nextHop) : []
   };
 }
@@ -300,10 +300,17 @@ export function normaliseStpConfig(raw: unknown): { enabled: boolean; priority?:
 // monitor port is named; sources default to "all" (empty list).
 export function normaliseMirror(raw: unknown): { name: string; dest: string; sources?: string[] } | undefined {
   const r = (raw && typeof raw === "object") ? raw as any : null;
-  const dest = String(r?.dest || "").trim();
-  if (!/^Ethernet\d+$/i.test(dest)) return undefined;
+  // Canonicalise to the exact `Ethernet<n>` spelling the engine matches
+  // case-sensitively (engine.ts) — the regex accepts "ethernet1", but a
+  // lowercased dest would silently never match a port and disable the SPAN.
+  const canon = (s: unknown): string | null => {
+    const m = /^Ethernet(\d+)$/i.exec(String(s ?? "").trim());
+    return m ? `Ethernet${m[1]}` : null;
+  };
+  const dest = canon(r?.dest);
+  if (!dest) return undefined;
   const sources = Array.isArray(r?.sources)
-    ? r.sources.map((s: any) => String(s).trim()).filter((s: string) => /^Ethernet\d+$/i.test(s))
+    ? (r.sources.map(canon).filter(Boolean) as string[])
     : [];
   const name = String(r?.name || "MON").trim() || "MON";
   return { name, dest, ...(sources.length ? { sources } : {}) };

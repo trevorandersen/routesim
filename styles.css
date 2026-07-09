@@ -1991,6 +1991,19 @@
       box-shadow: inset 0 1px rgba(125, 211, 252, 0.35), inset 0 -1px rgba(125, 211, 252, 0.35);
     }
 
+    /* Per-protocol glyph: the colour-blind-safe channel. A fixed-width bold
+       monospace letter (or "✕" for an error) so the category reads by SHAPE,
+       not only by the row tone — inherits the tone colour so it's still red for
+       an error, but the letter carries the meaning on its own. */
+    .pkt-glyph {
+      display: inline-block;
+      width: 1.25em;
+      margin-right: 5px;
+      text-align: center;
+      font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+      font-weight: 800;
+    }
+
     /* Row tones follow the app's protocol colours (text on dark). */
     .pkt-arp        td { color: #fbbf24; }
     .pkt-icmp       td { color: #7dd3fc; }

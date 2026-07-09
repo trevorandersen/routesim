@@ -434,6 +434,20 @@ export function frameLabel(frame: EthernetFrame): string {
   return label;
 }
 
+// A monochrome glyph per packet category — the redundant, colour-blind-safe
+// channel that pairs with `frameColor`/the row tint, so meaning is never carried
+// by colour alone (see the "Perceivable by everyone" principle in CLAUDE.md).
+// Keyed off `packetColumns`' `tone`, so the packet list and the canvas transit
+// dots speak the same language. Errors collapse to "✕" (the protocol still reads
+// in the Protocol/Info columns); the mnemonic letters sit next to the protocol
+// name in the list, so the mapping is self-documenting.
+const TONE_GLYPH: Record<string, string> = {
+  arp: "A", icmp: "I", "icmp-reply": "I", tcp: "T", http: "H",
+  dns: "N", dhcp: "D", stp: "S", dot11: "W", macsec: "K", bad: "✕",
+};
+export function toneGlyph(tone: string): string { return TONE_GLYPH[tone] ?? "•"; }
+export function frameGlyph(frame: EthernetFrame): string { return toneGlyph(packetColumns(frame).tone); }
+
 export function frameColor(frame: EthernetFrame): string {
   if (frame.payload.type === "arp") return "#f59e0b";    // amber
   if (frame.payload.type === "dot11") return "#14b8a6";  // teal (802.11 management)

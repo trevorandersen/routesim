@@ -4,7 +4,8 @@ import {
   createIcmpEchoRequest, createIcmpEchoReply,
   createDhcpDiscover, createDhcpOffer,
   createDhcpRequest, createDhcpAck,
-  frameLabel, frameColor,
+  frameLabel, frameColor, frameGlyph, toneGlyph,
+  createTcpSegment, createIcmpTimeExceeded,
   BROADCAST_MAC,
 } from "../src/frame";
 
@@ -317,5 +318,35 @@ describe("frameColor", () => {
 
   it("returns violet for DHCP frames", () => {
     expect(frameColor(createDhcpDiscover("02:00:00:00:01:10", "txn"))).toBe("#a78bfa");
+  });
+});
+
+// ── Colour-blind-safe glyphs ──────────────────────────────────────────────────
+
+describe("frameGlyph / toneGlyph — the redundant, non-colour channel", () => {
+  const M = "02:00:00:00:01:10";
+
+  it("gives each protocol its own mnemonic glyph, and errors an ✕", () => {
+    expect(frameGlyph(createArpRequest(M, "192.168.1.10", "192.168.1.20"))).toBe("A");
+    expect(frameGlyph(createIcmpEchoRequest(M, M, "192.168.1.10", "192.168.1.20", 64))).toBe("I");
+    expect(frameGlyph(createDhcpDiscover(M, "txn"))).toBe("D");
+    expect(frameGlyph(createTcpSegment(M, M, "192.168.1.10", "192.168.1.20", 1234, 80, "syn"))).toBe("T");
+    // Errors collapse to ✕ regardless of protocol (the Protocol/Info text still reads).
+    expect(frameGlyph(createTcpSegment(M, M, "192.168.1.10", "192.168.1.20", 80, 1234, "rst"))).toBe("✕");
+    expect(frameGlyph(createIcmpTimeExceeded(M, M, "10.0.0.1", "192.168.1.10"))).toBe("✕");
+  });
+
+  it("toneGlyph covers every tone frameColor distinguishes, and falls back for the unknown", () => {
+    for (const tone of ["arp", "icmp", "icmp-reply", "tcp", "http", "dns", "dhcp", "stp", "dot11", "macsec", "bad"]) {
+      expect(toneGlyph(tone).length).toBeGreaterThan(0);
+      expect(toneGlyph(tone)).not.toBe("•");   // a real glyph, not the fallback
+    }
+    expect(toneGlyph("nonsense")).toBe("•");     // graceful fallback
+  });
+
+  it("the glyph pairs with the colour rather than replacing it (both still exist)", () => {
+    const rst = createTcpSegment(M, M, "192.168.1.10", "192.168.1.20", 80, 1234, "rst");
+    expect(frameColor(rst)).toBe("#ef4444");     // still red for sighted users
+    expect(frameGlyph(rst)).toBe("✕");           // and a shape for everyone
   });
 });

@@ -7,7 +7,7 @@ import { getDevice, isVisibleDevice, routerInterfacesWithNames, linkedPortsFor, 
 import { isRootBridge } from "./stp";
 import { memoPortModes } from "./normalise";
 import { getVlanForDevice } from "./simulation";
-import { frameLabel, frameColor } from "./frame";
+import { frameLabel, frameColor, frameGlyph } from "./frame";
 
 const VLAN_COLORS = [
   "#94a3b8",  // VLAN 1 — slate (default, muted)
@@ -29,6 +29,7 @@ const FONT_LABEL = "700 13px Inter, system-ui, sans-serif";
 const FONT_SECONDARY = "600 11px Inter, system-ui, sans-serif";
 const FONT_SMALL = "600 10px Inter, system-ui, sans-serif";
 const FONT_TRANSIT = "bold 10px Inter, system-ui, sans-serif";
+const FONT_TRANSIT_GLYPH = "bold 8px Inter, system-ui, sans-serif";
 
 const canvas = dom.canvas;
 const ctx = dom.ctx;
@@ -543,22 +544,29 @@ function drawFrameTransits(): void {
     // Draw dot
     ctx.fillStyle = color;
     ctx.beginPath();
-    ctx.arc(x, y, 7, 0, Math.PI * 2);
+    ctx.arc(x, y, 8, 0, Math.PI * 2);
     ctx.fill();
 
-    // White inner dot
+    // White core carrying a monochrome per-protocol glyph — the redundant,
+    // colour-blind-safe channel so the dot's category doesn't depend on hue
+    // ("✕" for an error). Matches the packet list's glyph.
     ctx.shadowBlur = 0;
     ctx.fillStyle = "#ffffff";
     ctx.beginPath();
-    ctx.arc(x, y, 3, 0, Math.PI * 2);
+    ctx.arc(x, y, 5, 0, Math.PI * 2);
     ctx.fill();
+    ctx.fillStyle = "#0b1220";
+    ctx.font = FONT_TRANSIT_GLYPH;
+    ctx.textAlign = "center";
+    ctx.textBaseline = "middle";
+    ctx.fillText(frameGlyph(transit.frame), x, y + 0.5);
 
     // Label above
     ctx.fillStyle = color;
     ctx.font = FONT_TRANSIT;
     ctx.textAlign = "center";
     ctx.textBaseline = "bottom";
-    ctx.fillText(label, x, y - 12);
+    ctx.fillText(label, x, y - 13);
 
     ctx.restore();
   }

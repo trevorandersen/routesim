@@ -17,7 +17,12 @@ let override: number | null = null;   // user-pinned seed, or null for the clock
 let currentSeed = 0;                   // the seed the current/last run actually used
 let rng: () => number = mulberry32(1);
 
-function mulberry32(seed: number): () => number {
+/**
+ * The generator itself. Exported so a harness needing its *own* independent
+ * stream (the stress runner) reuses this implementation rather than copying it
+ * — it must not share the module-global `rng`, which every run builder reseeds.
+ */
+export function mulberry32(seed: number): () => number {
   let a = seed >>> 0;
   return function (): number {
     a |= 0; a = (a + 0x6d2b79f5) | 0;

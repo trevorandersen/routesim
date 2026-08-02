@@ -27,6 +27,8 @@ bun test-server.ts                # then open http://localhost:8767/test.html
 
 The command engine includes a dependency-free stress runner that mutates a known built-in topology and checks structural invariants after every action. It uses its own seeded random stream, records every command and result in `CommandResult.data`, and stops at the first thrown error or invalid state.
 
+**It is destructive.** The first action is always `topology basic`, and a default run is 250 actions against an 80-entry undo stack — so running it in the live app discards whatever you had built, unrecoverably. It is a development tool, not a learner-facing command.
+
 Run it from the app's command console to exercise the real DOM/canvas callbacks:
 
 ```

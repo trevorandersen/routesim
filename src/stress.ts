@@ -1,4 +1,5 @@
 import type { AppState, Device } from "./types";
+import { mulberry32 } from "./prng";
 
 export const DEFAULT_STRESS_SEED = 20260706;
 export const DEFAULT_STRESS_STEPS = 250;
@@ -27,16 +28,6 @@ export interface StressReport {
 }
 
 type ExecuteCommand = (command: string) => StressCommandResult;
-
-function seededRandom(seed: number): () => number {
-  let value = seed >>> 0;
-  return () => {
-    value = (value + 0x6d2b79f5) | 0;
-    let mixed = Math.imul(value ^ (value >>> 15), 1 | value);
-    mixed = (mixed + Math.imul(mixed ^ (mixed >>> 7), 61 | mixed)) ^ mixed;
-    return ((mixed ^ (mixed >>> 14)) >>> 0) / 4294967296;
-  };
-}
 
 function pick<T>(values: readonly T[], random: () => number): T {
   return values[Math.floor(random() * values.length)];
@@ -115,7 +106,7 @@ export function runStressTest(
   getState: () => AppState,
   diagnose: (app: AppState) => string[],
 ): StressReport {
-  const random = seededRandom(seed);
+  const random = mulberry32(seed);   // its own stream — the sim reseeds the shared one mid-run
   const actions: StressAction[] = [];
   const issues: string[] = [];
   let rejectedCommands = 0;

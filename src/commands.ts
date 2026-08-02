@@ -1102,7 +1102,7 @@ const HELP: Record<string, string> = {
   list: "list [links]", show: "show <device>", status: "simulation status + last result", log: "hop-by-hop log",
   select: "select <device>", tool: "tool <name>", theme: "theme warm-light|dark|blueprint", zoom: "zoom <scale>", fit: "fit to view",
   scenario: "scenario list | load <id> | goal | check",
-  stress: `stress [seed] [steps] (repeatable mutation and invariant run; max ${MAX_STRESS_STEPS} steps)`,
+  stress: `stress [seed] [steps] — REPLACES your topology and mutates it randomly (dev tool; max ${MAX_STRESS_STEPS} steps, not undoable)`,
   help: "help [command]",
 };
 

@@ -15349,15 +15349,6 @@ Snort successfully validated the configuration${bad ? " (with errors)" : "."}`);
   var DEFAULT_STRESS_SEED = 20260706;
   var DEFAULT_STRESS_STEPS = 250;
   var MAX_STRESS_STEPS = 5e3;
-  function seededRandom(seed) {
-    let value = seed >>> 0;
-    return () => {
-      value = value + 1831565813 | 0;
-      let mixed = Math.imul(value ^ value >>> 15, 1 | value);
-      mixed = mixed + Math.imul(mixed ^ mixed >>> 7, 61 | mixed) ^ mixed;
-      return ((mixed ^ mixed >>> 14) >>> 0) / 4294967296;
-    };
-  }
   function pick(values, random) {
     return values[Math.floor(random() * values.length)];
   }
@@ -15420,7 +15411,7 @@ Snort successfully validated the configuration${bad ? " (with errors)" : "."}`);
     return "topology basic";
   }
   function runStressTest(seed, steps2, execute, getState, diagnose) {
-    const random = seededRandom(seed);
+    const random = mulberry32(seed);
     const actions = [];
     const issues = [];
     let rejectedCommands = 0;
@@ -16531,7 +16522,7 @@ Snort successfully validated the configuration${bad ? " (with errors)" : "."}`);
     zoom: "zoom <scale>",
     fit: "fit to view",
     scenario: "scenario list | load <id> | goal | check",
-    stress: `stress [seed] [steps] (repeatable mutation and invariant run; max ${MAX_STRESS_STEPS} steps)`,
+    stress: `stress [seed] [steps] \u2014 REPLACES your topology and mutates it randomly (dev tool; max ${MAX_STRESS_STEPS} steps, not undoable)`,
     help: "help [command]"
   };
   function runConsoleCommand(line) {

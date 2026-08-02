@@ -121,7 +121,7 @@ Param keys and boolean values are case-insensitive. Adding a setting is a one-ro
 | `save <name>` / `load <name>` | Save/load to the in-memory config store. |
 | `undo` / `redo` | Undo / redo the last change. |
 | `export` | Print the current topology as a reproducible command script. |
-| `stress [seed] [steps]` | Run a repeatable mutation/invariant test from a fresh Basic topology (defaults: seed `20260706`, 250 actions; maximum 5000). The full action log is returned in `data`; failures include a replay command. |
+| `stress [seed] [steps]` | **Destructive dev tool — replaces the current topology and mutates it randomly; the run is far longer than the 80-entry undo stack, so your work is not recoverable.** Runs a repeatable mutation/invariant test from a fresh Basic topology (defaults: seed `20260706`, 250 actions; maximum 5000). The full action log is returned in `data`; failures include a replay command. |
 
 ### Query
 | Command | Effect |

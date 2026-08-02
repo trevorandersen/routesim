@@ -9,6 +9,7 @@ bun test                          # all tests
 bun test tests/engine.test.ts     # one file
 bun test -t "processAtRouter"     # by name pattern
 bun test tests/bench.test.ts      # the benchmark suite (see benchmarking.md)
+bun test tests/stress.test.ts     # deterministic mutation/invariant stress suite
 ```
 
 There is also a browser UI for running tests, served by `test-server.ts`:
@@ -22,6 +23,18 @@ bun test-server.ts                # then open http://localhost:8767/test.html
 - `GET /api/tests` — lists test files and their `describe` blocks (parsed from source).
 - `GET /api/run?file=<f>&pattern=<p>` — runs `bun test` with optional file/pattern filters and returns `{ ok, output, code }` (ANSI-stripped).
 
+## Repeatable stress runs
+
+The command engine includes a dependency-free stress runner that mutates a known built-in topology and checks structural invariants after every action. It uses its own seeded random stream, records every command and result in `CommandResult.data`, and stops at the first thrown error or invalid state.
+
+Run it from the app's command console to exercise the real DOM/canvas callbacks:
+
+```
+stress 20260706 500
+```
+
+Run the same coverage under Bun with `bun test tests/stress.test.ts`. A failure reports the seed, action number, command, and a replay command. The first action is always `topology basic`, so replay does not depend on the current canvas state. Rejected random operations, such as linking an already-connected single-NIC host, are recorded but are not failures.
+
 ## Infrastructure
 
 | File | Purpose |
@@ -30,6 +43,8 @@ bun test-server.ts                # then open http://localhost:8767/test.html
 | `tests/preload.ts` | Stubs browser globals (`document`, `window`, `requestAnimationFrame`) and mocks `dom.ts` so importing DOM-touching modules doesn't crash |
 | `tests/helpers.ts` | `registerNoopCallbacks()` and `resetState()` |
 | `tests/fixtures.ts` | Reusable topologies: `basicTopology`, `routedTopology`, `vlanTopology`, `trunkTopology` |
+| `src/diagnostics.ts` | Read-only model invariants used by stress runs and `routesim.diagnose()` |
+| `src/stress.ts` | Seeded command generator, action log, and fail-fast stress report |
 | `tsconfig.tests.json` | Type-checks `tests/` (plus `src/`) against the strict src types: `bunx tsc --noEmit -p tsconfig.tests.json`. Catches bad imports, wrong signatures, and stale fixture shapes `bun test` wouldn't surface until runtime. Same strict settings as the build (deviating changes inference and yields false positives in `src`), so fixture accesses of optional config fields carry `!`. Part of the "green" check. |
 | `tests/_ambient.d.ts` | Ambient shims (`bun:test`, `fs`/`node:fs`/`node:path`, `import.meta.dir`) so the tests tsc resolves imports **without** npm type packages — the project has no `node_modules`. Deliberately loose: the check guards import/fixture drift, not bun's API internals. |
 
@@ -118,6 +133,8 @@ describe("setSwitchPortVlan", () => {
 | `tests/help.test.ts` | In-app Help → Guide coverage (`src/help.ts`): every user-addable device type has a `DEVICE_DOCS` entry (no gaps, no strays) and every `id="opt…"` Settings-pane toggle scraped from `template.html` has a `SETTING_GROUPS` doc, plus `buildHelpHtml` names every device (via `DEVICE_SPECS` labels) and setting and renders an icon each |
 | `tests/prng.test.ts` | Seeded determinism (`src/prng.ts` + the `seed` command): a pinned seed reseeds to the same stream, different seeds diverge, unpinned reseeds from the clock; end-to-end a pinned seed makes a TCP connect's source port reproducible; the `seed` command pins/reports/clears and rejects bad input; the DNS transaction id is seeded too (a pinned seed reproduces an nslookup xid) |
 | `tests/utils.test.ts` | Pure helpers |
+| `tests/diagnostics.test.ts` | Runtime model invariants: duplicate/dangling ids, stale UI/simulation references, invalid coordinates and animation values |
+| `tests/stress.test.ts` | Seeded command mutation, deterministic replay, failure reporting, bounds, and capped-storm queue cleanup before later topology edits |
 | `tests/bench.test.ts` | Hot-path benchmarks with p99 budgets |
 
 When you change behaviour, extend or add a `tests/*.test.ts` suite. When you add a hot path, add a benchmark too — see [benchmarking.md](benchmarking.md).

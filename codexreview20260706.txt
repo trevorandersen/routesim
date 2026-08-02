@@ -1,0 +1,85 @@
+ROUTESIM CODE REVIEW - 2026-07-06
+
+Scope
+-----
+Reviewed the application architecture, command engine, simulation lifecycle,
+topology loading, Bun test infrastructure, and current testing documentation.
+The project constraint is explicit and preserved: standalone esbuild plus Bun
+only. No Node.js, npm, package.json, node_modules, Python, or browser-test
+dependency is part of this work.
+
+Findings
+--------
+
+[P1] FIXED: Loading a topology retained references from the previous run.
+
+applyConfigWithoutUndo replaced devices and links without first stopping the
+simulation or clearing origin/target/DNS continuation references. A completed
+headless run followed by `topology basic` could therefore leave simulation state
+pointing into the discarded network. The load path now stops the run and clears
+those references before swapping topology data. A regression is in
+tests/commands.test.ts.
+
+[P1] FIXED: Capped broadcast storms retained terminal event queues.
+
+runSimulationHeadless caps a switching loop, but finishSimulation previously
+marked the run done while leaving its remaining events and transits in memory.
+Besides retaining a potentially large frame graph, a later unlink/remove made
+those queues point at deleted links/devices. Seed 42 reproduced this after action
+4614. finishSimulation now clears events, transits, and pending ARP work once the
+result is final. The 5,000-action seed is pinned in tests/stress.test.ts.
+
+[P2] FIXED: The shared test reset did not match the required SimulationState.
+
+tests/helpers.ts omitted stepIndex and cast the incomplete object through any.
+This hid baseline drift between Bun tests and production state. resetState now
+initialises stepIndex, and diagnostics tests consume the common baseline rather
+than repairing it locally.
+
+[P2] IMPROVED: Random interaction sequences were not repeatable or inspectable.
+
+Ad hoc use could expose a glitch without preserving the route to it. The new
+`stress [seed] [steps]` command starts from the Basic topology, applies seeded
+topology/config/view/headless-simulation actions, checks invariants after every
+action, and returns the complete command/result log. A failure includes the seed,
+action, invariant, and replay command. The same runner is covered by Bun and can
+be run in the app so real render/sync callbacks execute.
+
+[P2] OPEN: Automated visual and pointer-gesture coverage remains limited.
+
+The Bun preload intentionally mocks the DOM and has no canvas context. The live
+`stress` command exercises browser callbacks and catches exceptions/model
+corruption, but it does not judge pixels, drag geometry, hit targets, focus,
+resizing, or text overlap. Keep a short browser smoke pass for those behaviours.
+Within the no-extra-runtime constraint, prefer small exported interaction
+helpers and direct Bun tests over introducing a browser automation stack.
+
+[P3] OPEN: Stress action coverage should grow with new command families.
+
+The first version samples topology loading, add/remove/link/unlink, movement,
+host addressing, managed switches, link latency, undo/redo, selection, themes,
+zoom, and headless pings. When a bug is found in another command family, add the
+smallest valid generator action and pin its reproducing seed. Keep protocol
+correctness in focused tests; stress testing is for lifecycle and composition
+faults, not a substitute for assertions about networking semantics.
+
+Recommended automated workflow
+------------------------------
+
+1. Run `bun test` for every change.
+2. Run both existing Bun TypeScript checks documented in CLAUDE.md.
+3. Run `bun test tests/stress.test.ts` for deterministic regression seeds.
+4. Before a release, run `stress 20260706 500` in the app command console so the
+   real DOM/canvas callback path participates.
+5. Record the stress seed and action number in every applicable bug report.
+6. Convert each reproduced defect into a focused unit test; retain a stress seed
+   only when it protects a meaningful multi-step interaction.
+
+Residual risks
+--------------
+
+- Diagnostics validate structural consistency, not packet-protocol correctness.
+- Expected rejected random commands are logged but do not fail a stress run.
+- The in-app runner is synchronous; very large runs can briefly occupy the UI.
+- Visual regressions and true pointer/keyboard event sequences still need a
+  concise manual browser pass or purpose-built Bun-testable interaction helpers.

@@ -51,6 +51,19 @@ describe("commands — topology", () => {
     expect(exec("move Ghost 1 2").ok).toBe(false);
     expect(exec("frobnicate").ok).toBe(false);
   });
+
+  it("loading a topology clears references from the previous simulation", () => {
+    state.simulation.status = "done";
+    state.simulation.headless = true;
+    state.simulation.originDeviceId = "old-device";
+    state.simulation.pingTargetIp = "192.0.2.1";
+
+    expect(exec("topology basic").ok).toBe(true);
+    expect(state.simulation.status).toBe("idle");
+    expect(state.simulation.headless).toBe(false);
+    expect(state.simulation.originDeviceId).toBeNull();
+    expect(state.simulation.pingTargetIp).toBeNull();
+  });
 });
 
 describe("commands — config verbs", () => {

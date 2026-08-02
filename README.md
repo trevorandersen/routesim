@@ -75,6 +75,8 @@ The build uses only esbuild + bun (no Node.js, npm, or Python):
 
 The result, `rs-web.html`, has everything inlined — styles in a `<style>` tag, script in a `<script>` — and makes no network requests. See [docs/build.md](docs/build.md) and [docs/scripting.md](docs/scripting.md) for the JSON import/export.
 
+For repeatable bug hunting, run `bun test tests/stress.test.ts`, or enter `stress 20260706 500` in RouteSim's command console to exercise the same seeded command mutations and invariants through the live UI callbacks. This uses only the existing Bun test/runtime path and adds no dependencies.
+
 ## Module architecture
 
 Modules are organized to keep concerns separate while producing a flat IIFE bundle:
@@ -91,6 +93,7 @@ Modules are organized to keep concerns separate while producing a flat IIFE bund
 | `engine.ts` + `routing.ts` | Frame-level simulation: per-device processors, headless runs, traceroute, routing/RIP |
 | `stp.ts` | Spanning Tree (802.1D): root election, port roles/states, loop-breaking + broadcast-storm detection |
 | `simulation.ts` | Event builders (`buildPingEvents`/`buildConnectEvents`/`buildResolveEvents`/`buildDhcpEvents`), L2 BFS reachability |
+| `diagnostics.ts` + `stress.ts` | Runtime state invariants and deterministic command-mutation stress testing |
 | `terminal/` | Per-device-type CLIs (PC: Linux; server: dnsmasq; router: FRRouting; switch: SONiC; firewall: iptables) |
 | `canvas.ts` | `<canvas>` rendering loop — device icons, link lines, labels, transit dots, grid |
 | `inspector.ts` | Right panel DOM — device details, service config, MAC/ARP table views |

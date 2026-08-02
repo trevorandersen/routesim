@@ -119,6 +119,9 @@ describe("STP — convergence", () => {
     exec("run ping PC1 PC2");
     expect(blockedLinks()).toHaveLength(0);          // nothing blocks → loop open
     expect(state.simulation.stormDetected).toBe(true);
+    expect(state.simulation.events).toEqual([]);
+    expect(state.simulation.transits).toEqual([]);
+    expect(state.simulation.pendingArp).toEqual({});
   });
 
   it("re-converges after a structural change (shutting a forwarding link frees the blocked one)", () => {

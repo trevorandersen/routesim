@@ -13,6 +13,7 @@ import { setupTutorial } from "./tutorial";
 import { runConsoleCommand, runConsoleScript, exportTopologyScript } from "./commands";
 import { syncSimLog } from "./engine";
 import { parseSettingsFromUrl, buildSettingsQuery } from "./settings-url";
+import { diagnoseRuntimeState } from "./diagnostics";
 import * as io from "./io";
 
 // Register the callback bridge so any module can trigger render/syncPanel/etc.
@@ -51,6 +52,7 @@ setupTutorial();
   run: (script: string) => runConsoleScript(script),
   export: () => exportTopologyScript(),
   snapshot: () => ({ devices: state.devices, links: state.links, simulation: state.simulation }),
+  diagnose: () => diagnoseRuntimeState(),
   exportConfig: io.exportConfig, importConfig: io.importConfig,
   exportScenarios: io.exportScenarios, importScenario: io.importScenario,
   exportScript: io.exportScript, importScript: io.importScript,

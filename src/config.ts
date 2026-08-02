@@ -16,6 +16,7 @@ import { DEVICE_TYPES } from "./device-registry";
 import { render, fitNetwork } from "./canvas";
 import { syncPanel } from "./inspector";
 import { syncTerminal } from "./terminal";
+import { stopSimulation } from "./engine";
 import { setTool } from "./ui";
 import { defaultConfig, vlanRoasConfig, routerMeshConfig, wifiVlanConfig } from "./state";
 
@@ -210,6 +211,16 @@ export function applyConfig(config: NormalisedConfig): void {
 }
 
 export function applyConfigWithoutUndo(config: NormalisedConfig): void {
+  // A replacement topology invalidates every queued frame and simulation
+  // reference. Stop the animation loop before swapping its devices and links.
+  stopSimulation();
+  const sim = state.simulation;
+  sim.headless = false;
+  sim.originDeviceId = null;
+  sim.pingTargetIp = null;
+  sim.dnsName = null;
+  sim.dnsResolvedIp = null;
+  sim.resolveThen = null;
   state.devices = config.devices;
   state.links = config.links;
   state.selectedId = config.devices[0]?.id || null;

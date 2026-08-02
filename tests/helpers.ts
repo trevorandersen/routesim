@@ -49,6 +49,7 @@ export function resetState(): void {
     pendingArp: {},
     speed: 1000,
     autoPlay: false,
+    stepIndex: 0,
     stepTimer: null,
     animFrame: null,
     conntrack: {},

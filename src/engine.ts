@@ -2619,6 +2619,12 @@ function finishSimulation(): void {
     }
   }
 
+  // A capped storm can finish with thousands of frames still queued. They are
+  // no longer runnable once the result is final, and retaining them leaves
+  // stale device/link references if the user edits the topology afterwards.
+  sim.events = [];
+  sim.transits = [];
+  sim.pendingArp = {};
   sim.status = "done";
   // Headless runs don't touch the DOM/terminal — the caller renders the result.
   if (sim.headless) return;

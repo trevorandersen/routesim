@@ -9496,6 +9496,9 @@ ${sim.httpServerTitle || ""}`);
         }
       }
     }
+    sim.events = [];
+    sim.transits = [];
+    sim.pendingArp = {};
     sim.status = "done";
     if (sim.headless) return;
     if (!bootRunActive) saveCurrentCapture();
@@ -13971,10 +13974,10 @@ Snort successfully validated the configuration${bad ? " (with errors)" : "."}`);
     sync().syncScenarioPanel();
     return true;
   }
-  function resolve(ref) {
-    const byId = getDevice(ref);
+  function resolve(ref2) {
+    const byId = getDevice(ref2);
     if (byId) return byId;
-    const lower = ref.toLowerCase();
+    const lower = ref2.toLowerCase();
     return state.devices.find((d) => d.name.toLowerCase() === lower);
   }
   function linkExists(aId, bId) {
@@ -15138,6 +15141,14 @@ Snort successfully validated the configuration${bad ? " (with errors)" : "."}`);
     applyConfigWithoutUndo(config);
   }
   function applyConfigWithoutUndo(config) {
+    stopSimulation();
+    const sim = state.simulation;
+    sim.headless = false;
+    sim.originDeviceId = null;
+    sim.pingTargetIp = null;
+    sim.dnsName = null;
+    sim.dnsResolvedIp = null;
+    sim.resolveThen = null;
     state.devices = config.devices;
     state.links = config.links;
     state.selectedId = config.devices[0]?.id || null;
@@ -15266,26 +15277,194 @@ Snort successfully validated the configuration${bad ? " (with errors)" : "."}`);
     return params.toString();
   }
 
+  // src/diagnostics.ts
+  function diagnoseState(app) {
+    const issues = [];
+    const deviceIds = /* @__PURE__ */ new Set();
+    const linkIds = /* @__PURE__ */ new Set();
+    for (const device of app.devices) {
+      if (!device.id) issues.push("A device has an empty id.");
+      else if (deviceIds.has(device.id)) issues.push(`Duplicate device id: ${device.id}.`);
+      deviceIds.add(device.id);
+      if (!Number.isFinite(device.x) || !Number.isFinite(device.y)) {
+        issues.push(`Device ${device.id || "(unknown)"} has non-finite coordinates.`);
+      }
+    }
+    for (const link of app.links) {
+      if (!link.id) issues.push("A link has an empty id.");
+      else if (linkIds.has(link.id)) issues.push(`Duplicate link id: ${link.id}.`);
+      linkIds.add(link.id);
+      if (!deviceIds.has(link.from)) issues.push(`Link ${link.id} has missing endpoint ${link.from}.`);
+      if (!deviceIds.has(link.to)) issues.push(`Link ${link.id} has missing endpoint ${link.to}.`);
+      if (link.from === link.to) issues.push(`Link ${link.id} connects ${link.from} to itself.`);
+    }
+    const checkDeviceRef = (label, id) => {
+      if (id && !deviceIds.has(id)) issues.push(`${label} references missing device ${id}.`);
+    };
+    checkDeviceRef("Selection", app.selectedId);
+    checkDeviceRef("Configuration panel", app.configuringId);
+    checkDeviceRef("Link start", app.linkStartId);
+    checkDeviceRef("Active terminal", app.terminal.deviceId);
+    for (const session of app.terminalSessions) checkDeviceRef("Terminal session", session.deviceId);
+    if (app.selectedLinkId && !linkIds.has(app.selectedLinkId)) {
+      issues.push(`Selection references missing link ${app.selectedLinkId}.`);
+    }
+    if (!Number.isFinite(app.pan.x) || !Number.isFinite(app.pan.y)) {
+      issues.push("Canvas pan contains a non-finite value.");
+    }
+    if (!Number.isFinite(app.scale) || app.scale <= 0) issues.push("Canvas scale is not positive and finite.");
+    const sim = app.simulation;
+    if (sim.status === "running" || sim.status === "paused") {
+      checkDeviceRef("Simulation origin", sim.originDeviceId);
+    }
+    if (!Number.isFinite(sim.speed) || sim.speed <= 0) issues.push("Simulation speed is not positive and finite.");
+    if (!Number.isFinite(sim.stepIndex) || sim.stepIndex < 0) issues.push("Simulation step index is invalid.");
+    for (const event of sim.events) {
+      checkDeviceRef("Queued event target", event.deviceId);
+      checkDeviceRef("Queued event source", event.fromDeviceId);
+      if (event.linkId && !linkIds.has(event.linkId)) issues.push(`Queued event references missing link ${event.linkId}.`);
+    }
+    for (const transit of sim.transits) {
+      checkDeviceRef("Transit source", transit.fromDeviceId);
+      checkDeviceRef("Transit target", transit.toDeviceId);
+      if (!linkIds.has(transit.linkId)) issues.push(`Transit references missing link ${transit.linkId}.`);
+      if (!Number.isFinite(transit.progress) || !Number.isFinite(transit.startTime)) {
+        issues.push(`Transit on ${transit.linkId} has invalid animation values.`);
+      }
+    }
+    if (sim.status === "running" || sim.status === "paused") {
+      for (const capture of sim.capture) {
+        checkDeviceRef("Capture source", capture.fromDeviceId);
+        checkDeviceRef("Capture target", capture.toDeviceId);
+        if (!linkIds.has(capture.linkId)) issues.push(`Capture references missing link ${capture.linkId}.`);
+      }
+    }
+    return [...new Set(issues)];
+  }
+  function diagnoseRuntimeState() {
+    return diagnoseState(state);
+  }
+
+  // src/stress.ts
+  var DEFAULT_STRESS_SEED = 20260706;
+  var DEFAULT_STRESS_STEPS = 250;
+  var MAX_STRESS_STEPS = 5e3;
+  function seededRandom(seed) {
+    let value = seed >>> 0;
+    return () => {
+      value = value + 1831565813 | 0;
+      let mixed = Math.imul(value ^ value >>> 15, 1 | value);
+      mixed = mixed + Math.imul(mixed ^ mixed >>> 7, 61 | mixed) ^ mixed;
+      return ((mixed ^ mixed >>> 14) >>> 0) / 4294967296;
+    };
+  }
+  function pick(values, random) {
+    return values[Math.floor(random() * values.length)];
+  }
+  function integer(random, min, max) {
+    return min + Math.floor(random() * (max - min + 1));
+  }
+  function ref(device) {
+    return /^\S+$/.test(device.name) ? device.name : device.id;
+  }
+  function differentPair(devices, random) {
+    if (devices.length < 2) return null;
+    const firstIndex = integer(random, 0, devices.length - 1);
+    const offset = integer(random, 1, devices.length - 1);
+    return [devices[firstIndex], devices[(firstIndex + offset) % devices.length]];
+  }
+  function nextCommand(app, step, random) {
+    const devices = app.devices.filter((device) => device.type !== "lan");
+    const hosts = devices.filter((device) => device.type === "computer" || device.type === "laptop" || device.type === "kali" || device.type === "server" || device.type === "attacker");
+    const switches = devices.filter((device) => device.type === "switch");
+    const visibleLinks = app.links.filter((link) => !link.hidden);
+    const roll = integer(random, 0, 13);
+    if (roll === 0 && devices.length < 18) {
+      const type = pick(["computer", "server", "switch", "router", "firewall", "hub"], random);
+      return `add ${type} Stress-${step} at ${integer(random, 20, 900)} ${integer(random, 20, 650)}`;
+    }
+    if (roll === 1 && devices.length) {
+      return `move ${ref(pick(devices, random))} ${integer(random, -200, 1200)} ${integer(random, -200, 900)}`;
+    }
+    if (roll === 2) {
+      const pair = differentPair(devices, random);
+      if (pair) return `link ${ref(pair[0])} ${ref(pair[1])}`;
+    }
+    if (roll === 3 && visibleLinks.length) {
+      const link = pick(visibleLinks, random);
+      const from = app.devices.find((device) => device.id === link.from);
+      const to = app.devices.find((device) => device.id === link.to);
+      if (from && to) return `unlink ${ref(from)} ${ref(to)}`;
+    }
+    if (roll === 4 && devices.length > 4) return `remove ${ref(pick(devices, random))}`;
+    if (roll === 5 && hosts.length) {
+      const host = pick(hosts, random);
+      return `ip ${ref(host)} 10.${integer(random, 1, 220)}.${integer(random, 0, 254)}.${integer(random, 1, 254)}/24`;
+    }
+    if (roll === 6 && switches.length) return `managed ${ref(pick(switches, random))} on`;
+    if (roll === 7 && visibleLinks.length) {
+      const link = pick(visibleLinks, random);
+      const from = app.devices.find((device) => device.id === link.from);
+      const to = app.devices.find((device) => device.id === link.to);
+      if (from && to) return `linkset ${ref(from)} ${ref(to)} latency ${integer(random, 0, 250)}`;
+    }
+    if (roll === 8) return random() < 0.55 ? "undo" : "redo";
+    if (roll === 9) return `theme ${pick(["warm-light", "dark", "blueprint"], random)}`;
+    if (roll === 10) return `zoom ${(integer(random, 25, 250) / 100).toFixed(2)}`;
+    if (roll === 11) return `topology ${pick(["basic", "vlan-roas", "router-mesh", "wifi-vlan"], random)}`;
+    if (roll === 12 && devices.length) return `select ${ref(pick(devices, random))}`;
+    if (hosts.length >= 2) {
+      const pair = differentPair(hosts, random);
+      return `run ping ${ref(pair[0])} ${ref(pair[1])}`;
+    }
+    return "topology basic";
+  }
+  function runStressTest(seed, steps2, execute, getState, diagnose) {
+    const random = seededRandom(seed);
+    const actions = [];
+    const issues = [];
+    let rejectedCommands = 0;
+    for (let index = 0; index < steps2; index++) {
+      const command = index === 0 ? "topology basic" : nextCommand(getState(), index + 1, random);
+      const result = execute(command);
+      if (!result.ok) rejectedCommands++;
+      actions.push({ step: index + 1, command, accepted: result.ok, output: [...result.output] });
+      const thrown = result.output.find((line) => line.startsWith("Error:"));
+      if (thrown) issues.push(`Action ${index + 1} (${command}) threw: ${thrown.slice(6).trim()}`);
+      for (const issue of diagnose(getState())) issues.push(`After action ${index + 1} (${command}): ${issue}`);
+      if (issues.length) break;
+    }
+    return {
+      ok: issues.length === 0,
+      seed: seed >>> 0,
+      requestedSteps: steps2,
+      completedSteps: actions.length,
+      rejectedCommands,
+      actions,
+      issues: [...new Set(issues)]
+    };
+  }
+
   // src/commands.ts
   var ok = (...output) => ({ ok: true, output });
   var err = (...output) => ({ ok: false, output });
   var mutatorResult = (msg) => msg.startsWith("Invalid") || msg.startsWith("Unknown") ? err(msg) : ok(msg);
-  function resolveDevice(ref) {
-    if (!ref) return "Missing device reference.";
-    const byId = getDevice(ref);
+  function resolveDevice(ref2) {
+    if (!ref2) return "Missing device reference.";
+    const byId = getDevice(ref2);
     if (byId) return byId;
-    const lower = ref.toLowerCase();
+    const lower = ref2.toLowerCase();
     const matches = state.devices.filter((d) => d.name.toLowerCase() === lower);
     if (matches.length === 1) return matches[0];
-    if (matches.length > 1) return `Ambiguous device "${ref}" (${matches.length} matches).`;
-    return `No device named "${ref}".`;
+    if (matches.length > 1) return `Ambiguous device "${ref2}" (${matches.length} matches).`;
+    return `No device named "${ref2}".`;
   }
   function spawnPosition() {
     const n = state.devices.filter((d) => d.type !== "lan").length;
     return { x: 120 + n % 6 * 130, y: 120 + Math.floor(n / 6) * 120 };
   }
-  function targetIpFor(ref) {
-    return findPingTarget(ref)?.config?.ipv4Address || ref;
+  function targetIpFor(ref2) {
+    return findPingTarget(ref2)?.config?.ipv4Address || ref2;
   }
   function cmdAdd(args) {
     const type = (args[0] || "").toLowerCase();
@@ -16183,6 +16362,38 @@ Snort successfully validated the configuration${bad ? " (with errors)" : "."}`);
     if (args[0] && HELP[args[0].toLowerCase()]) return ok(`${args[0]} \u2014 ${HELP[args[0].toLowerCase()]}`);
     return ok("Commands:", ...Object.keys(COMMANDS).sort().map((v) => `  ${v} \u2014 ${HELP[v] || ""}`));
   }
+  function cmdStress(args) {
+    const seedText = args[0];
+    const stepsText = args[1];
+    if (seedText && !/^\d+$/.test(seedText)) return err("stress: seed must be an unsigned whole number.");
+    if (stepsText && !/^\d+$/.test(stepsText)) return err(`stress: steps must be a whole number from 1 to ${MAX_STRESS_STEPS}.`);
+    if (args.length > 2) return err("stress: expected stress [seed] [steps].");
+    const seed = seedText ? Number(seedText) : DEFAULT_STRESS_SEED;
+    const steps2 = stepsText ? Number(stepsText) : DEFAULT_STRESS_STEPS;
+    if (!Number.isSafeInteger(seed) || seed < 0 || seed > 4294967295) {
+      return err("stress: seed must be between 0 and 4294967295.");
+    }
+    if (!Number.isSafeInteger(steps2) || steps2 < 1 || steps2 > MAX_STRESS_STEPS) {
+      return err(`stress: steps must be a whole number from 1 to ${MAX_STRESS_STEPS}.`);
+    }
+    const report = runStressTest(seed, steps2, runConsoleCommand, () => state, diagnoseState);
+    if (report.ok) {
+      return {
+        ok: true,
+        data: report,
+        output: [`Stress passed: ${report.completedSteps} actions (seed ${report.seed}, ${report.rejectedCommands} expected rejections).`]
+      };
+    }
+    return {
+      ok: false,
+      data: report,
+      output: [
+        `Stress failed after ${report.completedSteps}/${report.requestedSteps} actions (seed ${report.seed}).`,
+        ...report.issues,
+        `Replay with: stress ${report.seed} ${report.requestedSteps}`
+      ]
+    };
+  }
   var COMMANDS = {
     add: cmdAdd,
     remove: cmdRemove,
@@ -16251,6 +16462,7 @@ Snort successfully validated the configuration${bad ? " (with errors)" : "."}`);
     zoom: cmdZoom,
     fit: cmdFit,
     scenario: cmdScenario,
+    stress: cmdStress,
     help: cmdHelp
   };
   var HELP = {
@@ -16319,6 +16531,7 @@ Snort successfully validated the configuration${bad ? " (with errors)" : "."}`);
     zoom: "zoom <scale>",
     fit: "fit to view",
     scenario: "scenario list | load <id> | goal | check",
+    stress: `stress [seed] [steps] (repeatable mutation and invariant run; max ${MAX_STRESS_STEPS} steps)`,
     help: "help [command]"
   };
   function runConsoleCommand(line) {
@@ -16821,6 +17034,7 @@ Snort successfully validated the configuration${bad ? " (with errors)" : "."}`);
     run: (script) => runConsoleScript(script),
     export: () => exportTopologyScript(),
     snapshot: () => ({ devices: state.devices, links: state.links, simulation: state.simulation }),
+    diagnose: () => diagnoseRuntimeState(),
     exportConfig,
     importConfig,
     exportScenarios,

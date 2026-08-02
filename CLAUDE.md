@@ -39,6 +39,7 @@ The project uses only two tools: `esbuild` (bundler) and `bun` (runtime, test ru
 bun test                        # all tests
 bun test tests/engine.test.ts   # specific file
 bun test tests/bench.test.ts    # benchmark suite (p99 budgets in µs)
+bun test tests/stress.test.ts   # deterministic command/invariant stress suite
 bunx tsc --noEmit               # type-check src (the codebase is kept tsc-clean)
 bunx tsc --noEmit -p tsconfig.tests.json   # ALSO type-check the tests
 ```
@@ -144,6 +145,7 @@ fixed enums may be interpolated raw.
 | `settings-url.ts` | URL query-string settings (`parseSettingsFromUrl` applied in `app.ts` on load; `buildSettingsQuery` inverse). One-row registry to add a setting. See `docs/src/settings-url.md`. |
 | `help.ts` | The in-app **Help → Guide** reference: `DEVICE_DOCS` + `SETTING_GROUPS` (single source of truth for user-facing device/settings docs) + `buildHelpHtml`. Coverage enforced by `tests/help.test.ts`. See `docs/src/help.md`. |
 | `prng.ts` | Seeded per-run PRNG (`seedSimRng`/`simRandom`/`simRandomInt`) for the ephemeral protocol-visible randoms; reseeded each run from the clock, or a fixed value pinned by the `seed` console command. See `docs/src/prng.md`. |
+| `diagnostics.ts` / `stress.ts` | Read-only runtime invariants plus a seeded command-mutation runner. Available as `routesim.diagnose()` and `stress [seed] [steps]`; covered by `tests/diagnostics.test.ts` / `tests/stress.test.ts`. See `docs/testing.md`. |
 | `ribbon.ts` | Tabbed ribbon; button clicks are wired by data attribute in `ui.ts`. |
 | `commands.ts` | Text-command engine, pure (no panel UI) — reused by the console, `window.routesim`, and scripts. See `docs/scripting.md`. |
 | `console.ts` | The command console pane; drives `commands.ts`. |

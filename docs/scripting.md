@@ -15,6 +15,7 @@ routesim.exec("add computer PC1 at 100 200")   // run one command → CommandRes
 routesim.run("clear\nadd router R1\n...")       // run a script → CommandResult[]
 routesim.export()                               // current topology as a reproducible script (string)
 routesim.snapshot()                             // { devices, links, simulation } (read-only live refs)
+routesim.diagnose()                             // [] when runtime model invariants hold
 routesim.urlSettings()                          // what the current URL query string would apply (ParsedSettings)
 routesim.settingsQuery()                        // a shareable query string built from the live settings
 ```
@@ -120,6 +121,7 @@ Param keys and boolean values are case-insensitive. Adding a setting is a one-ro
 | `save <name>` / `load <name>` | Save/load to the in-memory config store. |
 | `undo` / `redo` | Undo / redo the last change. |
 | `export` | Print the current topology as a reproducible command script. |
+| `stress [seed] [steps]` | Run a repeatable mutation/invariant test from a fresh Basic topology (defaults: seed `20260706`, 250 actions; maximum 5000). The full action log is returned in `data`; failures include a replay command. |
 
 ### Query
 | Command | Effect |

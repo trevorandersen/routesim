@@ -35,6 +35,8 @@ import { SCENARIO_GROUPS } from "./scenario-library";
 import { SPEED_MIN, SPEED_MAX } from "./settings-url";
 import { setSeedOverride, getSeedOverride, currentSimSeed } from "./prng";
 import { parseSnortRule } from "./snort";
+import { diagnoseState } from "./diagnostics";
+import { DEFAULT_STRESS_SEED, DEFAULT_STRESS_STEPS, MAX_STRESS_STEPS, runStressTest } from "./stress";
 
 export interface CommandResult {
   ok: boolean;
@@ -1005,6 +1007,41 @@ function cmdHelp(args: string[]): CommandResult {
   return ok("Commands:", ...Object.keys(COMMANDS).sort().map(v => `  ${v} — ${HELP[v] || ""}`));
 }
 
+function cmdStress(args: string[]): CommandResult {
+  const seedText = args[0];
+  const stepsText = args[1];
+  if (seedText && !/^\d+$/.test(seedText)) return err("stress: seed must be an unsigned whole number.");
+  if (stepsText && !/^\d+$/.test(stepsText)) return err(`stress: steps must be a whole number from 1 to ${MAX_STRESS_STEPS}.`);
+  if (args.length > 2) return err("stress: expected stress [seed] [steps].");
+
+  const seed = seedText ? Number(seedText) : DEFAULT_STRESS_SEED;
+  const steps = stepsText ? Number(stepsText) : DEFAULT_STRESS_STEPS;
+  if (!Number.isSafeInteger(seed) || seed < 0 || seed > 0xffffffff) {
+    return err("stress: seed must be between 0 and 4294967295.");
+  }
+  if (!Number.isSafeInteger(steps) || steps < 1 || steps > MAX_STRESS_STEPS) {
+    return err(`stress: steps must be a whole number from 1 to ${MAX_STRESS_STEPS}.`);
+  }
+
+  const report = runStressTest(seed, steps, runConsoleCommand, () => state, diagnoseState);
+  if (report.ok) {
+    return {
+      ok: true,
+      data: report,
+      output: [`Stress passed: ${report.completedSteps} actions (seed ${report.seed}, ${report.rejectedCommands} expected rejections).`],
+    };
+  }
+  return {
+    ok: false,
+    data: report,
+    output: [
+      `Stress failed after ${report.completedSteps}/${report.requestedSteps} actions (seed ${report.seed}).`,
+      ...report.issues,
+      `Replay with: stress ${report.seed} ${report.requestedSteps}`,
+    ],
+  };
+}
+
 // ── Registry ─────────────────────────────────────────────────────────────────
 
 type Handler = (args: string[], rest: string) => CommandResult;
@@ -1023,6 +1060,7 @@ const COMMANDS: Record<string, Handler> = {
   list: cmdList, show: cmdShow, status: cmdStatus, log: cmdLog,
   select: cmdSelect, tool: cmdTool, theme: cmdTheme, zoom: cmdZoom, fit: cmdFit,
   scenario: cmdScenario,
+  stress: cmdStress,
   help: cmdHelp,
 };
 
@@ -1064,6 +1102,7 @@ const HELP: Record<string, string> = {
   list: "list [links]", show: "show <device>", status: "simulation status + last result", log: "hop-by-hop log",
   select: "select <device>", tool: "tool <name>", theme: "theme warm-light|dark|blueprint", zoom: "zoom <scale>", fit: "fit to view",
   scenario: "scenario list | load <id> | goal | check",
+  stress: `stress [seed] [steps] (repeatable mutation and invariant run; max ${MAX_STRESS_STEPS} steps)`,
   help: "help [command]",
 };
 

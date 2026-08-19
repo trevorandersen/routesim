@@ -35,6 +35,7 @@ import { SCENARIO_GROUPS } from "./scenario-library";
 import { SPEED_MIN, SPEED_MAX } from "./settings-url";
 import { setSeedOverride, getSeedOverride, currentSimSeed } from "./prng";
 import { parseSnortRule } from "./snort";
+import { tokenizeCommand, quoteArg } from "./tokenize";
 import { diagnoseState } from "./diagnostics";
 import { DEFAULT_STRESS_SEED, DEFAULT_STRESS_STEPS, MAX_STRESS_STEPS, runStressTest } from "./stress";
 
@@ -337,10 +338,10 @@ function cmdPort(args: string[]): CommandResult {
   return err(`port: expected "vlan|mode|native|allowed ...".`);
 }
 
-function cmdCli(args: string[], rest: string): CommandResult {
+function cmdCli(args: string[], _rest: string, tail: (n: number) => string): CommandResult {
   const device = resolveDevice(args[0]);
   if (typeof device === "string") return err(device);
-  const line = rest.slice(args[0].length).trim();
+  const line = tail(1);   // raw source after the device token — a shell line, never re-split
   if (!line) return err(`cli: missing command.`);
   // Attach to (or silently create) the device's terminal session — its CLI
   // mode persists across cli calls, so multi-line vtysh scripts work.
@@ -591,11 +592,11 @@ function cmdMirror(args: string[]): CommandResult {
 }
 
 // Add a Snort rule to an IDS sensor (or `idsrule <ids> clear` to flush).
-function cmdIdsRule(args: string[], rest: string): CommandResult {
+function cmdIdsRule(args: string[], _rest: string, tail: (n: number) => string): CommandResult {
   const ids = resolveDevice(args[0]);
   if (typeof ids === "string") return err(ids);
   if (ids.type !== "ids") return err(`${ids.name} is not an IDS sensor.`);
-  const ruleText = rest.slice(rest.toLowerCase().indexOf(args[0].toLowerCase()) + args[0].length).trim();
+  const ruleText = tail(1);   // raw source after the sensor token — the rule text verbatim
   if (!ruleText) return err("Usage: idsrule <ids> <snort rule>  |  idsrule <ids> clear");
   if (/^(clear|flush)$/i.test(ruleText)) { pushUndo(); ensureConfig(ids); (ids.config as any).idsRules = []; sync().syncPanel(); return ok(`${ids.name}: rules cleared.`); }
   // Validate the rule BEFORE pushUndo — a bad rule must not push a spurious
@@ -1044,7 +1045,7 @@ function cmdStress(args: string[]): CommandResult {
 
 // ── Registry ─────────────────────────────────────────────────────────────────
 
-type Handler = (args: string[], rest: string) => CommandResult;
+type Handler = (args: string[], rest: string, tail: (n: number) => string) => CommandResult;
 
 const COMMANDS: Record<string, Handler> = {
   add: cmdAdd, remove: cmdRemove, delete: cmdRemove, link: cmdLink, unlink: cmdUnlink, linkset: cmdLinkSet,
@@ -1111,13 +1112,17 @@ const HELP: Record<string, string> = {
 export function runConsoleCommand(line: string): CommandResult {
   const trimmed = (line || "").trim();
   if (!trimmed || trimmed.startsWith("#")) return ok();
-  const tokens = trimmed.split(/\s+/);
+  const { args: tokens, ends, error } = tokenizeCommand(trimmed);
+  if (error) return err(error);
+  if (!tokens.length) return ok();
   const verb = tokens[0].toLowerCase();
   const handler = COMMANDS[verb];
   if (!handler) return err(`Unknown command: ${verb}. Try "help".`);
-  const rest = trimmed.slice(tokens[0].length).trim();
+  // Raw source after token `n` — for handlers whose tail is free text (a shell
+  // line, a Snort rule) that must reach them exactly as typed, unsplit.
+  const tail = (n: number) => (n < ends.length ? trimmed.slice(ends[n]).trim() : "");
   try {
-    return handler(tokens.slice(1), rest);
+    return handler(tokens.slice(1), tail(0), tail);
   } catch (e: any) {
     return err(`Error: ${e?.message || String(e)}`);
   }
@@ -1139,84 +1144,86 @@ export function runConsoleScript(text: string): CommandResult[] {
  */
 export function exportTopologyScript(): string {
   const payload: any = buildConfigPayload();
-  const idToName = new Map<string, string>(payload.devices.map((d: any) => [d.id, d.name]));
+  // Names are quoted on the way out so a name containing a space still parses
+  // back into exactly one token (`add computer "My PC" at 0 0`).
+  const idToName = new Map<string, string>(payload.devices.map((d: any) => [d.id, quoteArg(d.name)]));
   const lines: string[] = ["clear"];
 
   for (const d of payload.devices) {
     if (d.type === "lan") continue;
-    lines.push(`add ${d.type} ${d.name} at ${Math.round(d.x)} ${Math.round(d.y)}`);
+    lines.push(`add ${d.type} ${quoteArg(d.name)} at ${Math.round(d.x)} ${Math.round(d.y)}`);
   }
 
   for (const d of payload.devices) {
     const c = d.config || {};
     if (d.type === "computer" || d.type === "laptop" || d.type === "kali" || d.type === "server") {
-      if (c.ipv4Address) lines.push(`ip ${d.name} ${c.ipv4Address}/${prefixOf(c)}`);
-      if (c.gatewayIpv4Address) lines.push(`gateway ${d.name} ${c.gatewayIpv4Address}`);
-      if (c.macAddress) lines.push(`mac ${d.name} ${c.macAddress}`);
-      if (c.dnsServerIp) lines.push(`nameserver ${d.name} ${c.dnsServerIp}`);
-      if (d.type === "laptop" && c.ssid) lines.push(`ssid ${d.name} ${c.ssid}${c.wifiPassword ? ` ${c.wifiPassword}` : ""}`);
+      if (c.ipv4Address) lines.push(`ip ${quoteArg(d.name)} ${c.ipv4Address}/${prefixOf(c)}`);
+      if (c.gatewayIpv4Address) lines.push(`gateway ${quoteArg(d.name)} ${c.gatewayIpv4Address}`);
+      if (c.macAddress) lines.push(`mac ${quoteArg(d.name)} ${c.macAddress}`);
+      if (c.dnsServerIp) lines.push(`nameserver ${quoteArg(d.name)} ${c.dnsServerIp}`);
+      if (d.type === "laptop" && c.ssid) lines.push(`ssid ${quoteArg(d.name)} ${quoteArg(c.ssid)}${c.wifiPassword ? ` ${quoteArg(c.wifiPassword)}` : ""}`);
       // dnsmasq state replays through the server terminal (same as a human would type).
-      for (const r of (c.dnsRecords || [])) lines.push(`cli ${d.name} echo address=/${r.name}/${r.ip} >> /etc/dnsmasq.conf`);
-      if (c.dhcpRangeStart && c.dhcpRangeEnd) lines.push(`cli ${d.name} echo dhcp-range=${c.dhcpRangeStart},${c.dhcpRangeEnd} >> /etc/dnsmasq.conf`);
-      if (c.dhcpRouterIp) lines.push(`cli ${d.name} echo dhcp-option=option:router,${c.dhcpRouterIp} >> /etc/dnsmasq.conf`);
-      if (d.type === "server" && c.dnsmasqRunning === false) lines.push(`cli ${d.name} systemctl stop dnsmasq`);
-      if (c.dot1x?.identity) lines.push(`supplicant ${d.name} ${c.dot1x.identity} ${c.dot1x.password || ""}`.trimEnd());
-      for (const u of (c.radius?.users || [])) lines.push(`radius ${d.name} ${u.identity} ${u.password || ""}`.trimEnd());
-      if (Array.isArray(c.openPorts) && c.openPorts.length) lines.push(`ports ${d.name} ${c.openPorts.join(",")}`);
-      if (c.httpEnabled) lines.push(`web ${d.name} on${c.httpTitle ? ` ${c.httpTitle}` : ""}`);
+      for (const r of (c.dnsRecords || [])) lines.push(`cli ${quoteArg(d.name)} echo address=/${r.name}/${r.ip} >> /etc/dnsmasq.conf`);
+      if (c.dhcpRangeStart && c.dhcpRangeEnd) lines.push(`cli ${quoteArg(d.name)} echo dhcp-range=${c.dhcpRangeStart},${c.dhcpRangeEnd} >> /etc/dnsmasq.conf`);
+      if (c.dhcpRouterIp) lines.push(`cli ${quoteArg(d.name)} echo dhcp-option=option:router,${c.dhcpRouterIp} >> /etc/dnsmasq.conf`);
+      if (d.type === "server" && c.dnsmasqRunning === false) lines.push(`cli ${quoteArg(d.name)} systemctl stop dnsmasq`);
+      if (c.dot1x?.identity) lines.push(`supplicant ${quoteArg(d.name)} ${quoteArg(c.dot1x.identity)} ${c.dot1x.password ? quoteArg(c.dot1x.password) : ""}`.trimEnd());
+      for (const u of (c.radius?.users || [])) lines.push(`radius ${quoteArg(d.name)} ${quoteArg(u.identity)} ${u.password ? quoteArg(u.password) : ""}`.trimEnd());
+      if (Array.isArray(c.openPorts) && c.openPorts.length) lines.push(`ports ${quoteArg(d.name)} ${c.openPorts.join(",")}`);
+      if (c.httpEnabled) lines.push(`web ${quoteArg(d.name)} on${c.httpTitle ? ` ${quoteArg(c.httpTitle)}` : ""}`);
     } else if (d.type === "switch") {
       if (c.managed) {
-        lines.push(`managed ${d.name}`);   // a managed switch needs its management plane on before VLAN/STP config
-        for (const v of (c.vlans || [])) if (v.id !== 1) lines.push(`vlan ${d.name} add ${v.id}`);
-        for (const [port, mode] of Object.entries(c.portModes || {})) lines.push(`port ${d.name} ${port} mode ${mode}`);
-        for (const [port, id] of Object.entries(c.portVlans || {})) lines.push(`port ${d.name} ${port} vlan ${id}`);
-        for (const [port, id] of Object.entries(c.trunkNativeVlans || {})) lines.push(`port ${d.name} ${port} native ${id}`);
+        lines.push(`managed ${quoteArg(d.name)}`);   // a managed switch needs its management plane on before VLAN/STP config
+        for (const v of (c.vlans || [])) if (v.id !== 1) lines.push(`vlan ${quoteArg(d.name)} add ${v.id}`);
+        for (const [port, mode] of Object.entries(c.portModes || {})) lines.push(`port ${quoteArg(d.name)} ${port} mode ${mode}`);
+        for (const [port, id] of Object.entries(c.portVlans || {})) lines.push(`port ${quoteArg(d.name)} ${port} vlan ${id}`);
+        for (const [port, id] of Object.entries(c.trunkNativeVlans || {})) lines.push(`port ${quoteArg(d.name)} ${port} native ${id}`);
         for (const [port, ids] of Object.entries(c.trunkAllowedVlans || {})) {
-          for (const id of (ids as number[])) lines.push(`port ${d.name} ${port} allowed add ${id}`);
+          for (const id of (ids as number[])) lines.push(`port ${quoteArg(d.name)} ${port} allowed add ${id}`);
         }
       }
-      for (const [port, mode] of Object.entries(c.portAuth || {})) lines.push(`portauth ${d.name} ${port} ${mode}`);
+      for (const [port, mode] of Object.entries(c.portAuth || {})) lines.push(`portauth ${quoteArg(d.name)} ${port} ${mode}`);
       // STP is on by default for managed switches — only emit a deviation.
       if (c.managed && c.stp) {
-        if (c.stp.enabled === false) lines.push(`stp ${d.name} off`);
-        if (c.stp.priority != null && c.stp.priority !== DEFAULT_BRIDGE_PRIORITY) lines.push(`stp ${d.name} priority ${c.stp.priority}`);
+        if (c.stp.enabled === false) lines.push(`stp ${quoteArg(d.name)} off`);
+        if (c.stp.priority != null && c.stp.priority !== DEFAULT_BRIDGE_PRIORITY) lines.push(`stp ${quoteArg(d.name)} priority ${c.stp.priority}`);
       }
       // SPAN port mirroring (the IDS link's explicit ports — emitted below — keep the dest valid).
-      if (c.managed && c.mirror?.dest) lines.push(`mirror ${d.name} ${c.mirror.dest}${c.mirror.sources?.length ? " " + c.mirror.sources.join(" ") : ""}`);
+      if (c.managed && c.mirror?.dest) lines.push(`mirror ${quoteArg(d.name)} ${c.mirror.dest}${c.mirror.sources?.length ? " " + c.mirror.sources.join(" ") : ""}`);
     } else if (d.type === "ids") {
       // Reset the default rule set, then re-add the exact local.rules contents.
-      lines.push(`idsrule ${d.name} clear`);
-      for (const rule of (c.idsRules || [])) lines.push(`idsrule ${d.name} ${rule}`);
+      lines.push(`idsrule ${quoteArg(d.name)} clear`);
+      for (const rule of (c.idsRules || [])) lines.push(`idsrule ${quoteArg(d.name)} ${rule}`);
     } else if (d.type === "attacker") {
-      if (c.ipv4Address) lines.push(`ip ${d.name} ${c.ipv4Address}/${prefixOf(c)}`);
-      if (c.gatewayIpv4Address) lines.push(`gateway ${d.name} ${c.gatewayIpv4Address}`);
-      if (c.macAddress) lines.push(`mac ${d.name} ${c.macAddress}`);
-      if (c.dnsServerIp) lines.push(`nameserver ${d.name} ${c.dnsServerIp}`);
-      if (Array.isArray(c.attacks)) lines.push(`redteam ${d.name} attacks ${c.attacks.join(",")}`);
-      if (c.attackTarget) lines.push(`redteam ${d.name} target ${c.attackTarget}`);
-      if (c.spoofIp) lines.push(`redteam ${d.name} spoof ${c.spoofIp}`);
+      if (c.ipv4Address) lines.push(`ip ${quoteArg(d.name)} ${c.ipv4Address}/${prefixOf(c)}`);
+      if (c.gatewayIpv4Address) lines.push(`gateway ${quoteArg(d.name)} ${c.gatewayIpv4Address}`);
+      if (c.macAddress) lines.push(`mac ${quoteArg(d.name)} ${c.macAddress}`);
+      if (c.dnsServerIp) lines.push(`nameserver ${quoteArg(d.name)} ${c.dnsServerIp}`);
+      if (Array.isArray(c.attacks)) lines.push(`redteam ${quoteArg(d.name)} attacks ${c.attacks.join(",")}`);
+      if (c.attackTarget) lines.push(`redteam ${quoteArg(d.name)} target ${c.attackTarget}`);
+      if (c.spoofIp) lines.push(`redteam ${quoteArg(d.name)} spoof ${c.spoofIp}`);
     } else if (d.type === "router") {
-      if (c.role === "border") lines.push(`role ${d.name} border`);
+      if (c.role === "border") lines.push(`role ${quoteArg(d.name)} border`);
       for (const i of (c.interfaces || [])) {
         const peer = idToName.get(i.peerId);
         if (peer && i.ipv4Address) {
-          lines.push(`interface ${d.name} ${peer} ip ${i.ipv4Address}/${prefixOf(i)}${i.vlanTag != null ? ` vlan ${i.vlanTag}` : ""}`);
+          lines.push(`interface ${quoteArg(d.name)} ${peer} ip ${i.ipv4Address}/${prefixOf(i)}${i.vlanTag != null ? ` vlan ${i.vlanTag}` : ""}`);
         }
       }
-      for (const r of (c.staticRoutes || [])) lines.push(`route ${d.name} ${r.network} ${r.nextHop}`);
+      for (const r of (c.staticRoutes || [])) lines.push(`route ${quoteArg(d.name)} ${r.network} ${r.nextHop}`);
       // Static port-forwards replay through the router's config-mode CLI.
       if ((c.portForwards || []).length) {
-        lines.push(`cli ${d.name} enable`, `cli ${d.name} configure terminal`);
-        for (const r of c.portForwards) lines.push(`cli ${d.name} ip nat inside source static tcp ${r.insideIp} ${r.insidePort} ${r.outsideIp} ${r.outsidePort}`);
-        lines.push(`cli ${d.name} end`);
+        lines.push(`cli ${quoteArg(d.name)} enable`, `cli ${quoteArg(d.name)} configure terminal`);
+        for (const r of c.portForwards) lines.push(`cli ${quoteArg(d.name)} ip nat inside source static tcp ${r.insideIp} ${r.insidePort} ${r.outsideIp} ${r.outsidePort}`);
+        lines.push(`cli ${quoteArg(d.name)} end`);
       }
     } else if (d.type === "access-point" && c.ssid) {
-      lines.push(`ssid ${d.name} ${c.ssid}${c.wifiPassword ? ` ${c.wifiPassword}` : ""}`);
+      lines.push(`ssid ${quoteArg(d.name)} ${quoteArg(c.ssid)}${c.wifiPassword ? ` ${quoteArg(c.wifiPassword)}` : ""}`);
     }
     // MACsec keys (any device, keyed by peer) — each end emits its own.
     for (const [peerId, m] of Object.entries((c.macsec || {}) as Record<string, any>)) {
       const peer = idToName.get(peerId);
-      if (peer) lines.push(`macsec ${d.name} ${peer} ${m.derive ? "dot1x" : m.cak} ${m.mode}`);
+      if (peer) lines.push(`macsec ${quoteArg(d.name)} ${peer} ${m.derive ? "dot1x" : m.cak} ${m.mode}`);
     }
   }
 
@@ -1226,7 +1233,7 @@ export function exportTopologyScript(): string {
     const ports = (l.fromPort != null || l.toPort != null) ? ` ${l.fromPort ?? 1} ${l.toPort ?? 1}` : "";
     lines.push(`link ${f} ${t}${ports}`);
     if (l.shutdown) lines.push(`shut ${f} ${t}`);
-    if (l.name) lines.push(`linkset ${f} ${t} name ${l.name}`);
+    if (l.name) lines.push(`linkset ${f} ${t} name ${quoteArg(l.name)}`);
     if (l.bandwidth) lines.push(`linkset ${f} ${t} bandwidth ${l.bandwidth}`);
     if (l.latency) lines.push(`linkset ${f} ${t} latency ${l.latency}`);
     if (l.loss) lines.push(`linkset ${f} ${t} loss ${l.loss}`);

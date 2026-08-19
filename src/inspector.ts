@@ -7,7 +7,7 @@ import { ensureConfig, normaliseVlans, normaliseDnsRecords, normaliseDhcpLeases,
 import {
   getDevice, isVisibleDevice, connectedIds, linkedPortsFor, linksFor, wifiLinkAuthenticated,
   routerInterfacesWithNames, routerInterfaceFor, routerInterfaceForName, switchInterfacesWithNames,
-  deleteSelection, deleteLink, collapseLan, expandLan, configureDevice, hasHostname
+  deleteSelection, deleteLink, collapseLan, expandLan, configureDevice, hasHostname, applyHostname
 } from "./devices";
 import {
   openTerminalFor, syncTerminal, runDeviceCommand, openDock,
@@ -1225,13 +1225,37 @@ export function syncPanel(): void {
     `;
 
     const nameInput = document.getElementById("selectedName") as HTMLInputElement;
-    captureUndoOnFocus(nameInput);
-    nameInput.addEventListener("input", (event: any) => {
-      selected.name = event.target.value || selected.name;
-      syncDeviceList();
-      syncTerminal();
-      sync().render();
-    });
+    if (hasHostname(selected)) {
+      // For these types the field is labelled Hostname and the name IS the
+      // hostname — the terminal prompt, the DNS auto-zone, the script export —
+      // so it must satisfy the same RFC-1123 rule the CLIs enforce rather than
+      // accept free text. Commit on change/Enter like the other device fields
+      // (validating each keystroke would reject every prefix of a valid name),
+      // and route through applyHostname so the CLI and the panel agree.
+      // No captureUndoOnFocus here: applyHostname pushes undo itself, and
+      // pairing the two would stack a second entry on every rename.
+      nameInput.addEventListener("change", () => {
+        const problem = applyHostname(selected, nameInput.value);
+        if (problem) {
+          nameInput.setCustomValidity(problem);
+          nameInput.reportValidity();
+          nameInput.value = selected.name;      // revert to the device's actual name
+          return;
+        }
+        nameInput.setCustomValidity("");
+      });
+      nameInput.addEventListener("keydown", (event: any) => { if (event.key === "Enter") nameInput.blur(); });
+    } else {
+      // Everything else (LAN, hub, unmanaged switch, AP, cloud) keeps a plain
+      // label with no hostname semantics, so free text stays fine.
+      captureUndoOnFocus(nameInput);
+      nameInput.addEventListener("input", (event: any) => {
+        selected.name = event.target.value || selected.name;
+        syncDeviceList();
+        syncTerminal();
+        sync().render();
+      });
+    }
     // Static assignments drive the host's CLI: each committed field (on blur /
     // Enter) runs the matching command in the device's terminal, flagged as
     // simulator-issued. No client-side clipping — an invalid value runs the

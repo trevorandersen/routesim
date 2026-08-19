@@ -1,6 +1,7 @@
 import { describe, it, expect, beforeAll, beforeEach } from "bun:test";
 import { state } from "../src/state";
-import { addDevice, addLink, deleteLink, deleteSelection, clearNetwork, findDeviceAt, getDevice, connectedIds, linkedPortsFor, linkById, routerInterfaceFor, routerInterfaceForName, routerInterfacesWithNames, placeToolDevice, PLACEMENT_TOOLS } from "../src/devices";
+import { addDevice, addLink, deleteLink, deleteSelection, clearNetwork, findDeviceAt, getDevice, connectedIds, linkedPortsFor, linkById, routerInterfaceFor, routerInterfaceForName, routerInterfacesWithNames, placeToolDevice, PLACEMENT_TOOLS, applyHostname, hasHostname } from "../src/devices";
+import { undo } from "../src/state";
 import { freshNameCounters } from "../src/device-registry";
 import { registerNoopCallbacks, resetState } from "./helpers";
 
@@ -359,5 +360,49 @@ describe("findDeviceAt", () => {
     // Far away from the device
     const found = findDeviceAt({ x: 9999, y: 9999 });
     expect(found).toBeNull();
+  });
+});
+
+/**
+ * The shared hostname setter. The inspector's name field routes through this
+ * for `hasHostname` types — it used to assign device.name directly, so the
+ * field labelled "Hostname" accepted anything (spaces, empty, 300 chars) while
+ * the CLIs enforced RFC-1123.
+ */
+describe("applyHostname", () => {
+  beforeEach(() => resetState());
+
+  it("accepts a valid label and renames the device", () => {
+    const pc = addDevice("computer", 0, 0);
+    expect(applyHostname(pc, " Web-01 ")).toBeNull();    // trimmed
+    expect(pc.name).toBe("Web-01");
+  });
+
+  it("rejects an invalid hostname and leaves the device untouched", () => {
+    const pc = addDevice("computer", 0, 0);
+    const before = pc.name;
+    for (const bad of ["My PC", "", "-lead", "trail-", "a".repeat(64), "under_score"]) {
+      const problem = applyHostname(pc, bad);
+      expect(problem).toBeTruthy();
+      expect(pc.name).toBe(before);                      // no partial application
+    }
+  });
+
+  it("pushes exactly one undo entry per rename", () => {
+    const pc = addDevice("computer", 0, 0);
+    const original = pc.name;
+    applyHostname(pc, "Renamed-01");
+    expect(pc.name).toBe("Renamed-01");
+    undo();
+    expect(getDevice(pc.id)!.name).toBe(original);       // one undo suffices
+  });
+
+  it("marks the types whose name is a hostname", () => {
+    const sw = addDevice("switch", 0, 0);
+    expect(hasHostname(addDevice("computer", 50, 0))).toBe(true);
+    expect(hasHostname(addDevice("router", 100, 0))).toBe(true);
+    expect(hasHostname(sw)).toBe(false);                 // unmanaged switch: plain name
+    sw.config!.managed = true;
+    expect(hasHostname(sw)).toBe(true);                  // managed switch has a CLI
   });
 });

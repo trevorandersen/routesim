@@ -383,3 +383,59 @@ describe("commands — a rejected command pushes no spurious undo entry", () => 
     expect(state.devices.find(d => d.id === id)!.name).toBe("PC-A");
   });
 });
+
+describe("commands — quoted values with spaces survive the script round-trip", () => {
+  beforeEach(() => resetState());
+
+  it("parses a quoted device name, SSID, password, and link name", () => {
+    runConsoleScript(`
+      add computer "My PC" at 0 0
+      add access-point AP1 at 100 0
+      ip "My PC" 10.0.0.5/24
+      ssid AP1 "Guest WiFi" "pass phrase"
+      link "My PC" AP1
+      linkset "My PC" AP1 name "Back haul"
+    `);
+    const ap = state.devices.find(d => d.name === "AP1")!;
+    expect(state.devices.map(d => d.name)).toContain("My PC");
+    expect(ap.config.ssid).toBe("Guest WiFi");
+    expect(ap.config.wifiPassword).toBe("pass phrase");   // args[2], not a trailing join
+    expect(state.links[0].name).toBe("Back haul");
+  });
+
+  it("exports them quoted, so replaying the script rebuilds the same topology", () => {
+    runConsoleScript(`
+      add computer "My PC" at 0 0
+      add access-point AP1 at 100 0
+      ssid AP1 "Guest WiFi" "pass phrase"
+      link "My PC" AP1
+      linkset "My PC" AP1 name "Back haul"
+    `);
+    const script = exportTopologyScript();
+    expect(script).toContain('add computer "My PC" at 0 0');
+    expect(script).toContain('ssid AP1 "Guest WiFi" "pass phrase"');
+
+    resetState();
+    runConsoleScript(script);
+    const ap = state.devices.find(d => d.name === "AP1")!;
+    expect(state.devices.map(d => d.name).sort()).toEqual(["AP1", "My PC"]);
+    expect(ap.config.ssid).toBe("Guest WiFi");
+    expect(ap.config.wifiPassword).toBe("pass phrase");
+    expect(state.links[0].name).toBe("Back haul");
+  });
+
+  it("delivers a free-text tail verbatim even when the device is quoted", () => {
+    runConsoleScript(`add ids "My IDS" at 0 0`);
+    const rule = 'alert tcp any any -> any 80 (msg:"web hit"; sid:100;)';
+    expect(exec(`idsrule "My IDS" ${rule}`).ok).toBe(true);
+    const ids = state.devices.find(d => d.name === "My IDS")!;
+    expect((ids.config as any).idsRules).toContain(rule);   // quotes inside the rule survive
+  });
+
+  it("rejects an unterminated quote instead of guessing", () => {
+    const r = exec('add computer "My PC');
+    expect(r.ok).toBe(false);
+    expect(r.output.join(" ")).toContain("Unterminated");
+    expect(state.devices).toHaveLength(0);
+  });
+});

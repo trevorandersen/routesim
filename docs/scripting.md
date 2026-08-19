@@ -123,6 +123,25 @@ Param keys and boolean values are case-insensitive. Adding a setting is a one-ro
 | `export` | Print the current topology as a reproducible command script. |
 | `stress [seed] [steps]` | **Destructive dev tool — replaces the current topology and mutates it randomly; the run is far longer than the 80-entry undo stack, so your work is not recoverable.** Runs a repeatable mutation/invariant test from a fresh Basic topology (defaults: seed `20260706`, 250 actions; maximum 5000). The full action log is returned in `data`; failures include a replay command. |
 
+### Quoting
+
+Arguments split on whitespace, so a value containing a space must be quoted:
+
+```
+add computer "My PC" at 0 0
+ssid AP1 "Guest WiFi" "pass phrase"
+linkset "My PC" AP1 name "Back haul"
+```
+
+`"…"` and `'…'` both group one argument; inside double quotes `\"` and `\\`
+escape. An unterminated quote is rejected with an error rather than silently
+truncated. `exportTopologyScript()` applies the inverse (`quoteArg`), quoting
+any value that would not survive bare — so a topology using such names exports
+to a script that replays into exactly the same topology. Free-text tails (`cli
+<device> <shell line>`, `idsrule <ids> <snort rule>`) are taken raw from the
+source after the device argument, so quotes *inside* a Snort rule reach it
+untouched.
+
 ### Query
 | Command | Effect |
 |---------|--------|

@@ -28,3 +28,8 @@ Defensive normalisation for every config shape. Whenever config enters the app f
 
 - Normalisers accept untrusted `unknown` input and always return a valid shape — they never throw on bad data, they coerce or drop it.
 - `ensureConfig` is the canonical "make sure config exists" helper; prefer it over inline `device.config = device.config || defaultDeviceConfig(...)`.
+
+
+## Link port numbers
+
+`fromPort`/`toPort` pass through **`normalisePortNumber`** (utils.ts): a finite positive integer within `[1, MAX_PHYSICAL_PORT]`, else the field is dropped so the link auto-assigns. Previously a bare `Number()` accepted `"Infinity"` (and any huge finite value), which sent `linkedPortsFor`'s sparse-array fill into an unbounded loop the first time the topology rendered. A **second claim on the same physical port of one device** is also dropped to auto-assign rather than silently overwriting the earlier entry in the port view.

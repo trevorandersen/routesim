@@ -109,7 +109,7 @@ app.ts (entry)
 Two registration patterns break circular dependencies:
 
 - **`registerCallbacks()`** in `state.ts` — provides `render`, `syncPanel`, `syncTerminal`, `resizeCanvas` to any module via `sync()`.
-- **`registerDeviceCallbacks()`** in `devices.ts` — provides `setTool`, `setNetworkPanel`, `linkUp` (first-boot autoconf when a cable comes up), and `openTerminal` (configure auto-opens a CLI device's terminal, gated by `canOpenTerminal`) so devices.ts can trigger UI/engine work without importing ui.ts/engine.ts/terminal/.
+- **`registerDeviceCallbacks()`** in `devices.ts` — provides `setTool`, `setNetworkPanel`, `linkUp` (first-boot autoconf when a cable comes up), `openTerminal` (configure auto-opens a CLI device's terminal, gated by `canOpenTerminal`), and `stopSimulation` (`clearNetwork` tears down an active run *before* deleting the topology it references — the same stop-before-replace order `applyConfigWithoutUndo` follows) so devices.ts can trigger UI/engine work without importing ui.ts/engine.ts/terminal/.
 
 Both are wired in `app.ts` at startup.
 

@@ -110,6 +110,23 @@ export function isValidHostname(value: string): boolean {
   return /^[A-Za-z0-9](?:[A-Za-z0-9-]{0,61}[A-Za-z0-9])?$/.test(value);
 }
 
+/**
+ * Hard sanity ceiling on any physical port NUMBER (not count) accepted from
+ * config JSON or a command. The largest device cap is 24 ports; this is a
+ * generous bound above every real cap. Without it, `linkedPortsFor` grows a
+ * sparse array up to the requested index — an imported `"fromPort":"Infinity"`
+ * (which `Number()` happily accepts) never terminates, and a large finite value
+ * exhausts memory. A port outside [1, MAX] is treated as "no explicit port".
+ */
+export const MAX_PHYSICAL_PORT = 64;
+
+/** A finite positive integer within [1, MAX_PHYSICAL_PORT], else undefined. */
+export function normalisePortNumber(value: unknown): number | undefined {
+  if (value == null || value === "") return undefined;
+  const n = Number(value);
+  return Number.isInteger(n) && n >= 1 && n <= MAX_PHYSICAL_PORT ? n : undefined;
+}
+
 export function clampPortCount(value: any): number {
   const portCount = Number(value);
   if (!Number.isInteger(portCount)) return 8;

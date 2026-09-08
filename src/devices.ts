@@ -2,7 +2,7 @@ import type { PortOption, Device, Link, DeviceType, DeviceConfig, NamedRouterIfa
 import { state, sync, pushUndo, networkSnapshot, dropTerminalSessions, resetCaptureState } from "./state";
 import { dom } from "./dom";
 import { deviceSize, defaultDeviceConfig, ensureConfig, normaliseRouterInterfaces, normalisePortVlans, normalisePortModes } from "./normalise";
-import { clampPortCount, clampApPortCount, clampRouterPortCount, escapeHtml, randomMac, isValidHostname } from "./utils";
+import { clampPortCount, clampApPortCount, clampRouterPortCount, escapeHtml, randomMac, isValidHostname, MAX_PHYSICAL_PORT } from "./utils";
 import { DEVICE_SPECS, freshNameCounters } from "./device-registry";
 
 // CLI devices carry a hostname — it's their canvas name, prompt, and the name
@@ -321,7 +321,7 @@ function portTaken(deviceId: string, port: number): boolean {
 // already-occupied console-supplied port from landing two links on the same
 // slot (the second would overwrite the first in linkedPortsFor and orphan it).
 function resolvePort(deviceId: string, requested: number | undefined): number {
-  if (requested != null && Number.isInteger(requested) && requested >= 1 && !portTaken(deviceId, requested)) {
+  if (requested != null && Number.isInteger(requested) && requested >= 1 && requested <= MAX_PHYSICAL_PORT && !portTaken(deviceId, requested)) {
     return requested;
   }
   return nextAvailablePort(deviceId);
@@ -380,10 +380,16 @@ export function deleteSelection(): void {
 }
 
 export function clearNetwork(): void {
+  // Tear down any active run BEFORE the topology it references disappears —
+  // the same stop-before-replace order applyConfigWithoutUndo follows. Without
+  // it the animation loop kept running against deleted devices (status stuck
+  // on "running", a transit pointing at a missing link).
+  _stopSimulation?.();
   if (state.devices.length || state.links.length) pushUndo();
   state.devices = [];
   state.links = [];
   state.selectedId = null;
+  state.selectedLinkId = null;
   state.configuringId = null;
   state.linkStartId = null;
   state.panDrag = null;
@@ -530,11 +536,14 @@ export function linkedPortsFor(id: string): any[] {
     .filter(link => !link.hidden)
     .map(link => {
       const isFrom = link.from === id;
-      const portNum = isFrom ? link.fromPort : link.toPort;
+      const raw = isFrom ? link.fromPort : link.toPort;
+      // Defensive bound (normalise + resolvePort already enforce it): an
+      // out-of-range port is treated as implicit rather than grown to.
+      const portNum = Number.isInteger(raw) && (raw as number) >= 1 && (raw as number) <= MAX_PHYSICAL_PORT ? (raw as number) : 0;
       return {
         link,
         peer: getDevice(isFrom ? link.to : link.from),
-        portNum: portNum || 0
+        portNum
       };
     })
     .filter(port => isVisibleDevice(port.peer));
@@ -1027,17 +1036,20 @@ let _setTool: ((tool: string) => void) | null = null;
 let _setNetworkPanel: ((open: boolean) => void) | null = null;
 let _linkUp: ((aId: string, bId: string) => void) | null = null;
 let _openTerminal: ((device: Device) => void) | null = null;
+let _stopSimulation: (() => void) | null = null;
 
 export function registerDeviceCallbacks(cbs: {
   setTool: (tool: string) => void;
   setNetworkPanel: (open: boolean) => void;
   linkUp?: (aId: string, bId: string) => void;   // fires when a new cable comes up (first-boot autoconf)
   openTerminal?: (device: Device) => void;        // configuring a CLI device opens its terminal
+  stopSimulation?: () => void;                    // clearNetwork tears down an active run first (engine-owned; bridged to avoid the devices→engine cycle)
 }) {
   _setTool = cbs.setTool;
   _setNetworkPanel = cbs.setNetworkPanel;
   _linkUp = cbs.linkUp ?? null;
   _openTerminal = cbs.openTerminal ?? null;
+  _stopSimulation = cbs.stopSimulation ?? null;
 }
 
 export function configureDevice(device: Device): void {

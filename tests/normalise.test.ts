@@ -447,3 +447,38 @@ describe("ensureConfig", () => {
     expect(device.config.ipv4Address).toBe("10.0.0.1");
   });
 });
+
+describe("normaliseConfig — link port numbers are bounded and unique (F01)", () => {
+  const two = (fromPort: unknown, toPort?: unknown) => normaliseConfig({
+    devices: [
+      { id: "a", type: "switch", name: "A", x: 0, y: 0, config: {} },
+      { id: "b", type: "switch", name: "B", x: 100, y: 0, config: {} },
+    ],
+    links: [{ from: "a", to: "b", fromPort, toPort }],
+  } as any).links[0];
+
+  it("drops a non-finite, fractional, non-positive, or oversized port to auto-assign", () => {
+    // "Infinity" survived Number() and sent linkedPortsFor into an unbounded
+    // allocation loop; a huge finite value exhausted memory the same way.
+    for (const bad of ["Infinity", Infinity, NaN, 1.5, 0, -3, 1e9, "abc"]) {
+      expect(two(bad).fromPort).toBeUndefined();
+    }
+  });
+
+  it("keeps a valid in-range port", () => {
+    expect(two(4, "2")).toMatchObject({ fromPort: 4, toPort: 2 });
+  });
+
+  it("rejects a second claim on the same physical port of one device", () => {
+    const cfg = normaliseConfig({
+      devices: [
+        { id: "sw", type: "switch", name: "SW", x: 0, y: 0, config: {} },
+        { id: "p1", type: "computer", name: "P1", x: 0, y: 100, config: {} },
+        { id: "p2", type: "computer", name: "P2", x: 0, y: 200, config: {} },
+      ],
+      links: [{ from: "sw", to: "p1", fromPort: 3 }, { from: "sw", to: "p2", fromPort: 3 }],
+    } as any);
+    expect(cfg.links[0].fromPort).toBe(3);
+    expect(cfg.links[1].fromPort).toBeUndefined();   // later claim auto-assigns instead of overwriting
+  });
+});

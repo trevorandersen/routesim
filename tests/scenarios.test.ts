@@ -5,7 +5,7 @@ import { describe, it, expect, beforeAll, beforeEach } from "bun:test";
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import { state, defaultConfig, vlanRoasConfig, routerMeshConfig, wifiVlanConfig } from "../src/state";
-import { SCENARIOS, getScenario, loadScenario, checkScenario } from "../src/scenarios";
+import { SCENARIOS, getScenario, loadScenario, checkScenario, registerScenario, isValidScenarioCheck, unregisterScenario } from "../src/scenarios";
 import { SCENARIO_GROUPS } from "../src/scenario-library";
 import { addLink } from "../src/devices";
 import { runConsoleCommand as exec, runConsoleScript } from "../src/commands";
@@ -134,4 +134,41 @@ describe("scenarios — every curriculum entry is solvable", () => {
       expect(after.passed).toBe(true);
     });
   }
+});
+
+describe("scenario import validates every check before registering (F12)", () => {
+  it("accepts every well-formed kind", () => {
+    const ok = [
+      { kind: "link", a: "A", b: "B", label: "l" },
+      { kind: "config", device: "A", field: "ipv4Address", equals: "x", label: "l" },
+      { kind: "ping", from: "A", to: "B", label: "l" },
+      { kind: "ping-fail", from: "A", to: "B", label: "l" },
+      { kind: "tcp", from: "A", to: "B", port: 80, label: "l" },
+      { kind: "tcp-fail", from: "A", to: "B", port: 22, label: "l" },
+      { kind: "http", from: "A", to: "B", label: "l" },
+      { kind: "dns", from: "A", name: "web", label: "l" },
+      { kind: "dhcp", host: "A", label: "l" },
+      { kind: "alert", from: "A", to: "B", contains: "scan", label: "l" },
+    ];
+    for (const c of ok) expect(isValidScenarioCheck(c)).toBe(true);
+  });
+
+  it("rejects null, primitives, unknown kinds, missing fields, and bad ports", () => {
+    // `checks: [null]` used to register, then throw `c.label` in the banner on
+    // every re-select — a permanently broken dropdown entry.
+    const bad = [null, 7, "ping", {}, { kind: "teleport", label: "l" },
+      { kind: "ping", from: "A", label: "l" },               // missing `to`
+      { kind: "ping", from: "A", to: "B" },                  // missing label
+      { kind: "tcp", from: "A", to: "B", port: "80", label: "l" },
+      { kind: "tcp", from: "A", to: "B", port: 70000, label: "l" },
+      { kind: "alert", from: "A", to: "B", label: "l" }];    // missing `contains`
+    for (const c of bad) expect(isValidScenarioCheck(c)).toBe(false);
+  });
+
+  it("unregisterScenario removes an entry the import rolled back", () => {
+    registerScenario({ id: "__tmp", name: "T", objective: "", topology: { devices: [], links: [] }, checks: [] } as any);
+    expect(getScenario("__tmp")).toBeDefined();
+    unregisterScenario("__tmp");
+    expect(getScenario("__tmp")).toBeUndefined();
+  });
 });

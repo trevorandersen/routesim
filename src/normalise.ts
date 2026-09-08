@@ -2,7 +2,7 @@ import type {
   PortMode, ArpEntry, DhcpLease, MacTableEntry, Vlan, RouterInterface,
   RipConfig, StaticRoute, DeviceConfig, DeviceType, Device, Link, FirewallRule, DnsRecord
 } from "./types";
-import { normaliseMacAddress, isValidMac, isValidIpv4, clampPortCount, clampApPortCount, clampRouterPortCount, clampPrefixLength, normaliseVlanId, normaliseSsid, normaliseWifiPassword } from "./utils";
+import { normaliseMacAddress, isValidMac, isValidIpv4, clampPortCount, clampApPortCount, clampRouterPortCount, clampPrefixLength, normaliseVlanId, normaliseSsid, normaliseWifiPassword, normalisePortNumber } from "./utils";
 import { DEVICE_SPECS, DEVICE_TYPES, DEFAULT_SSID } from "./device-registry";
 
 // Each element is coerced to an object before use: imported JSON may carry a
@@ -518,6 +518,18 @@ export function normaliseConfig(parsed: any): { devices: Device[]; links: Link[]
 
   const links: Link[] = [];
   const seenLinks = new Set<string>();
+  // A physical port can carry one cable. If two links claim the same port on a
+  // device, the later claim is dropped to auto-assignment rather than silently
+  // overwriting the earlier one in the port view.
+  const seenPorts = new Set<string>();
+  const claimPort = (deviceId: string, raw: unknown): number | undefined => {
+    const port = normalisePortNumber(raw);   // bounded: non-finite / fractional / oversized → unset
+    if (port == null) return undefined;
+    const key = `${deviceId}:${port}`;
+    if (seenPorts.has(key)) return undefined;
+    seenPorts.add(key);
+    return port;
+  };
   parsed.links.forEach((link: any, index: number) => {
     if (!link || !seenIds.has(String(link.from)) || !seenIds.has(String(link.to))) {
       throw new Error(`Link ${index + 1} references a missing device.`);
@@ -538,8 +550,8 @@ export function normaliseConfig(parsed: any): { devices: Device[]; links: Link[]
       ...(Number(link.bandwidth) > 0 ? { bandwidth: Number(link.bandwidth) } : {}),
       ...(Number(link.latency) > 0 ? { latency: Number(link.latency) } : {}),
       ...(Number(link.loss) > 0 ? { loss: Math.min(100, Number(link.loss)) } : {}),
-      ...(link.fromPort != null ? { fromPort: Number(link.fromPort) } : {}),
-      ...(link.toPort != null ? { toPort: Number(link.toPort) } : {}),
+      ...((p => p != null ? { fromPort: p } : {})(claimPort(from, link.fromPort))),
+      ...((p => p != null ? { toPort: p } : {})(claimPort(to, link.toPort))),
       hidden: Boolean(link.hidden),
       ...(link.collapsedBy ? { collapsedBy: String(link.collapsedBy) } : {}),
       ...(link.proxy ? { proxy: true } : {})

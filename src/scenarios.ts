@@ -73,6 +73,39 @@ export function getScenario(id: string | null): Scenario | undefined {
   return SCENARIOS.find(s => s.id === id);
 }
 
+const CHECK_KINDS = new Set(["link", "config", "ping", "ping-fail", "tcp", "tcp-fail", "http", "dns", "dhcp", "alert"]);
+const str = (v: unknown) => typeof v === "string" && v.length > 0;
+
+/**
+ * Structural validity of one goal check — the discriminant is known and every
+ * field that kind's evaluator and the banner renderer read is present and of
+ * the right type. Import runs this over every check BEFORE registering, so a
+ * malformed scenario never reaches the registry (where re-selecting it would
+ * throw in the banner on every load).
+ */
+export function isValidScenarioCheck(c: unknown): c is ScenarioCheck {
+  if (!c || typeof c !== "object") return false;
+  const k = c as any;
+  if (!CHECK_KINDS.has(k.kind) || !str(k.label)) return false;
+  switch (k.kind) {
+    case "link":     return str(k.a) && str(k.b);
+    case "config":   return str(k.device) && str(k.field);
+    case "ping": case "ping-fail": case "http": return str(k.from) && str(k.to);
+    case "tcp": case "tcp-fail":   return str(k.from) && str(k.to) && Number.isInteger(k.port) && k.port >= 1 && k.port <= 65535;
+    case "dns":      return str(k.from) && str(k.name);
+    case "dhcp":     return str(k.host);
+    case "alert":    return str(k.from) && str(k.to) && str(k.contains);
+  }
+  return false;
+}
+
+// Removes a scenario from the runtime registry — import rolls back with this
+// when a validated scenario still fails to load.
+export function unregisterScenario(id: string): void {
+  const idx = SCENARIOS.findIndex(s => s.id === id);
+  if (idx >= 0) SCENARIOS.splice(idx, 1);
+}
+
 // Adds (or replaces) a scenario in the runtime registry — used by JSON import.
 export function registerScenario(scenario: Scenario): void {
   const idx = SCENARIOS.findIndex(s => s.id === scenario.id);

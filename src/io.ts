@@ -7,7 +7,7 @@ import { state } from "./state";
 import { dom } from "./dom";
 import { buildConfigPayload, parseConfig, applyConfig } from "./config";
 import { exportTopologyScript, runConsoleScript } from "./commands";
-import { SCENARIOS, registerScenario, loadScenario } from "./scenarios";
+import { SCENARIOS, registerScenario, unregisterScenario, isValidScenarioCheck, loadScenario } from "./scenarios";
 import { normaliseConfig } from "./normalise";
 import { syncSimLog } from "./engine";
 import { openDock } from "./terminal";
@@ -82,16 +82,27 @@ export async function importScenario(): Promise<void> {
     const list = Array.isArray(parsed) ? parsed : [parsed];
     let lastId = "";
     for (const s of list) {
-      if (!(s && typeof s.id === "string" && s.topology && Array.isArray(s.checks))) continue;
-      // Validate the topology (the throw-prone normalise that loadScenario runs)
-      // BEFORE registering, so a malformed scenario never poisons the global
-      // registry/dropdown — re-selecting it would then throw on every load.
+      if (!(s && typeof s.id === "string" && typeof s.name === "string" && s.topology && Array.isArray(s.checks))) continue;
+      // Validate EVERYTHING loadScenario will touch BEFORE registering, so a
+      // malformed scenario never poisons the global registry/dropdown — the
+      // topology (the throw-prone normalise) AND every check (the banner reads
+      // each one's label/fields on load; a null or unknown-kind entry threw
+      // there, leaving a permanently broken selectable entry).
       try { normaliseConfig(s.topology); } catch { continue; }
+      if (!s.checks.every(isValidScenarioCheck)) continue;
       registerScenario(s);
       lastId = s.id;
     }
-    if (lastId) { loadScenario(lastId); dom.modeLabel.textContent = `Imported scenario "${lastId}".`; }
-    else dom.modeLabel.textContent = "No valid scenarios in file.";
+    if (!lastId) { dom.modeLabel.textContent = "No valid scenarios in file."; return; }
+    // Belt and braces: if a validated scenario still fails to load, roll the
+    // registration back rather than leave an entry that throws on re-select.
+    try {
+      loadScenario(lastId);
+      dom.modeLabel.textContent = `Imported scenario "${lastId}".`;
+    } catch (e) {
+      unregisterScenario(lastId);
+      throw e;
+    }
   } catch {
     dom.modeLabel.textContent = "Invalid scenario JSON.";
   }

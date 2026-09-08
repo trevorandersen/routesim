@@ -42,3 +42,9 @@ Owns the device and link collections: creating, deleting, hit-testing, looking u
 ## How it fits
 
 The data layer beneath the UI: `canvas.ts` renders `state.devices`/`state.links`, `ui.ts` calls the CRUD/hit-testing functions on pointer events, and `engine.ts`/`simulation.ts` traverse the topology through `getDevice`/`linksFor`/`linkedPortsFor`. The lookup indexes here are the single biggest steady-state performance lever.
+
+
+## Teardown order and port bounds
+
+- **`clearNetwork()`** calls the `stopSimulation` device callback **first**, then deletes devices/links, drops sessions and captures, and clears `selectedId`/`selectedLinkId`. Before this the animation loop kept running against deleted devices (status stuck on `running`, a transit pointing at a missing link — `diagnoseState` reported four issues). Engine-owned work reaches devices.ts through the callback bridge because a direct `devices → engine` import would be a cycle.
+- **Physical port numbers are bounded** by `MAX_PHYSICAL_PORT` (utils.ts, 64 — a sanity ceiling above every device's real cap). `resolvePort` rejects a requested port above it (falls back to the next free port) and `linkedPortsFor` treats an out-of-range stored port as implicit rather than growing its sparse array to it. The normaliser enforces the same bound on import (see normalise.md); the two later checks are defence in depth.

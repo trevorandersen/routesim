@@ -11,7 +11,7 @@ import { loadDefaultConfig } from "./config";
 import { runStpConvergence } from "./stp";
 import { setupTutorial } from "./tutorial";
 import { runConsoleCommand, runConsoleScript, exportTopologyScript } from "./commands";
-import { syncSimLog } from "./engine";
+import { syncSimLog, stopSimulation } from "./engine";
 import { parseSettingsFromUrl, buildSettingsQuery } from "./settings-url";
 import { diagnoseRuntimeState } from "./diagnostics";
 import * as io from "./io";
@@ -37,7 +37,8 @@ registerCallbacks({
 registerDeviceCallbacks({
   setTool,
   setNetworkPanel,
-  openTerminal: (device) => { if (canOpenTerminal(device)) openTerminalFor(device); }
+  openTerminal: (device) => { if (canOpenTerminal(device)) openTerminalFor(device); },
+  stopSimulation,
 });
 
 // Wire all UI event listeners (ribbon, canvas, panels)

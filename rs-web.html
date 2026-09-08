@@ -2961,6 +2961,12 @@ Full legal text: https://creativecommons.org/publicdomain/zero/1.0/legalcode</pr
   function isValidHostname(value) {
     return /^[A-Za-z0-9](?:[A-Za-z0-9-]{0,61}[A-Za-z0-9])?$/.test(value);
   }
+  var MAX_PHYSICAL_PORT = 64;
+  function normalisePortNumber(value) {
+    if (value == null || value === "") return void 0;
+    const n = Number(value);
+    return Number.isInteger(n) && n >= 1 && n <= MAX_PHYSICAL_PORT ? n : void 0;
+  }
   function clampPortCount(value) {
     const portCount = Number(value);
     if (!Number.isInteger(portCount)) return 8;
@@ -3692,6 +3698,15 @@ Full legal text: https://creativecommons.org/publicdomain/zero/1.0/legalcode</pr
     });
     const links = [];
     const seenLinks = /* @__PURE__ */ new Set();
+    const seenPorts = /* @__PURE__ */ new Set();
+    const claimPort = (deviceId, raw) => {
+      const port = normalisePortNumber(raw);
+      if (port == null) return void 0;
+      const key = `${deviceId}:${port}`;
+      if (seenPorts.has(key)) return void 0;
+      seenPorts.add(key);
+      return port;
+    };
     parsed.links.forEach((link, index) => {
       if (!link || !seenIds.has(String(link.from)) || !seenIds.has(String(link.to))) {
         throw new Error(`Link ${index + 1} references a missing device.`);
@@ -3712,8 +3727,8 @@ Full legal text: https://creativecommons.org/publicdomain/zero/1.0/legalcode</pr
         ...Number(link.bandwidth) > 0 ? { bandwidth: Number(link.bandwidth) } : {},
         ...Number(link.latency) > 0 ? { latency: Number(link.latency) } : {},
         ...Number(link.loss) > 0 ? { loss: Math.min(100, Number(link.loss)) } : {},
-        ...link.fromPort != null ? { fromPort: Number(link.fromPort) } : {},
-        ...link.toPort != null ? { toPort: Number(link.toPort) } : {},
+        ...((p) => p != null ? { fromPort: p } : {})(claimPort(from, link.fromPort)),
+        ...((p) => p != null ? { toPort: p } : {})(claimPort(to, link.toPort)),
         hidden: Boolean(link.hidden),
         ...link.collapsedBy ? { collapsedBy: String(link.collapsedBy) } : {},
         ...link.proxy ? { proxy: true } : {}
@@ -4630,7 +4645,7 @@ Full legal text: https://creativecommons.org/publicdomain/zero/1.0/legalcode</pr
     return state.links.some((l) => !l.hidden && (l.from === deviceId && l.fromPort === port || l.to === deviceId && l.toPort === port));
   }
   function resolvePort(deviceId, requested) {
-    if (requested != null && Number.isInteger(requested) && requested >= 1 && !portTaken(deviceId, requested)) {
+    if (requested != null && Number.isInteger(requested) && requested >= 1 && requested <= MAX_PHYSICAL_PORT && !portTaken(deviceId, requested)) {
       return requested;
     }
     return nextAvailablePort(deviceId);
@@ -4681,10 +4696,12 @@ Full legal text: https://creativecommons.org/publicdomain/zero/1.0/legalcode</pr
     sync().recomputeStp();
   }
   function clearNetwork() {
+    _stopSimulation?.();
     if (state.devices.length || state.links.length) pushUndo();
     state.devices = [];
     state.links = [];
     state.selectedId = null;
+    state.selectedLinkId = null;
     state.configuringId = null;
     state.linkStartId = null;
     state.panDrag = null;
@@ -4791,11 +4808,12 @@ Full legal text: https://creativecommons.org/publicdomain/zero/1.0/legalcode</pr
   function linkedPortsFor(id) {
     const entries = linksFor(id).filter((link) => !link.hidden).map((link) => {
       const isFrom = link.from === id;
-      const portNum = isFrom ? link.fromPort : link.toPort;
+      const raw = isFrom ? link.fromPort : link.toPort;
+      const portNum = Number.isInteger(raw) && raw >= 1 && raw <= MAX_PHYSICAL_PORT ? raw : 0;
       return {
         link,
         peer: getDevice(isFrom ? link.to : link.from),
-        portNum: portNum || 0
+        portNum
       };
     }).filter((port) => isVisibleDevice(port.peer));
     const hasExplicit = entries.some((e) => e.portNum > 0);
@@ -5203,11 +5221,13 @@ Full legal text: https://creativecommons.org/publicdomain/zero/1.0/legalcode</pr
   var _setNetworkPanel = null;
   var _linkUp = null;
   var _openTerminal = null;
+  var _stopSimulation = null;
   function registerDeviceCallbacks(cbs) {
     _setTool = cbs.setTool;
     _setNetworkPanel = cbs.setNetworkPanel;
     _linkUp = cbs.linkUp ?? null;
     _openTerminal = cbs.openTerminal ?? null;
+    _stopSimulation = cbs.stopSimulation ?? null;
   }
   function configureDevice(device) {
     if (!device) return;
@@ -13975,6 +13995,37 @@ Snort successfully validated the configuration${bad ? " (with errors)" : "."}`);
   function getScenario(id) {
     return SCENARIOS.find((s) => s.id === id);
   }
+  var CHECK_KINDS = /* @__PURE__ */ new Set(["link", "config", "ping", "ping-fail", "tcp", "tcp-fail", "http", "dns", "dhcp", "alert"]);
+  var str = (v) => typeof v === "string" && v.length > 0;
+  function isValidScenarioCheck(c) {
+    if (!c || typeof c !== "object") return false;
+    const k = c;
+    if (!CHECK_KINDS.has(k.kind) || !str(k.label)) return false;
+    switch (k.kind) {
+      case "link":
+        return str(k.a) && str(k.b);
+      case "config":
+        return str(k.device) && str(k.field);
+      case "ping":
+      case "ping-fail":
+      case "http":
+        return str(k.from) && str(k.to);
+      case "tcp":
+      case "tcp-fail":
+        return str(k.from) && str(k.to) && Number.isInteger(k.port) && k.port >= 1 && k.port <= 65535;
+      case "dns":
+        return str(k.from) && str(k.name);
+      case "dhcp":
+        return str(k.host);
+      case "alert":
+        return str(k.from) && str(k.to) && str(k.contains);
+    }
+    return false;
+  }
+  function unregisterScenario(id) {
+    const idx = SCENARIOS.findIndex((s) => s.id === id);
+    if (idx >= 0) SCENARIOS.splice(idx, 1);
+  }
   function registerScenario(scenario) {
     const idx = SCENARIOS.findIndex((s) => s.id === scenario.id);
     if (idx >= 0) SCENARIOS[idx] = scenario;
@@ -14223,19 +14274,27 @@ Snort successfully validated the configuration${bad ? " (with errors)" : "."}`);
       const list = Array.isArray(parsed) ? parsed : [parsed];
       let lastId = "";
       for (const s of list) {
-        if (!(s && typeof s.id === "string" && s.topology && Array.isArray(s.checks))) continue;
+        if (!(s && typeof s.id === "string" && typeof s.name === "string" && s.topology && Array.isArray(s.checks))) continue;
         try {
           normaliseConfig(s.topology);
         } catch {
           continue;
         }
+        if (!s.checks.every(isValidScenarioCheck)) continue;
         registerScenario(s);
         lastId = s.id;
       }
-      if (lastId) {
+      if (!lastId) {
+        dom.modeLabel.textContent = "No valid scenarios in file.";
+        return;
+      }
+      try {
         loadScenario(lastId);
         dom.modeLabel.textContent = `Imported scenario "${lastId}".`;
-      } else dom.modeLabel.textContent = "No valid scenarios in file.";
+      } catch (e) {
+        unregisterScenario(lastId);
+        throw e;
+      }
     } catch {
       dom.modeLabel.textContent = "Invalid scenario JSON.";
     }
@@ -17075,7 +17134,8 @@ Snort successfully validated the configuration${bad ? " (with errors)" : "."}`);
     setNetworkPanel,
     openTerminal: (device) => {
       if (canOpenTerminal(device)) openTerminalFor(device);
-    }
+    },
+    stopSimulation
   });
   setupUI();
   setupTutorial();

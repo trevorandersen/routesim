@@ -1,6 +1,10 @@
-import { describe, it, expect, beforeAll, beforeEach } from "bun:test";
+import { describe, it, expect, beforeAll, afterAll, beforeEach } from "bun:test";
 import { state } from "../src/state";
-import { addDevice, addLink, deleteLink, deleteSelection, clearNetwork, findDeviceAt, getDevice, connectedIds, linkedPortsFor, linkById, routerInterfaceFor, routerInterfaceForName, routerInterfacesWithNames, placeToolDevice, PLACEMENT_TOOLS, applyHostname, hasHostname } from "../src/devices";
+import { addDevice, addLink, deleteLink, deleteSelection, clearNetwork, findDeviceAt, getDevice, connectedIds, linkedPortsFor, linkById, routerInterfaceFor, routerInterfaceForName, routerInterfacesWithNames, placeToolDevice, PLACEMENT_TOOLS, applyHostname, hasHostname, registerDeviceCallbacks } from "../src/devices";
+import { startSimulation, stopSimulation } from "../src/engine";
+import { buildPingEvents } from "../src/simulation";
+import { diagnoseState } from "../src/diagnostics";
+import { basicTopology } from "./fixtures";
 import { undo } from "../src/state";
 import { freshNameCounters } from "../src/device-registry";
 import { registerNoopCallbacks, resetState } from "./helpers";
@@ -404,5 +408,51 @@ describe("applyHostname", () => {
     expect(hasHostname(sw)).toBe(false);                 // unmanaged switch: plain name
     sw.config!.managed = true;
     expect(hasHostname(sw)).toBe(true);                  // managed switch has a CLI
+  });
+});
+
+describe("port bounds — resolvePort / linkedPortsFor never grow past MAX_PHYSICAL_PORT (F01)", () => {
+  beforeEach(() => resetState());
+
+  it("a command-requested port beyond the ceiling falls back to the next free port", () => {
+    const sw = addDevice("switch", 0, 0); const pc = addDevice("computer", 0, 100);
+    addLink(sw.id, pc.id, 999999999, undefined);   // would have allocated a ~1e9 array
+    expect(state.links[0].fromPort).toBe(1);
+  });
+
+  it("an out-of-range stored port is treated as implicit, not grown to", () => {
+    const sw = addDevice("switch", 0, 0); const pc = addDevice("computer", 0, 100);
+    addLink(sw.id, pc.id);
+    (state.links[0] as any).fromPort = Infinity;       // bypass normalise on purpose
+    const ports = linkedPortsFor(sw.id);
+    expect(ports.length).toBeLessThanOrEqual(1);       // terminates, tiny
+  });
+});
+
+describe("clearNetwork tears down an active run first (F13)", () => {
+  let raf: any;
+  beforeAll(() => {
+    raf = (globalThis as any).requestAnimationFrame;
+    (globalThis as any).requestAnimationFrame = () => 0;
+    registerDeviceCallbacks({ setTool() {}, setNetworkPanel() {}, stopSimulation });
+  });
+  afterAll(() => {
+    (globalThis as any).requestAnimationFrame = raf;
+    registerDeviceCallbacks({ setTool() {}, setNetworkPanel() {} });
+  });
+  beforeEach(() => resetState());
+
+  it("leaves the simulation idle with no stale device/link references", () => {
+    const topo = basicTopology(); state.devices = topo.devices as any; state.links = topo.links as any;
+    const pc1 = state.devices.find(d => d.id === "pc1")!;
+    startSimulation(buildPingEvents(pc1, "192.168.1.20") as any, pc1.id, "192.168.1.20");
+    expect(state.simulation.status).toBe("running");
+    state.selectedLinkId = state.links[0].id;
+    clearNetwork();
+    expect(state.simulation.status).toBe("idle");
+    expect(state.simulation.transits).toEqual([]);
+    expect(state.simulation.events).toEqual([]);
+    expect(state.selectedLinkId).toBeNull();
+    expect(diagnoseState(state)).toEqual([]);          // the project's own invariants agree
   });
 });

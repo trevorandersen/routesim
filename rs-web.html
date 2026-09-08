@@ -4805,6 +4805,9 @@ Full legal text: https://creativecommons.org/publicdomain/zero/1.0/legalcode</pr
   function connectedIds(id) {
     return linksFor(id).filter((link) => !link.hidden).map((link) => link.from === id ? link.to : link.from);
   }
+  function physicalPeerIds(id) {
+    return linksFor(id).filter((link) => !link.proxy).map((link) => link.from === id ? link.to : link.from);
+  }
   function linkedPortsFor(id) {
     const entries = linksFor(id).filter((link) => !link.hidden).map((link) => {
       const isFrom = link.from === id;
@@ -9949,6 +9952,18 @@ ${sim.httpServerTitle || ""}`);
   function parseChain(raw, allowed) {
     const chain = (raw || "").toLowerCase();
     return allowed.includes(chain) ? chain : null;
+  }
+  function ruleToIptables(rule) {
+    const a = [`-A ${String(rule.chain || "forward").toUpperCase()}`];
+    if (rule.protocol && rule.protocol !== "all") a.push(`-p ${rule.protocol}`);
+    if (rule.src) a.push(`-s ${rule.src}`);
+    if (rule.dst) a.push(`-d ${rule.dst}`);
+    if (rule.icmpType) a.push(`--icmp-type ${rule.icmpType}`);
+    if (rule.dport != null) a.push(`--dport ${rule.dport}`);
+    if (rule.states?.length) a.push(`-m state --state ${rule.states.map((s) => String(s).toUpperCase()).join(",")}`);
+    a.push(`-j ${String(rule.target).toUpperCase()}`);
+    if (rule.rejectWith) a.push(`--reject-with ${rule.rejectWith}`);
+    return `iptables ${a.join(" ")}`;
   }
   function showFirewallRules(device, lineNumbers, chains = ["forward"]) {
     const lines = [];
@@ -15141,6 +15156,12 @@ Snort successfully validated the configuration${bad ? " (with errors)" : "."}`);
           // A Kali PC serialises exactly like a host — its attacks are issued by hand.
           config: hostConfigForPayload(config)
         } : {},
+        ...type === "hub" ? {
+          config: { ethernetPorts: clampPortCount(config?.ethernetPorts ?? 4) }
+        } : {},
+        ...type === "internet" ? {
+          config: { ethernetPorts: clampPortCount(config?.ethernetPorts ?? 8) }
+        } : {},
         ...type === "lan" ? {
           config: {
             anchorId: config?.anchorId || "",
@@ -15199,7 +15220,7 @@ Snort successfully validated the configuration${bad ? " (with errors)" : "."}`);
     };
   }
   function routerInterfacesForPayload(device) {
-    const connectedPeerIds = new Set(connectedIds(device.id));
+    const connectedPeerIds = new Set(physicalPeerIds(device.id));
     return normaliseRouterInterfaces(device.config?.interfaces || [], device.id).filter((entry) => !entry.peerId || connectedPeerIds.has(entry.peerId));
   }
   function parseConfig(text) {
@@ -15931,7 +15952,14 @@ Snort successfully validated the configuration${bad ? " (with errors)" : "."}`);
       ensureConfig(host);
       delete host.config.openPorts;
       sync().syncPanel();
-      return ok(`${host.name}: listening ports cleared.`);
+      return ok(`${host.name}: listening ports cleared (accepts on any port).`);
+    }
+    if (/^closed$/i.test(spec)) {
+      pushUndo();
+      ensureConfig(host);
+      host.config.openPorts = [];
+      sync().syncPanel();
+      return ok(`${host.name}: no listening ports (refuses every connection).`);
     }
     const ports = spec.split(/[\s,]+/).filter(Boolean).map(Number);
     if (!ports.every((p) => Number.isInteger(p) && p >= 1 && p <= 65535)) return err("ports: each port must be an integer 1\u201365535.");
@@ -16469,6 +16497,44 @@ Snort successfully validated the configuration${bad ? " (with errors)" : "."}`);
     if (args[0] && HELP[args[0].toLowerCase()]) return ok(`${args[0]} \u2014 ${HELP[args[0].toLowerCase()]}`);
     return ok("Commands:", ...Object.keys(COMMANDS).sort().map((v) => `  ${v} \u2014 ${HELP[v] || ""}`));
   }
+  function cmdPower(args) {
+    const dev = resolveDevice(args[0]);
+    if (typeof dev === "string") return err(dev);
+    const mode = (args[1] || "").toLowerCase();
+    if (mode !== "on" && mode !== "off") return err("Usage: power <device> on|off");
+    pushUndo();
+    dev.poweredOff = mode === "off";
+    sync().syncPanel();
+    sync().syncTerminal();
+    sync().render();
+    return ok(`${dev.name} powered ${mode}.`);
+  }
+  function cmdPortCount(args) {
+    const dev = resolveDevice(args[0]);
+    if (typeof dev === "string") return err(dev);
+    const serial = (args[1] || "").toLowerCase() === "serial";
+    const n = Number(serial ? args[2] : args[1]);
+    if (!Number.isInteger(n)) return err("Usage: portcount <device> [serial] <n>");
+    if (serial && dev.type !== "router") return err("portcount: only a router has serial ports.");
+    const clamp = {
+      switch: clampPortCount,
+      hub: clampPortCount,
+      internet: clampPortCount,
+      router: clampRouterPortCount,
+      "access-point": clampApPortCount,
+      firewall: (v) => Math.min(8, Math.max(1, v))
+    };
+    const fn = clamp[dev.type];
+    if (!fn) return err(`portcount: ${dev.name} (${dev.type}) has no configurable port count.`);
+    if (fn(n) !== n) return err(`portcount: ${n} is outside the ${dev.type}'s supported range.`);
+    pushUndo();
+    ensureConfig(dev);
+    if (serial) dev.config.serialPorts = n;
+    else dev.config.ethernetPorts = n;
+    sync().syncPanel();
+    sync().render();
+    return ok(`${dev.name}: ${serial ? "serial" : "ethernet"} ports = ${n}.`);
+  }
   function cmdStress(args) {
     const seedText = args[0];
     const stepsText = args[1];
@@ -16569,6 +16635,8 @@ Snort successfully validated the configuration${bad ? " (with errors)" : "."}`);
     zoom: cmdZoom,
     fit: cmdFit,
     scenario: cmdScenario,
+    power: cmdPower,
+    portcount: cmdPortCount,
     stress: cmdStress,
     help: cmdHelp
   };
@@ -16638,6 +16706,8 @@ Snort successfully validated the configuration${bad ? " (with errors)" : "."}`);
     zoom: "zoom <scale>",
     fit: "fit to view",
     scenario: "scenario list | load <id> | goal | check",
+    power: "power <device> on|off",
+    portcount: "portcount <device> [serial] <n> (physical port capacity)",
     stress: `stress [seed] [steps] \u2014 REPLACES your topology and mutates it randomly (dev tool; max ${MAX_STRESS_STEPS} steps, not undoable)`,
     help: "help [command]"
   };
@@ -16668,6 +16738,26 @@ Snort successfully validated the configuration${bad ? " (with errors)" : "."}`);
       if (d.type === "lan") continue;
       lines.push(`add ${d.type} ${quoteArg(d.name)} at ${Math.round(d.x)} ${Math.round(d.y)}`);
     }
+    const DEFAULT_PORTS = { switch: 8, hub: 4, internet: 8, router: 4, "access-point": 1, firewall: 2 };
+    for (const d of payload.devices) {
+      if (d.type === "lan") continue;
+      if (d.poweredOff) lines.push(`power ${quoteArg(d.name)} off`);
+      const c = d.config || {};
+      if (d.type in DEFAULT_PORTS && c.ethernetPorts != null && c.ethernetPorts !== DEFAULT_PORTS[d.type]) lines.push(`portcount ${quoteArg(d.name)} ${c.ethernetPorts}`);
+      if (d.type === "router" && c.serialPorts != null && c.serialPorts !== 4) lines.push(`portcount ${quoteArg(d.name)} serial ${c.serialPorts}`);
+    }
+    for (const l of payload.links) {
+      const f = idToName.get(l.from);
+      const t = idToName.get(l.to);
+      if (!f || !t) continue;
+      const ports = l.fromPort != null || l.toPort != null ? ` ${l.fromPort ?? 1} ${l.toPort ?? 1}` : "";
+      lines.push(`link ${f} ${t}${ports}`);
+      if (l.shutdown) lines.push(`shut ${f} ${t}`);
+      if (l.name) lines.push(`linkset ${f} ${t} name ${quoteArg(l.name)}`);
+      if (l.bandwidth) lines.push(`linkset ${f} ${t} bandwidth ${l.bandwidth}`);
+      if (l.latency) lines.push(`linkset ${f} ${t} latency ${l.latency}`);
+      if (l.loss) lines.push(`linkset ${f} ${t} loss ${l.loss}`);
+    }
     for (const d of payload.devices) {
       const c = d.config || {};
       if (d.type === "computer" || d.type === "laptop" || d.type === "kali" || d.type === "server") {
@@ -16682,7 +16772,7 @@ Snort successfully validated the configuration${bad ? " (with errors)" : "."}`);
         if (d.type === "server" && c.dnsmasqRunning === false) lines.push(`cli ${quoteArg(d.name)} systemctl stop dnsmasq`);
         if (c.dot1x?.identity) lines.push(`supplicant ${quoteArg(d.name)} ${quoteArg(c.dot1x.identity)} ${c.dot1x.password ? quoteArg(c.dot1x.password) : ""}`.trimEnd());
         for (const u of c.radius?.users || []) lines.push(`radius ${quoteArg(d.name)} ${quoteArg(u.identity)} ${u.password ? quoteArg(u.password) : ""}`.trimEnd());
-        if (Array.isArray(c.openPorts) && c.openPorts.length) lines.push(`ports ${quoteArg(d.name)} ${c.openPorts.join(",")}`);
+        if (Array.isArray(c.openPorts)) lines.push(c.openPorts.length ? `ports ${quoteArg(d.name)} ${c.openPorts.join(",")}` : `ports ${quoteArg(d.name)} closed`);
         if (c.httpEnabled) lines.push(`web ${quoteArg(d.name)} on${c.httpTitle ? ` ${quoteArg(c.httpTitle)}` : ""}`);
       } else if (d.type === "switch") {
         if (c.managed) {
@@ -16721,11 +16811,32 @@ Snort successfully validated the configuration${bad ? " (with errors)" : "."}`);
           }
         }
         for (const r of c.staticRoutes || []) lines.push(`route ${quoteArg(d.name)} ${r.network} ${r.nextHop}`);
-        if ((c.portForwards || []).length) {
-          lines.push(`cli ${quoteArg(d.name)} enable`, `cli ${quoteArg(d.name)} configure terminal`);
-          for (const r of c.portForwards) lines.push(`cli ${quoteArg(d.name)} ip nat inside source static tcp ${r.insideIp} ${r.insidePort} ${r.outsideIp} ${r.outsidePort}`);
-          lines.push(`cli ${quoteArg(d.name)} end`);
+        const cli = (line) => `cli ${quoteArg(d.name)} ${line}`;
+        const cfg = [];
+        if (c.rip?.enabled) {
+          cfg.push("router rip");
+          for (const n of c.rip.networks || []) cfg.push(`network ${n}`);
+          for (const p of c.rip.passiveInterfaces || []) cfg.push(`passive-interface ${p}`);
+          cfg.push("exit");
         }
+        const live = state.devices.find((x) => x.id === d.id);
+        const named = live ? routerInterfacesWithNames(live) : [];
+        for (const i of c.interfaces || []) {
+          if (i.natRole !== "inside" && i.natRole !== "outside") continue;
+          const entry = named.find((n) => n.peerId === i.peerId && (n.config?.vlanTag ?? null) === (i.vlanTag ?? null));
+          if (!entry) continue;
+          cfg.push(`interface ${entry.name}`, `ip nat ${i.natRole}`, "exit");
+        }
+        for (const r of c.portForwards || []) cfg.push(`ip nat inside source static tcp ${r.insideIp} ${r.insidePort} ${r.outsideIp} ${r.outsidePort}`);
+        const priv = [];
+        for (const [chain, pol] of Object.entries(c.policy || {})) if (pol === "drop") priv.push(`iptables -P ${String(chain).toUpperCase()} DROP`);
+        for (const r of c.rules || []) priv.push(ruleToIptables(r));
+        if (cfg.length || priv.length) lines.push(cli("enable"));
+        if (cfg.length) lines.push(cli("configure terminal"), ...cfg.map(cli), cli("end"));
+        lines.push(...priv.map(cli));
+      } else if (d.type === "firewall") {
+        if (c.policy?.forward === "drop") lines.push(`cli ${quoteArg(d.name)} iptables -P FORWARD DROP`);
+        for (const r of c.rules || []) lines.push(`cli ${quoteArg(d.name)} ${ruleToIptables(r)}`);
       } else if (d.type === "access-point" && c.ssid) {
         lines.push(`ssid ${quoteArg(d.name)} ${quoteArg(c.ssid)}${c.wifiPassword ? ` ${quoteArg(c.wifiPassword)}` : ""}`);
       }
@@ -16733,18 +16844,6 @@ Snort successfully validated the configuration${bad ? " (with errors)" : "."}`);
         const peer = idToName.get(peerId);
         if (peer) lines.push(`macsec ${quoteArg(d.name)} ${peer} ${m.derive ? "dot1x" : m.cak} ${m.mode}`);
       }
-    }
-    for (const l of payload.links) {
-      const f = idToName.get(l.from);
-      const t = idToName.get(l.to);
-      if (!f || !t) continue;
-      const ports = l.fromPort != null || l.toPort != null ? ` ${l.fromPort ?? 1} ${l.toPort ?? 1}` : "";
-      lines.push(`link ${f} ${t}${ports}`);
-      if (l.shutdown) lines.push(`shut ${f} ${t}`);
-      if (l.name) lines.push(`linkset ${f} ${t} name ${quoteArg(l.name)}`);
-      if (l.bandwidth) lines.push(`linkset ${f} ${t} bandwidth ${l.bandwidth}`);
-      if (l.latency) lines.push(`linkset ${f} ${t} latency ${l.latency}`);
-      if (l.loss) lines.push(`linkset ${f} ${t} loss ${l.loss}`);
     }
     return lines.join("\n");
   }

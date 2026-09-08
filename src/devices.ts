@@ -531,6 +531,16 @@ export function connectedIds(id: string): string[] {
     .map(link => link.from === id ? link.to : link.from);
 }
 
+// Peers over PHYSICAL cables — including those a collapsed LAN has hidden, and
+// excluding the LAN's proxy links. Collapse is presentation; persistence must
+// ask "is this cable real?", not "is it drawn?" — otherwise saving while a LAN
+// is collapsed dropped every router interface facing it.
+export function physicalPeerIds(id: string): string[] {
+  return linksFor(id)
+    .filter(link => !link.proxy)
+    .map(link => link.from === id ? link.to : link.from);
+}
+
 export function linkedPortsFor(id: string): any[] {
   const entries = linksFor(id)
     .filter(link => !link.hidden)

@@ -3,6 +3,9 @@
  * in the simulation. The firewall is a transparent inline filter (FORWARD chain).
  */
 import { describe, it, expect, beforeAll, beforeEach } from "bun:test";
+import { ruleToIptables as _fmt, runIptablesCommand as _runIpt } from "../src/terminal/iptables";
+import { addDevice as _addFw } from "../src/devices";
+import { resetState as _resetFw, registerNoopCallbacks as _noopFw } from "./helpers";
 import { state } from "../src/state";
 import { evaluateFirewall, firewallRuleMatches, processAtFirewall, runSimulationHeadless } from "../src/engine";
 import { runFirewallTerminalCommand } from "../src/terminal";
@@ -155,5 +158,28 @@ describe("firewall — packet filtering in the simulation", () => {
     exec("cli FW1 iptables -A FORWARD -s 192.168.1.10 -j ACCEPT");
     exec("cli FW1 iptables -A FORWARD -d 192.168.1.10 -j ACCEPT");
     expect(runSimulationHeadless(buildPingEvents(pc1, "192.168.1.20") as any, pc1.id, "192.168.1.20", "ping").success).toBe(true);
+  });
+});
+
+describe("ruleToIptables round-trips through the iptables parser", () => {
+  beforeAll(() => _noopFw());
+  beforeEach(() => _resetFw());
+  it("every field survives format → parse", () => {
+    const rules: any[] = [
+      { chain: "forward", target: "accept", protocol: "icmp", icmpType: "echo-request" },
+      { chain: "forward", target: "drop", protocol: "tcp", src: "10.0.0.0/24", dst: "192.168.1.5", dport: 443 },
+      { chain: "forward", target: "accept", protocol: "all", states: ["established", "related"] },
+      { chain: "forward", target: "reject", protocol: "tcp", dport: 22, rejectWith: "tcp-reset" },
+    ];
+    const fw = _addFw("firewall", 0, 0);
+    fw.config!.rules = [];
+    for (const r of rules) expect(_runIpt(fw, _fmt(r), ["forward"])).toBe(true);
+    expect(fw.config!.rules!).toHaveLength(rules.length);
+    // `protocol: "all"` is the documented default and is left unset by the
+    // parser (the formatter omits `-p all`), so compare without that key.
+    rules.forEach((r: any, i: number) => {
+      const { protocol, ...rest } = r;
+      expect(fw.config!.rules![i]).toMatchObject(protocol === "all" ? rest : r);
+    });
   });
 });

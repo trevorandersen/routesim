@@ -10,7 +10,7 @@ import {
   normalisePortModes, normaliseTrunkAllowedVlans, normaliseDnsRecords, normaliseDhcpLeases,
   normaliseRouterInterfaces, normaliseFirewallRules, normaliseConfig, normaliseStpConfig, normaliseIdsRules, normaliseMirror, normalisePortForwards
 } from "./normalise";
-import { connectedIds, clearNetwork, nextDeviceNumber } from "./devices";
+import { connectedIds, clearNetwork, nextDeviceNumber, physicalPeerIds } from "./devices";
 import { runStpConvergence } from "./stp";
 import { DEVICE_TYPES } from "./device-registry";
 import { render, fitNetwork } from "./canvas";
@@ -123,6 +123,12 @@ export function buildConfigPayload(): SerialisedTopology {
         // A Kali PC serialises exactly like a host — its attacks are issued by hand.
         config: hostConfigForPayload(config)
       } : {}),
+      ...(type === "hub" ? {
+        config: { ethernetPorts: clampPortCount(config?.ethernetPorts ?? 4) }
+      } : {}),
+      ...(type === "internet" ? {
+        config: { ethernetPorts: clampPortCount(config?.ethernetPorts ?? 8) }
+      } : {}),
       ...(type === "lan" ? {
         config: {
           anchorId: config?.anchorId || "",
@@ -189,7 +195,10 @@ function hostConfigForPayload(config: any): any {
 }
 
 export function routerInterfacesForPayload(device: any): any[] {
-  const connectedPeerIds = new Set(connectedIds(device.id));
+  // Structural connectivity, not visible connectivity: a collapsed LAN hides
+  // its physical links, and filtering on the drawn set silently dropped the
+  // router's whole interface (address, NAT role, tables) from the save.
+  const connectedPeerIds = new Set(physicalPeerIds(device.id));
   return normaliseRouterInterfaces(device.config?.interfaces || [], device.id)
     .filter((entry: any) => !entry.peerId || connectedPeerIds.has(entry.peerId));
 }

@@ -119,3 +119,8 @@ is a filtering pass-through). The inspector's `renderFirewallControls` panel
 per-chain default-policy select, and an add-rule form — target / protocol /
 **connection-state** / src / dst / dport — writing the same `config.rules` the
 iptables CLI does. Powered-off firewalls drop everything.
+
+
+## `ruleToIptables` — the parser's inverse
+
+`terminal/iptables.ts` also exports **`ruleToIptables(rule)`**, which renders one `FirewallRule` as an `iptables -A CHAIN … -j TARGET` line that `runIptablesCommand` re-parses to the same rule (`-p`, `-s`, `-d`, `--icmp-type`, `--dport`, `-m state --state A,B`, `--reject-with`). The script export replays a device's netfilter state through it, `iptables-save`-style — a DROP policy and its allow-list used to be dropped from the export entirely, so a replayed firewall came back as an empty ACCEPT. The formatter and the parser live in the same module so they stay in step; `tests/firewall.test.ts` round-trips every field through both.

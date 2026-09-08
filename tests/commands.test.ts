@@ -439,3 +439,80 @@ describe("commands — quoted values with spaces survive the script round-trip",
     expect(state.devices).toHaveLength(0);
   });
 });
+
+describe("export — operational configuration survives the script round-trip (F03)", () => {
+  beforeEach(() => resetState());
+  const dev = (n: string) => state.devices.find(d => d.name === n)!;
+
+  it("replays the firewall, router RIP + NAT role + netfilter, a closed listener, power, and port counts", () => {
+    runConsoleScript(`
+      add computer PC1 at 0 0
+      add firewall FW1 at 100 0
+      add router R1 at 200 0
+      add switch SW1 at 300 0
+      link PC1 FW1
+      link FW1 R1
+      link R1 SW1
+      interface R1 FW1 ip 192.168.1.1/24
+      interface R1 SW1 ip 10.0.0.1/24
+      ports PC1 closed
+      power SW1 off
+      portcount SW1 16
+      portcount R1 serial 2
+    `);
+    const fw = dev("FW1");
+    fw.config!.policy = { forward: "drop" } as any;
+    fw.config!.rules = [
+      { chain: "forward", target: "accept", protocol: "icmp" },
+      { chain: "forward", target: "accept", protocol: "tcp", states: ["established", "related"] },
+      { chain: "forward", target: "reject", protocol: "tcp", dport: 22, rejectWith: "tcp-reset" },
+    ] as any;
+    const r1 = dev("R1");
+    r1.config!.rip = { enabled: true, networks: ["10.0.0.0/24"], passiveInterfaces: [], learnedRoutes: [] } as any;
+    r1.config!.interfaces!.find(i => i.ipv4Address === "192.168.1.1")!.natRole = "outside";
+    r1.config!.policy = { input: "drop" } as any;
+    r1.config!.rules = [{ chain: "input", target: "accept", protocol: "icmp" }] as any;
+
+    const script = exportTopologyScript();
+    expect(script).toContain("iptables -P FORWARD DROP");
+    expect(script).toContain("router rip");
+    expect(script).toContain("ip nat outside");
+    expect(script).toContain("ports PC1 closed");
+    expect(script).toContain("power SW1 off");
+
+    resetState();
+    for (const r of runConsoleScript(script)) expect(r.ok).toBe(true);
+
+    // Canonical operational config — not just names and addresses.
+    expect(dev("FW1").config!.policy!.forward).toBe("drop");
+    expect(dev("FW1").config!.rules!).toHaveLength(3);
+    expect(dev("FW1").config!.rules![1].states).toEqual(["established", "related"]);
+    expect(dev("FW1").config!.rules![2]).toMatchObject({ target: "reject", dport: 22, rejectWith: "tcp-reset" });
+    expect(dev("R1").config!.rip!.enabled).toBe(true);
+    expect(dev("R1").config!.rip!.networks).toEqual(["10.0.0.0/24"]);
+    expect(dev("R1").config!.interfaces!.find(i => i.ipv4Address === "192.168.1.1")!.natRole).toBe("outside");
+    expect(dev("R1").config!.policy!.input).toBe("drop");
+    expect(dev("R1").config!.rules!).toHaveLength(1);
+    expect(dev("PC1").config!.openPorts).toEqual([]);              // refuse-all, NOT accept-any
+    expect(dev("SW1").poweredOff).toBe(true);
+    expect(dev("SW1").config!.ethernetPorts).toBe(16);
+    expect(dev("R1").config!.serialPorts).toBe(2);
+  });
+
+  it("`ports <host> closed` is distinct from `ports <host> none`", () => {
+    runConsoleScript("add computer PC1 at 0 0");
+    exec("ports PC1 closed");
+    expect(dev("PC1").config!.openPorts).toEqual([]);
+    exec("ports PC1 none");
+    expect(dev("PC1").config!.openPorts).toBeUndefined();
+  });
+
+  it("`portcount` rejects a value outside the device's range and a non-router serial count", () => {
+    runConsoleScript("add switch SW1 at 0 0\nadd computer PC1 at 0 100");
+    expect(exec("portcount SW1 99").ok).toBe(false);
+    expect(exec("portcount SW1 serial 2").ok).toBe(false);
+    expect(exec("portcount PC1 4").ok).toBe(false);
+    expect(exec("portcount SW1 12").ok).toBe(true);
+    expect(dev("SW1").config!.ethernetPorts).toBe(12);
+  });
+});

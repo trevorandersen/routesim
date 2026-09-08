@@ -12,8 +12,7 @@ import { USER_ADDABLE_TYPES } from "./device-registry";
 import { dom } from "./dom";
 import {
   addDevice, addLink, deleteLink, linkBlockReason, deleteSelection, clearNetwork, collapseLan, expandLan,
-  getDevice, moveDevice, linkName,
-} from "./devices";
+  getDevice, moveDevice, linkName, routerInterfacesWithNames } from "./devices";
 import {
   startSimulation, stopSimulation, pauseSimulation, resumeSimulation, stepOnce,
   runSimulationHeadless, runTraceroute,
@@ -29,13 +28,14 @@ import { buildConfigPayload, applyConfig, loadTopology } from "./config";
 import { normaliseConfig, normaliseStaticRoutes, ensureConfig } from "./normalise";
 import { setTool, setTheme } from "./ui";
 import { setZoom, fitNetwork } from "./canvas";
-import { isValidMac, normaliseMacAddress, prefixOf, networkOf, normaliseSsid, normaliseWifiPassword } from "./utils";
+import { isValidMac, normaliseMacAddress, prefixOf, networkOf, normaliseSsid, normaliseWifiPassword, clampPortCount, clampRouterPortCount, clampApPortCount } from "./utils";
 import { SCENARIOS, getScenario, loadScenario, checkScenario } from "./scenarios";
 import { SCENARIO_GROUPS } from "./scenario-library";
 import { SPEED_MIN, SPEED_MAX } from "./settings-url";
 import { setSeedOverride, getSeedOverride, currentSimSeed } from "./prng";
 import { parseSnortRule } from "./snort";
 import { tokenizeCommand, quoteArg } from "./tokenize";
+import { ruleToIptables } from "./terminal/iptables";
 import { diagnoseState } from "./diagnostics";
 import { DEFAULT_STRESS_SEED, DEFAULT_STRESS_STEPS, MAX_STRESS_STEPS, runStressTest } from "./stress";
 
@@ -475,7 +475,17 @@ function cmdPorts(args: string[]): CommandResult {
     ensureConfig(host);
     delete (host.config as any).openPorts;
     sync().syncPanel();
-    return ok(`${host.name}: listening ports cleared.`);
+    return ok(`${host.name}: listening ports cleared (accepts on any port).`);
+  }
+  // `closed` is the OTHER empty state: an explicit empty list = listen on
+  // nothing (every SYN is RST). Distinct from "cleared" (no list = accept any),
+  // and the script export needs to say which one it means.
+  if (/^closed$/i.test(spec)) {
+    pushUndo();
+    ensureConfig(host);
+    (host.config as any).openPorts = [];
+    sync().syncPanel();
+    return ok(`${host.name}: no listening ports (refuses every connection).`);
   }
   const ports = spec.split(/[\s,]+/).filter(Boolean).map(Number);
   if (!ports.every(p => Number.isInteger(p) && p >= 1 && p <= 65535)) return err("ports: each port must be an integer 1–65535.");
@@ -1008,6 +1018,43 @@ function cmdHelp(args: string[]): CommandResult {
   return ok("Commands:", ...Object.keys(COMMANDS).sort().map(v => `  ${v} — ${HELP[v] || ""}`));
 }
 
+// power <device> on|off — the canvas power state, which the script export
+// previously had no way to reproduce.
+function cmdPower(args: string[]): CommandResult {
+  const dev = resolveDevice(args[0]);
+  if (typeof dev === "string") return err(dev);
+  const mode = (args[1] || "").toLowerCase();
+  if (mode !== "on" && mode !== "off") return err("Usage: power <device> on|off");
+  pushUndo();
+  dev.poweredOff = mode === "off";
+  sync().syncPanel(); sync().syncTerminal(); sync().render();
+  return ok(`${dev.name} powered ${mode}.`);
+}
+
+// portcount <device> [serial] <n> — a device's physical port capacity. Each
+// type keeps its own range (the same clamps the inspector applies).
+function cmdPortCount(args: string[]): CommandResult {
+  const dev = resolveDevice(args[0]);
+  if (typeof dev === "string") return err(dev);
+  const serial = (args[1] || "").toLowerCase() === "serial";
+  const n = Number(serial ? args[2] : args[1]);
+  if (!Number.isInteger(n)) return err("Usage: portcount <device> [serial] <n>");
+  if (serial && dev.type !== "router") return err("portcount: only a router has serial ports.");
+  const clamp: Record<string, (v: number) => number> = {
+    switch: clampPortCount, hub: clampPortCount, internet: clampPortCount,
+    router: clampRouterPortCount, "access-point": clampApPortCount,
+    firewall: v => Math.min(8, Math.max(1, v)),
+  };
+  const fn = clamp[dev.type];
+  if (!fn) return err(`portcount: ${dev.name} (${dev.type}) has no configurable port count.`);
+  if (fn(n) !== n) return err(`portcount: ${n} is outside the ${dev.type}'s supported range.`);
+  pushUndo();
+  ensureConfig(dev);
+  if (serial) (dev.config as any).serialPorts = n; else (dev.config as any).ethernetPorts = n;
+  sync().syncPanel(); sync().render();
+  return ok(`${dev.name}: ${serial ? "serial" : "ethernet"} ports = ${n}.`);
+}
+
 function cmdStress(args: string[]): CommandResult {
   const seedText = args[0];
   const stepsText = args[1];
@@ -1061,6 +1108,7 @@ const COMMANDS: Record<string, Handler> = {
   list: cmdList, show: cmdShow, status: cmdStatus, log: cmdLog,
   select: cmdSelect, tool: cmdTool, theme: cmdTheme, zoom: cmdZoom, fit: cmdFit,
   scenario: cmdScenario,
+  power: cmdPower, portcount: cmdPortCount,
   stress: cmdStress,
   help: cmdHelp,
 };
@@ -1103,6 +1151,7 @@ const HELP: Record<string, string> = {
   list: "list [links]", show: "show <device>", status: "simulation status + last result", log: "hop-by-hop log",
   select: "select <device>", tool: "tool <name>", theme: "theme warm-light|dark|blueprint", zoom: "zoom <scale>", fit: "fit to view",
   scenario: "scenario list | load <id> | goal | check",
+  power: "power <device> on|off", portcount: "portcount <device> [serial] <n> (physical port capacity)",
   stress: `stress [seed] [steps] — REPLACES your topology and mutates it randomly (dev tool; max ${MAX_STRESS_STEPS} steps, not undoable)`,
   help: "help [command]",
 };
@@ -1153,6 +1202,34 @@ export function exportTopologyScript(): string {
     if (d.type === "lan") continue;
     lines.push(`add ${d.type} ${quoteArg(d.name)} at ${Math.round(d.x)} ${Math.round(d.y)}`);
   }
+  // Power state and non-default port capacities — previously unrepresentable,
+  // so a saved-then-replayed topology silently came back powered on with
+  // default port counts.
+  const DEFAULT_PORTS: Record<string, number> = { switch: 8, hub: 4, internet: 8, router: 4, "access-point": 1, firewall: 2 };
+  for (const d of payload.devices) {
+    if (d.type === "lan") continue;
+    if (d.poweredOff) lines.push(`power ${quoteArg(d.name)} off`);
+    const c = d.config || {};
+    if (d.type in DEFAULT_PORTS && c.ethernetPorts != null && c.ethernetPorts !== DEFAULT_PORTS[d.type]) lines.push(`portcount ${quoteArg(d.name)} ${c.ethernetPorts}`);
+    if (d.type === "router" && c.serialPorts != null && c.serialPorts !== 4) lines.push(`portcount ${quoteArg(d.name)} serial ${c.serialPorts}`);
+  }
+
+  // Cables BEFORE per-device config: anything that names a port or interface
+  // (`port SW Ethernet2 …`, `mirror … Ethernet3`, the router CLI's `interface
+  // Ethernet1` for NAT roles) can only resolve once the link exists — emitted
+  // after, `interface Ethernet1` opened an unbound config-if prompt and the
+  // `ip nat` inside it was silently lost.
+  for (const l of payload.links) {
+    const f = idToName.get(l.from); const t = idToName.get(l.to);
+    if (!f || !t) continue;
+    const ports = (l.fromPort != null || l.toPort != null) ? ` ${l.fromPort ?? 1} ${l.toPort ?? 1}` : "";
+    lines.push(`link ${f} ${t}${ports}`);
+    if (l.shutdown) lines.push(`shut ${f} ${t}`);
+    if (l.name) lines.push(`linkset ${f} ${t} name ${quoteArg(l.name)}`);
+    if (l.bandwidth) lines.push(`linkset ${f} ${t} bandwidth ${l.bandwidth}`);
+    if (l.latency) lines.push(`linkset ${f} ${t} latency ${l.latency}`);
+    if (l.loss) lines.push(`linkset ${f} ${t} loss ${l.loss}`);
+  }
 
   for (const d of payload.devices) {
     const c = d.config || {};
@@ -1169,7 +1246,7 @@ export function exportTopologyScript(): string {
       if (d.type === "server" && c.dnsmasqRunning === false) lines.push(`cli ${quoteArg(d.name)} systemctl stop dnsmasq`);
       if (c.dot1x?.identity) lines.push(`supplicant ${quoteArg(d.name)} ${quoteArg(c.dot1x.identity)} ${c.dot1x.password ? quoteArg(c.dot1x.password) : ""}`.trimEnd());
       for (const u of (c.radius?.users || [])) lines.push(`radius ${quoteArg(d.name)} ${quoteArg(u.identity)} ${u.password ? quoteArg(u.password) : ""}`.trimEnd());
-      if (Array.isArray(c.openPorts) && c.openPorts.length) lines.push(`ports ${quoteArg(d.name)} ${c.openPorts.join(",")}`);
+      if (Array.isArray(c.openPorts)) lines.push(c.openPorts.length ? `ports ${quoteArg(d.name)} ${c.openPorts.join(",")}` : `ports ${quoteArg(d.name)} closed`);
       if (c.httpEnabled) lines.push(`web ${quoteArg(d.name)} on${c.httpTitle ? ` ${quoteArg(c.httpTitle)}` : ""}`);
     } else if (d.type === "switch") {
       if (c.managed) {
@@ -1211,12 +1288,41 @@ export function exportTopologyScript(): string {
         }
       }
       for (const r of (c.staticRoutes || [])) lines.push(`route ${quoteArg(d.name)} ${r.network} ${r.nextHop}`);
-      // Static port-forwards replay through the router's config-mode CLI.
-      if ((c.portForwards || []).length) {
-        lines.push(`cli ${quoteArg(d.name)} enable`, `cli ${quoteArg(d.name)} configure terminal`);
-        for (const r of c.portForwards) lines.push(`cli ${quoteArg(d.name)} ip nat inside source static tcp ${r.insideIp} ${r.insidePort} ${r.outsideIp} ${r.outsidePort}`);
-        lines.push(`cli ${quoteArg(d.name)} end`);
+      // Everything below replays through the router's own FRR / netfilter CLI —
+      // the same commands a person would type — in one enable/configure/end
+      // block: RIP, NAT interface roles, static port-forwards, then the filter
+      // policy + rules (privileged mode, after `end`). Before this the export
+      // dropped RIP, NAT roles, and the whole filter, so a replayed router
+      // came back with none of them.
+      const cli = (line: string) => `cli ${quoteArg(d.name)} ${line}`;
+      const cfg: string[] = [];
+      if (c.rip?.enabled) {
+        cfg.push("router rip");
+        for (const n of (c.rip.networks || [])) cfg.push(`network ${n}`);
+        for (const p of (c.rip.passiveInterfaces || [])) cfg.push(`passive-interface ${p}`);
+        cfg.push("exit");
       }
+      const live = state.devices.find(x => x.id === d.id);
+      const named = live ? routerInterfacesWithNames(live) : [];
+      for (const i of (c.interfaces || [])) {
+        if (i.natRole !== "inside" && i.natRole !== "outside") continue;
+        const entry = named.find((n: any) => n.peerId === i.peerId && (n.config?.vlanTag ?? null) === (i.vlanTag ?? null));
+        if (!entry) continue;
+        cfg.push(`interface ${entry.name}`, `ip nat ${i.natRole}`, "exit");
+      }
+      for (const r of (c.portForwards || [])) cfg.push(`ip nat inside source static tcp ${r.insideIp} ${r.insidePort} ${r.outsideIp} ${r.outsidePort}`);
+      const priv: string[] = [];
+      for (const [chain, pol] of Object.entries(c.policy || {})) if (pol === "drop") priv.push(`iptables -P ${String(chain).toUpperCase()} DROP`);
+      for (const r of (c.rules || [])) priv.push(ruleToIptables(r));
+      if (cfg.length || priv.length) lines.push(cli("enable"));
+      if (cfg.length) lines.push(cli("configure terminal"), ...cfg.map(cli), cli("end"));
+      lines.push(...priv.map(cli));
+    } else if (d.type === "firewall") {
+      // The transparent filter had NO export branch — a DROP policy with an
+      // allow-list replayed as an empty ACCEPT firewall. Same iptables-save
+      // shape as the router, minus the mode dance (the firewall shell is flat).
+      if (c.policy?.forward === "drop") lines.push(`cli ${quoteArg(d.name)} iptables -P FORWARD DROP`);
+      for (const r of (c.rules || [])) lines.push(`cli ${quoteArg(d.name)} ${ruleToIptables(r)}`);
     } else if (d.type === "access-point" && c.ssid) {
       lines.push(`ssid ${quoteArg(d.name)} ${quoteArg(c.ssid)}${c.wifiPassword ? ` ${quoteArg(c.wifiPassword)}` : ""}`);
     }
@@ -1227,17 +1333,6 @@ export function exportTopologyScript(): string {
     }
   }
 
-  for (const l of payload.links) {
-    const f = idToName.get(l.from); const t = idToName.get(l.to);
-    if (!f || !t) continue;
-    const ports = (l.fromPort != null || l.toPort != null) ? ` ${l.fromPort ?? 1} ${l.toPort ?? 1}` : "";
-    lines.push(`link ${f} ${t}${ports}`);
-    if (l.shutdown) lines.push(`shut ${f} ${t}`);
-    if (l.name) lines.push(`linkset ${f} ${t} name ${quoteArg(l.name)}`);
-    if (l.bandwidth) lines.push(`linkset ${f} ${t} bandwidth ${l.bandwidth}`);
-    if (l.latency) lines.push(`linkset ${f} ${t} latency ${l.latency}`);
-    if (l.loss) lines.push(`linkset ${f} ${t} loss ${l.loss}`);
-  }
 
   return lines.join("\n");
 }

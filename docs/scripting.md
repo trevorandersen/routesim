@@ -75,7 +75,9 @@ Param keys and boolean values are case-insensitive. Adding a setting is a one-ro
 | `supplicant <host> <identity> <password>` | Set a host's 802.1X credentials (the supplicant). |
 | `portauth <switch> <EthN> <auto\|force-authorized\|force-unauthorized>` | Set a switch port's 802.1X control. `auto` blocks data until the host authenticates; `force-authorized` (default) is open. |
 | `radius <server> <identity> <password>` | Add/update a RADIUS user on a server (enables the authentication back end). |
-| `ports <host> <port[,port…]>` | Set a host's listening TCP ports (what `nc`/`connect` find open); comma- or space-separated, `none` clears. |
+| `ports <host> <port[,port…]>` | Set a host's listening TCP ports (what `nc`/`connect` find open); comma- or space-separated. `ports <host> none` clears the list (accept on **any** port); `ports <host> closed` sets an explicitly **empty** list (refuse every connection). Different states — the export preserves which you meant. |
+| `power <device> on\|off` | Power a device on or off (the canvas power state). |
+| `portcount <device> [serial] <n>` | Set a device's physical port capacity (each type keeps its own range; `serial` is routers only). |
 | `macsec <device> <peer> <key\|dot1x> [must\|should]` | Set MACsec (802.1AE) for the link to a peer (`off` clears it). A literal key is a static pre-shared CAK (both ends must match); `dot1x` instead **derives** the key from a successful 802.1X exchange on the link (MKA) — it secures only after the port authenticates. `must` drops traffic when it can't secure, `should` falls back to plaintext. |
 | `interface <router> <peer> ip <addr> [vlan <tag>]` | Set a router interface IP (by connected peer; optional sub-interface VLAN). |
 | `route <router> <net/prefix> <nextHop>` | Add a static route. |
@@ -198,7 +200,13 @@ route R1 10.0.0.0/24 192.168.10.254
 
 ## Round-trip
 
-`export` serialises the whole topology back into commands, so any state built in the GUI is reproducible as text:
+`export` serialises the topology back into commands so that replaying the script rebuilds the **same operational configuration**, not just the same names and addresses. Everything the JSON payload persists is covered — including the parts that used to be silently dropped (a firewall's policy and rules, a router's netfilter policy/rules, RIP configuration, NAT interface roles, an explicitly *empty* listener list, power state, and non-default port capacities):
+
+- Device-level fields replay through console verbs (`ip`, `interface`, `route`, `ports`, `power`, `portcount`, …).
+- Anything whose natural home is a device's own CLI replays through **`cli <device> …`** exactly as a person would type it: a router's `router rip` / `network` / `passive-interface`, `interface EthernetN` + `ip nat inside|outside`, static port-forwards, and `iptables -P` / `iptables -A …` (each `FirewallRule` formatted by `ruleToIptables`, the parser's inverse); a firewall's `iptables` lines directly.
+- **Cables are emitted before per-device config**, because port and interface names (`port SW Ethernet2 …`, `mirror … Ethernet3`, the CLI's `interface Ethernet1`) only resolve once the link exists.
+
+The round-trip test in `tests/commands.test.ts` compares the replayed *configuration* — policy, rules, RIP, NAT role, listener list, power, port counts — not merely device names.
 
 ```js
 const script = routesim.export();   // "clear\nadd computer PC1 at …\nip PC1 …\nlink …"

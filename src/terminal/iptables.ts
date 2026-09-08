@@ -17,6 +17,25 @@ function parseChain(raw: string | undefined, allowed: string[]): string | null {
   return allowed.includes(chain) ? chain : null;
 }
 
+/**
+ * The inverse of the `-A` parser below: one FirewallRule as an `iptables -A …`
+ * line that `runIptablesCommand` re-parses to the same rule. The script export
+ * replays a device's netfilter state through this (like `iptables-save`), so
+ * the formatter and the parser live together and stay in step.
+ */
+export function ruleToIptables(rule: FirewallRule): string {
+  const a = [`-A ${String(rule.chain || "forward").toUpperCase()}`];
+  if (rule.protocol && rule.protocol !== "all") a.push(`-p ${rule.protocol}`);
+  if (rule.src) a.push(`-s ${rule.src}`);
+  if (rule.dst) a.push(`-d ${rule.dst}`);
+  if (rule.icmpType) a.push(`--icmp-type ${rule.icmpType}`);
+  if (rule.dport != null) a.push(`--dport ${rule.dport}`);
+  if (rule.states?.length) a.push(`-m state --state ${rule.states.map(s => String(s).toUpperCase()).join(",")}`);
+  a.push(`-j ${String(rule.target).toUpperCase()}`);
+  if (rule.rejectWith) a.push(`--reject-with ${rule.rejectWith}`);
+  return `iptables ${a.join(" ")}`;
+}
+
 export function showFirewallRules(device: Device, lineNumbers: boolean, chains: string[] = ["forward"]): string {
   const lines: string[] = [];
   for (const chain of chains) {

@@ -4,6 +4,8 @@ Serialises the live network to a portable payload, applies a payload back to the
 
 ## Serialise & apply
 - **`buildConfigPayload()`** — serialises `state.devices` + `state.links` to `{ version, devices, links }`, normalising each device's config and dropping transient data (frame history, RIP `learnedRoutes` — derived state recomputed at each convergence, so only the RIP configuration round-trips). User-given link names round-trip; unnamed links serialise without a `name` key. Used by export and the console `save`.
+- **Interface retention is structural, not visual.** `routerInterfacesForPayload` keeps a peer-bound interface when the peer is reachable over a *physical* cable (`physicalPeerIds` — hidden-by-collapse links count, a LAN's proxy links don't). It used to consult `connectedIds`, which excludes hidden links, so saving while a LAN was collapsed silently dropped every router interface facing it — address, prefix, NAT role, tables — and expanding couldn't recover them.
+- **Every registered device type has a payload branch**, including `hub` and `internet` (their configurable `ethernetPorts`). An exhaustiveness test iterates `DEVICE_TYPES` and fails the moment a new type is added to the registry without one.
 - **`parseConfig(text)`** — parse + `normaliseConfig` a raw JSON string (throws on invalid JSON).
 - **`applyConfig(config)` / `applyConfigWithoutUndo(config)`** — stop the current simulation, clear its topology-specific references, replace `state.devices`/`state.links` with a normalised topology, reset selection/interaction state, drop all terminal sessions (`dropTerminalSessions`), recompute name counters, fit the view, and re-render. `applyConfig` pushes an undo point first; both clear any active scenario.
 

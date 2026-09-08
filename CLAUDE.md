@@ -167,7 +167,7 @@ Each hop is an animated dot on the canvas (amber = ARP, blue = ICMP request, gre
 
 ### TCP connect (L4)
 
-`nc -z <host> <port>` (PC terminal) / `connect <src> <dst> <port>` (console) run a real **three-way handshake**: `buildConnectEvents` sends a SYN (ARP-ing the next hop first if needed), the destination answers SYN-ACK if listening (`config.openPorts` undefined = listen on all ports; a list = only those, others RST), and the origin completes with ACK (`sim.tcpSuccess`). RST → "connection refused"; silence → timeout. This is what makes firewall `-p tcp --dport` rules and future NAT/DNS meaningful.
+`nc -z <host> <port>` (PC terminal) / `connect <src> <dst> <port>` (console) run a real **three-way handshake**: `buildConnectEvents` sends a SYN (ARP-ing the next hop first if needed), the destination answers SYN-ACK if listening (`config.openPorts` undefined = listen on all ports; a list = only those, others RST; an *empty* list = refuse everything — `ports <host> none` vs `ports <host> closed`, and the script export preserves which), and the origin completes with ACK (`sim.tcpSuccess`). RST → "connection refused"; silence → timeout. This is what makes firewall `-p tcp --dport` rules and future NAT/DNS meaningful.
 
 ### HTTP (L7)
 

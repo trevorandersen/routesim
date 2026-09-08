@@ -1,4 +1,4 @@
-import type { SimEvent, EthernetFrame } from "./types";
+import type { SimEvent, EthernetFrame, Device } from "./types";
 import { state } from "./state";
 import { getDevice, linkedPortsFor, linksFor, linkAuthorizedForData, dot1xLinkInfo } from "./devices";
 import { runStpConvergence, isStpParticipant } from "./stp";
@@ -21,51 +21,55 @@ export interface PingSetup {
 
 // ─── Utilities kept from original simulation ─────────────────────────────────
 
+// Does a managed switch's port carry the VLAN? A trunk carries any allowed
+// VLAN (an empty allowed list = all); an access port carries its assigned one.
+function portCarries(sw: Device, portName: string, vlanId: number): boolean {
+  const mode = normalisePortModes(sw.config?.portModes || {})[portName] || "access";
+  if (mode === "trunk") {
+    const allowed = normaliseTrunkAllowedVlans(sw.config?.trunkAllowedVlans || {})[portName];
+    return !(allowed && allowed.length > 0 && !allowed.includes(vlanId));
+  }
+  return (normalisePortVlans(sw.config?.portVlans || {})[portName] || 1) === vlanId;
+}
+
+// The port of `sw` facing `peerId`, or null if no cable to that peer.
+function portToward(sw: Device, peerId: string): string | null {
+  const idx = linkedPortsFor(sw.id).findIndex((p: any) => p?.peer?.id === peerId);
+  return idx < 0 ? null : `Ethernet${idx + 1}`;
+}
+
 export function l2Reachable(fromId: string, toId: string, vlanId: number | null): boolean {
   const queue = [fromId];
   const seen = new Set(queue);
   while (queue.length) {
     const id = queue.shift()!;
     if (id === toId) return true;
+    const curr = getDevice(id);
+    const leavingManaged = !!curr && curr.type === "switch" && !!curr.config?.managed && vlanId != null;
     for (const link of linksFor(id)) {
       if (link.hidden || link.shutdown) continue; // a shut link breaks the path
       if (!linkAuthorizedForData(link)) continue;  // unauthenticated WiFi / unauthorized 802.1X port: no data
       const isFrom = link.from === id;
       const nextId = isFrom ? link.to : link.from;
       if (seen.has(nextId)) continue;
+      // LEAVING a managed switch: its egress port toward the next hop must
+      // carry the VLAN — this is what keeps two hosts on different access
+      // VLANs of one switch apart. (The old check searched the switch's ports
+      // for a peer equal to the switch ITSELF, so it never fired; the sim's
+      // processAtSwitch still isolated them, but this pre-check said otherwise.)
+      if (leavingManaged) {
+        const egress = portToward(curr!, nextId);
+        if (egress && !portCarries(curr!, egress, vlanId!)) continue;
+      }
       const next = getDevice(nextId);
       if (!next || next.hidden || next.poweredOff) continue;
       if ((next.type === "router" || next.type === "internet") && nextId !== toId) continue;  // the internet cloud is an L3 boundary, not an L2 bridge
+      // ENTERING a managed switch: its ingress port (toward where we came
+      // from) must carry the VLAN.
       if (next.type === "switch" && next.config?.managed && vlanId != null) {
-        const portVlans = normalisePortVlans(next.config.portVlans || {});
-        const portModes = normalisePortModes(next.config.portModes || {});
-        const trunkAllowed = normaliseTrunkAllowedVlans(next.config.trunkAllowedVlans || {});
-        const ports = linkedPortsFor(next.id);
-        const ingressIdx = ports.findIndex((p: any) => p?.peer?.id === id);
-        const egressIdx = ports.findIndex((p: any) => p?.peer?.id === nextId);
-        if (ingressIdx === -1 && id !== fromId) continue;
-        const ingressPort = ingressIdx >= 0 ? `Ethernet${ingressIdx + 1}` : null;
-        const egressPort = egressIdx >= 0 ? `Ethernet${egressIdx + 1}` : null;
-        // Check ingress: trunk ports carry any allowed VLAN, access ports carry their assigned VLAN
-        if (ingressPort) {
-          const mode = portModes[ingressPort] || "access";
-          if (mode === "trunk") {
-            const allowed = trunkAllowed[ingressPort];
-            if (allowed && allowed.length > 0 && !allowed.includes(vlanId)) continue;
-          } else {
-            if ((portVlans[ingressPort] || 1) !== vlanId) continue;
-          }
-        }
-        // Check egress
-        if (egressPort) {
-          const mode = portModes[egressPort] || "access";
-          if (mode === "trunk") {
-            const allowed = trunkAllowed[egressPort];
-            if (allowed && allowed.length > 0 && !allowed.includes(vlanId)) continue;
-          } else {
-            if ((portVlans[egressPort] || 1) !== vlanId) continue;
-          }
-        }
+        const ingress = portToward(next, id);
+        if (!ingress && id !== fromId) continue;
+        if (ingress && !portCarries(next, ingress, vlanId)) continue;
       }
       seen.add(nextId);
       queue.push(nextId);

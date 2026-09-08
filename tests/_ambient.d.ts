@@ -37,7 +37,14 @@ declare module "node:path" {
   export function dirname(p: string): string;
 }
 
-// Bun's `import.meta.dir` (the module's directory) — not in the standard lib.
+// Bun's `import.meta.dir` (the module's directory) and `import.meta.main`
+// (true when the file is the entry point) — not in the standard lib.
 interface ImportMeta {
   dir: string;
+  main: boolean;
 }
+
+// The `Bun` runtime global, used by test-server.ts (imported by its test for
+// the exported path-policy helpers; the server itself starts only under
+// import.meta.main). Loose on purpose — see the note at the top.
+declare const Bun: any;

@@ -11,7 +11,29 @@
  */
 
 const PORT = parseInt(Bun.argv[2] ?? "8767");
+// Loopback by default: this server runs unauthenticated test execution and
+// serves repository files, which is fine on your own machine and not fine on a
+// shared network. Pass a host explicitly (`bun test-server.ts 8767 0.0.0.0`)
+// when you mean to share it.
+const HOST = Bun.argv[3] ?? "127.0.0.1";
 const ROOT = import.meta.dir;
+const MAX_CONCURRENT_RUNS = 2;
+let runsInFlight = 0;
+
+/** Static paths we will serve: no dotfiles / `.git`, no `..`, a known type only. */
+export function isServablePath(pathname: string): boolean {
+  let decoded: string;
+  try { decoded = decodeURIComponent(pathname); } catch { return false; }
+  const segments = decoded.split("/").filter(Boolean);
+  if (segments.some(seg => seg === ".." || seg.startsWith("."))) return false;
+  const ext = decoded.slice(decoded.lastIndexOf("."));
+  return ext !== decoded && ext in MIME;
+}
+
+/** `file` must name one of the enumerated test files — never an arbitrary path. */
+export function isAllowedTestFile(file: string | null, known: string[]): boolean {
+  return !!file && /^[A-Za-z0-9_-]+\.test\.ts$/.test(file) && known.includes(file);
+}
 
 function stripAnsi(text: string): string {
   return text.replace(/\x1b\[[0-9;]*m/g, "");
@@ -65,14 +87,20 @@ async function listTests(): Promise<{
   return { tests };
 }
 
-function runTests(
+async function runTests(
   file: string | null,
   pattern: string | null,
 ): Promise<{ ok: boolean; output: string; code: number }> {
   const args = ["bun", "test"];
-  if (file) args.push(`tests/${file}`);
-  if (pattern) args.push("-t", pattern);
-  return runCommand(args);
+  if (file) {
+    const known = Object.keys((await listTests()).tests);
+    if (!isAllowedTestFile(file, known)) return { ok: false, output: `Unknown test file: ${file}`, code: -1 };
+    args.push(`tests/${file}`);
+  }
+  if (pattern) args.push("-t", pattern.slice(0, 200));   // an argv element, never a shell string
+  if (runsInFlight >= MAX_CONCURRENT_RUNS) return { ok: false, output: "Too many test runs in flight — try again shortly.", code: -1 };
+  runsInFlight++;
+  try { return await runCommand(args); } finally { runsInFlight--; }
 }
 
 const MIME: Record<string, string> = {
@@ -91,18 +119,15 @@ function mimeFor(path: string): string {
 }
 
 function json(data: unknown): Response {
-  return new Response(JSON.stringify(data), {
-    headers: {
-      "Content-Type": "application/json",
-      "Access-Control-Allow-Origin": "*",
-    },
-  });
+  // Same-origin only: test.html / benchmark.html are served by this process.
+  return new Response(JSON.stringify(data), { headers: { "Content-Type": "application/json" } });
 }
 
-Bun.serve({
+if (import.meta.main) Bun.serve({
+  hostname: HOST,
   port: PORT,
   idleTimeout: 120,
-  async fetch(req) {
+  async fetch(req: Request) {
     const url = new URL(req.url);
     const path = url.pathname;
 
@@ -116,14 +141,11 @@ Bun.serve({
       return json(await runTests(file, pattern));
     }
 
-    // Static file serving
+    // Static file serving — repository files of known types only; dotfiles
+    // (`.git`, editor state) and anything with a `..` segment are refused.
     const filePath = path === "/" ? "/rs-web.html" : path;
+    if (!isServablePath(filePath)) return new Response("Forbidden", { status: 403 });
     const resolved = `${ROOT}${filePath}`;
-
-    // Prevent directory traversal
-    if (!resolved.startsWith(ROOT)) {
-      return new Response("Forbidden", { status: 403 });
-    }
 
     const file = Bun.file(resolved);
     if (await file.exists()) {
@@ -136,6 +158,8 @@ Bun.serve({
   },
 });
 
-console.log(`\n  RouteSim Test Runner`);
-console.log(`  http://localhost:${PORT}/test.html`);
-console.log(`  http://localhost:${PORT}/benchmark.html\n`);
+if (import.meta.main) {
+  console.log(`\n  RouteSim Test Runner (bound to ${HOST})`);
+  console.log(`  http://localhost:${PORT}/test.html`);
+  console.log(`  http://localhost:${PORT}/benchmark.html\n`);
+}

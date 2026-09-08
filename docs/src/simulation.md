@@ -33,3 +33,8 @@ These build offensive flows the same way the ping builders do: each returns a `P
 
 - The validation-vs-error split is what makes terminal commands testable without starting a simulation (the error path returns a string and never calls `startSimulation`). See [testing.md](../testing.md).
 - A "self-ping" (pinging your own IP) returns an instant string result rather than an event queue.
+
+
+## `l2Reachable` checks the VLAN on the way OUT of a switch too
+
+The BFS applies the 802.1Q rule at both ends of every managed-switch port it crosses: **entering** a managed switch, the ingress port (toward where the path came from) must carry the VLAN; **leaving** one, the egress port toward the next hop must — `portToward` + `portCarries` (a trunk carries any allowed VLAN, an empty allowed list meaning all; an access port carries its assigned one). The egress half used to be dead code: it searched the switch's ports for a peer equal to the switch *itself*, so it never fired, and two hosts on different access VLANs of one switch read as reachable. The outcome was still right — `processAtSwitch` isolated them on the real frame path — but the pre-check disagreed with the engine and `tests/simulation.test.ts` pinned the disagreement. It now pins agreement.

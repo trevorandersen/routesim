@@ -1,4 +1,5 @@
 import { describe, it, expect, beforeAll, beforeEach } from "bun:test";
+import { runConsoleScript } from "../src/commands";
 import { state } from "../src/state";
 import { getVlanForDevice, l2Reachable, buildPingEvents, buildDhcpEvents } from "../src/simulation";
 import { setSwitchPortVlan } from "../src/terminal";
@@ -81,14 +82,16 @@ describe("l2Reachable", () => {
     expect(l2Reachable("pc-t1", "pc-t2", 10)).toBe(true);
   });
 
-  it("returns true for endpoints on same managed switch regardless of VLAN (BFS checks switches, not endpoints)", () => {
+  it("endpoints on DIFFERENT access VLANs of the same managed switch are not reachable (the egress check is alive)", () => {
     const topo = vlanTopology();
     state.devices = topo.devices as any;
     state.links = topo.links as any;
-    // l2Reachable VLAN filtering only checks managed switches *along the path*,
-    // not the endpoint ports. So pc-v10 and pc-v20 on the same switch are reachable
-    // even with different VLANs — the engine's processAtSwitch enforces port VLAN isolation.
-    expect(l2Reachable("pc-v10", "pc-v20", 10)).toBe(true);
+    // This used to pin the opposite: the egress-VLAN check searched the switch's
+    // ports for a peer equal to the switch itself and never fired, so the
+    // pre-check said "reachable" while processAtSwitch correctly isolated them.
+    // Now the switch's port toward pc-v20 (access VLAN 20) is checked on the way
+    // out, and the pre-check agrees with the engine.
+    expect(l2Reachable("pc-v10", "pc-v20", 10)).toBe(false);
   });
 
   it("returns true when VLAN is null (ignores VLAN filtering)", () => {
@@ -279,5 +282,34 @@ describe("buildDhcpEvents", () => {
     const pc1 = state.devices.find(d => d.id === "pc1")!;
     const result = buildDhcpEvents(pc1);
     expect(typeof result).toBe("string");
+  });
+});
+
+describe("l2Reachable — the egress-VLAN check is alive", () => {
+  beforeEach(() => resetState());
+  function twoVlans() {
+    runConsoleScript(`
+      add computer PC-A at 0 0
+      add computer PC-B at 0 200
+      add switch SW at 200 100
+      link PC-A SW
+      link PC-B SW
+      managed SW on
+      vlan SW add 10
+      vlan SW add 20
+      port SW Ethernet1 vlan 10
+      port SW Ethernet2 vlan 20
+    `);
+    return { a: state.devices.find(d => d.name === "PC-A")!, b: state.devices.find(d => d.name === "PC-B")! };
+  }
+  it("two hosts on different access VLANs of one switch are NOT L2-reachable", () => {
+    const { a, b } = twoVlans();
+    expect(l2Reachable(a.id, b.id, 10)).toBe(false);   // the old check searched the switch for itself and never fired
+    expect(l2Reachable(a.id, b.id, 20)).toBe(false);
+  });
+  it("moving PC-B onto VLAN 10 makes them reachable again", () => {
+    const { a, b } = twoVlans();
+    runConsoleScript("port SW Ethernet2 vlan 10");
+    expect(l2Reachable(a.id, b.id, 10)).toBe(true);
   });
 });

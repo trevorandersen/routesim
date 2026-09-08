@@ -15,8 +15,11 @@ bun test tests/stress.test.ts     # deterministic mutation/invariant stress suit
 There is also a browser UI for running tests, served by `test-server.ts`:
 
 ```bash
-bun test-server.ts                # then open http://localhost:8767/test.html
+bun test-server.ts                # then open http://localhost:8767/test.html (bound to 127.0.0.1)
+bun test-server.ts 8767 0.0.0.0   # share on the LAN — an explicit choice, never the default
 ```
+
+The server executes tests on request and serves repository files, so it is hardened for the network it may sit on: loopback by default, no dotfiles / `.git`, known static types only, `file` restricted to the enumerated suite, no wildcard CORS, at most two runs in flight. The two decision helpers are exported and unit-tested; `Bun.serve` runs only under `import.meta.main`, which is what lets the test import the module.
 
 `test.html` lists each file and `describe` block and runs them on click via the server's API:
 
@@ -48,7 +51,7 @@ Run the same coverage under Bun with `bun test tests/stress.test.ts`. A failure 
 | `src/diagnostics.ts` | Read-only model invariants used by stress runs and `routesim.diagnose()` |
 | `src/stress.ts` | Seeded command generator, action log, and fail-fast stress report |
 | `tsconfig.tests.json` | Type-checks `tests/` (plus `src/`) against the strict src types: `bunx tsc --noEmit -p tsconfig.tests.json`. Catches bad imports, wrong signatures, and stale fixture shapes `bun test` wouldn't surface until runtime. Same strict settings as the build (deviating changes inference and yields false positives in `src`), so fixture accesses of optional config fields carry `!`. Part of the "green" check. |
-| `tests/_ambient.d.ts` | Ambient shims (`bun:test`, `fs`/`node:fs`/`node:path`, `import.meta.dir`) so the tests tsc resolves imports **without** npm type packages — the project has no `node_modules`. Deliberately loose: the check guards import/fixture drift, not bun's API internals. |
+| `tests/_ambient.d.ts` | Ambient shims (`bun:test`, `fs`/`node:fs`/`node:path`, `import.meta.dir`/`main`, a loose `Bun` global for `test-server.ts`) so the tests tsc resolves imports **without** npm type packages — the project has no `node_modules`. Deliberately loose: the check guards import/fixture drift, not bun's API internals. |
 
 ### DOM mocking (`preload.ts`)
 
@@ -115,7 +118,7 @@ describe("setSwitchPortVlan", () => {
 | `tests/terminal.test.ts` | Terminal display + mutator helpers (host/router/switch, VLAN, trunk) |
 | `tests/terminal-commands.test.ts` | The command **dispatchers**, router mode machine, abbreviation + `?`, the host inspector-set commands (`ip link set`/`ip route del`/`rm resolv.conf`), `runDeviceCommand` (injected), and the **hostname** commands (host `hostname`/`hostnamectl`/`/etc/hostname`, router `hostname` in config mode, switch `config hostname` — each renames the device, with RFC-1123 validation) |
 | `tests/commands.test.ts` | The console command engine (verbs, headless runs, script round-trip), and the **undo contract** — a representative state-changing command (`unlink`/`rename`/`move`/`mac`) is undone and the state asserted restored; a rejected sub-command adds no spurious undo entry; a rejected linkset/ports/idsrule pushes no undo either; quoted values with spaces (device name, SSID + password, link name) parse, export quoted, and replay to the same topology, while a free-text tail reaches `idsrule` verbatim and an unterminated quote is rejected; the export replays operational configuration, not just names — firewall DROP policy + rules, router RIP + NAT role + netfilter, an explicitly empty listener list, power, port counts — and `ports … closed` vs `none`, `portcount` range/serial rejection |
-| `tests/simulation.test.ts` | `l2Reachable`, `getVlanForDevice`, `buildPing/DhcpEvents` |
+| `tests/simulation.test.ts` | `l2Reachable`, `getVlanForDevice`, `buildPing/DhcpEvents`; `l2Reachable`'s egress-VLAN check is alive — two hosts on different access VLANs of one managed switch are NOT reachable (the pre-check now agrees with `processAtSwitch`), and moving one onto the other's VLAN restores reachability |
 | `tests/scenarios.test.ts` | Scenario loading/goal checks, positive-coordinate invariants, and the **curriculum solvability** proof (every entry starts unsolved and passes after its reference solution in `SOLUTIONS`); `isValidScenarioCheck` accepts every well-formed kind and rejects null/primitive/unknown-kind/missing-field/bad-port checks; `unregisterScenario` rolls back; `isValidScenarioCheck` accepts every well-formed kind and rejects null/primitive/unknown-kind/missing-field/bad-port checks; `unregisterScenario` rolls back |
 | `tests/io.test.ts` | JSON import/export round-trips; a collapsed LAN keeps its router interfaces through the payload (structural, not drawn, connectivity); hub/internet port counts round-trip; an exhaustiveness guard asserts every `DEVICE_TYPES` entry gets a payload `config` branch |
 | `tests/settings-url.test.ts` | URL query-string settings: `parseSettingsFromUrl` (bool spellings incl. the silent-protocol params, theme/speed validation + clamping, ignored params) and the `buildSettingsQuery` inverse (diff-only emit + round-trip) |
@@ -135,6 +138,7 @@ describe("setSwitchPortVlan", () => {
 | `tests/help.test.ts` | In-app Help → Guide coverage (`src/help.ts`): every user-addable device type has a `DEVICE_DOCS` entry (no gaps, no strays) and every `id="opt…"` Settings-pane toggle scraped from `template.html` has a `SETTING_GROUPS` doc, plus `buildHelpHtml` names every device (via `DEVICE_SPECS` labels) and setting and renders an icon each |
 | `tests/prng.test.ts` | Seeded determinism (`src/prng.ts` + the `seed` command): a pinned seed reseeds to the same stream, different seeds diverge, unpinned reseeds from the clock; end-to-end a pinned seed makes a TCP connect's source port reproducible; the `seed` command pins/reports/clears and rejects bad input; the DNS transaction id is seeded too (a pinned seed reproduces an nslookup xid) |
 | `tests/tokenize.test.ts` | The command language's quote-aware tokenizer: whitespace splitting, `"…"`/`'…'` grouping, `\\"`/`\\\\` escapes in double quotes only, empty and mid-token quoting, unterminated-quote rejection, the token end-offsets a raw tail is recovered from, and `quoteArg` round-tripping awkward values back through it |
+| `tests/test-server.test.ts` | The dev server's exported policies: `isServablePath` serves the app's static artefacts and refuses dotfiles, `.git`, traversal (incl. percent-encoded), and unknown types; `isAllowedTestFile` accepts only an enumerated test file and rejects paths, globs, and unknown names |
 | `tests/utils.test.ts` | Pure helpers |
 | `tests/diagnostics.test.ts` | Runtime model invariants: duplicate/dangling ids, stale UI/simulation references, invalid coordinates and animation values |
 | `tests/stress.test.ts` | Seeded command mutation, deterministic replay, failure reporting, bounds, and capped-storm queue cleanup before later topology edits |

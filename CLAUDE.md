@@ -63,9 +63,12 @@ Test infrastructure:
 ## Serving
 
 ```bash
-bun test-server.ts          # default port 8767
-bun test-server.ts 8765     # custom port
+bun test-server.ts               # default port 8767, bound to 127.0.0.1
+bun test-server.ts 8765          # custom port
+bun test-server.ts 8767 0.0.0.0  # share on the LAN — deliberate, never the default
 ```
+
+The server runs unauthenticated test execution and serves repository files, so it binds to **loopback by default**; pass a host only when you mean to share it. It refuses dotfiles and `.git`, serves only known static types, accepts a `file` for `/api/run` only if it names one of the enumerated test files, sets no CORS header (its pages are same-origin), and bounds concurrent runs. The path/file policies are pure exported helpers (`isServablePath`, `isAllowedTestFile`) covered by `tests/test-server.test.ts`; the server itself starts only under `import.meta.main`.
 
 Open `http://localhost:8767/rs-web.html` for the app (`/` redirects there), `/test.html` for the test runner, `/benchmark.html` for benchmarks.
 

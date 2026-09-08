@@ -50,3 +50,13 @@ The data layer beneath the UI: `canvas.ts` renders `state.devices`/`state.links`
 - **Physical port numbers are bounded** by `MAX_PHYSICAL_PORT` (utils.ts, 64 — a sanity ceiling above every device's real cap). `resolvePort` rejects a requested port above it (falls back to the next free port) and `linkedPortsFor` treats an out-of-range stored port as implicit rather than growing its sparse array to it. The normaliser enforces the same bound on import (see normalise.md); the two later checks are defence in depth.
 
 - **`physicalPeerIds(id)`** — peers over physical cables, *including* those a collapsed LAN has hidden and *excluding* the LAN's proxy links. The persistence layer asks this rather than `connectedIds` (which is the drawn set): collapse is presentation, and a save must not depend on it.
+
+
+## Router interface names and the port picker
+
+Two kinds of cable, one naming rule:
+
+- **A chosen port is pinned.** When the picker (or `link A B 4 1`) selects a port, the link stores that number and the interface *is* `Ethernet4` — in the inspector, the terminal, and the picker alike, and it stays `Ethernet4` when earlier cables are added or removed. The free ports offered are every unused number up to capacity, so the gap a pick leaves is shown as free rather than hidden. (Before, `routerInterfacesWithNames` dropped the sparse gaps and renumbered by array position: a sole cable on port 4 read as `Ethernet1`, and the name moved whenever another cable came or went.)
+- **An auto-assigned cable is implicit.** `addLink` persists a port number only when the caller chose one *and* it was honoured; an auto-assigned cable stores none, fills the lowest free slot, and names densely **per media** — `Ethernet1, Ethernet2, …` and `Serial1, Serial2, …` — exactly as before. (Persisting the auto slot would have put every cable in one shared numbering space, so a router's first serial cable came out as `Serial2`.) This is the "positional names shift" invariant `tests/devices.test.ts` pins: *implicit* names are positional; *chosen* names are not.
+
+Caveat: a stored port number is one space per device, so `Ethernet2` and `Serial2` cannot both be *chosen* on the same router (the second falls back to auto-assignment). `wiredPortCapacity(device)` is the per-type capacity the picker and `switchInterfacesWithNames` share — a firewall's 2 ports are no longer clamped up to a switch's minimum of 4 — and `buildPortList` now enumerates **firewall** and **internet** ports (they fell through to an empty list, leaving the picker with a blank column and nothing to confirm) and auto-selects the single-NIC **IDS** like a host.

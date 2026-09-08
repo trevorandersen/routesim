@@ -1,6 +1,6 @@
 import { describe, it, expect, beforeAll, afterAll, beforeEach } from "bun:test";
 import { state } from "../src/state";
-import { addDevice, addLink, deleteLink, deleteSelection, clearNetwork, findDeviceAt, getDevice, connectedIds, linkedPortsFor, linkById, routerInterfaceFor, routerInterfaceForName, routerInterfacesWithNames, placeToolDevice, PLACEMENT_TOOLS, applyHostname, hasHostname, registerDeviceCallbacks } from "../src/devices";
+import { addDevice, addLink, deleteLink, deleteSelection, clearNetwork, findDeviceAt, getDevice, connectedIds, linkedPortsFor, linkById, routerInterfaceFor, routerInterfaceForName, routerInterfacesWithNames, placeToolDevice, PLACEMENT_TOOLS, applyHostname, hasHostname, registerDeviceCallbacks, buildPortList } from "../src/devices";
 import { startSimulation, stopSimulation } from "../src/engine";
 import { buildPingEvents } from "../src/simulation";
 import { diagnoseState } from "../src/diagnostics";
@@ -417,7 +417,8 @@ describe("port bounds — resolvePort / linkedPortsFor never grow past MAX_PHYSI
   it("a command-requested port beyond the ceiling falls back to the next free port", () => {
     const sw = addDevice("switch", 0, 0); const pc = addDevice("computer", 0, 100);
     addLink(sw.id, pc.id, 999999999, undefined);   // would have allocated a ~1e9 array
-    expect(state.links[0].fromPort).toBe(1);
+    expect(state.links[0].fromPort).toBeUndefined();     // the bogus request is not persisted; the cable is implicit…
+    expect(linkedPortsFor(sw.id)[0]?.peer?.id).toBe(pc.id);   // …and sits on slot 1
   });
 
   it("an out-of-range stored port is treated as implicit, not grown to", () => {
@@ -454,5 +455,55 @@ describe("clearNetwork tears down an active run first (F13)", () => {
     expect(state.simulation.events).toEqual([]);
     expect(state.selectedLinkId).toBeNull();
     expect(diagnoseState(state)).toEqual([]);          // the project's own invariants agree
+  });
+});
+
+describe("router interface identity — a CHOSEN port is pinned; auto-assigned cables stay dense (F07)", () => {
+  beforeEach(() => resetState());
+  const names = (r: any) => routerInterfacesWithNames(r).filter((i: any) => i.peer).map((i: any) => `${i.name}→${i.peer.name}`);
+
+  it("a sole cable picked on port 4 IS Ethernet4 (not renumbered to Ethernet1)", () => {
+    const rtr = addDevice("router", 0, 0); const sw = addDevice("switch", 200, 0);
+    addLink(rtr.id, sw.id, 4, undefined);
+    expect(names(rtr)).toEqual([`Ethernet4→${sw.name}`]);
+    expect(routerInterfacesWithNames(rtr).filter((i: any) => !i.peer && i.type === "ethernet").map((i: any) => i.name))
+      .toEqual(["Ethernet1", "Ethernet2", "Ethernet3"]);   // the gap is offered as free, not hidden
+  });
+
+  it("adding or removing an EARLIER cable never moves a pinned name", () => {
+    const rtr = addDevice("router", 0, 0); const a = addDevice("switch", -200, 0); const b = addDevice("switch", 200, 0);
+    addLink(rtr.id, b.id, 4, undefined);
+    addLink(rtr.id, a.id);                                 // implicit → lowest free → Ethernet1
+    expect(names(rtr)).toEqual([`Ethernet1→${a.name}`, `Ethernet4→${b.name}`]);
+    deleteLink(state.links.find(l => [l.from, l.to].includes(a.id))!.id);
+    expect(names(rtr)).toEqual([`Ethernet4→${b.name}`]);   // still Ethernet4
+  });
+
+  it("auto-assigned cables name densely PER MEDIA (a router's first serial cable is Serial1, not Serial2)", () => {
+    const rtr = addDevice("router", 0, 0); const sw = addDevice("switch", -200, 0); const r2 = addDevice("router", 200, 0);
+    addLink(rtr.id, sw.id); addLink(rtr.id, r2.id);
+    expect(names(rtr)).toEqual([`Ethernet1→${sw.name}`, `Serial1→${r2.name}`]);
+    expect(state.links.every(l => l.fromPort == null && l.toPort == null)).toBe(true);   // implicit: nothing persisted
+  });
+
+  it("the picker's port numbers are the numbers the names carry", () => {
+    const rtr = addDevice("router", 0, 0); const sw = addDevice("switch", 200, 0);
+    addLink(rtr.id, sw.id, 3, undefined);
+    const rows = buildPortList(rtr.id);
+    expect(rows.find(r => r.name === "Ethernet3")).toMatchObject({ port: 3, available: false, connectedTo: sw.name });
+    expect(rows.find(r => r.name === "Ethernet1")).toMatchObject({ port: 1, available: true });
+  });
+});
+
+describe("port picker — every cable-able type offers ports", () => {
+  beforeEach(() => resetState());
+  it("firewall and internet enumerate their wired ports (they used to fall through to an empty list)", () => {
+    const fw = addDevice("firewall", 0, 0); const net = addDevice("internet", 200, 0);
+    expect(buildPortList(fw.id).map(p => p.name)).toEqual(["Ethernet1", "Ethernet2"]);   // capacity 2, not clamped up to 4
+    expect(buildPortList(net.id)).toHaveLength(8);
+  });
+  it("the single-NIC IDS auto-selects like a host", () => {
+    const ids = addDevice("ids", 0, 0);
+    expect(buildPortList(ids.id)).toEqual([{ name: "eth0", port: 1, available: true, connectedTo: null }]);
   });
 });

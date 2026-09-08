@@ -1,9 +1,9 @@
 import { describe, it, expect, beforeAll, beforeEach } from "bun:test";
 import { state } from "../src/state";
 import { processAtSwitch, processAtRouter, processAtComputer, processAtHub, runSimulationHeadless, runTraceroute, linkLatencyFactor } from "../src/engine";
-import { buildRoutingTable, runRipConvergence } from "../src/routing";
+import { buildRoutingTable, runRipConvergence, routingLookup } from "../src/routing";
 import { buildPingEvents } from "../src/simulation";
-import { deleteLink, linksFor } from "../src/devices";
+import { deleteLink, linksFor, addDevice, addLink } from "../src/devices";
 import { buildConfigPayload } from "../src/config";
 import { createArpRequest, createArpReply, createIcmpEchoRequest, createIcmpEchoReply, createDhcpOffer, createDhcpAck, BROADCAST_MAC } from "../src/frame";
 import { runConsoleScript } from "../src/commands";
@@ -885,5 +885,37 @@ describe("routing + RIP honour link.shutdown", () => {
     // The connected route is gone, and RIP no longer carries R2's LAN over the shut cable.
     expect(buildRoutingTable(dev("R1")).find(r => r.network === "10.0.12.0/30")).toBeUndefined();
     expect(buildRoutingTable(dev("R1")).find(r => r.network === "192.168.2.0/24")).toBeUndefined();
+  });
+});
+
+describe("routingLookup resolves the SELECTED route's interface (F04)", () => {
+  beforeEach(() => resetState());
+  function overlapping(order: "wide-first" | "narrow-first") {
+    const r = addDevice("router", 0, 0); const wide = addDevice("switch", -100, 0); const narrow = addDevice("switch", 100, 0);
+    addLink(r.id, wide.id); addLink(r.id, narrow.id);
+    const w = { peerId: wide.id, ipv4Address: "10.0.0.1", prefixLength: 8, macAddress: "02:00:00:00:00:01", arpTable: [], dhcpLeases: [] };
+    const n = { peerId: narrow.id, ipv4Address: "10.1.0.1", prefixLength: 16, macAddress: "02:00:00:00:00:02", arpTable: [], dhcpLeases: [] };
+    r.config!.interfaces = (order === "wide-first" ? [w, n] : [n, w]) as any;
+    return { r, wide, narrow };
+  }
+  it("overlapping connected prefixes egress via the longest match, in either configuration order", () => {
+    for (const order of ["wide-first", "narrow-first"] as const) {
+      resetState();
+      const { r, wide, narrow } = overlapping(order);
+      expect(routingLookup(r, "10.1.2.3")!.egressIface.peerId).toBe(narrow.id);   // /16 wins
+      expect(routingLookup(r, "10.9.9.9")!.egressIface.peerId).toBe(wide.id);     // only the /8 contains it
+    }
+  });
+  it("returns the STORED interface object (the engine reads its ARP table), not a copy", () => {
+    const { r, narrow } = overlapping("wide-first");
+    const hit = routingLookup(r, "10.1.2.3")!;
+    expect(hit.egressIface).toBe(r.config!.interfaces!.find(i => i.peerId === narrow.id));
+  });
+  it("a static route's next hop resolves through the best connected route, not the first raw subnet match", () => {
+    const { r, narrow } = overlapping("wide-first");
+    r.config!.staticRoutes = [{ network: "172.16.0.0/16", nextHop: "10.1.0.254" }] as any;
+    const hit = routingLookup(r, "172.16.5.5")!;
+    expect(hit.nextHopIp).toBe("10.1.0.254");
+    expect(hit.egressIface.peerId).toBe(narrow.id);   // 10.1.0.254 is in the /16, which beats the /8
   });
 });

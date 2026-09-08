@@ -271,12 +271,20 @@ export function addLink(fromId: string, toId: string, fromPort?: number, toPort?
     pushUndo();
     const resolvedFromPort = resolvePort(fromId, fromPort);
     const resolvedToPort = resolvePort(toId, toPort);
+    // Persist a port number only when the caller CHOSE it and it was honoured
+    // (the picker or `link A B 4 1`). An auto-assigned cable stays implicit —
+    // it fills the lowest free slot and names densely per media (Ethernet1,
+    // Serial1, …) — whereas a chosen port is pinned to its number in every
+    // view. Storing the auto slot made every cable "explicit" in one shared
+    // numbering space, so a router's first serial cable came out as Serial2.
+    const keepFrom = fromPort != null && resolvedFromPort === fromPort;
+    const keepTo = toPort != null && resolvedToPort === toPort;
     const link: any = {
       id: crypto.randomUUID ? crypto.randomUUID() : `${Date.now()}-${Math.random()}`,
       from: fromId,
       to: toId,
-      fromPort: resolvedFromPort,
-      toPort: resolvedToPort,
+      ...(keepFrom ? { fromPort: resolvedFromPort } : {}),
+      ...(keepTo ? { toPort: resolvedToPort } : {}),
       ...(wireless ? { wireless: true } : {})
     };
     state.links.push(link);
@@ -795,16 +803,36 @@ export function routerInterfacesWithNames(router: any): NamedRouterIface[] {
     if (allConfigs.length === 0) {
       allConfigs.push({ peerId: port.peer.id, type, name: "", ipv4Address: "", macAddress: "", arpTable: [], dhcpLeases: [], vlanTag: null });
     }
-    return { peer: port.peer, peerId: port.peer.id, type: allConfigs[0].type || type, configs: allConfigs, link: port.link };
+    const raw = port.link.from === router.id ? port.link.fromPort : port.link.toPort;
+    const explicitPort = Number.isInteger(raw) && raw > 0 ? raw : 0;
+    return { peer: port.peer, peerId: port.peer.id, type: allConfigs[0].type || type, configs: allConfigs, link: port.link, explicitPort, index: 0 };
   });
-  let ethernetIndex = 0;
-  let serialIndex = 0;
+  // Naming honours an explicitly chosen port: the picker said "port 4", so
+  // this IS Ethernet4 — in the inspector, the terminal, and the picker alike.
+  // Implicit cables take the lowest unused number of their media, so the common
+  // all-implicit case still names densely (Ethernet1, Ethernet2, …) exactly as
+  // before. Previously every link was renumbered by array position, so a sole
+  // cable on port 4 became "Ethernet1" and the name moved whenever an earlier
+  // cable was added or removed.
+  const usedByMedia: Record<string, Set<number>> = { ethernet: new Set(), serial: new Set() };
+  const capacityOf = (t: string) => (t === "serial" ? serialPorts : ethernetPorts);
+  const mediaOf = (t: string) => (t === "serial" ? "serial" : "ethernet");
+  for (const entry of linked) {
+    const n = entry.explicitPort;
+    if (n && n <= capacityOf(entry.type) && !usedByMedia[mediaOf(entry.type)].has(n)) { usedByMedia[mediaOf(entry.type)].add(n); entry.index = n; }
+  }
+  for (const entry of linked) {
+    if (entry.index) continue;
+    const used = usedByMedia[mediaOf(entry.type)];
+    let n = 1;
+    while (used.has(n)) n++;
+    if (n > capacityOf(entry.type)) continue;   // over capacity — not shown (unchanged)
+    used.add(n); entry.index = n;
+  }
   const occupied: any[] = [];
   for (const entry of linked) {
-    const index = entry.type === "serial" ? ++serialIndex : ++ethernetIndex;
-    if ((entry.type === "serial" && index > serialPorts) || (entry.type !== "serial" && index > ethernetPorts)) {
-      continue;
-    }
+    const index = entry.index;
+    if (!index) continue;
     const baseName = entry.type === "serial" ? `Serial${index}` : `Ethernet${index}`;
     const hasSubInterfaces = entry.configs.some((c: any) => c.vlanTag != null);
     if (hasSubInterfaces) {
@@ -837,14 +865,12 @@ export function routerInterfacesWithNames(router: any): NamedRouterIface[] {
   const emptyConfigFor = (name: string, type: string) =>
     configured.find((c: any) => c.peerId === "" && c.name === name)
       || { peerId: "", name, type, ipv4Address: "", vlanTag: null };
-  const emptyEthernet = Array.from({ length: Math.max(0, ethernetPorts - ethernetIndex) }, (_, index) => {
-    const name = `Ethernet${ethernetIndex + index + 1}`;
-    return { name, type: "ethernet", peer: null, peerId: "", config: emptyConfigFor(name, "ethernet") };
-  });
-  const emptySerial = Array.from({ length: Math.max(0, serialPorts - serialIndex) }, (_, index) => {
-    const name = `Serial${serialIndex + index + 1}`;
-    return { name, type: "serial", peer: null, peerId: "", config: emptyConfigFor(name, "serial") };
-  });
+  // Free ports are every unused number up to capacity (so a gap left by an
+  // explicit pick is offered as free, not hidden).
+  const emptyEthernet: any[] = [];
+  for (let n = 1; n <= ethernetPorts; n++) if (!usedByMedia.ethernet.has(n)) { const name = `Ethernet${n}`; emptyEthernet.push({ name, type: "ethernet", peer: null, peerId: "", config: emptyConfigFor(name, "ethernet") }); }
+  const emptySerial: any[] = [];
+  for (let n = 1; n <= serialPorts; n++) if (!usedByMedia.serial.has(n)) { const name = `Serial${n}`; emptySerial.push({ name, type: "serial", peer: null, peerId: "", config: emptyConfigFor(name, "serial") }); }
   return [...occupied, ...emptyEthernet, ...emptySerial];
 }
 
@@ -853,10 +879,21 @@ export function routerInterfaceByName(router: any, name: string): any {
   return routerInterfacesWithNames(router).find(iface => iface.name.toLowerCase() === lower);
 }
 
+// A device's wired-port capacity by type — the same clamps the inspector and
+// normaliser apply, so the picker and the port view agree.
+export function wiredPortCapacity(device: any): number {
+  const n = device.config?.ethernetPorts;
+  switch (device.type) {
+    case "access-point": return clampApPortCount(n ?? 1);
+    case "firewall":     return Math.min(8, Math.max(1, Number.isInteger(n) ? n : 2));
+    case "hub":          return clampPortCount(n ?? 4);
+    case "internet":     return clampPortCount(n ?? 8);
+    default:             return clampPortCount(n ?? 8);
+  }
+}
+
 export function switchInterfacesWithNames(device: any): any[] {
-  const portCount = device.type === "access-point"
-    ? clampApPortCount(device.config?.ethernetPorts ?? 1)
-    : clampPortCount(device.config?.ethernetPorts ?? 8);
+  const portCount = wiredPortCapacity(device);
   // A wireless association (laptop ↔ access point) is not an ethernet port, so
   // it never occupies a wired-port slot in the inspector / port picker. The
   // engine still floods over every link (it uses linkedPortsFor directly).
@@ -885,12 +922,12 @@ export function switchIfaceByName(device: any, portName: string): any {
 
 // ─── Port selection modal ─────────────────────────────────────────────────────
 
-function buildPortList(deviceId: string): PortOption[] {
+export function buildPortList(deviceId: string): PortOption[] {
   const device = getDevice(deviceId);
   if (!device) return [];
 
-  if (device.type === "computer" || device.type === "laptop" || device.type === "kali" || device.type === "server" || device.type === "attacker") {
-    // Hosts have a single port — auto-select it
+  if (device.type === "computer" || device.type === "laptop" || device.type === "kali" || device.type === "server" || device.type === "attacker" || device.type === "ids") {
+    // Hosts (and the single-NIC IDS sensor) have one port — auto-select it
     const linked = linkedPortsFor(deviceId);
     const occupied = linked.length > 0;
     return [{
@@ -901,8 +938,10 @@ function buildPortList(deviceId: string): PortOption[] {
     }];
   }
 
-  if (device.type === "switch" || device.type === "hub" || device.type === "access-point") {
-    // A hub / access point enumerates ports the same way (just an ethernetPorts count).
+  if (device.type === "switch" || device.type === "hub" || device.type === "access-point" || device.type === "firewall" || device.type === "internet") {
+    // A hub / access point / firewall / internet cloud enumerates ports the same
+    // way (just an ethernetPorts count) — the latter two used to fall through to
+    // an empty list, leaving the picker with a blank column and no way to confirm.
     const ifaces = switchInterfacesWithNames(device);
     return ifaces.map((iface: any) => ({
       name: iface.name,
@@ -916,9 +955,12 @@ function buildPortList(deviceId: string): PortOption[] {
     const ifaces = routerInterfacesWithNames(device);
     return ifaces
       .filter((iface: any) => !iface.name.includes(".")) // skip sub-interfaces
-      .map((iface: any, index: number) => ({
+      .map((iface: any) => ({
         name: iface.name,
-        port: index + 1,
+        // The number the NAME carries is what becomes the link's fromPort/toPort,
+        // and naming honours it back — so "Ethernet4" picked here is Ethernet4
+        // in the inspector and terminal too (it used to be the row's position).
+        port: Number(iface.name.replace(/\D+/g, "")) || 1,
         available: !iface.peer,
         connectedTo: iface.peer?.name || null
       }));
@@ -937,8 +979,8 @@ export function openPortSelectionModal(fromId: string, toId: string): void {
   const { reject, wireless } = classifyLink(fromId, toId);
   if (reject || wireless) { addLink(fromId, toId); return; }
 
-  const showFromPicker = !["computer", "laptop", "kali", "server", "attacker"].includes(fromDevice.type);
-  const showToPicker = !["computer", "laptop", "kali", "server", "attacker"].includes(toDevice.type);
+  const showFromPicker = !["computer", "laptop", "kali", "server", "attacker", "ids"].includes(fromDevice.type);
+  const showToPicker = !["computer", "laptop", "kali", "server", "attacker", "ids"].includes(toDevice.type);
 
   // If both are single-port hosts, skip modal entirely
   if (!showFromPicker && !showToPicker) {

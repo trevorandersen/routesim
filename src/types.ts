@@ -148,6 +148,11 @@ export interface RouteEntry {
   network: string;       // "192.168.1.0/24"
   nextHop: string;       // next-hop IP, or "" for connected
   interface?: string;    // egress interface name (for display)
+  // Stable identity of a connected route's interface (derived names shift as
+  // cables change), so routingLookup resolves the SELECTED route's own stored
+  // interface rather than the first raw one whose subnet contains the target.
+  peerId?: string;
+  vlanTag?: number | null;
   type: "C" | "S" | "R"; // Connected, Static, RIP
   metric: number;        // 0=connected, 1=static, 2+=RIP
 }

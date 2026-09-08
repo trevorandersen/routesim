@@ -23,7 +23,7 @@ export function buildRoutingTable(router: Device): RouteEntry[] {
     const network = networkOf(ip, prefixOf(iface.config));
     if (seen.has(network)) continue;
     seen.add(network);
-    table.push({ network, nextHop: "", interface: iface.name, type: "C", metric: 0 });
+    table.push({ network, nextHop: "", interface: iface.name, type: "C", metric: 0, peerId: iface.peerId, vlanTag: iface.config?.vlanTag ?? null });
   }
 
   // 2. Static routes
@@ -103,17 +103,32 @@ export function routingLookup(router: Device, dstIp: string, prebuilt?: RouteEnt
   }
   if (!route) return null;
 
+  // The STORED interface object (the engine reads/learns its ARP table), found
+  // by the stable identity the route carries — never the first raw interface
+  // whose subnet merely contains an address: with overlapping prefixes
+  // (10.0.0.1/8 first, 10.1.0.1/16 second) that returned the /8 interface even
+  // though the /16 route had just been selected.
+  const storedIface = (peerId: string | undefined, vlanTag: number | null | undefined): RouterInterface | undefined =>
+    peerId ? ifaces.find((i) => i.peerId === peerId && (i.vlanTag ?? null) === (vlanTag ?? null)) : undefined;
+
   if (route.type === "C") {
-    // Connected — egress interface is the one whose network contains the destination
-    const egressIface = ifaceOnSubnet(ifaces, dstIp);
+    const egressIface = storedIface(route.peerId, route.vlanTag) ?? ifaceOnSubnet(ifaces, dstIp);
     return egressIface ? { egressIface, nextHopIp: dstIp } : null;
   }
 
-  // Static or RIP — resolve next-hop to a connected interface
+  // Static or RIP — resolve the next hop through the best CONNECTED route that
+  // contains it (longest prefix; only live, un-shut interfaces make the table),
+  // then to that route's stored interface. Same single-pass, allocation-free shape.
   const nextHop = route.nextHop;
   if (!nextHop || !isValidIpv4(nextHop)) return null;
-
-  const egressIface = ifaceOnSubnet(ifaces, nextHop);
+  let via: RouteEntry | null = null;
+  let viaLen = -1;
+  for (const r of table) {
+    if (r.type !== "C" || !cidrContains(r.network, nextHop)) continue;
+    const len = prefixLengthOfCidr(r.network);
+    if (len > viaLen) { via = r; viaLen = len; }
+  }
+  const egressIface = (via ? storedIface(via.peerId, via.vlanTag) : undefined) ?? ifaceOnSubnet(ifaces, nextHop);
   return egressIface ? { egressIface, nextHopIp: nextHop } : null;
 }
 

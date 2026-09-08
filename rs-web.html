@@ -4609,12 +4609,14 @@ Full legal text: https://creativecommons.org/publicdomain/zero/1.0/legalcode</pr
       pushUndo();
       const resolvedFromPort = resolvePort(fromId, fromPort);
       const resolvedToPort = resolvePort(toId, toPort);
+      const keepFrom = fromPort != null && resolvedFromPort === fromPort;
+      const keepTo = toPort != null && resolvedToPort === toPort;
       const link = {
         id: crypto.randomUUID ? crypto.randomUUID() : `${Date.now()}-${Math.random()}`,
         from: fromId,
         to: toId,
-        fromPort: resolvedFromPort,
-        toPort: resolvedToPort,
+        ...keepFrom ? { fromPort: resolvedFromPort } : {},
+        ...keepTo ? { toPort: resolvedToPort } : {},
         ...wireless ? { wireless: true } : {}
       };
       state.links.push(link);
@@ -5021,16 +5023,33 @@ Full legal text: https://creativecommons.org/publicdomain/zero/1.0/legalcode</pr
       if (allConfigs.length === 0) {
         allConfigs.push({ peerId: port.peer.id, type, name: "", ipv4Address: "", macAddress: "", arpTable: [], dhcpLeases: [], vlanTag: null });
       }
-      return { peer: port.peer, peerId: port.peer.id, type: allConfigs[0].type || type, configs: allConfigs, link: port.link };
+      const raw = port.link.from === router.id ? port.link.fromPort : port.link.toPort;
+      const explicitPort = Number.isInteger(raw) && raw > 0 ? raw : 0;
+      return { peer: port.peer, peerId: port.peer.id, type: allConfigs[0].type || type, configs: allConfigs, link: port.link, explicitPort, index: 0 };
     });
-    let ethernetIndex = 0;
-    let serialIndex = 0;
+    const usedByMedia = { ethernet: /* @__PURE__ */ new Set(), serial: /* @__PURE__ */ new Set() };
+    const capacityOf = (t) => t === "serial" ? serialPorts : ethernetPorts;
+    const mediaOf = (t) => t === "serial" ? "serial" : "ethernet";
+    for (const entry of linked) {
+      const n = entry.explicitPort;
+      if (n && n <= capacityOf(entry.type) && !usedByMedia[mediaOf(entry.type)].has(n)) {
+        usedByMedia[mediaOf(entry.type)].add(n);
+        entry.index = n;
+      }
+    }
+    for (const entry of linked) {
+      if (entry.index) continue;
+      const used = usedByMedia[mediaOf(entry.type)];
+      let n = 1;
+      while (used.has(n)) n++;
+      if (n > capacityOf(entry.type)) continue;
+      used.add(n);
+      entry.index = n;
+    }
     const occupied = [];
     for (const entry of linked) {
-      const index = entry.type === "serial" ? ++serialIndex : ++ethernetIndex;
-      if (entry.type === "serial" && index > serialPorts || entry.type !== "serial" && index > ethernetPorts) {
-        continue;
-      }
+      const index = entry.index;
+      if (!index) continue;
       const baseName = entry.type === "serial" ? `Serial${index}` : `Ethernet${index}`;
       const hasSubInterfaces = entry.configs.some((c) => c.vlanTag != null);
       if (hasSubInterfaces) {
@@ -5057,22 +5076,39 @@ Full legal text: https://creativecommons.org/publicdomain/zero/1.0/legalcode</pr
       }
     }
     const emptyConfigFor = (name, type) => configured.find((c) => c.peerId === "" && c.name === name) || { peerId: "", name, type, ipv4Address: "", vlanTag: null };
-    const emptyEthernet = Array.from({ length: Math.max(0, ethernetPorts - ethernetIndex) }, (_, index) => {
-      const name = `Ethernet${ethernetIndex + index + 1}`;
-      return { name, type: "ethernet", peer: null, peerId: "", config: emptyConfigFor(name, "ethernet") };
-    });
-    const emptySerial = Array.from({ length: Math.max(0, serialPorts - serialIndex) }, (_, index) => {
-      const name = `Serial${serialIndex + index + 1}`;
-      return { name, type: "serial", peer: null, peerId: "", config: emptyConfigFor(name, "serial") };
-    });
+    const emptyEthernet = [];
+    for (let n = 1; n <= ethernetPorts; n++) if (!usedByMedia.ethernet.has(n)) {
+      const name = `Ethernet${n}`;
+      emptyEthernet.push({ name, type: "ethernet", peer: null, peerId: "", config: emptyConfigFor(name, "ethernet") });
+    }
+    const emptySerial = [];
+    for (let n = 1; n <= serialPorts; n++) if (!usedByMedia.serial.has(n)) {
+      const name = `Serial${n}`;
+      emptySerial.push({ name, type: "serial", peer: null, peerId: "", config: emptyConfigFor(name, "serial") });
+    }
     return [...occupied, ...emptyEthernet, ...emptySerial];
   }
   function routerInterfaceByName(router, name) {
     const lower = String(name || "").trim().toLowerCase();
     return routerInterfacesWithNames(router).find((iface) => iface.name.toLowerCase() === lower);
   }
+  function wiredPortCapacity(device) {
+    const n = device.config?.ethernetPorts;
+    switch (device.type) {
+      case "access-point":
+        return clampApPortCount(n ?? 1);
+      case "firewall":
+        return Math.min(8, Math.max(1, Number.isInteger(n) ? n : 2));
+      case "hub":
+        return clampPortCount(n ?? 4);
+      case "internet":
+        return clampPortCount(n ?? 8);
+      default:
+        return clampPortCount(n ?? 8);
+    }
+  }
   function switchInterfacesWithNames(device) {
-    const portCount = device.type === "access-point" ? clampApPortCount(device.config?.ethernetPorts ?? 1) : clampPortCount(device.config?.ethernetPorts ?? 8);
+    const portCount = wiredPortCapacity(device);
     const ports = linkedPortsFor(device.id).filter((p) => !p?.link?.wireless);
     const portVlans = normalisePortVlans(device.config?.portVlans || {});
     const portModes = normalisePortModes(device.config?.portModes || {});
@@ -5096,7 +5132,7 @@ Full legal text: https://creativecommons.org/publicdomain/zero/1.0/legalcode</pr
   function buildPortList(deviceId) {
     const device = getDevice(deviceId);
     if (!device) return [];
-    if (device.type === "computer" || device.type === "laptop" || device.type === "kali" || device.type === "server" || device.type === "attacker") {
+    if (device.type === "computer" || device.type === "laptop" || device.type === "kali" || device.type === "server" || device.type === "attacker" || device.type === "ids") {
       const linked = linkedPortsFor(deviceId);
       const occupied = linked.length > 0;
       return [{
@@ -5106,7 +5142,7 @@ Full legal text: https://creativecommons.org/publicdomain/zero/1.0/legalcode</pr
         connectedTo: occupied ? linked[0]?.peer?.name || null : null
       }];
     }
-    if (device.type === "switch" || device.type === "hub" || device.type === "access-point") {
+    if (device.type === "switch" || device.type === "hub" || device.type === "access-point" || device.type === "firewall" || device.type === "internet") {
       const ifaces = switchInterfacesWithNames(device);
       return ifaces.map((iface) => ({
         name: iface.name,
@@ -5117,9 +5153,12 @@ Full legal text: https://creativecommons.org/publicdomain/zero/1.0/legalcode</pr
     }
     if (device.type === "router") {
       const ifaces = routerInterfacesWithNames(device);
-      return ifaces.filter((iface) => !iface.name.includes(".")).map((iface, index) => ({
+      return ifaces.filter((iface) => !iface.name.includes(".")).map((iface) => ({
         name: iface.name,
-        port: index + 1,
+        // The number the NAME carries is what becomes the link's fromPort/toPort,
+        // and naming honours it back — so "Ethernet4" picked here is Ethernet4
+        // in the inspector and terminal too (it used to be the row's position).
+        port: Number(iface.name.replace(/\D+/g, "")) || 1,
         available: !iface.peer,
         connectedTo: iface.peer?.name || null
       }));
@@ -5135,8 +5174,8 @@ Full legal text: https://creativecommons.org/publicdomain/zero/1.0/legalcode</pr
       addLink(fromId, toId);
       return;
     }
-    const showFromPicker = !["computer", "laptop", "kali", "server", "attacker"].includes(fromDevice.type);
-    const showToPicker = !["computer", "laptop", "kali", "server", "attacker"].includes(toDevice.type);
+    const showFromPicker = !["computer", "laptop", "kali", "server", "attacker", "ids"].includes(fromDevice.type);
+    const showToPicker = !["computer", "laptop", "kali", "server", "attacker", "ids"].includes(toDevice.type);
     if (!showFromPicker && !showToPicker) {
       addLink(fromId, toId, 1, 1);
       return;
@@ -6751,7 +6790,7 @@ Full legal text: https://creativecommons.org/publicdomain/zero/1.0/legalcode</pr
       const network = networkOf(ip, prefixOf(iface.config));
       if (seen.has(network)) continue;
       seen.add(network);
-      table.push({ network, nextHop: "", interface: iface.name, type: "C", metric: 0 });
+      table.push({ network, nextHop: "", interface: iface.name, type: "C", metric: 0, peerId: iface.peerId, vlanTag: iface.config?.vlanTag ?? null });
     }
     const statics = normaliseStaticRoutes(router.config?.staticRoutes || []);
     for (const sr of statics) {
@@ -6804,13 +6843,24 @@ Full legal text: https://creativecommons.org/publicdomain/zero/1.0/legalcode</pr
       }
     }
     if (!route) return null;
+    const storedIface = (peerId, vlanTag) => peerId ? ifaces.find((i) => i.peerId === peerId && (i.vlanTag ?? null) === (vlanTag ?? null)) : void 0;
     if (route.type === "C") {
-      const egressIface2 = ifaceOnSubnet(ifaces, dstIp);
+      const egressIface2 = storedIface(route.peerId, route.vlanTag) ?? ifaceOnSubnet(ifaces, dstIp);
       return egressIface2 ? { egressIface: egressIface2, nextHopIp: dstIp } : null;
     }
     const nextHop = route.nextHop;
     if (!nextHop || !isValidIpv4(nextHop)) return null;
-    const egressIface = ifaceOnSubnet(ifaces, nextHop);
+    let via = null;
+    let viaLen = -1;
+    for (const r of table) {
+      if (r.type !== "C" || !cidrContains(r.network, nextHop)) continue;
+      const len = prefixLengthOfCidr(r.network);
+      if (len > viaLen) {
+        via = r;
+        viaLen = len;
+      }
+    }
+    const egressIface = (via ? storedIface(via.peerId, via.vlanTag) : void 0) ?? ifaceOnSubnet(ifaces, nextHop);
     return egressIface ? { egressIface, nextHopIp: nextHop } : null;
   }
   function buildRipAdvertisements(ifaces, ripNetworks, learnedRoutes) {

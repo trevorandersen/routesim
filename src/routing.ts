@@ -271,9 +271,18 @@ export function runRipConvergence(): { iterations: number; routesExchanged: numb
 
       // Send advertisements to each RIP-enabled neighbor
       const passiveInterfaces: string[] = rip.passiveInterfaces || [];
+      // RIP runs on an interface only when a `network` statement covers its
+      // address (FRR's `network` enables the protocol on matching interfaces;
+      // it is not merely a list of what to advertise). Both ends must be
+      // active for an exchange. Before this, `networks` shaped only what was
+      // advertised, so a router with an EMPTY network list still learned routes
+      // and a transit interface left out of RIP still carried them.
+      const ripActiveOn = (ifc: NamedRouterIface, networks: string[]) =>
+        !!ifc.config?.ipv4Address && networks.some(rn => cidrContains(rn, ifc.config!.ipv4Address!));
       for (const iface of ifaces) {
         if (!iface.peer || !iface.config?.ipv4Address || iface.link?.shutdown) continue;
         if (passiveInterfaces.includes(iface.name)) continue;
+        if (!ripActiveOn(iface, ripNetworks)) continue;
 
         const neighbor = getDevice(iface.peer.id);
         if (!neighbor || neighbor.type !== "router" || !neighbor.config?.rip?.enabled) continue;
@@ -281,6 +290,7 @@ export function runRipConvergence(): { iterations: number; routesExchanged: numb
         const neighborIfaces = ifacesFor(neighbor);
         const neighborIface = neighborIfaces.find((ni: any) => ni.peer && ni.peer.id === router.id);
         if (!neighborIface || !neighborIface.config?.ipv4Address) continue;
+        if (!ripActiveOn(neighborIface, neighbor.config.rip.networks || [])) continue;
 
         const neighborPassive: string[] = neighbor.config.rip.passiveInterfaces || [];
         if (neighborPassive.includes(neighborIface.name)) continue;

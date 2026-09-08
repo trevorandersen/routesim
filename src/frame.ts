@@ -252,8 +252,8 @@ export function createDot11Frame(srcMac: string, dstMac: string, subtype: Dot11S
 
 // An 802.1X EAPOL / EAP / RADIUS frame (etherType 0x888e — EAPOL; RADIUS is
 // really UDP/1812, abstracted here to one authenticator↔server hop).
-export function createDot1xFrame(srcMac: string, dstMac: string, subtype: Dot1xSubtype, identity?: string): EthernetFrame {
-  const payload: Dot1xPayload = { type: "dot1x", subtype, ...(identity ? { identity } : {}) };
+export function createDot1xFrame(srcMac: string, dstMac: string, subtype: Dot1xSubtype, identity?: string, supplicantMac?: string): EthernetFrame {
+  const payload: Dot1xPayload = { type: "dot1x", subtype, ...(identity ? { identity } : {}), ...(supplicantMac ? { supplicantMac } : {}) };
   return { id: nextFrameId(), srcMac, dstMac, etherType: 0x888e, vlanTag: null, payload };
 }
 

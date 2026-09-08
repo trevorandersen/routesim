@@ -1,6 +1,7 @@
-import { describe, it, expect, beforeAll, beforeEach } from "bun:test";
+import { describe, it, expect, beforeAll, afterAll, beforeEach } from "bun:test";
+import { sameSubnet } from "../src/utils";
 import { state } from "../src/state";
-import { processAtSwitch, processAtRouter, processAtComputer, processAtHub, runSimulationHeadless, runTraceroute, linkLatencyFactor } from "../src/engine";
+import { processAtSwitch, processAtRouter, processAtComputer, processAtHub, runSimulationHeadless, runTraceroute, linkLatencyFactor, startSimulation, stepOnce, allocateDhcpIp } from "../src/engine";
 import { buildRoutingTable, runRipConvergence, routingLookup } from "../src/routing";
 import { buildPingEvents } from "../src/simulation";
 import { deleteLink, linksFor, addDevice, addLink } from "../src/devices";
@@ -917,5 +918,107 @@ describe("routingLookup resolves the SELECTED route's interface (F04)", () => {
     const hit = routingLookup(r, "172.16.5.5")!;
     expect(hit.nextHopIp).toBe("10.1.0.254");
     expect(hit.egressIface.peerId).toBe(narrow.id);   // 10.1.0.254 is in the /16, which beats the /8
+  });
+});
+
+describe("host replies go via the CONFIGURED gateway (F06)", () => {
+  beforeEach(() => resetState());
+  const ping = () => {
+    const pca = state.devices.find(d => d.id === "pc-a")!;
+    return runSimulationHeadless(buildPingEvents(pca, "192.168.20.10") as any, pca.id, "192.168.20.10");
+  };
+  it("a WRONG far-side gateway makes the ping fail — the reply ARPs into silence", () => {
+    const t = routedTopology(); state.devices = t.devices as any; state.links = t.links as any;
+    state.devices.find(d => d.id === "pc-b")!.config!.gatewayIpv4Address = "192.168.20.254";   // nobody there
+    const res = ping();
+    expect(res.success).toBe(false);
+    expect(state.simulation.log.some((l: any) => /ARP Request for 192\.168\.20\.254/.test(l.text || l.message || JSON.stringify(l)))).toBe(true);
+  });
+  it("an off-subnet gateway is diagnosed, not silently used", () => {
+    const t = routedTopology(); state.devices = t.devices as any; state.links = t.links as any;
+    state.devices.find(d => d.id === "pc-b")!.config!.gatewayIpv4Address = "10.9.9.9";
+    expect(ping().success).toBe(false);
+    expect(JSON.stringify(state.simulation.log)).toContain("not on this host's subnet");
+  });
+  it("the correct gateway still works (resolving it by ARP on first use)", () => {
+    const t = routedTopology(); state.devices = t.devices as any; state.links = t.links as any;
+    expect(ping().success).toBe(true);
+  });
+});
+
+describe("RIP runs only on interfaces a `network` statement covers (F08)", () => {
+  beforeEach(() => resetState());
+  function pair() {
+    runConsoleScript(`
+      add router R1 at 0 0
+      add router R2 at 200 0
+      add switch LAN at -200 0
+      link R1 R2
+      link R1 LAN
+      interface R1 R2 ip 10.0.0.1/24
+      interface R2 R1 ip 10.0.0.2/24
+      interface R1 LAN ip 192.168.1.1/24
+    `);
+    const r1 = state.devices.find(d => d.name === "R1")!; const r2 = state.devices.find(d => d.name === "R2")!;
+    r1.config!.rip = { enabled: true, networks: ["192.168.1.0/24"], passiveInterfaces: [], learnedRoutes: [] } as any;
+    r2.config!.rip = { enabled: true, networks: [], passiveInterfaces: [], learnedRoutes: [] } as any;
+    return { r1, r2, learned: () => ((r2.config!.rip as any).learnedRoutes as any[]).map(x => x.network) };
+  }
+  it("an empty network list learns nothing; a transit subnet omitted on either end blocks the exchange", () => {
+    const { r1, r2, learned } = pair();
+    runRipConvergence();
+    expect(learned()).toEqual([]);                                   // R2: networks []
+    (r2.config!.rip as any).networks = ["10.0.0.0/24"];
+    runRipConvergence();
+    expect(learned()).toEqual([]);                                   // R1 still doesn't run RIP on the transit
+    (r1.config!.rip as any).networks.push("10.0.0.0/24");
+    runRipConvergence();
+    expect(learned()).toContain("192.168.1.0/24");                   // both ends active → converges
+  });
+});
+
+describe("the seeded first leg passes the same admission as every later hop (F10)", () => {
+  let raf: any;
+  beforeAll(() => { raf = (globalThis as any).requestAnimationFrame; (globalThis as any).requestAnimationFrame = () => 0; });
+  afterAll(() => { (globalThis as any).requestAnimationFrame = raf; });
+  beforeEach(() => resetState());
+  it("a 100 % loss link drops the very first frame (it used to cross untouched)", () => {
+    const t = basicTopology(); state.devices = t.devices as any; state.links = t.links as any;
+    const pc1 = state.devices.find(d => d.id === "pc1")!;
+    const first = state.links.find(l => [l.from, l.to].includes("pc1"))!;
+    first.loss = 100;
+    startSimulation(buildPingEvents(pc1, "192.168.1.20") as any, pc1.id, "192.168.1.20");
+    expect(state.simulation.transits).toEqual([]);                   // nothing left the source
+    expect(JSON.stringify(state.simulation.log)).toContain("100% loss");
+    while (state.simulation.status !== "done" && state.simulation.status !== "idle") stepOnce();
+    expect(state.simulation.pingSuccess).toBe(false);
+  });
+});
+
+describe("router DHCP leases stay inside the interface's REAL subnet (F05)", () => {
+  beforeEach(() => resetState());
+  const iface = (ip: string, prefixLength: number, leases: string[] = []) =>
+    ({ peerId: "x", ipv4Address: ip, prefixLength, arpTable: [], dhcpLeases: leases.map((l, i) => ({ macAddress: `02:00:00:00:00:${String(i + 1).padStart(2, "0")}`, ipv4Address: l })) });
+  const routerWith = (i: any) => { const r = addDevice("router", 0, 0); r.config!.interfaces = [i] as any; return r; };
+
+  it("a /25 in the upper half leases from the upper half — never .100 from the other half", () => {
+    const i = iface("192.168.10.129", 25); const r = routerWith(i);
+    const lease = allocateDhcpIp(i, r)!;
+    expect(lease).toBe("192.168.10.130");
+    expect(sameSubnet(lease, "192.168.10.129", 25)).toBe(true);
+  });
+  it("a /30 has exactly one usable lease, then reports exhaustion", () => {
+    const r1 = routerWith(iface("10.0.0.1", 30));
+    expect(allocateDhcpIp(r1.config!.interfaces![0], r1)).toBe("10.0.0.2");
+    resetState();
+    const taken = iface("10.0.0.1", 30, ["10.0.0.2"]); const r2 = routerWith(taken);
+    expect(allocateDhcpIp(taken, r2)).toBeNull();
+  });
+  it("a /24 keeps the conventional .100 start and falls back below it before exhausting", () => {
+    const i = iface("192.168.1.1", 24); const r = routerWith(i);
+    expect(allocateDhcpIp(i, r)).toBe("192.168.1.100");
+    const full = iface("192.168.1.1", 24, Array.from({ length: 155 }, (_, k) => `192.168.1.${100 + k}`));
+    resetState(); const r2 = routerWith(full);
+    expect(allocateDhcpIp(full, r2)).toBe("192.168.1.2");           // .1 is the router
   });
 });

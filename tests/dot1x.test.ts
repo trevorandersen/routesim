@@ -116,3 +116,44 @@ describe("802.1X — port authentication", () => {
     expect(exec("run dot1x PC1").ok).toBe(true); // the whole thing works after a script replay
   });
 });
+
+describe("802.1X correlates the exchange by the supplicant's MAC (F09)", () => {
+  beforeEach(() => resetState());
+  // Two supplicants on separate `auto` ports presenting the SAME identity —
+  // PC1 with the right password, PC2 with a wrong one. Identity alone used to
+  // validate PC1's password for PC2's attempt and authorise PC1's port.
+  function twoSupplicants() {
+    runConsoleScript(`
+      clear
+      add computer PC1 at 0 0
+      add computer PC2 at 0 200
+      add switch SW at 150 100
+      add server RAD at 300 100
+      link PC1 SW
+      link PC2 SW
+      link SW RAD
+      ip PC1 10.0.0.10/24
+      ip PC2 10.0.0.11/24
+      ip RAD 10.0.0.2/24
+      radius RAD alice secret123
+      supplicant PC1 alice secret123
+      supplicant PC2 alice WRONG
+      portauth SW Ethernet1 auto
+      portauth SW Ethernet2 auto
+    `);
+  }
+  const linkOf = (name: string) => state.links.find(l => [l.from, l.to].includes(byName(name).id) && [l.from, l.to].includes(byName("SW").id))!;
+
+  it("PC2's wrong password is rejected — and PC1's port is NOT authorised in its place", () => {
+    twoSupplicants();
+    authenticate(byName("PC2"));
+    expect(linkOf("PC2").dot1xAuthorized).toBeFalsy();
+    expect(linkOf("PC1").dot1xAuthorized).toBeFalsy();
+  });
+  it("PC1's correct password authorises PC1's port only", () => {
+    twoSupplicants();
+    authenticate(byName("PC1"));
+    expect(linkOf("PC1").dot1xAuthorized).toBe(true);
+    expect(linkOf("PC2").dot1xAuthorized).toBeFalsy();
+  });
+});

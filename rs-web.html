@@ -5595,8 +5595,8 @@ Full legal text: https://creativecommons.org/publicdomain/zero/1.0/legalcode</pr
     const payload = { type: "dot11", subtype, ssid };
     return { id: nextFrameId(), srcMac, dstMac, etherType: 34958, vlanTag: null, payload };
   }
-  function createDot1xFrame(srcMac, dstMac, subtype, identity) {
-    const payload = { type: "dot1x", subtype, ...identity ? { identity } : {} };
+  function createDot1xFrame(srcMac, dstMac, subtype, identity, supplicantMac) {
+    const payload = { type: "dot1x", subtype, ...identity ? { identity } : {}, ...supplicantMac ? { supplicantMac } : {} };
     return { id: nextFrameId(), srcMac, dstMac, etherType: 34958, vlanTag: null, payload };
   }
   var BPDU_GROUP_MAC = "01:80:C2:00:00:00";
@@ -6948,14 +6948,17 @@ Full legal text: https://creativecommons.org/publicdomain/zero/1.0/legalcode</pr
         const learnedRoutes = rip.learnedRoutes || [];
         const advertisements = buildRipAdvertisements(ifaces, ripNetworks, learnedRoutes);
         const passiveInterfaces = rip.passiveInterfaces || [];
+        const ripActiveOn = (ifc, networks) => !!ifc.config?.ipv4Address && networks.some((rn) => cidrContains(rn, ifc.config.ipv4Address));
         for (const iface of ifaces) {
           if (!iface.peer || !iface.config?.ipv4Address || iface.link?.shutdown) continue;
           if (passiveInterfaces.includes(iface.name)) continue;
+          if (!ripActiveOn(iface, ripNetworks)) continue;
           const neighbor = getDevice(iface.peer.id);
           if (!neighbor || neighbor.type !== "router" || !neighbor.config?.rip?.enabled) continue;
           const neighborIfaces = ifacesFor(neighbor);
           const neighborIface = neighborIfaces.find((ni) => ni.peer && ni.peer.id === router.id);
           if (!neighborIface || !neighborIface.config?.ipv4Address) continue;
+          if (!ripActiveOn(neighborIface, neighbor.config.rip.networks || [])) continue;
           const neighborPassive = neighbor.config.rip.passiveInterfaces || [];
           if (neighborPassive.includes(neighborIface.name)) continue;
           const result = applyRipUpdates(neighbor, neighborIface, neighborIfaces, advertisements, iface.name, iface.config.ipv4Address);
@@ -7533,8 +7536,10 @@ Full legal text: https://creativecommons.org/publicdomain/zero/1.0/legalcode</pr
     for (const ev of setup.events) {
       if (ev.linkId && ev.fromDeviceId && ev.fromDeviceId !== ev.deviceId) {
         const seedLink = linkById(ev.linkId);
-        sim.transits.push({ frame: ev.frame, linkId: ev.linkId, fromDeviceId: ev.fromDeviceId, toDeviceId: ev.deviceId, progress: 0, startTime: seedNow, latencyFactor: linkLatencyFactor(seedLink), silent: isSilentFrame(ev.frame) });
+        const src = getDevice(ev.fromDeviceId);
         seeded = true;
+        if (seedLink && src && !admitOnLink(src, seedLink, ev.frame)) continue;
+        sim.transits.push({ frame: ev.frame, linkId: ev.linkId, fromDeviceId: ev.fromDeviceId, toDeviceId: ev.deviceId, progress: 0, startTime: seedNow, latencyFactor: linkLatencyFactor(seedLink), silent: isSilentFrame(ev.frame) });
       } else {
         sim.events.push(ev);
       }
@@ -7911,21 +7916,7 @@ Full legal text: https://creativecommons.org/publicdomain/zero/1.0/legalcode</pr
         logStep(device, "sim-drop", `${linkName(link)} is administratively down \u2014 frame dropped`);
         continue;
       }
-      const ptype = out.frame.payload.type;
-      const ctrl = ptype === "dot11" || ptype === "dot1x" || ptype === "bpdu";
-      if (!ctrl && !linkAuthorizedForData(link)) {
-        const reason = link.stpBlocked ? "is spanning-tree blocked" : "is not authenticated";
-        logStep(device, "sim-drop", `${linkName(link)} ${reason} \u2014 frame dropped`);
-        continue;
-      }
-      if (!sim.headless && Number(link.loss) > 0 && Math.random() * 100 < link.loss) {
-        logStep(device, "sim-drop", `${linkName(link)} dropped ${frameLabel(out.frame)} (${link.loss}% loss)`);
-        continue;
-      }
-      if (sim.headless && Number(link.loss) > 0 && !(sim.lossNoted ||= /* @__PURE__ */ new Set()).has(link.id)) {
-        sim.lossNoted.add(link.id);
-        logStep(device, "sim-learn", `${linkName(link)} carries ${link.loss}% loss \u2014 not applied in this headless run (checks stay deterministic; the animated run may drop frames here)`);
-      }
+      if (!admitOnLink(device, link, out.frame)) continue;
       sim.transits.push({
         frame: out.frame,
         linkId: link.id,
@@ -8036,6 +8027,15 @@ Full legal text: https://creativecommons.org/publicdomain/zero/1.0/legalcode</pr
     }
     return null;
   }
+  function supplicantByMac(sw, mac) {
+    if (!mac) return null;
+    for (const link of linksFor(sw.id)) {
+      if (link.hidden || link.shutdown || link.wireless) continue;
+      const host = getDevice(link.from === sw.id ? link.to : link.from);
+      if (host && host.config?.macAddress === mac) return { host, link };
+    }
+    return null;
+  }
   function supplicantByIdentity(sw, identity) {
     for (const link of linksFor(sw.id)) {
       if (link.hidden || link.shutdown || link.wireless) continue;
@@ -8066,24 +8066,27 @@ Full legal text: https://creativecommons.org/publicdomain/zero/1.0/legalcode</pr
           return [];
         }
         logStep(device, "sim-dot1x", `Relaying identity "${identity}" to RADIUS (${server.name})`);
-        return [{ frame: createDot1xFrame(deriveMac(device.id), server.config?.macAddress || deriveMac(server.id), "radius-request", identity), toDeviceId: server.id }];
+        return [{ frame: createDot1xFrame(deriveMac(device.id), server.config?.macAddress || deriveMac(server.id), "radius-request", identity, frame.srcMac), toDeviceId: server.id }];
       }
       case "radius-request": {
         const users = device.config?.radius?.users || [];
-        const supPw = state.devices.find((d) => d.config?.dot1x?.identity === identity)?.config?.dot1x?.password;
+        const sup = (p.supplicantMac ? state.devices.find((d) => d.config?.macAddress === p.supplicantMac) : void 0) ?? state.devices.find((d) => d.config?.dot1x?.identity === identity);
+        const supPw = sup?.config?.dot1x?.identity === identity ? sup?.config?.dot1x?.password : void 0;
         const ok2 = users.some((u) => u.identity === identity && u.password === supPw);
         logStep(device, "sim-dot1x", `RADIUS Access-Request "${identity}" \u2014 ${ok2 ? "Access-Accept" : "Access-Reject"}`);
-        return back2(ok2 ? "radius-accept" : "radius-reject", identity);
+        const reply = back2(ok2 ? "radius-accept" : "radius-reject", identity);
+        for (const r of reply) r.frame.payload.supplicantMac = p.supplicantMac;
+        return reply;
       }
       case "radius-accept": {
-        const sup = supplicantByIdentity(device, identity);
+        const sup = supplicantByMac(device, p.supplicantMac) ?? supplicantByIdentity(device, identity);
         if (!sup) return [];
         sup.link.dot1xAuthorized = true;
         logStep(device, "sim-dot1x", `Access-Accept \u2014 authorising ${sup.host.name}`);
         return [{ frame: createDot1xFrame(PAE_GROUP_MAC, sup.host.config?.macAddress || "", "eap-success", identity), toDeviceId: sup.host.id }];
       }
       case "radius-reject": {
-        const sup = supplicantByIdentity(device, identity);
+        const sup = supplicantByMac(device, p.supplicantMac) ?? supplicantByIdentity(device, identity);
         if (!sup) return [];
         sup.link.dot1xAuthorized = false;
         logStep(device, "sim-drop", `Access-Reject \u2014 ${sup.host.name} stays unauthorized`);
@@ -8143,16 +8146,16 @@ Full legal text: https://creativecommons.org/publicdomain/zero/1.0/legalcode</pr
             return outgoing;
           }
           logStep(device, "sim-icmp", `Received ICMP Echo Request from ${ipv4.srcIp} \u2014 sending Reply`);
-          const reply = createIcmpEchoReply(
-            config.macAddress || "",
-            frame.srcMac,
-            config.ipv4Address || "",
-            ipv4.srcIp,
-            64,
-            frame.vlanTag,
-            ipv4.payload.sequence
+          const seq = ipv4.payload.sequence;
+          emitHostReply(
+            device,
+            config,
+            hostReplyPath(config, ipv4.srcIp, frame.srcMac),
+            (dstMac) => createIcmpEchoReply(config.macAddress || "", dstMac, config.ipv4Address || "", ipv4.srcIp, 64, frame.vlanTag, seq),
+            fromDeviceId,
+            outgoing,
+            frame.vlanTag
           );
-          if (fromDeviceId) outgoing.push({ frame: reply, toDeviceId: fromDeviceId });
         } else if (ipv4.payload.icmpType === 0) {
           if (device.id === sim.originDeviceId && ipv4.srcIp === sim.pingTargetIp) {
             sim.pingSuccess = true;
@@ -8183,10 +8186,26 @@ Full legal text: https://creativecommons.org/publicdomain/zero/1.0/legalcode</pr
           learnArp(config, ipv4.srcIp, frame.srcMac);
           if (listening) {
             logStep(device, "sim-tcp", `TCP SYN on port ${tcp.dstPort} \u2014 sending SYN-ACK`);
-            outgoing.push({ frame: createTcpSegment(config.macAddress || "", frame.srcMac, config.ipv4Address || "", ipv4.srcIp, tcp.dstPort, tcp.srcPort, "syn-ack", 64, frame.vlanTag), toDeviceId: fromDeviceId });
+            emitHostReply(
+              device,
+              config,
+              hostReplyPath(config, ipv4.srcIp, frame.srcMac),
+              (dstMac) => createTcpSegment(config.macAddress || "", dstMac, config.ipv4Address || "", ipv4.srcIp, tcp.dstPort, tcp.srcPort, "syn-ack", 64, frame.vlanTag),
+              fromDeviceId,
+              outgoing,
+              frame.vlanTag
+            );
           } else {
             logStep(device, "sim-drop", `TCP SYN on closed port ${tcp.dstPort} \u2014 sending RST`);
-            outgoing.push({ frame: createTcpSegment(config.macAddress || "", frame.srcMac, config.ipv4Address || "", ipv4.srcIp, tcp.dstPort, tcp.srcPort, "rst", 64, frame.vlanTag), toDeviceId: fromDeviceId });
+            emitHostReply(
+              device,
+              config,
+              hostReplyPath(config, ipv4.srcIp, frame.srcMac),
+              (dstMac) => createTcpSegment(config.macAddress || "", dstMac, config.ipv4Address || "", ipv4.srcIp, tcp.dstPort, tcp.srcPort, "rst", 64, frame.vlanTag),
+              fromDeviceId,
+              outgoing,
+              frame.vlanTag
+            );
           }
         } else if (tcp.flags === "syn-ack") {
           logStep(device, "sim-tcp", `TCP SYN-ACK from ${ipv4.srcIp}:${tcp.srcPort} \u2014 sending ACK (connection established)`);
@@ -8209,7 +8228,7 @@ Full legal text: https://creativecommons.org/publicdomain/zero/1.0/legalcode</pr
           if (config.httpEnabled && tcp.dstPort === 80) {
             const title = config.httpTitle || `${device.name} \u2014 RouteSim web server`;
             logStep(device, "sim-tcp", `HTTP ${tcp.http.method} ${tcp.http.path} \u2192 200 OK`);
-            outgoing.push({ frame: createHttpResponse(config.macAddress || "", frame.srcMac, config.ipv4Address || "", ipv4.srcIp, tcp.dstPort, tcp.srcPort, 200, "OK", title, 64, frame.vlanTag), toDeviceId: fromDeviceId });
+            emitHostReply(device, config, hostReplyPath(config, ipv4.srcIp, frame.srcMac), (dstMac) => createHttpResponse(config.macAddress || "", dstMac, config.ipv4Address || "", ipv4.srcIp, tcp.dstPort, tcp.srcPort, 200, "OK", title, 64, frame.vlanTag), fromDeviceId, outgoing, frame.vlanTag);
           } else {
             logStep(device, "sim-drop", `HTTP ${tcp.http.method} ${tcp.http.path} on port ${tcp.dstPort} \u2014 no web service (no response)`);
           }
@@ -8318,18 +8337,17 @@ Full legal text: https://creativecommons.org/publicdomain/zero/1.0/legalcode</pr
           address ? "sim-dns" : "sim-drop",
           address ? `DNS query: ${dns.name} \u2192 ${address}` : `DNS query: ${dns.name} \u2014 NXDOMAIN`
         );
-        const reply = createDnsResponse(
-          config.macAddress || "",
-          frame.srcMac,
-          config.ipv4Address || "",
-          ipv4.srcIp,
-          dns.name,
-          address,
-          dns.id,
-          64,
+        const out = [];
+        emitHostReply(
+          device,
+          config,
+          hostReplyPath(config, ipv4.srcIp, frame.srcMac),
+          (dstMac) => createDnsResponse(config.macAddress || "", dstMac, config.ipv4Address || "", ipv4.srcIp, dns.name, address, dns.id, 64, frame.vlanTag),
+          fromDeviceId,
+          out,
           frame.vlanTag
         );
-        return fromDeviceId ? [{ frame: reply, toDeviceId: fromDeviceId }] : [];
+        return out;
       }
     }
     return processAtComputer(device, frame, fromDeviceId);
@@ -8787,6 +8805,50 @@ Full legal text: https://creativecommons.org/publicdomain/zero/1.0/legalcode</pr
     }
     return outgoing;
   }
+  function admitOnLink(device, link, frame) {
+    const sim = state.simulation;
+    const ptype = frame.payload.type;
+    const ctrl = ptype === "dot11" || ptype === "dot1x" || ptype === "bpdu";
+    if (!ctrl && !linkAuthorizedForData(link)) {
+      const reason = link.stpBlocked ? "is spanning-tree blocked" : "is not authenticated";
+      logStep(device, "sim-drop", `${linkName(link)} ${reason} \u2014 frame dropped`);
+      return false;
+    }
+    if (!sim.headless && Number(link.loss) > 0 && Math.random() * 100 < Number(link.loss)) {
+      logStep(device, "sim-drop", `${linkName(link)} dropped ${frameLabel(frame)} (${link.loss}% loss)`);
+      return false;
+    }
+    if (sim.headless && Number(link.loss) > 0 && !(sim.lossNoted ||= /* @__PURE__ */ new Set()).has(link.id)) {
+      sim.lossNoted.add(link.id);
+      logStep(device, "sim-learn", `${linkName(link)} carries ${link.loss}% loss \u2014 not applied in this headless run (checks stay deterministic; the animated run may drop frames here)`);
+    }
+    return true;
+  }
+  function hostReplyPath(config, dstIp, ingressMac) {
+    const srcIp = config.ipv4Address;
+    if (sameSubnet(srcIp, dstIp, prefixOf(config))) return { dstMac: ingressMac };
+    const gw = config.gatewayIpv4Address;
+    if (!gw || !isValidIpv4(gw)) return { drop: `Cannot reply to ${dstIp} \u2014 no route (no default gateway)` };
+    if (!sameSubnet(srcIp, gw, prefixOf(config))) return { drop: `Cannot reply to ${dstIp} \u2014 gateway ${gw} is not on this host's subnet` };
+    const entry = (config.arpTable || []).find((e) => e.ipv4Address === gw);
+    return entry ? { dstMac: entry.macAddress } : { arpFor: gw };
+  }
+  function emitHostReply(device, config, path, make, fromDeviceId, outgoing, vlanTag) {
+    if ("drop" in path) {
+      logStep(device, "sim-drop", path.drop);
+      return;
+    }
+    if (!fromDeviceId) return;
+    if ("dstMac" in path) {
+      outgoing.push({ frame: make(path.dstMac), toDeviceId: fromDeviceId });
+      return;
+    }
+    const sim = state.simulation;
+    const key = `${device.id}:${path.arpFor}`;
+    (sim.pendingArp[key] ||= []).push(make("00:00:00:00:00:00"));
+    logStep(device, "sim-arp", `Reply must go via the gateway \u2014 sending ARP Request for ${path.arpFor}`);
+    outgoing.push({ frame: createArpRequest(config.macAddress || "", config.ipv4Address || "", path.arpFor, vlanTag), toDeviceId: fromDeviceId });
+  }
   function hostHasReturnRoute(config, srcIp) {
     if (!config?.ipv4Address) return false;
     if (sameSubnet(config.ipv4Address, srcIp, prefixOf(config))) return true;
@@ -9124,8 +9186,11 @@ Full legal text: https://creativecommons.org/publicdomain/zero/1.0/legalcode</pr
   function allocateDhcpIp(iface, router) {
     if (!iface.ipv4Address || !isValidIpv4(iface.ipv4Address)) return null;
     const ifPrefix = prefixOf(iface);
-    const parts = iface.ipv4Address.split(".");
-    const poolBase = `${parts[0]}.${parts[1]}.${parts[2]}`;
+    const net = ifPrefix <= 0 ? 0 : (ipv4ToInt(iface.ipv4Address) & 4294967295 << 32 - ifPrefix) >>> 0;
+    const size = 2 ** (32 - ifPrefix);
+    const first = net + 1, last = net + size - 2;
+    if (last < first) return null;
+    const start = size >= 256 ? net + 100 : first;
     const usedIps = /* @__PURE__ */ new Set();
     for (const ri of router.config?.interfaces || []) {
       if (ri.ipv4Address && sameSubnet(ri.ipv4Address, iface.ipv4Address, ifPrefix)) {
@@ -9142,11 +9207,15 @@ Full legal text: https://creativecommons.org/publicdomain/zero/1.0/legalcode</pr
         usedIps.add(ip);
       }
     }
-    for (let i = 100; i <= 254; i++) {
-      const candidate = `${poolBase}.${i}`;
-      if (!usedIps.has(candidate)) return candidate;
-    }
-    return null;
+    usedIps.add(iface.ipv4Address);
+    const scan = (from, to) => {
+      for (let v = from; v <= to; v++) {
+        const c = intToIpv4(v);
+        if (!usedIps.has(c)) return c;
+      }
+      return null;
+    };
+    return scan(start, last) ?? (start > first ? scan(first, start - 1) : null);
   }
   function ifaceName(iface) {
     return iface.name || iface.peerId || "unknown";

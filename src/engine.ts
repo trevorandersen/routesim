@@ -1,4 +1,4 @@
-import type { EthernetFrame, ArpPayload, Ipv4Payload, DhcpPayload, TcpPayload, DnsPayload, Dot11Payload, Dot1xPayload, BpduPayload, NatEntry, SimEvent, SimLogEntry, ActiveTransit, FrameHistoryEntry, RouteEntry, RouterInterface, Device, DeviceType, FirewallRule, FirewallTarget, ConnState } from "./types";
+import type { EthernetFrame, ArpPayload, Ipv4Payload, DhcpPayload, TcpPayload, DnsPayload, Dot11Payload, Dot1xPayload, BpduPayload, NatEntry, SimEvent, SimLogEntry, ActiveTransit, FrameHistoryEntry, RouteEntry, RouterInterface, Device, DeviceType, FirewallRule, FirewallTarget, ConnState, Link } from "./types";
 import { state, pushUndo, sync } from "./state";
 import { dom } from "./dom";
 import { getDevice, linkedPortsFor, routerInterfacesWithNames, linkName, linkById, linksFor, linkAuthorizedForData, macsecState } from "./devices";
@@ -53,8 +53,10 @@ export function startSimulation(setup: PingSetup, originDeviceId: string, target
   for (const ev of setup.events) {
     if (ev.linkId && ev.fromDeviceId && ev.fromDeviceId !== ev.deviceId) {
       const seedLink = linkById(ev.linkId);
+      const src = getDevice(ev.fromDeviceId);
+      seeded = true;   // the source emitted (or tried to) — it is step 1 either way
+      if (seedLink && src && !admitOnLink(src, seedLink, ev.frame)) continue;   // dropped on the first leg (loss / gate)
       sim.transits.push({ frame: ev.frame, linkId: ev.linkId, fromDeviceId: ev.fromDeviceId, toDeviceId: ev.deviceId, progress: 0, startTime: seedNow, latencyFactor: linkLatencyFactor(seedLink), silent: isSilentFrame(ev.frame) });
-      seeded = true;
     } else {
       sim.events.push(ev);
     }
@@ -580,25 +582,7 @@ function processNextStep(): void {
     // 802.1X port still unauthorized), or a spanning-tree alternate port, passes
     // only control frames (dot11 / dot1x / BPDU) — never data. BPDUs in
     // particular must cross a blocked port so the tree stays converged.
-    const ptype = out.frame.payload.type;
-    const ctrl = ptype === "dot11" || ptype === "dot1x" || ptype === "bpdu";
-    if (!ctrl && !linkAuthorizedForData(link)) {
-      const reason = link.stpBlocked ? "is spanning-tree blocked" : "is not authenticated";
-      logStep(device, "sim-drop", `${linkName(link)} ${reason} — frame dropped`);
-      continue;
-    }
-    // Per-link packet loss — a probabilistic drop, only in animated runs so
-    // headless reachability checks (scenarios, `run`) stay deterministic. The
-    // divergence is surfaced, not silent: a headless run notes each lossy link
-    // it crosses once, so a passing check on a flaky wire explains itself.
-    if (!sim.headless && Number(link.loss) > 0 && Math.random() * 100 < link.loss) {
-      logStep(device, "sim-drop", `${linkName(link)} dropped ${frameLabel(out.frame)} (${link.loss}% loss)`);
-      continue;
-    }
-    if (sim.headless && Number(link.loss) > 0 && !(sim.lossNoted ||= new Set()).has(link.id)) {
-      sim.lossNoted.add(link.id);
-      logStep(device, "sim-learn", `${linkName(link)} carries ${link.loss}% loss — not applied in this headless run (checks stay deterministic; the animated run may drop frames here)`);
-    }
+    if (!admitOnLink(device, link, out.frame)) continue;
     sim.transits.push({
       frame: out.frame,
       linkId: link.id,
@@ -722,7 +706,20 @@ function radiusServerFor(sw: Device): Device | null {
   return null;
 }
 
-// The supplicant host on one of this switch's ports presenting a given identity.
+// The supplicant host on one of this switch's ports with a given MAC — the
+// session key carried through the exchange, so the result lands on the port
+// that started it (two hosts may present the same identity).
+function supplicantByMac(sw: Device, mac: string | undefined): { host: Device; link: any } | null {
+  if (!mac) return null;
+  for (const link of linksFor(sw.id)) {
+    if (link.hidden || link.shutdown || link.wireless) continue;
+    const host = getDevice(link.from === sw.id ? link.to : link.from);
+    if (host && host.config?.macAddress === mac) return { host, link };
+  }
+  return null;
+}
+
+// Fallback: the supplicant host on one of this switch's ports presenting a given identity.
 function supplicantByIdentity(sw: Device, identity: string): { host: Device; link: any } | null {
   for (const link of linksFor(sw.id)) {
     if (link.hidden || link.shutdown || link.wireless) continue;
@@ -757,24 +754,30 @@ function handleDot1x(device: Device, frame: EthernetFrame, fromDeviceId: string 
       const server = radiusServerFor(device);
       if (!server) { logStep(device, "sim-drop", `802.1X: no RADIUS server reachable — cannot authenticate`); return []; }
       logStep(device, "sim-dot1x", `Relaying identity "${identity}" to RADIUS (${server.name})`);
-      return [{ frame: createDot1xFrame(deriveMac(device.id), server.config?.macAddress || deriveMac(server.id), "radius-request", identity), toDeviceId: server.id }];
+      return [{ frame: createDot1xFrame(deriveMac(device.id), server.config?.macAddress || deriveMac(server.id), "radius-request", identity, frame.srcMac), toDeviceId: server.id }];
     }
     case "radius-request": { // RADIUS server: validate identity + the supplicant's password
       const users = (device.config as any)?.radius?.users || [];
-      const supPw = state.devices.find((d: any) => d.config?.dot1x?.identity === identity)?.config?.dot1x?.password;
+      // The credentials of THIS session's supplicant (by MAC) — not whichever
+      // device anywhere happens to present the same identity.
+      const sup = (p.supplicantMac ? state.devices.find((d: any) => d.config?.macAddress === p.supplicantMac) : undefined)
+        ?? state.devices.find((d: any) => d.config?.dot1x?.identity === identity);
+      const supPw = sup?.config?.dot1x?.identity === identity ? sup?.config?.dot1x?.password : undefined;
       const ok = users.some((u: any) => u.identity === identity && u.password === supPw);
       logStep(device, "sim-dot1x", `RADIUS Access-Request "${identity}" — ${ok ? "Access-Accept" : "Access-Reject"}`);
-      return back(ok ? "radius-accept" : "radius-reject", identity);
+      const reply = back(ok ? "radius-accept" : "radius-reject", identity);
+      for (const r of reply) (r.frame.payload as Dot1xPayload).supplicantMac = p.supplicantMac;
+      return reply;
     }
     case "radius-accept": { // authenticator: authorise the port, tell the supplicant
-      const sup = supplicantByIdentity(device, identity);
+      const sup = supplicantByMac(device, p.supplicantMac) ?? supplicantByIdentity(device, identity);
       if (!sup) return [];
       sup.link.dot1xAuthorized = true;
       logStep(device, "sim-dot1x", `Access-Accept — authorising ${sup.host.name}`);
       return [{ frame: createDot1xFrame(PAE_GROUP_MAC, sup.host.config?.macAddress || "", "eap-success", identity), toDeviceId: sup.host.id }];
     }
     case "radius-reject": { // authenticator: keep the port closed
-      const sup = supplicantByIdentity(device, identity);
+      const sup = supplicantByMac(device, p.supplicantMac) ?? supplicantByIdentity(device, identity);
       if (!sup) return [];
       sup.link.dot1xAuthorized = false;
       logStep(device, "sim-drop", `Access-Reject — ${sup.host.name} stays unauthorized`);
@@ -856,12 +859,10 @@ export function processAtComputer(device: Device, frame: EthernetFrame, fromDevi
         }
         // ICMP Echo Request — send reply
         logStep(device, "sim-icmp", `Received ICMP Echo Request from ${ipv4.srcIp} — sending Reply`);
-        const reply = createIcmpEchoReply(
-          config.macAddress || "", frame.srcMac,
-          config.ipv4Address || "", ipv4.srcIp,
-          64, frame.vlanTag, ipv4.payload.sequence
-        );
-        if (fromDeviceId) outgoing.push({ frame: reply, toDeviceId: fromDeviceId });
+        const seq = ipv4.payload.sequence;
+        emitHostReply(device, config, hostReplyPath(config, ipv4.srcIp, frame.srcMac),
+          dstMac => createIcmpEchoReply(config.macAddress || "", dstMac, config.ipv4Address || "", ipv4.srcIp, 64, frame.vlanTag, seq),
+          fromDeviceId, outgoing, frame.vlanTag);
       } else if (ipv4.payload.icmpType === 0) {
         // ICMP Echo Reply — ping success only if it came from the pinged address.
         if (device.id === sim.originDeviceId && ipv4.srcIp === sim.pingTargetIp) {
@@ -898,10 +899,14 @@ export function processAtComputer(device: Device, frame: EthernetFrame, fromDevi
         learnArp(config, ipv4.srcIp, frame.srcMac);
         if (listening) {
           logStep(device, "sim-tcp", `TCP SYN on port ${tcp.dstPort} — sending SYN-ACK`);
-          outgoing.push({ frame: createTcpSegment(config.macAddress || "", frame.srcMac, config.ipv4Address || "", ipv4.srcIp, tcp.dstPort, tcp.srcPort, "syn-ack", 64, frame.vlanTag), toDeviceId: fromDeviceId! });
+          emitHostReply(device, config, hostReplyPath(config, ipv4.srcIp, frame.srcMac),
+            dstMac => createTcpSegment(config.macAddress || "", dstMac, config.ipv4Address || "", ipv4.srcIp, tcp.dstPort, tcp.srcPort, "syn-ack", 64, frame.vlanTag),
+            fromDeviceId, outgoing, frame.vlanTag);
         } else {
           logStep(device, "sim-drop", `TCP SYN on closed port ${tcp.dstPort} — sending RST`);
-          outgoing.push({ frame: createTcpSegment(config.macAddress || "", frame.srcMac, config.ipv4Address || "", ipv4.srcIp, tcp.dstPort, tcp.srcPort, "rst", 64, frame.vlanTag), toDeviceId: fromDeviceId! });
+          emitHostReply(device, config, hostReplyPath(config, ipv4.srcIp, frame.srcMac),
+            dstMac => createTcpSegment(config.macAddress || "", dstMac, config.ipv4Address || "", ipv4.srcIp, tcp.dstPort, tcp.srcPort, "rst", 64, frame.vlanTag),
+            fromDeviceId, outgoing, frame.vlanTag);
         }
       } else if (tcp.flags === "syn-ack") {
         logStep(device, "sim-tcp", `TCP SYN-ACK from ${ipv4.srcIp}:${tcp.srcPort} — sending ACK (connection established)`);
@@ -928,7 +933,7 @@ export function processAtComputer(device: Device, frame: EthernetFrame, fromDevi
         if (config.httpEnabled && tcp.dstPort === 80) {
           const title = config.httpTitle || `${device.name} — RouteSim web server`;
           logStep(device, "sim-tcp", `HTTP ${tcp.http.method} ${tcp.http.path} → 200 OK`);
-          outgoing.push({ frame: createHttpResponse(config.macAddress || "", frame.srcMac, config.ipv4Address || "", ipv4.srcIp, tcp.dstPort, tcp.srcPort, 200, "OK", title, 64, frame.vlanTag), toDeviceId: fromDeviceId! });
+          emitHostReply(device, config, hostReplyPath(config, ipv4.srcIp, frame.srcMac), dstMac => createHttpResponse(config.macAddress || "", dstMac, config.ipv4Address || "", ipv4.srcIp, tcp.dstPort, tcp.srcPort, 200, "OK", title, 64, frame.vlanTag), fromDeviceId, outgoing, frame.vlanTag);
         } else {
           logStep(device, "sim-drop", `HTTP ${tcp.http.method} ${tcp.http.path} on port ${tcp.dstPort} — no web service (no response)`);
         }
@@ -1067,9 +1072,11 @@ export function processAtServer(device: Device, frame: EthernetFrame, fromDevice
       const address = record?.ip ?? hostnameToIp(dns.name);
       logStep(device, address ? "sim-dns" : "sim-drop",
         address ? `DNS query: ${dns.name} → ${address}` : `DNS query: ${dns.name} — NXDOMAIN`);
-      const reply = createDnsResponse(config.macAddress || "", frame.srcMac,
-        config.ipv4Address || "", ipv4.srcIp, dns.name, address, dns.id, 64, frame.vlanTag);
-      return fromDeviceId ? [{ frame: reply, toDeviceId: fromDeviceId }] : [];
+      const out: OutgoingFrame[] = [];
+      emitHostReply(device, config, hostReplyPath(config, ipv4.srcIp, frame.srcMac),
+        dstMac => createDnsResponse(config.macAddress || "", dstMac, config.ipv4Address || "", ipv4.srcIp, dns.name, address, dns.id, 64, frame.vlanTag),
+        fromDeviceId, out, frame.vlanTag);
+      return out;
     }
   }
   return processAtComputer(device, frame, fromDeviceId);
@@ -1642,6 +1649,65 @@ function handleRouterDhcp(device: Device, ingressIface: any, fromDeviceId: strin
 
 // A host can answer a source only if it is on the local subnet or a default
 // gateway provides the route back.
+// Whether `device` may transmit `frame` onto `link`: the auth/STP data gate
+// (control frames exempt) and per-link packet loss — a probabilistic drop in
+// animated runs only, so headless reachability checks stay deterministic (a
+// headless run notes each lossy link once, so the divergence is surfaced, not
+// silent). ONE admission path for the seeded first leg and every later hop:
+// startSimulation used to create the initial transit directly, so the first
+// frame crossed even a 100 %-loss link and a one-way attack still landed.
+function admitOnLink(device: Device, link: Link, frame: EthernetFrame): boolean {
+  const sim = state.simulation;
+  const ptype = frame.payload.type;
+  const ctrl = ptype === "dot11" || ptype === "dot1x" || ptype === "bpdu";
+  if (!ctrl && !linkAuthorizedForData(link)) {
+    const reason = link.stpBlocked ? "is spanning-tree blocked" : "is not authenticated";
+    logStep(device, "sim-drop", `${linkName(link)} ${reason} — frame dropped`);
+    return false;
+  }
+  if (!sim.headless && Number(link.loss) > 0 && Math.random() * 100 < Number(link.loss)) {
+    logStep(device, "sim-drop", `${linkName(link)} dropped ${frameLabel(frame)} (${link.loss}% loss)`);
+    return false;
+  }
+  if (sim.headless && Number(link.loss) > 0 && !(sim.lossNoted ||= new Set()).has(link.id)) {
+    sim.lossNoted.add(link.id);
+    logStep(device, "sim-learn", `${linkName(link)} carries ${link.loss}% loss — not applied in this headless run (checks stay deterministic; the animated run may drop frames here)`);
+  }
+  return true;
+}
+
+// The L2 next hop for a host's REPLY — the same decision an originated frame
+// makes (buildFollowOnFrames): an on-link peer directly, otherwise the
+// CONFIGURED default gateway, resolved through ARP like any other next hop.
+// Replies used to reflect to the ingress frame's source MAC, so a host with a
+// WRONG gateway still answered across subnets — hiding exactly the
+// misconfiguration this tool exists to teach. hostHasReturnRoute stays the
+// first gate (no address / no gateway at all).
+type ReplyPath = { dstMac: string } | { arpFor: string } | { drop: string };
+function hostReplyPath(config: any, dstIp: string, ingressMac: string): ReplyPath {
+  const srcIp = config.ipv4Address;
+  if (sameSubnet(srcIp, dstIp, prefixOf(config))) return { dstMac: ingressMac };   // on-link: the peer that spoke to us
+  const gw = config.gatewayIpv4Address;
+  if (!gw || !isValidIpv4(gw)) return { drop: `Cannot reply to ${dstIp} — no route (no default gateway)` };
+  if (!sameSubnet(srcIp, gw, prefixOf(config))) return { drop: `Cannot reply to ${dstIp} — gateway ${gw} is not on this host's subnet` };
+  const entry = (config.arpTable || []).find((e: any) => e.ipv4Address === gw);
+  return entry ? { dstMac: entry.macAddress } : { arpFor: gw };
+}
+
+// Emit a reply along `path`: send it, or buffer it behind an ARP Request for
+// the gateway (the host's ARP-reply handler stamps the learnt MAC and flushes).
+// A wrong gateway therefore ARPs into silence and the reply never leaves.
+function emitHostReply(device: Device, config: any, path: ReplyPath, make: (dstMac: string) => EthernetFrame, fromDeviceId: string | null, outgoing: OutgoingFrame[], vlanTag: number | null): void {
+  if ("drop" in path) { logStep(device, "sim-drop", path.drop); return; }
+  if (!fromDeviceId) return;
+  if ("dstMac" in path) { outgoing.push({ frame: make(path.dstMac), toDeviceId: fromDeviceId }); return; }
+  const sim = state.simulation;
+  const key = `${device.id}:${path.arpFor}`;
+  (sim.pendingArp[key] ||= []).push(make("00:00:00:00:00:00"));
+  logStep(device, "sim-arp", `Reply must go via the gateway — sending ARP Request for ${path.arpFor}`);
+  outgoing.push({ frame: createArpRequest(config.macAddress || "", config.ipv4Address || "", path.arpFor, vlanTag), toDeviceId: fromDeviceId });
+}
+
 function hostHasReturnRoute(config: any, srcIp: string): boolean {
   if (!config?.ipv4Address) return false;
   if (sameSubnet(config.ipv4Address, srcIp, prefixOf(config))) return true;
@@ -2088,13 +2154,20 @@ function assignApipa(device: Device): string {
   return apipaIp;
 }
 
-function allocateDhcpIp(iface: any, router: Device): string | null {
+export function allocateDhcpIp(iface: any, router: Device): string | null {
   if (!iface.ipv4Address || !isValidIpv4(iface.ipv4Address)) return null;
   const ifPrefix = prefixOf(iface);
-  // The pool draws from the interface's own /24 slice (.100–.254), which sits
-  // inside any larger network too; subnet-membership checks use the real prefix.
-  const parts = iface.ipv4Address.split(".");
-  const poolBase = `${parts[0]}.${parts[1]}.${parts[2]}`;
+  // The pool is the interface's USABLE range — network+1 … broadcast−1 for the
+  // real prefix — starting at the conventional .100 when the network is a /24
+  // or larger, else at the first usable address. It used to be the textual /24
+  // slice (.100–.254) whatever the prefix, so a /25 interface at .129 leased
+  // .100 from the OTHER half and told the client it was on-subnet with a
+  // gateway it could never reach.
+  const net = ifPrefix <= 0 ? 0 : (ipv4ToInt(iface.ipv4Address) & (0xffffffff << (32 - ifPrefix))) >>> 0;   // network base for the real prefix
+  const size = 2 ** (32 - ifPrefix);
+  const first = net + 1, last = net + size - 2;          // exclude network + broadcast
+  if (last < first) return null;                         // /31, /32: nothing to lease
+  const start = size >= 256 ? net + 100 : first;
 
   const usedIps = new Set<string>();
   // Router interface IPs in this subnet
@@ -2116,11 +2189,14 @@ function allocateDhcpIp(iface: any, router: Device): string | null {
     }
   }
 
-  for (let i = 100; i <= 254; i++) {
-    const candidate = `${poolBase}.${i}`;
-    if (!usedIps.has(candidate)) return candidate;
-  }
-  return null;
+  usedIps.add(iface.ipv4Address);
+  const scan = (from: number, to: number): string | null => {
+    for (let v = from; v <= to; v++) { const c = intToIpv4(v); if (!usedIps.has(c)) return c; }
+    return null;
+  };
+  // Prefer the conventional upper pool; fall back to the low addresses before
+  // reporting exhaustion (the offer is refused only when nothing usable is left).
+  return scan(start, last) ?? (start > first ? scan(first, start - 1) : null);
 }
 
 function ifaceName(iface: any): string {

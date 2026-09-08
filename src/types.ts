@@ -620,6 +620,10 @@ export interface Dot1xPayload {
   type: "dot1x";
   subtype: Dot1xSubtype;
   identity?: string;   // the supplicant identity, carried through the exchange
+  // The initiating host's MAC — the session key. Identities need not be unique;
+  // correlating by identity alone validated one host's password and authorised
+  // another host's port.
+  supplicantMac?: string;
 }
 
 // A Spanning Tree (802.1D) BPDU exchanged between bridges. A Configuration BPDU

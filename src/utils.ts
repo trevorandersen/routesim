@@ -161,7 +161,23 @@ export function deriveMac(seed: string): string {
 // A WiFi network name: a single trimmed token, capped at the 802.11 limit of 32
 // octets. SSIDs are case-sensitive; whitespace-only collapses to "" (no SSID).
 export function normaliseSsid(value: any): string {
-  return String(value ?? "").trim().slice(0, 32);
+  // 802.11 caps an SSID at 32 OCTETS, not 32 UTF-16 code units — a 32-character
+  // CJK or emoji name is up to 128 bytes. Keep whole code points up to the cap.
+  return truncateOctets(String(value ?? "").trim(), 32);
+}
+
+/** Longest prefix of `s` (whole code points) whose UTF-8 encoding is ≤ `max` bytes. */
+export function truncateOctets(s: string, max: number): string {
+  let bytes = 0;
+  let out = "";
+  for (const ch of s) {
+    const cp = ch.codePointAt(0)!;
+    const n = cp < 0x80 ? 1 : cp < 0x800 ? 2 : cp < 0x10000 ? 3 : 4;
+    if (bytes + n > max) break;
+    bytes += n;
+    out += ch;
+  }
+  return out;
 }
 
 // A WPA2 pre-shared key is 8–63 printable characters; we only cap the length and

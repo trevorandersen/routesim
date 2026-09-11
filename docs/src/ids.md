@@ -45,3 +45,10 @@ A passive sink: it runs the rule set against the mirrored frame (`runIdsRules`),
 ## Simplifications (teaching scope)
 
 One SPAN session per switch, rx mirroring only; the Snort subset above; alert-only (passive, never inline/IPS); control frames not mirrored. The sensor is single-NIC (one monitoring interface).
+
+
+## Snort fidelity notes (LOW sweep)
+
+- **`flags:` is exact by default.** `flags:S` matches a segment whose flags are *exactly* S — a SYN-ACK does not match (the old subset match fired `flags:S` on every SYN-ACK). Snort's modifiers are honoured: `flags:S+` matches S plus any others, `flags:A*` matches any of the listed bits.
+- **Port specs** accept what Snort accepts: a port, `any`, a range (`80:443`, `:1024`, `1024:`), a list (`[22,80,8000:8080]`), and any of those negated with a leading `!`.
+- **`formatAlert`** no longer asserts an IP context — a non-IP frame renders as `{NON-IP}` rather than throwing (it is only reached after a match, so this is defence in depth).

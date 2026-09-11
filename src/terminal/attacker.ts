@@ -22,7 +22,7 @@ const NMAP_VERSION = [
 
 function launch(device: Device, setup: PingSetup | string, kind: string): void {
   if (typeof setup === "string") { terminalLine("error", setup); return; }
-  if (state.simulation.status === "running") { terminalLine("error", "A simulation is already running — stop it first."); return; }
+  if (state.simulation.status === "running" || state.simulation.status === "paused") { terminalLine("error", "A simulation is already running (or paused) — stop it first."); return; }
   startSimulation(setup, device.id, "", "attack");
   terminalLine("", `Starting Nmap-style ${kind}... (results appear here when the run finishes).`);
 }
@@ -55,6 +55,13 @@ export function runAttackerTerminalCommand(device: Device, command: string): voi
   // arpspoof [-t victim] <gateway> — we impersonate the gateway IP (the last arg).
   const spoof = command.match(/^(?:sudo\s+)?arpspoof\s+(?:-t\s+\S+\s+)?(\S+)\s*$/i);
   if (spoof) { launch(device, buildArpSpoofEvents(device, spoof[1]), `ARP spoof of ${spoof[1]}`); return; }
+
+  // An nmap invocation we don't model — say so, rather than handing a scanner
+  // command to the host shell (which would only call it an unknown command).
+  if (/^(?:sudo\s+)?nmap\b/i.test(command)) {
+    terminalLine("error", "nmap: only `-sS <target>` (SYN scan), `-sn <subnet>` (ping sweep) and `-V` are modelled here — other scan types and options (-sT, -sU, -p, -A, …) are not.");
+    return;
+  }
 
   // Anything else is an ordinary Linux command — Kali is a full host, so fall
   // through to the shared host shell (ip addr / ip route / ping / traceroute /

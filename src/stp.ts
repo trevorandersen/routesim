@@ -123,7 +123,10 @@ export function runStpConvergence(): { participants: number; roots: number; bloc
     const map = portsOut.get(dev.id)!;
     const ports = linkedPortsFor(dev.id);
     ports.forEach((p: any, idx: number) => {
-      if (p && p.peer) setPort(map, `Ethernet${idx + 1}`, "designated", "forwarding");
+      // An administratively-down cable takes no part in the tree at all (it is
+      // excluded from the participant edges above too) — seeding it forwarding
+      // showed a shut port as live in the inspector's STP view.
+      if (p && p.peer && !p.link?.shutdown) setPort(map, `Ethernet${idx + 1}`, "designated", "forwarding");
     });
   }
 

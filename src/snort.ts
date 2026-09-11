@@ -35,6 +35,7 @@ export interface SnortRule {
   priority?: number;
   itype?: number;
   flags?: string;          // required TCP flag letters, e.g. "S" or "SA"
+  flagsMode?: "exact" | "+" | "*";   // Snort: `S` = exactly these bits, `S+` = these plus any, `S*` = any of these
   content?: string;        // substring to find in a DNS query name
 }
 
@@ -75,7 +76,12 @@ export function parseSnortRule(line: string): SnortRule | null {
       case "gid": rule.gid = Number(val) || 1; break;
       case "priority": rule.priority = Number(val) || undefined; break;
       case "itype": { const n = Number(val); if (Number.isFinite(n)) rule.itype = n; break; }   // keep itype:0 (echo reply); ignore non-numeric
-      case "flags": rule.flags = unquote(val).replace(/[^SAFRPU]/gi, "").toUpperCase(); break;
+      case "flags": {
+        const raw = unquote(val).trim();
+        rule.flagsMode = raw.endsWith("+") ? "+" : raw.endsWith("*") ? "*" : "exact";
+        rule.flags = raw.replace(/[^SAFRPU]/gi, "").toUpperCase();
+        break;
+      }
       case "content": rule.content = unquote(val); break;
     }
   }
@@ -117,10 +123,25 @@ function ipMatches(spec: string, ip: string): boolean {
   return isValidIpv4(spec) ? spec === ip : false;
 }
 
+// A Snort port spec: `any`, a port, a range (`80:443`, `:1024`, `1024:`), a
+// list (`[80,443,8000:8080]`), or any of those negated with a leading `!`.
 function portMatches(spec: string, port: number | null): boolean {
-  if (spec === "any") return true;
-  const n = Number(spec);
-  return Number.isFinite(n) && port === n;
+  const s = spec.trim();
+  if (s === "any") return true;
+  if (s.startsWith("!")) return !portMatches(s.slice(1), port);
+  if (port == null) return false;
+  const items = s.startsWith("[") && s.endsWith("]") ? s.slice(1, -1).split(",") : [s];
+  return items.some(item => {
+    const t = item.trim();
+    const range = t.match(/^(\d*):(\d*)$/);
+    if (range) {
+      const lo = range[1] ? Number(range[1]) : 0;
+      const hi = range[2] ? Number(range[2]) : 65535;
+      return port >= lo && port <= hi;
+    }
+    const n = Number(t);
+    return Number.isFinite(n) && port === n;
+  });
 }
 
 function protoMatches(rule: SnortRule, ctx: FrameCtx): boolean {
@@ -130,7 +151,16 @@ function protoMatches(rule: SnortRule, ctx: FrameCtx): boolean {
 
 function optionsMatch(rule: SnortRule, ctx: FrameCtx): boolean {
   if (rule.itype != null && ctx.icmpType !== rule.itype) return false;
-  if (rule.flags && ![...rule.flags].every(f => (ctx.flags || "").includes(f))) return false;
+  if (rule.flags) {
+    // Snort's `flags:S` means EXACTLY S (a SYN-ACK does not match); `S+` is a
+    // superset match, `S*` any-of. The old subset match fired `flags:S` on SYN-ACKs.
+    const have = [...(ctx.flags || "")].sort().join("");
+    const want = [...rule.flags].sort().join("");
+    const mode = rule.flagsMode || "exact";
+    if (mode === "exact" && have !== want) return false;
+    if (mode === "+" && ![...want].every(f => have.includes(f))) return false;
+    if (mode === "*" && ![...want].some(f => have.includes(f))) return false;
+  }
   if (rule.content && !(ctx.dnsName || "").toLowerCase().includes(rule.content.toLowerCase())) return false;
   return true;
 }
@@ -155,7 +185,8 @@ export function matchSnortRule(rule: SnortRule, frame: EthernetFrame): boolean {
 // A Snort "fast" alert line (timestamp omitted so alerts stay deterministic for
 // tests): [**] [gid:sid:rev] msg [**] [Priority: N] {PROTO} src(:port) -> dst(:port)
 export function formatAlert(rule: SnortRule, frame: EthernetFrame): string {
-  const ctx = frameCtx(frame)!;
+  const ctx = frameCtx(frame);
+  if (!ctx) return `[**] [${rule.gid}:${rule.sid}:${rule.rev}] ${rule.msg} [**] [Priority: ${rule.priority ?? 3}] {NON-IP}`;
   const proto = ctx.proto.toUpperCase();
   const src = ctx.srcPort != null ? `${ctx.srcIp}:${ctx.srcPort}` : ctx.srcIp;
   const dst = ctx.dstPort != null ? `${ctx.dstIp}:${ctx.dstPort}` : ctx.dstIp;

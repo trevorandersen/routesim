@@ -190,10 +190,7 @@ export function closeAbout(): void { dom.aboutOverlay.classList.remove("open"); 
 // The reference guide (Help → Guide): device + settings docs, rebuilt from
 // help.ts on open so it always reflects the current registries.
 export function openHelp(): void {
-  dom.helpModal.style.position = "";
-  dom.helpModal.style.left = "";
-  dom.helpModal.style.top = "";
-  dom.helpModal.style.margin = "";
+  // (Only the About modal is draggable — the Guide has no positioning to reset.)
   dom.helpBody.innerHTML = buildHelpHtml();
   dom.helpBody.scrollTop = 0;
   dom.helpOverlay.classList.add("open");
@@ -574,7 +571,7 @@ export function setupUI(): void {
     "panel-console": () => openConsole(),
     "panel-simlog": () => toggleDockTab("simlog"),
     "fit": fitNetwork,
-    "help-shortcuts": () => { openConsole(); consoleLine("output", "Shortcuts: V select · C computer · E server · S switch · R router · F firewall · H hub · L connect · W configure · Del delete · Esc cancel · Ctrl/Cmd+Z undo · Ctrl/Cmd+Shift+Z redo · scroll to zoom."); },
+    "help-shortcuts": () => { openConsole(); consoleLine("output", "Shortcuts: V select · C computer · E server · S switch · R router · F firewall · I IDS · K Kali PC · A Red Team · H hub · L connect · W configure · Del delete · Esc cancel · Ctrl/Cmd+Z undo · Ctrl/Cmd+Shift+Z or Ctrl/Cmd+Y redo · double-click a link to shut/unshut · scroll to zoom."); },
     "help-commands": () => openConsole(),
     "help-guide": openHelp,
     "help-about": openAbout,

@@ -272,3 +272,14 @@ describe("STP — sparse port arrays don't crash the render/routing paths", () =
     expect(routerInterfacesWithNames(r1).filter((i: any) => i.peer).length).toBe(2);
   });
 });
+
+describe("STP — an administratively-down cable is not seeded forwarding (LOW sweep)", () => {
+  beforeEach(() => resetState());
+  it("a shut bridge-to-bridge cable gets no port entry", () => {
+    runConsoleScript("add switch A at 0 0\nadd switch B at 200 0\nmanaged A on\nmanaged B on\nlink A B\nshut A B");
+    runStpConvergence();
+    const a = getDevice(state.devices.find(d => d.name === "A")!.id)!;
+    const ports = (a.config!.stp as any)?.ports || {};
+    expect(ports.Ethernet1?.state).not.toBe("forwarding");
+  });
+});

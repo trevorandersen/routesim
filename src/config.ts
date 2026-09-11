@@ -94,7 +94,7 @@ export function buildConfigPayload(): SerialisedTopology {
           ...(config?.rules?.length ? { rules: normaliseFirewallRules(config.rules) } : {}),
           ...(config?.policy && Object.keys(config.policy).length ? { policy: config.policy } : {}),
           ...(config?.natTranslations?.length ? { natTranslations: config.natTranslations } : {}),
-          ...(normalisePortForwards(config?.portForwards).length ? { portForwards: normalisePortForwards(config.portForwards) } : {}),
+          ...((pf => pf.length ? { portForwards: pf } : {})(normalisePortForwards(config?.portForwards))),
           ...macsecPayload(config)
         }
       } : {}),

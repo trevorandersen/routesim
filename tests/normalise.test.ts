@@ -482,3 +482,16 @@ describe("normaliseConfig — link port numbers are bounded and unique (F01)", (
     expect(cfg.links[1].fromPort).toBeUndefined();   // later claim auto-assigns instead of overwriting
   });
 });
+
+describe("normalise — LOW sweep", () => {
+  it("trunk allow-lists keep only integer VLAN ids in range", () => {
+    expect(normaliseTrunkAllowedVlans({ Ethernet1: [10, 1.5, "20", 5000, "x"] })).toEqual({ Ethernet1: [10, 20] });
+  });
+  it("a wireless association survives the config round-trip (SerialisedLink.wireless)", () => {
+    const cfg = normaliseConfig({
+      devices: [{ id: "l", type: "laptop", name: "L", x: 0, y: 0, config: {} }, { id: "ap", type: "access-point", name: "AP", x: 100, y: 0, config: {} }],
+      links: [{ from: "l", to: "ap", wireless: true }],
+    } as any);
+    expect(cfg.links[0].wireless).toBe(true);
+  });
+});

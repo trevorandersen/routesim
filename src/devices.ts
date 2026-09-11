@@ -1003,13 +1003,6 @@ export function openPortSelectionModal(fromId: string, toId: string): void {
   };
 
   // Auto-select first available port for non-picker side
-  if (!showFromPicker) {
-    state.portSelection.selectedFrom = 1;
-  }
-  if (!showToPicker) {
-    state.portSelection.selectedTo = 1;
-  }
-
   syncPortSelectionModal();
   dom.portSelectionOverlay.classList.add("open");
 }

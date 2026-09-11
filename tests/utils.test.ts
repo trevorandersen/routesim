@@ -5,8 +5,7 @@ import {
   normaliseMacAddress, isValidMac,
   clampPortCount, clampRouterPortCount, clampApPortCount,
   parseIpv4Token, normaliseVlanId,
-  escapeHtml, isValidHostname,
-} from "../src/utils";
+  escapeHtml, isValidHostname, normaliseSsid, truncateOctets } from "../src/utils";
 
 // ── Hostnames ─────────────────────────────────────────────────────────────────
 
@@ -256,4 +255,11 @@ describe("escapeHtml", () => {
   it("handles empty string", () => {
     expect(escapeHtml("")).toBe("");
   });
+});
+
+describe("normaliseSsid caps by OCTETS (802.11: 32 bytes), keeping whole code points", () => {
+  it("ASCII: 32 characters", () => { expect(normaliseSsid("a".repeat(40))).toHaveLength(32); });
+  it("2-byte characters: 16 of them", () => { expect(normaliseSsid("é".repeat(20))).toBe("é".repeat(16)); });
+  it("4-byte emoji: 8 of them, never a split surrogate", () => { expect(normaliseSsid("😀".repeat(10))).toBe("😀".repeat(8)); });
+  it("truncateOctets is the general helper", () => { expect(truncateOctets("héllo", 2)).toBe("h"); expect(truncateOctets("héllo", 3)).toBe("hé"); });
 });

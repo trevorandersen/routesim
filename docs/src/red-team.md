@@ -59,3 +59,9 @@ The point of these devices. A scan's port-23 SYN probe trips a [Snort](ids.md) T
 ## Simplifications (teaching scope)
 
 Fixed scan port list and sweep size; a half-open (SYN) scan with no service fingerprinting; ARP spoofing as a single gratuitous reply (no sustained re-poisoning or actual relay of intercepted traffic); single-NIC; one attack run at a time.
+
+
+## Kali shell guards (LOW sweep)
+
+- Launching an attack is refused while a run is **paused** as well as running — a paused run used to be stomped.
+- An **unmodelled `nmap` option** (`-sT`, `-sU`, `-p`, `-A`, …) gets an explanation listing what *is* modelled (`-sS <target>`, `-sn <subnet>`, `-V`), instead of falling through to the host shell's "unknown command".

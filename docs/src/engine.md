@@ -67,6 +67,11 @@ A host's **reply** (ICMP echo reply, TCP SYN-ACK/RST, DNS answer, HTTP response)
 
 `Dot1xPayload.supplicantMac` carries the initiating host's MAC through the exchange (set when the authenticator relays the identity to RADIUS, echoed back on Accept/Reject). RADIUS validates *that* host's credentials — not whichever device anywhere presents the same identity — and the authenticator authorises the port whose host has that MAC (`supplicantByMac`, falling back to identity). Two hosts presenting `alice` on separate ports no longer let a wrong password on one authorise the other's port.
 
+## Two lifecycle details (LOW sweep)
+
+- **A device deleted mid-run no longer strands the simulation.** `processNextStep` used to `return` early when an event's target device was gone, skipping the completion check — if that was the last queued work the run sat on "running" with live controls. The drop is logged against the sender and the step still **settles** (`settleStep`: process the next event if any, else finish).
+- **`syncSimLog` builds each pane's filter rows once** per sync (they were built twice — once for the union of present tokens, again per pane — every step of an animated run).
+
 ## Spanning tree (STP)
 - **`runStpConvergence()`** (in **`src/stp.ts`**, re-exported here) — runs automatically before each simulation, right after `runRipConvergence()` (both `startSimulation` and `runSimulationHeadless`). Computes the spanning tree across managed switches and mutates `config` in place (like `runRipConvergence`), electing a root per connected component and marking each alternate port's link `link.stpBlocked`. The blocked flag folds into `linkAuthorizedForData(link)` (devices.ts) alongside WiFi/802.1X/MACsec, so the three chokepoints (`l2Reachable`/`findFirstHop`/the engine transit step) drop **data** on a blocked link; the transit step's control-frame `ctrl` set now includes `"bpdu"`, so BPDUs (alongside `dot11`/`dot1x`) bypass the gate. See [stp.md](stp.md) for the model.
 - **`handleBpdu`** — relays a Configuration BPDU arriving on a bridge's root port out its designated ports (root cost + 1), toward other switches only; it terminates (never loops). `processAtSwitch` early-returns here for `bpdu` frames. `buildStpEvents` (simulation.ts) seeds the flood from each root bridge's designated ports for the animated `stp`/headless `run stp` mode.

@@ -485,6 +485,7 @@ export interface SerialisedLink {
   from: string;
   to: string;
   name?: string;
+  wireless?: boolean;   // a laptop ↔ access-point association (drawn dotted; not an ethernet port)
   shutdown?: boolean;
   bandwidth?: number;
   latency?: number;

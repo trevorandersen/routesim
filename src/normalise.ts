@@ -108,7 +108,7 @@ export function normaliseTrunkAllowedVlans(allowed: unknown): Record<string, num
     Object.entries(allowed)
       .map(([port, vlans]) => [
         String(port).trim(),
-        (Array.isArray(vlans) ? vlans : []).map(Number).filter(v => v >= 1 && v <= 4094)
+        (Array.isArray(vlans) ? vlans : []).map(normaliseVlanId).filter((v): v is number => v != null)
       ])
       .filter(([port, vlans]) => port && (vlans as number[]).length)
   );
@@ -389,8 +389,7 @@ export function normaliseDeviceConfig(device: any): DeviceConfig {
       ...(Object.keys(policy).length ? { policy } : {}),
       ...(Array.isArray(device.config?.natTranslations) && device.config.natTranslations.length
         ? { natTranslations: device.config.natTranslations } : {}),
-      ...(normalisePortForwards(device.config?.portForwards).length
-        ? { portForwards: normalisePortForwards(device.config.portForwards) } : {})
+      ...((pf => pf.length ? { portForwards: pf } : {})(normalisePortForwards(device.config?.portForwards)))
     };
   }
   if (device.type === "firewall") {

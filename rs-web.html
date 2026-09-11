@@ -2996,7 +2996,19 @@ Full legal text: https://creativecommons.org/publicdomain/zero/1.0/legalcode</pr
     return bytes.map((b) => b.toString(16).padStart(2, "0").toUpperCase()).join(":");
   }
   function normaliseSsid(value) {
-    return String(value ?? "").trim().slice(0, 32);
+    return truncateOctets(String(value ?? "").trim(), 32);
+  }
+  function truncateOctets(s, max) {
+    let bytes = 0;
+    let out = "";
+    for (const ch of s) {
+      const cp = ch.codePointAt(0);
+      const n = cp < 128 ? 1 : cp < 2048 ? 2 : cp < 65536 ? 3 : 4;
+      if (bytes + n > max) break;
+      bytes += n;
+      out += ch;
+    }
+    return out;
   }
   function normaliseWifiPassword(value) {
     return String(value ?? "").trim().slice(0, 63);
@@ -3373,7 +3385,7 @@ Full legal text: https://creativecommons.org/publicdomain/zero/1.0/legalcode</pr
     return Object.fromEntries(
       Object.entries(allowed).map(([port, vlans]) => [
         String(port).trim(),
-        (Array.isArray(vlans) ? vlans : []).map(Number).filter((v) => v >= 1 && v <= 4094)
+        (Array.isArray(vlans) ? vlans : []).map(normaliseVlanId).filter((v) => v != null)
       ]).filter(([port, vlans]) => port && vlans.length)
     );
   }
@@ -3596,7 +3608,7 @@ Full legal text: https://creativecommons.org/publicdomain/zero/1.0/legalcode</pr
         ...rules.length ? { rules } : {},
         ...Object.keys(policy).length ? { policy } : {},
         ...Array.isArray(device.config?.natTranslations) && device.config.natTranslations.length ? { natTranslations: device.config.natTranslations } : {},
-        ...normalisePortForwards(device.config?.portForwards).length ? { portForwards: normalisePortForwards(device.config.portForwards) } : {}
+        ...((pf) => pf.length ? { portForwards: pf } : {})(normalisePortForwards(device.config?.portForwards))
       };
     }
     if (device.type === "firewall") {
@@ -5192,12 +5204,6 @@ Full legal text: https://creativecommons.org/publicdomain/zero/1.0/legalcode</pr
       showFromPicker,
       showToPicker
     };
-    if (!showFromPicker) {
-      state.portSelection.selectedFrom = 1;
-    }
-    if (!showToPicker) {
-      state.portSelection.selectedTo = 1;
-    }
     syncPortSelectionModal();
     dom.portSelectionOverlay.classList.add("open");
   }
@@ -5347,7 +5353,7 @@ Full legal text: https://creativecommons.org/publicdomain/zero/1.0/legalcode</pr
       const map = portsOut.get(dev.id);
       const ports = linkedPortsFor(dev.id);
       ports.forEach((p, idx) => {
-        if (p && p.peer) setPort(map, `Ethernet${idx + 1}`, "designated", "forwarding");
+        if (p && p.peer && !p.link?.shutdown) setPort(map, `Ethernet${idx + 1}`, "designated", "forwarding");
       });
     }
     const adj = /* @__PURE__ */ new Map();
@@ -7025,9 +7031,12 @@ Full legal text: https://creativecommons.org/publicdomain/zero/1.0/legalcode</pr
           break;
         }
         // keep itype:0 (echo reply); ignore non-numeric
-        case "flags":
-          rule.flags = unquote(val).replace(/[^SAFRPU]/gi, "").toUpperCase();
+        case "flags": {
+          const raw = unquote(val).trim();
+          rule.flagsMode = raw.endsWith("+") ? "+" : raw.endsWith("*") ? "*" : "exact";
+          rule.flags = raw.replace(/[^SAFRPU]/gi, "").toUpperCase();
           break;
+        }
         case "content":
           rule.content = unquote(val);
           break;
@@ -7071,9 +7080,22 @@ Full legal text: https://creativecommons.org/publicdomain/zero/1.0/legalcode</pr
     return isValidIpv4(spec) ? spec === ip : false;
   }
   function portMatches(spec, port) {
-    if (spec === "any") return true;
-    const n = Number(spec);
-    return Number.isFinite(n) && port === n;
+    const s = spec.trim();
+    if (s === "any") return true;
+    if (s.startsWith("!")) return !portMatches(s.slice(1), port);
+    if (port == null) return false;
+    const items = s.startsWith("[") && s.endsWith("]") ? s.slice(1, -1).split(",") : [s];
+    return items.some((item) => {
+      const t = item.trim();
+      const range = t.match(/^(\d*):(\d*)$/);
+      if (range) {
+        const lo = range[1] ? Number(range[1]) : 0;
+        const hi = range[2] ? Number(range[2]) : 65535;
+        return port >= lo && port <= hi;
+      }
+      const n = Number(t);
+      return Number.isFinite(n) && port === n;
+    });
   }
   function protoMatches(rule, ctx2) {
     if (rule.proto === "ip") return ctx2.proto !== "other";
@@ -7081,7 +7103,14 @@ Full legal text: https://creativecommons.org/publicdomain/zero/1.0/legalcode</pr
   }
   function optionsMatch(rule, ctx2) {
     if (rule.itype != null && ctx2.icmpType !== rule.itype) return false;
-    if (rule.flags && ![...rule.flags].every((f) => (ctx2.flags || "").includes(f))) return false;
+    if (rule.flags) {
+      const have = [...ctx2.flags || ""].sort().join("");
+      const want = [...rule.flags].sort().join("");
+      const mode = rule.flagsMode || "exact";
+      if (mode === "exact" && have !== want) return false;
+      if (mode === "+" && ![...want].every((f) => have.includes(f))) return false;
+      if (mode === "*" && ![...want].some((f) => have.includes(f))) return false;
+    }
     if (rule.content && !(ctx2.dnsName || "").toLowerCase().includes(rule.content.toLowerCase())) return false;
     return true;
   }
@@ -7100,6 +7129,7 @@ Full legal text: https://creativecommons.org/publicdomain/zero/1.0/legalcode</pr
   }
   function formatAlert(rule, frame) {
     const ctx2 = frameCtx(frame);
+    if (!ctx2) return `[**] [${rule.gid}:${rule.sid}:${rule.rev}] ${rule.msg} [**] [Priority: ${rule.priority ?? 3}] {NON-IP}`;
     const proto = ctx2.proto.toUpperCase();
     const src = ctx2.srcPort != null ? `${ctx2.srcIp}:${ctx2.srcPort}` : ctx2.srcIp;
     const dst = ctx2.dstPort != null ? `${ctx2.dstIp}:${ctx2.dstPort}` : ctx2.dstIp;
@@ -7906,7 +7936,12 @@ Full legal text: https://creativecommons.org/publicdomain/zero/1.0/legalcode</pr
       return;
     }
     const device = getDevice(event.deviceId);
-    if (!device) return;
+    if (!device) {
+      const sender = event.fromDeviceId ? getDevice(event.fromDeviceId) : null;
+      if (sender) logStep(sender, "sim-drop", `Frame for a device that no longer exists \u2014 dropped`);
+      settleStep();
+      return;
+    }
     const outgoing = PROCESSORS[device.type]?.(device, event.frame, event.fromDeviceId) ?? [];
     const now = performance.now();
     for (const out of outgoing) {
@@ -7932,6 +7967,10 @@ Full legal text: https://creativecommons.org/publicdomain/zero/1.0/legalcode</pr
       syncSimLog();
       sync().render();
     }
+    settleStep();
+  }
+  function settleStep() {
+    const sim = state.simulation;
     if (sim.transits.length === 0 && sim.events.length > 0 && sim.status === "running") {
       processNextStep();
       return;
@@ -9305,12 +9344,13 @@ Full legal text: https://creativecommons.org/publicdomain/zero/1.0/legalcode</pr
         presentDeviceIds = /* @__PURE__ */ new Set();
         html = `<p class="sim-log-line sim-learn">No packets captured \u2014 run a simulation (headless checks don't capture). The Events view holds imported logs.</p>`;
       } else {
-        const unionRows = panes.flatMap((p) => buildFilterRows(p.entries));
+        const paneRows = panes.map((p) => buildFilterRows(p.entries));
+        const unionRows = paneRows.flat();
         presentTokenCache = presentTokens(unionRows);
         presentDeviceIds = new Set(unionRows.flatMap((r) => [r.fromId, r.toId]));
         let firstError = null;
-        const cols = panes.map((p) => {
-          const rows = buildFilterRows(p.entries);
+        const cols = panes.map((p, i) => {
+          const rows = paneRows[i];
           const result = applyLogFilter(rows, state.dock.logFilter);
           stats.shown += result.rows.length;
           stats.total += rows.length;
@@ -11550,8 +11590,8 @@ Snort successfully validated the configuration${bad ? " (with errors)" : "."}`);
       terminalLine("error", setup);
       return;
     }
-    if (state.simulation.status === "running") {
-      terminalLine("error", "A simulation is already running \u2014 stop it first.");
+    if (state.simulation.status === "running" || state.simulation.status === "paused") {
+      terminalLine("error", "A simulation is already running (or paused) \u2014 stop it first.");
       return;
     }
     startSimulation(setup, device.id, "", "attack");
@@ -11592,6 +11632,10 @@ Snort successfully validated the configuration${bad ? " (with errors)" : "."}`);
     const spoof = command.match(/^(?:sudo\s+)?arpspoof\s+(?:-t\s+\S+\s+)?(\S+)\s*$/i);
     if (spoof) {
       launch(device, buildArpSpoofEvents(device, spoof[1]), `ARP spoof of ${spoof[1]}`);
+      return;
+    }
+    if (/^(?:sudo\s+)?nmap\b/i.test(command)) {
+      terminalLine("error", "nmap: only `-sS <target>` (SYN scan), `-sn <subnet>` (ping sweep) and `-V` are modelled here \u2014 other scan types and options (-sT, -sU, -p, -A, \u2026) are not.");
       return;
     }
     runHostTerminalCommand(device, command);
@@ -14609,10 +14653,6 @@ Snort successfully validated the configuration${bad ? " (with errors)" : "."}`);
     dom.aboutOverlay.classList.remove("open");
   }
   function openHelp() {
-    dom.helpModal.style.position = "";
-    dom.helpModal.style.left = "";
-    dom.helpModal.style.top = "";
-    dom.helpModal.style.margin = "";
     dom.helpBody.innerHTML = buildHelpHtml();
     dom.helpBody.scrollTop = 0;
     dom.helpOverlay.classList.add("open");
@@ -14969,7 +15009,7 @@ Snort successfully validated the configuration${bad ? " (with errors)" : "."}`);
       "fit": fitNetwork,
       "help-shortcuts": () => {
         openConsole();
-        consoleLine("output", "Shortcuts: V select \xB7 C computer \xB7 E server \xB7 S switch \xB7 R router \xB7 F firewall \xB7 H hub \xB7 L connect \xB7 W configure \xB7 Del delete \xB7 Esc cancel \xB7 Ctrl/Cmd+Z undo \xB7 Ctrl/Cmd+Shift+Z redo \xB7 scroll to zoom.");
+        consoleLine("output", "Shortcuts: V select \xB7 C computer \xB7 E server \xB7 S switch \xB7 R router \xB7 F firewall \xB7 I IDS \xB7 K Kali PC \xB7 A Red Team \xB7 H hub \xB7 L connect \xB7 W configure \xB7 Del delete \xB7 Esc cancel \xB7 Ctrl/Cmd+Z undo \xB7 Ctrl/Cmd+Shift+Z or Ctrl/Cmd+Y redo \xB7 double-click a link to shut/unshut \xB7 scroll to zoom.");
       },
       "help-commands": () => openConsole(),
       "help-guide": openHelp,
@@ -15246,7 +15286,7 @@ Snort successfully validated the configuration${bad ? " (with errors)" : "."}`);
             ...config?.rules?.length ? { rules: normaliseFirewallRules(config.rules) } : {},
             ...config?.policy && Object.keys(config.policy).length ? { policy: config.policy } : {},
             ...config?.natTranslations?.length ? { natTranslations: config.natTranslations } : {},
-            ...normalisePortForwards(config?.portForwards).length ? { portForwards: normalisePortForwards(config.portForwards) } : {},
+            ...((pf) => pf.length ? { portForwards: pf } : {})(normalisePortForwards(config?.portForwards)),
             ...macsecPayload(config)
           }
         } : {},

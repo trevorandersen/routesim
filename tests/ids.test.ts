@@ -7,7 +7,7 @@ import { describe, it, expect, beforeAll, beforeEach } from "bun:test";
 import { state } from "../src/state";
 import { runConsoleCommand as exec, runConsoleScript, exportTopologyScript } from "../src/commands";
 import { linkedPortsFor } from "../src/devices";
-import { parseSnortRule, matchSnortRule, runIdsRules } from "../src/snort";
+import { parseSnortRule, matchSnortRule, runIdsRules, formatAlert } from "../src/snort";
 import { runSwitchTerminalCommand, showSwitchMirror } from "../src/terminal/switch";
 import { showIdsRules, addIdsRule, runIdsTerminalCommand } from "../src/terminal/ids";
 import { renderMirrorSection } from "../src/inspector";
@@ -236,5 +236,37 @@ describe("IDS — console, CLI, and round-trip", () => {
     const ids2 = state.devices.find(d => d.name === "IDS1")!;
     expect(ids2.config.idsRules).toEqual([`alert tcp any any -> any 22 (msg:"SSH"; sid:42; rev:1;)`]);
     expect(state.devices.find(d => d.name === "SW1")!.config.mirror?.dest).toBe("Ethernet1");
+  });
+});
+
+describe("snort — flags exactness, port specs, non-IP alerts (LOW sweep)", () => {
+  const syn = () => createTcpSegment("02:00:00:00:00:01", "02:00:00:00:00:02", "10.0.0.1", "10.0.0.2", 40000, 80, "syn", 64, null);
+  const synAck = () => createTcpSegment("02:00:00:00:00:02", "02:00:00:00:00:01", "10.0.0.2", "10.0.0.1", 80, 40000, "syn-ack", 64, null);
+  const rule = (opts: string, ports = "any any -> any any") => parseSnortRule(`alert tcp ${ports} (msg:"t"; ${opts} sid:1;)`)!;
+
+  it("`flags:S` is EXACT — a SYN-ACK no longer matches; `S+` and `A*` do", () => {
+    expect(matchSnortRule(rule("flags:S;"), syn())).toBe(true);
+    expect(matchSnortRule(rule("flags:S;"), synAck())).toBe(false);   // used to fire (subset match)
+    expect(matchSnortRule(rule("flags:S+;"), synAck())).toBe(true);
+    expect(matchSnortRule(rule("flags:A*;"), synAck())).toBe(true);
+    expect(matchSnortRule(rule("flags:A*;"), syn())).toBe(false);
+  });
+
+  it("port specs: ranges, open ranges, lists, and negation", () => {
+    const to = (ports: string) => matchSnortRule(rule("", `any any -> any ${ports}`), syn());   // dst port 80
+    expect(to("80:443")).toBe(true);
+    expect(to("81:443")).toBe(false);
+    expect(to(":1024")).toBe(true);
+    expect(to("1024:")).toBe(false);
+    expect(to("[22,80]")).toBe(true);
+    expect(to("[22,443:8080]")).toBe(false);
+    expect(to("!80")).toBe(false);
+    expect(to("!22")).toBe(true);
+  });
+
+  it("formatAlert on a non-IP frame does not throw", () => {
+    const r = rule("");
+    expect(() => formatAlert(r, createArpRequest("02:00:00:00:00:01", "10.0.0.1", "10.0.0.2"))).not.toThrow();
+    expect(formatAlert(r, createArpRequest("02:00:00:00:00:01", "10.0.0.1", "10.0.0.2"))).toContain("NON-IP");
   });
 });

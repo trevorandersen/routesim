@@ -402,3 +402,23 @@ describe("Red Team — cross-subnet sweep routing (regression)", () => {
     expect(state.simulation.sweepLive).toContain("192.168.20.10");   // PC-B, found across the router
   });
 });
+
+describe("Kali shell — paused run guard and unmodelled nmap options (LOW sweep)", () => {
+  beforeEach(() => resetState());
+  const out = () => JSON.stringify(state.terminal.lines);
+  it("refuses to launch while a run is PAUSED, not only while running", () => {
+    runConsoleScript("add kali K at 0 0\nadd computer T at 200 0\nlink K T\nip K 10.0.0.1/24\nip T 10.0.0.2/24");
+    const k = state.devices.find(d => d.name === "K")!;
+    state.simulation.status = "paused";
+    runAttackerTerminalCommand(k, "nmap -sS 10.0.0.2");
+    expect(out()).toContain("already running (or paused)");
+    expect(state.simulation.status).toBe("paused");   // untouched
+  });
+  it("explains an unmodelled nmap option instead of treating it as an unknown shell command", () => {
+    runConsoleScript("add kali K at 0 0");
+    const k = state.devices.find(d => d.name === "K")!;
+    runAttackerTerminalCommand(k, "nmap -sT 10.0.0.2");
+    expect(out()).toContain("not");
+    expect(out()).toContain("-sS");
+  });
+});

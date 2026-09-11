@@ -564,7 +564,15 @@ function processNextStep(): void {
   }
 
   const device = getDevice(event.deviceId);
-  if (!device) return;
+  if (!device) {
+    // The target was deleted mid-run. Drop the frame but still settle: if this
+    // was the last queued work the run must finish, not sit on "running" with
+    // live controls over a canvas the frame can no longer reach.
+    const sender = event.fromDeviceId ? getDevice(event.fromDeviceId) : null;
+    if (sender) logStep(sender, "sim-drop", `Frame for a device that no longer exists — dropped`);
+    settleStep();
+    return;
+  }
 
   const outgoing = PROCESSORS[device.type]?.(device, event.frame, event.fromDeviceId) ?? [];
 
@@ -602,14 +610,18 @@ function processNextStep(): void {
     sync().render();
   }
 
-  // If no transits were created but events remain, process next immediately
-  // (e.g., a device ignored a frame with no outgoing)
+  settleStep();
+}
+
+// After a step: with no transits but events left, process the next event now
+// (a device ignored a frame with no outgoing); with nothing at all left, the
+// run is done. Shared by the normal path and the deleted-device drop above.
+function settleStep(): void {
+  const sim = state.simulation;
   if (sim.transits.length === 0 && sim.events.length > 0 && sim.status === "running") {
     processNextStep();
     return;
   }
-
-  // No transits and no events — simulation is done
   if (sim.transits.length === 0 && sim.events.length === 0 && sim.status !== "done") {
     finishSimulation();
   }
@@ -2317,13 +2329,15 @@ export function syncSimLog(): void {
       presentDeviceIds = new Set();
       html = `<p class="sim-log-line sim-learn">No packets captured — run a simulation (headless checks don't capture). The Events view holds imported logs.</p>`;
     } else {
-      // Present-tokens + the device dropdown span every displayed pane.
-      const unionRows = panes.flatMap(p => buildFilterRows(p.entries));
+      // Present-tokens + the device dropdown span every displayed pane. Rows
+      // are built once per pane and reused below (this ran per sync, per step).
+      const paneRows = panes.map(p => buildFilterRows(p.entries));
+      const unionRows = paneRows.flat();
       presentTokenCache = presentTokens(unionRows);
       presentDeviceIds = new Set(unionRows.flatMap(r => [r.fromId, r.toId]));
       let firstError: string | null = null;
-      const cols = panes.map(p => {
-        const rows = buildFilterRows(p.entries);
+      const cols = panes.map((p, i) => {
+        const rows = paneRows[i];
         const result = applyLogFilter(rows, state.dock.logFilter);
         stats.shown += result.rows.length;
         stats.total += rows.length;

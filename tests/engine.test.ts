@@ -1022,3 +1022,23 @@ describe("router DHCP leases stay inside the interface's REAL subnet (F05)", () 
     expect(allocateDhcpIp(full, r2)).toBe("192.168.1.2");           // .1 is the router
   });
 });
+
+describe("a device deleted mid-run does not leave the simulation stuck (LOW sweep)", () => {
+  let raf: any;
+  beforeAll(() => { raf = (globalThis as any).requestAnimationFrame; (globalThis as any).requestAnimationFrame = () => 0; });
+  afterAll(() => { (globalThis as any).requestAnimationFrame = raf; });
+  beforeEach(() => resetState());
+  it("the run settles to done when the target of the last queued event has gone", () => {
+    const t = basicTopology(); state.devices = t.devices as any; state.links = t.links as any;
+    const pc1 = state.devices.find(d => d.id === "pc1")!;
+    startSimulation(buildPingEvents(pc1, "192.168.1.20") as any, pc1.id, "192.168.1.20");
+    // Deliver the first leg so a frame is queued for the switch, then delete the switch.
+    for (const tr of state.simulation.transits) tr.progress = 1;
+    stepOnce();
+    state.devices = state.devices.filter(d => d.id !== "sw1");
+    state.links = state.links.filter(l => l.from !== "sw1" && l.to !== "sw1");
+    let guard = 0;
+    while (state.simulation.status === "running" && guard++ < 50) { for (const tr of state.simulation.transits) tr.progress = 1; stepOnce(); }
+    expect(state.simulation.status).not.toBe("running");   // used to sit on "running" forever
+  });
+});

@@ -3,7 +3,7 @@
  * single self-contained file (no server, no File System Access) — persistence is
  * download (Blob + <a download>) and import is a hidden <input type=file>.
  */
-import { state } from "./state";
+import { state, pushUndo } from "./state";
 import { dom } from "./dom";
 import { buildConfigPayload, parseConfig, applyConfig } from "./config";
 import { exportTopologyScript, runConsoleScript } from "./commands";
@@ -37,6 +37,7 @@ export function pickFile(accept = "application/json,.json,.txt"): Promise<string
     const input = document.createElement("input");
     input.type = "file";
     input.accept = accept;
+    input.addEventListener("cancel", () => resolve(null));   // a dismissed picker used to leave the promise pending forever
     input.onchange = () => {
       const file = input.files?.[0];
       if (!file) { resolve(null); return; }
@@ -115,11 +116,25 @@ export function exportScript(): void {
   dom.modeLabel.textContent = "Exported topology script.";
 }
 
+// Run an imported script as ONE undo point (each line used to push its own —
+// 30 lines, 30 entries, never reversible in one step) and report honestly (the
+// results used to be discarded, so every import said "Ran imported script.").
+// Returns the status line; exported so the behaviour is testable without a
+// file picker.
+export function runImportedScript(text: string): string {
+  pushUndo();
+  state.isApplyingCompositeChange = true;
+  let results;
+  try { results = runConsoleScript(text); } finally { state.isApplyingCompositeChange = false; }
+  const rejected = results.filter(r => !r.ok);
+  if (!rejected.length) return `Ran imported script (${results.length} lines).`;
+  return `Imported script: ${rejected.length} of ${results.length} lines rejected — first: ${rejected[0].output.join(" ")}`;
+}
+
 export async function importScript(): Promise<void> {
   const text = await pickFile("text/plain,.txt,.routesim,.json");
   if (text == null) return;
-  runConsoleScript(text);
-  dom.modeLabel.textContent = "Ran imported script.";
+  dom.modeLabel.textContent = runImportedScript(text);
 }
 
 // ── Logs ─────────────────────────────────────────────────────────────────────

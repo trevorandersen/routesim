@@ -7,7 +7,7 @@ import { state, sync, pushUndo } from "../state";
 import { dom } from "../dom";
 import { isValidIpv4, isValidMac, normaliseMacAddress, parseIpv4Token, prefixOf, clampPrefixLength } from "../utils";
 import { normaliseArpTable, ensureConfig } from "../normalise";
-import { buildPingEvents, buildDhcpEvents, buildConnectEvents, buildResolveEvents, buildHttpEvents, parseHttpTarget } from "../simulation";
+import { buildPingEvents, buildDhcpEvents, buildConnectEvents, buildResolveEvents, buildHttpEvents, parseHttpTarget, findPingTarget, hostnameToIp } from "../simulation";
 import { startSimulation, runTraceroute } from "../engine";
 import { applyHostname } from "../devices";
 import { terminalLine } from "./core";
@@ -341,12 +341,12 @@ export function hostHelpLines(): string[] {
   ];
 }
 
+// The address the run's success check compares replies against. Resolves a
+// name exactly as the builders do (findPingTarget / the DNS auto-zone) — a
+// private copy here once covered computer/server only, so `ping <laptop>` from
+// a PC terminal started a run whose target was the literal name and could
+// never report success although the frames flowed.
 function resolvePingTargetIp(targetText: string): string {
-  // If it's already an IP, return it
   if (isValidIpv4(targetText)) return targetText;
-  // Otherwise find the target device by name
-  const target = state.devices.find(d =>
-    (d.type === "computer" || d.type === "server") && d.name.toLowerCase() === targetText.toLowerCase()
-  );
-  return target?.config?.ipv4Address || targetText;
+  return findPingTarget(targetText)?.config?.ipv4Address || hostnameToIp(targetText) || targetText;
 }

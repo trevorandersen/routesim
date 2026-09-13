@@ -8,12 +8,11 @@
  * preload's synchronous requestAnimationFrame would recurse on), so those are
  * exercised via their validation-error paths only.
  */
-import { describe, it, expect, beforeAll, beforeEach } from "bun:test";
+import { describe, it, expect, beforeAll, beforeEach, afterAll } from "bun:test";
 import { runConsoleScript } from "../src/commands";
 import { state } from "../src/state";
 import {
-  runRouterTerminalCommand, runSwitchTerminalCommand, runTerminalCommand, runDeviceCommand,
-} from "../src/terminal";
+  runRouterTerminalCommand, runSwitchTerminalCommand, runTerminalCommand, runDeviceCommand, runHostTerminalCommand } from "../src/terminal";
 import { registerNoopCallbacks, resetState } from "./helpers";
 import { basicTopology, routedTopology, vlanTopology } from "./fixtures";
 
@@ -534,5 +533,37 @@ describe("router-on-a-stick from the FRR shell (sub-interfaces are created by na
     run("encapsulation dot1q 30");
     expect(tagged()).toEqual(["30=192.168.10.1"]);
     expect(run("interface Ethernet9.5")).toContain("Unknown");
+  });
+});
+
+describe("terminal targets by name (G2-02) and `no network` symmetry (G2-04)", () => {
+  let raf: any;
+  beforeAll(() => { raf = (globalThis as any).requestAnimationFrame; (globalThis as any).requestAnimationFrame = () => 0; });
+  afterAll(() => { (globalThis as any).requestAnimationFrame = raf; });
+  it("`ping <laptop>` from a PC terminal targets the laptop's ADDRESS, not the literal name", () => {
+    resetState();
+    runConsoleScript("add computer PC at 0 0\nadd laptop L at 0 200\nadd access-point AP at 200 200\nadd switch SW at 200 0\nlink PC SW\nlink AP SW\nlink L AP\nip PC 10.0.0.5/24\nip L 10.0.0.6/24");
+    state.options.instantDns = true;
+    const pc = state.devices.find(d => d.name === "PC")!;
+    state.terminal = { deviceId: pc.id, mode: "exec", interfacePeerId: null, interfaceVlanTag: null, lines: [], history: [], historyIndex: -1 } as any;
+    runHostTerminalCommand(pc, "ping L");
+    expect(state.simulation.pingTargetIp).toBe("10.0.0.6");   // was "L"
+  });
+  it("`no network` removes exactly what `network` added, masked, and by interface name too", () => {
+    resetState();
+    runConsoleScript("add router R1 at 0 0\nadd switch SW at 200 0\nlink R1 SW\ninterface R1 SW ip 192.168.1.1/24");
+    const r1 = state.devices.find(d => d.name === "R1")!;
+    state.terminal = { deviceId: r1.id, mode: "rip", interfacePeerId: null, interfaceVlanTag: null, lines: [], history: [], historyIndex: -1 } as any;
+    r1.config!.rip = { enabled: true, networks: [], passiveInterfaces: [], learnedRoutes: [] } as any;
+    runRouterTerminalCommand(r1, "network 192.168.1.5/24");
+    expect(r1.config!.rip!.networks).toEqual(["192.168.1.0/24"]);
+    runRouterTerminalCommand(r1, "no network 192.168.1.5/24");
+    expect(r1.config!.rip!.networks).toEqual([]);                // used to stay ["192.168.1.0/24"]
+    runRouterTerminalCommand(r1, "network Ethernet1");
+    runRouterTerminalCommand(r1, "no network Ethernet1");
+    expect(r1.config!.rip!.networks).toEqual([]);
+    const n = state.terminal.lines.length;
+    runRouterTerminalCommand(r1, "no network 10.9.0.0/16");
+    expect(state.terminal.lines.slice(n).some((l: any) => /not a RIP network/.test(l.text))).toBe(true);
   });
 });

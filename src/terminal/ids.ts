@@ -6,7 +6,7 @@
  * inspector and the engine's detection.
  */
 import type { Device } from "../types";
-import { state } from "../state";
+import { state, pushUndo } from "../state";
 import { ensureConfig } from "../normalise";
 import { applyHostname } from "../devices";
 import { parseSnortRule } from "../snort";
@@ -38,6 +38,7 @@ export function showIdsAlerts(device: Device): string {
 export function addIdsRule(device: Device, ruleText: string): string {
   const rule = parseSnortRule(ruleText);
   if (!rule) return `ERROR: bad rule (expected: alert proto src sport -> dst dport (msg:"..."; sid:N;))`;
+  pushUndo();   // after validation, before the mutation — the undo contract every other shell keeps
   ensureConfig(device);
   const cfg: any = device.config;
   // Replace the array (don't push) so snort.ts's parse-by-array-identity memo
@@ -84,7 +85,7 @@ export function runIdsTerminalCommand(device: Device, command: string): void {
   const clearMatch = command.match(/^echo\s+(?:-n\s+)?>\s*(\/etc\/snort\/rules\/local\.rules|\/var\/log\/snort\/alert)$/i);
   if (clearMatch) {
     ensureConfig(device);
-    if (clearMatch[1].includes("local.rules")) { (device.config as any).idsRules = []; terminalLine("", "Cleared local.rules."); }
+    if (clearMatch[1].includes("local.rules")) { pushUndo(); (device.config as any).idsRules = []; terminalLine("", "Cleared local.rules."); }
     else { (device.config as any).alerts = []; terminalLine("", "Cleared the alert log."); }
     return;
   }

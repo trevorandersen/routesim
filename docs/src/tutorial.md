@@ -25,3 +25,8 @@ A small async player walks the `Step[]` (`buildSteps()`): for each step it sets 
 ## How it fits
 
 The tutorial reads `state` and drives `runConsoleCommand` + `closeDock` + `render`; it owns its overlay (`#tutorialLayer` in `template.html`) and styles (`.tutorial-*` in `styles.css`). It adds no simulation behaviour of its own — it's a thin presentation layer over the existing build/configure/simulate commands.
+
+
+## One undo point
+
+`startTutorial` takes one undo snapshot before it clears the canvas and then runs the whole demo — including every Back/Forward rebuild — under `isApplyingCompositeChange`, so nothing the tutorial does pushes an entry of its own; `exitTutorial` clears the flag. A single Undo after exiting restores whatever the learner had built. Previously the launch pushed ~20 entries and each rebuild another ~20, so three Back/Forward presses left the original 64 undos away and the fourth pushed it off the 80-entry cap.

@@ -18,6 +18,8 @@ import { placeToolDevice } from "../src/devices";
 import { registerScenario, getScenario, SCENARIOS } from "../src/scenarios";
 import { registerNoopCallbacks, resetState } from "./helpers";
 import { basicTopology } from "./fixtures";
+import { runImportedScript as _runImported } from "../src/io";
+import { undo as _undo } from "../src/state";
 
 beforeAll(() => registerNoopCallbacks());
 
@@ -147,5 +149,21 @@ describe("persistence — every device type carries its config through the paylo
       const out = (_payload() as any).devices.find((x: any) => x.id === d.id);
       expect(out && typeof out.config === "object").toBe(true);
     }
+  });
+});
+
+describe("script import — one undo point and an honest report (G1-03)", () => {
+  beforeAll(() => _noop());
+  beforeEach(() => _reset());
+  it("a script is a single undo entry, and a rejected line is reported", () => {
+    _state.devices = []; _state.links = [];
+    const before = _state.undoStack.length;
+    const msg = _runImported(Array.from({ length: 12 }, (_, i) => `add computer P${i} at ${i * 10} 0`).join("\n") + "\nfrobnicate now");
+    expect(_state.undoStack.length - before).toBe(1);          // not 13
+    expect(msg).toContain("1 of 13 lines rejected");
+    expect(msg).toContain("Unknown command");
+    _undo();
+    expect(_state.devices).toHaveLength(0);                     // one undo reverts the whole import
+    expect(_runImported("add computer Q at 0 0")).toBe("Ran imported script (1 lines).");
   });
 });

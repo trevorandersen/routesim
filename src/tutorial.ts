@@ -10,7 +10,7 @@
  * cycles (commands.ts already owns setTool/setTheme). The launch is wired in
  * app.ts.
  */
-import { state } from "./state";
+import { state, pushUndo } from "./state";
 import { dom } from "./dom";
 import { getDevice } from "./devices";
 import { worldToScreen, render } from "./canvas";
@@ -253,6 +253,13 @@ export function startTutorial(): void {
   paused = false;
   resumeWaiters = [];
   steps = buildSteps();
+  // The demo clears the learner's topology and then runs ~20 undoable actions
+  // (and rebuilds them on every Back/Forward), which used to bury the original
+  // dozens of entries deep and off the 80-entry cap. One snapshot before the
+  // clear, then everything the tutorial does runs as a composite change — a
+  // single Undo after exiting restores whatever was there.
+  pushUndo();
+  state.isApplyingCompositeChange = true;
   const l = layer();
   if (l) { l.hidden = false; l.classList.remove("tutorial-finished"); }
   syncControls();
@@ -322,6 +329,7 @@ function exitTutorial(): void {
   abortRun();            // abort any in-flight run + release waiters
   paused = false;
   active = false;
+  state.isApplyingCompositeChange = false;   // the demo's edits were one composite change
   exec("stop");
   const l = layer();
   if (l) { l.hidden = true; l.classList.remove("tutorial-finished"); }

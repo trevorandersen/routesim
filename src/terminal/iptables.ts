@@ -10,6 +10,15 @@
 import type { Device, FirewallRule } from "../types";
 import { state, sync, pushUndo } from "../state";
 import { ensureConfig } from "../normalise";
+import { isValidIpv4 } from "../utils";
+
+// An IPv4 address or CIDR, as iptables accepts for -s/-d. Anything else used to
+// be stored verbatim — listed, persisted, and never matching any packet.
+function isAddressOrCidr(v: string): boolean {
+  const m = v.match(/^([^/]+)(?:\/(\d{1,2}))?$/);
+  if (!m || !isValidIpv4(m[1])) return false;
+  return m[2] == null || Number(m[2]) <= 32;
+}
 import { terminalLine } from "./core";
 
 function parseChain(raw: string | undefined, allowed: string[]): string | null {
@@ -74,15 +83,15 @@ function parseFirewallRule(chain: string, toks: string[]): FirewallRule | string
   for (let i = 0; i < toks.length; i++) {
     const t = toks[i];
     const val = toks[i + 1];
-    if (t === "-s" || t === "--source") { if (!val) return "iptables: -s needs an address"; rule.src = val; i++; }
-    else if (t === "-d" || t === "--destination") { if (!val) return "iptables: -d needs an address"; rule.dst = val; i++; }
+    if (t === "-s" || t === "--source") { if (!val) return "iptables: -s needs an address"; if (!isAddressOrCidr(val)) return `iptables: host/network "${val}" not found`; rule.src = val; i++; }
+    else if (t === "-d" || t === "--destination") { if (!val) return "iptables: -d needs an address"; if (!isAddressOrCidr(val)) return `iptables: host/network "${val}" not found`; rule.dst = val; i++; }
     else if (t === "-p" || t === "--protocol") {
       const p = (val || "").toLowerCase();
       if (!["icmp", "udp", "tcp", "all"].includes(p)) return `iptables: unknown protocol "${val}"`;
       if (p !== "all") rule.protocol = p as any; i++;
     }
     else if (t === "--icmp-type") { if (!val) return "iptables: --icmp-type needs a value"; rule.icmpType = val.toLowerCase(); i++; }
-    else if (t === "--dport") { if (!val || !/^\d+$/.test(val) || Number(val) > 65535) return "iptables: --dport needs a port number (1-65535)"; rule.dport = Number(val); i++; }
+    else if (t === "--dport") { if (!val || !/^\d+$/.test(val) || Number(val) < 1 || Number(val) > 65535) return "iptables: --dport needs a port number (1-65535)"; rule.dport = Number(val); i++; }
     // `-m <module>` loads a match extension; we infer behaviour from the flags,
     // so the module name (state / conntrack / tcp / udp) is accepted and skipped.
     else if (t === "-m") { if (!val) return "iptables: -m needs a module"; i++; }
@@ -108,6 +117,7 @@ function parseFirewallRule(chain: string, toks: string[]): FirewallRule | string
   // otherwise it would be accepted and listed but never match (real iptables
   // likewise rejects --dport without a port-bearing protocol).
   if (rule.dport != null && rule.protocol !== "tcp") return "iptables: --dport requires -p tcp";
+  if (rule.icmpType && rule.protocol !== "icmp") return "iptables: --icmp-type requires -p icmp";
   if (rule.rejectWith && rule.target !== "reject") return "iptables: --reject-with only applies to -j REJECT";
   if (!hasTarget) return "iptables: rule needs -j ACCEPT|DROP|REJECT";
   return rule;

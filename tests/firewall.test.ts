@@ -13,6 +13,7 @@ import { buildPingEvents } from "../src/simulation";
 import { createArpRequest } from "../src/frame";
 import { runConsoleScript, runConsoleCommand as exec } from "../src/commands";
 import { registerNoopCallbacks, resetState } from "./helpers";
+import { state as _state2 } from "../src/state";
 
 beforeAll(() => registerNoopCallbacks());
 
@@ -181,5 +182,27 @@ describe("ruleToIptables round-trips through the iptables parser", () => {
       const { protocol, ...rest } = r;
       expect(fw.config!.rules![i]).toMatchObject(protocol === "all" ? rest : r);
     });
+  });
+});
+
+describe("iptables validates what it stores (G3-01)", () => {
+  beforeAll(() => _noopFw());
+  beforeEach(() => _resetFw());
+  const fw = () => { const f = _addFw("firewall", 0, 0); f.config!.rules = []; return f; };
+  const out = () => JSON.stringify(_state2.terminal.lines.map((l: any) => l.text));
+  it("rejects a non-address -s/-d, port 0, and --icmp-type without -p icmp", () => {
+    const f = fw();
+    _runIpt(f, "iptables -A FORWARD -s bogus.host -j DROP", ["forward"]);
+    _runIpt(f, "iptables -A FORWARD -p tcp --dport 0 -j DROP", ["forward"]);
+    _runIpt(f, "iptables -A FORWARD --icmp-type echo-request -j DROP", ["forward"]);
+    expect(f.config!.rules).toEqual([]);                          // nothing stored (each used to be "Appended")
+    expect(out()).toContain("not found");
+    expect(out()).toContain("1-65535");
+    expect(out()).toContain("requires -p icmp");
+  });
+  it("accepts an address, a CIDR, and a real port", () => {
+    const f = fw();
+    expect(_runIpt(f, "iptables -A FORWARD -s 10.0.0.0/24 -d 192.168.1.5 -p tcp --dport 443 -j DROP", ["forward"])).toBe(true);
+    expect(f.config!.rules).toHaveLength(1);
   });
 });

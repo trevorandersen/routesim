@@ -9995,10 +9995,7 @@ ${sim.httpServerTitle || ""}`);
   }
   function resolvePingTargetIp(targetText) {
     if (isValidIpv4(targetText)) return targetText;
-    const target = state.devices.find(
-      (d) => (d.type === "computer" || d.type === "server") && d.name.toLowerCase() === targetText.toLowerCase()
-    );
-    return target?.config?.ipv4Address || targetText;
+    return findPingTarget(targetText)?.config?.ipv4Address || hostnameToIp(targetText) || targetText;
   }
 
   // src/terminal/server.ts
@@ -10103,6 +10100,11 @@ ${sim.httpServerTitle || ""}`);
   }
 
   // src/terminal/iptables.ts
+  function isAddressOrCidr(v) {
+    const m = v.match(/^([^/]+)(?:\/(\d{1,2}))?$/);
+    if (!m || !isValidIpv4(m[1])) return false;
+    return m[2] == null || Number(m[2]) <= 32;
+  }
   function parseChain(raw, allowed) {
     const chain = (raw || "").toLowerCase();
     return allowed.includes(chain) ? chain : null;
@@ -10155,10 +10157,12 @@ ${sim.httpServerTitle || ""}`);
       const val = toks[i + 1];
       if (t === "-s" || t === "--source") {
         if (!val) return "iptables: -s needs an address";
+        if (!isAddressOrCidr(val)) return `iptables: host/network "${val}" not found`;
         rule.src = val;
         i++;
       } else if (t === "-d" || t === "--destination") {
         if (!val) return "iptables: -d needs an address";
+        if (!isAddressOrCidr(val)) return `iptables: host/network "${val}" not found`;
         rule.dst = val;
         i++;
       } else if (t === "-p" || t === "--protocol") {
@@ -10171,7 +10175,7 @@ ${sim.httpServerTitle || ""}`);
         rule.icmpType = val.toLowerCase();
         i++;
       } else if (t === "--dport") {
-        if (!val || !/^\d+$/.test(val) || Number(val) > 65535) return "iptables: --dport needs a port number (1-65535)";
+        if (!val || !/^\d+$/.test(val) || Number(val) < 1 || Number(val) > 65535) return "iptables: --dport needs a port number (1-65535)";
         rule.dport = Number(val);
         i++;
       } else if (t === "-m") {
@@ -10197,6 +10201,7 @@ ${sim.httpServerTitle || ""}`);
       } else return `iptables: unknown option "${t}"`;
     }
     if (rule.dport != null && rule.protocol !== "tcp") return "iptables: --dport requires -p tcp";
+    if (rule.icmpType && rule.protocol !== "icmp") return "iptables: --icmp-type requires -p icmp";
     if (rule.rejectWith && rule.target !== "reject") return "iptables: --reject-with only applies to -j REJECT";
     if (!hasTarget) return "iptables: rule needs -j ACCEPT|DROP|REJECT";
     return rule;
@@ -10953,11 +10958,21 @@ ${sim.httpServerTitle || ""}`);
       }
       const networkToken = noNetworkMatch[1];
       const parsed = parseIpv4Token(networkToken);
-      if (!parsed) {
-        terminalLine("error", `% Invalid network: ${networkToken}`);
+      let network;
+      if (parsed) {
+        network = networkOf(parsed.address, parsed.prefixLength ?? 24);
+      } else {
+        const iface = routerInterfaceByName(router, networkToken);
+        if (!iface || !iface.config?.ipv4Address) {
+          terminalLine("error", `% Invalid network or interface: ${networkToken}`);
+          return true;
+        }
+        network = networkOf(iface.config.ipv4Address, prefixOf(iface.config));
+      }
+      if (!router.config.rip.networks.includes(network)) {
+        terminalLine("error", `% ${network} is not a RIP network on this router.`);
         return true;
       }
-      const network = parsed.prefixLength != null ? `${parsed.address}/${parsed.prefixLength}` : `${parsed.address}/24`;
       pushUndo();
       router.config.rip.networks = router.config.rip.networks.filter((n) => n !== network);
       sync().syncPanel();
@@ -11534,6 +11549,7 @@ ${sim.httpServerTitle || ""}`);
   function addIdsRule(device, ruleText) {
     const rule = parseSnortRule(ruleText);
     if (!rule) return `ERROR: bad rule (expected: alert proto src sport -> dst dport (msg:"..."; sid:N;))`;
+    pushUndo();
     ensureConfig(device);
     const cfg = device.config;
     cfg.idsRules = [...Array.isArray(cfg.idsRules) ? cfg.idsRules : [], rule.raw];
@@ -11588,6 +11604,7 @@ Snort successfully validated the configuration${bad ? " (with errors)" : "."}`);
     if (clearMatch) {
       ensureConfig(device);
       if (clearMatch[1].includes("local.rules")) {
+        pushUndo();
         device.config.idsRules = [];
         terminalLine("", "Cleared local.rules.");
       } else {
@@ -14445,6 +14462,7 @@ Snort successfully validated the configuration${bad ? " (with errors)" : "."}`);
       const input = document.createElement("input");
       input.type = "file";
       input.accept = accept;
+      input.addEventListener("cancel", () => resolve2(null));
       input.onchange = () => {
         const file = input.files?.[0];
         if (!file) {
@@ -14514,11 +14532,23 @@ Snort successfully validated the configuration${bad ? " (with errors)" : "."}`);
     downloadText(exportTopologyScript(), "topology.routesim.txt");
     dom.modeLabel.textContent = "Exported topology script.";
   }
+  function runImportedScript(text) {
+    pushUndo();
+    state.isApplyingCompositeChange = true;
+    let results;
+    try {
+      results = runConsoleScript(text);
+    } finally {
+      state.isApplyingCompositeChange = false;
+    }
+    const rejected = results.filter((r) => !r.ok);
+    if (!rejected.length) return `Ran imported script (${results.length} lines).`;
+    return `Imported script: ${rejected.length} of ${results.length} lines rejected \u2014 first: ${rejected[0].output.join(" ")}`;
+  }
   async function importScript() {
     const text = await pickFile("text/plain,.txt,.routesim,.json");
     if (text == null) return;
-    runConsoleScript(text);
-    dom.modeLabel.textContent = "Ran imported script.";
+    dom.modeLabel.textContent = runImportedScript(text);
   }
   function exportLog() {
     downloadJson(state.simulation.log, "simlog.json");
@@ -17312,6 +17342,8 @@ Snort successfully validated the configuration${bad ? " (with errors)" : "."}`);
     paused = false;
     resumeWaiters = [];
     steps = buildSteps();
+    pushUndo();
+    state.isApplyingCompositeChange = true;
     const l = layer();
     if (l) {
       l.hidden = false;
@@ -17382,6 +17414,7 @@ Snort successfully validated the configuration${bad ? " (with errors)" : "."}`);
     abortRun();
     paused = false;
     active = false;
+    state.isApplyingCompositeChange = false;
     exec("stop");
     const l = layer();
     if (l) {

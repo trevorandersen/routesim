@@ -706,12 +706,26 @@ function routerRipCommand(router: Device, command: string, lower: string): boole
       return true;
     }
     const networkToken = noNetworkMatch[1];
+    // Symmetric with `network`: the same masking (192.168.1.5/24 → 192.168.1.0/24)
+    // and the same `<ifname>` form. Comparing the unmasked token meant
+    // `no network 192.168.1.5/24` could never remove what `network 192.168.1.5/24`
+    // had stored.
     const parsed = parseIpv4Token(networkToken);
-    if (!parsed) {
-      terminalLine("error", `% Invalid network: ${networkToken}`);
+    let network: string;
+    if (parsed) {
+      network = networkOf(parsed.address, parsed.prefixLength ?? 24);
+    } else {
+      const iface = routerInterfaceByName(router, networkToken);
+      if (!iface || !iface.config?.ipv4Address) {
+        terminalLine("error", `% Invalid network or interface: ${networkToken}`);
+        return true;
+      }
+      network = networkOf(iface.config.ipv4Address, prefixOf(iface.config));
+    }
+    if (!router.config.rip!.networks.includes(network)) {
+      terminalLine("error", `% ${network} is not a RIP network on this router.`);
       return true;
     }
-    const network = parsed.prefixLength != null ? `${parsed.address}/${parsed.prefixLength}` : `${parsed.address}/24`;
     pushUndo();
     router.config.rip!.networks = router.config.rip!.networks.filter((n: string) => n !== network);
     sync().syncPanel();

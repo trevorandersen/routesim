@@ -124,3 +124,8 @@ iptables CLI does. Powered-off firewalls drop everything.
 ## `ruleToIptables` — the parser's inverse
 
 `terminal/iptables.ts` also exports **`ruleToIptables(rule)`**, which renders one `FirewallRule` as an `iptables -A CHAIN … -j TARGET` line that `runIptablesCommand` re-parses to the same rule (`-p`, `-s`, `-d`, `--icmp-type`, `--dport`, `-m state --state A,B`, `--reject-with`). The script export replays a device's netfilter state through it, `iptables-save`-style — a DROP policy and its allow-list used to be dropped from the export entirely, so a replayed firewall came back as an empty ACCEPT. The formatter and the parser live in the same module so they stay in step; `tests/firewall.test.ts` round-trips every field through both.
+
+
+## The CLI validates what it stores
+
+`parseFirewallRule` refuses a `-s`/`-d` that is not an IPv4 address or CIDR (`host/network "…" not found`, as iptables says), a `--dport` outside 1–65535, and `--icmp-type` without `-p icmp`. Each used to be accepted with "Appended", listed by `-L`, persisted — and never able to match a packet. The inspector's add-rule form already validated; the CLI the firewall scenarios are taught through did not.

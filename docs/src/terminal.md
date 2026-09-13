@@ -53,3 +53,10 @@ The terminal is a major surface area. The dispatchers parse user input and call 
 - **`no encapsulation dot1q`** is refused on the base, and on a sub-interface when a base entry already exists (un-tagging would leave two untagged entries for one peer).
 
 Before this, `encapsulation dot1q 10` **retagged the base itself**; afterwards `interface Ethernet1` and `interface Ethernet1.20` were both "Unknown", and a second `encapsulation` on `.10` retagged it rather than creating a second sub-interface — router-on-a-stick, one of the built-in topologies, could not be configured from the router's own terminal. `tests/terminal-commands.test.ts` pins the six-step sequence.
+
+
+## Group B fixes from the uncovered-modules review
+
+- **Host targets by name resolve like the builders do.** `resolvePingTargetIp` (host.ts) — which sets the address the run's success check compares replies against — now uses `findPingTarget` / `hostnameToIp`. A private copy covered `computer`/`server` only, so `ping <laptop>` (or a Kali / Red Team host) from a PC terminal started a run whose target was the literal name and could never report success although the frames flowed. `nc` and `curl` shared it.
+- **`no network` is symmetric with `network`** on the router: the same masking (`192.168.1.5/24` → `192.168.1.0/24`) and the same `<ifname>` form, and a non-member is reported rather than silently ignored. Comparing the unmasked token meant `no network 192.168.1.5/24` could never remove what `network 192.168.1.5/24` had stored.
+- **The IDS shell keeps the undo contract.** `echo 'alert …' >> local.rules` (→ `addIdsRule`) and `echo -n > local.rules` push an undo point after validation, like every setter in the other shells.

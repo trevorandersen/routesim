@@ -4,6 +4,7 @@
  * sitting in the data path.
  */
 import { describe, it, expect, beforeAll, beforeEach } from "bun:test";
+import { undo as undoState } from "../src/state";
 import { state } from "../src/state";
 import { runConsoleCommand as exec, runConsoleScript, exportTopologyScript } from "../src/commands";
 import { linkedPortsFor } from "../src/devices";
@@ -268,5 +269,19 @@ describe("snort — flags exactness, port specs, non-IP alerts (LOW sweep)", () 
     const r = rule("");
     expect(() => formatAlert(r, createArpRequest("02:00:00:00:00:01", "10.0.0.1", "10.0.0.2"))).not.toThrow();
     expect(formatAlert(r, createArpRequest("02:00:00:00:00:01", "10.0.0.1", "10.0.0.2"))).toContain("NON-IP");
+  });
+});
+
+describe("the IDS shell keeps the undo contract (G2-03)", () => {
+  it("a rule added through the terminal is undone by one undo", () => {
+    resetState();
+    runConsoleScript("add ids IDS at 0 0");
+    const ids = state.devices.find(d => d.name === "IDS")!;
+    state.terminal = { deviceId: ids.id, mode: "exec", interfacePeerId: null, interfaceVlanTag: null, lines: [], history: [], historyIndex: -1 } as any;
+    const before = ((ids.config as any).idsRules || []).length;
+    runIdsTerminalCommand(ids, `echo 'alert tcp any any -> any 22 (msg:"ssh"; sid:900;)' >> /etc/snort/rules/local.rules`);
+    expect(((ids.config as any).idsRules || []).length).toBe(before + 1);
+    undoState();
+    expect(((state.devices.find(d => d.name === "IDS")!.config as any).idsRules || []).length).toBe(before);
   });
 });

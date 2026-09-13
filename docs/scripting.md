@@ -14,6 +14,7 @@ A device is referenced by **name or id** (case-insensitive). Names should be sin
 routesim.exec("add computer PC1 at 100 200")   // run one command → CommandResult
 routesim.run("clear\nadd router R1\n...")       // run a script → CommandResult[]
 routesim.export()                               // current topology as a reproducible script (string)
+routesim.importScript()                         // file picker → runImportedScript(text): ONE undo point, status line names rejected lines
 routesim.snapshot()                             // { devices, links, simulation } (read-only live refs)
 routesim.diagnose()                             // [] when runtime model invariants hold
 routesim.urlSettings()                          // what the current URL query string would apply (ParsedSettings)

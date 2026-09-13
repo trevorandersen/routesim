@@ -149,3 +149,15 @@ So a second VLAN sub-interface cannot be created from the terminal by any sequen
 | Existing suite | 893 non-bench pass, 0 fail; `tsc --noEmit` and `tsc -p tsconfig.tests.json` at zero |
 | Probes | 9 throwaway Bun tests against the real modules (undo/redo/import/selection; ping-by-name; router sub-interfaces; conntrack + iptables + RIP network; Check-during-run; tutorial undo burial; library integrity) — all deleted afterwards |
 | Source changed | none |
+
+## Status — applied 13 September 2026
+
+All 19 findings addressed in three commits, in the order suggested above:
+
+| Commit | Group | Findings |
+|---|---|---|
+| `0cb85c1` | Lifecycle bridge + router-on-a-stick | G2-01, G1-01, G4-01, G1-02, G1-04 |
+| `023c5df` | Learner-visible correctness | G2-02, G4-02, G1-03, G3-01, G2-04, G2-03, G1-05 |
+| (this) | P3 sweep | G2-05, G2-06, G2-07, G2-08, G3-02, G4-04, and the `connTuple` comment from "checked and cleared" |
+
+G4-03 (checks mutate runtime tables; a `dhcp` check assigns what it verifies) is left as recorded: the assignment *is* the verification, and the headless-flag half was fixed under G4-01. Two of the fixes required updating tests that had encoded the old behaviour (`enableNat()` leaves the router shell in interface mode, and two NAT tests ran `iptables` from there); both now `end` first, as the third test in that file already did.

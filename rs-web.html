@@ -10233,10 +10233,9 @@ ${sim.httpServerTitle || ""}`);
     const op = (args[0] || "").toLowerCase();
     ensureConfig(device);
     const cfg = device.config;
-    cfg.rules = cfg.rules || [];
-    cfg.policy = cfg.policy || {};
-    for (const c of allowed) if (!cfg.policy[c]) cfg.policy[c] = "accept";
-    const chainRules = (chain) => cfg.rules.filter((r) => (r.chain || "forward") === chain);
+    const rulesOf = () => cfg.rules = cfg.rules || [];
+    const policyOf = () => cfg.policy = cfg.policy || {};
+    const chainRules = (chain) => (cfg.rules || []).filter((r) => (r.chain || "forward") === chain);
     const badChain = `iptables: chain must be ${allowed.map((c) => c.toUpperCase()).join("|")}.`;
     if (op === "-l" || op === "--list") {
       const named = args[1] && !args[1].startsWith("-") ? parseChain(args[1], allowed) : null;
@@ -10255,7 +10254,7 @@ ${sim.httpServerTitle || ""}`);
       }
       const victims = named ? [named] : allowed;
       pushUndo();
-      cfg.rules = cfg.rules.filter((r) => !victims.includes(r.chain || "forward"));
+      cfg.rules = rulesOf().filter((r) => !victims.includes(r.chain || "forward"));
       sync().syncPanel();
       terminalLine("", `Flushed ${victims.map((c) => c.toUpperCase()).join(" + ")} rules.`);
       return true;
@@ -10272,7 +10271,7 @@ ${sim.httpServerTitle || ""}`);
         return true;
       }
       pushUndo();
-      cfg.policy[chain] = pol;
+      policyOf()[chain] = pol;
       sync().syncPanel();
       terminalLine("", `Set ${chain.toUpperCase()} policy to ${pol.toUpperCase()}.`);
       return true;
@@ -10291,7 +10290,7 @@ ${sim.httpServerTitle || ""}`);
       }
       pushUndo();
       const victim = rules[n - 1];
-      cfg.rules = cfg.rules.filter((r) => r !== victim);
+      cfg.rules = rulesOf().filter((r) => r !== victim);
       sync().syncPanel();
       terminalLine("", `Deleted ${chain.toUpperCase()} rule ${n}.`);
       return true;
@@ -10315,14 +10314,15 @@ ${sim.httpServerTitle || ""}`);
         return true;
       }
       pushUndo();
+      const all = rulesOf();
       if (inserting) {
         const existing = chainRules(chain);
         const insertAt = pos >= 1 ? Math.min(pos - 1, existing.length) : 0;
         const anchor = existing[insertAt];
-        const idx = anchor ? cfg.rules.indexOf(anchor) : cfg.rules.length;
-        cfg.rules.splice(idx, 0, parsed);
+        const idx = anchor ? all.indexOf(anchor) : all.length;
+        all.splice(idx, 0, parsed);
       } else {
-        cfg.rules.push(parsed);
+        all.push(parsed);
       }
       sync().syncPanel();
       terminalLine("", `${inserting ? "Inserted" : "Appended"} ${chain.toUpperCase()} rule (${parsed.target.toUpperCase()}).`);
@@ -10441,6 +10441,10 @@ ${sim.httpServerTitle || ""}`);
       }),
       ...statics.map((r) => `ip route ${r.network} ${r.nextHop}`),
       ...statics.length ? ["!"] : [],
+      // Static port-forwards are configured in this same config mode; the
+      // running-config used to omit them.
+      ...(router.config?.portForwards || []).map((r) => `ip nat inside source static ${r.proto} ${r.insideIp} ${r.insidePort} ${r.outsideIp} ${r.outsidePort}`),
+      ...(router.config?.portForwards || []).length ? ["!"] : [],
       ...router.config?.rip?.enabled ? [
         "router rip",
         ...(router.config.rip.networks || []).map((n) => ` network ${n}`),
@@ -10586,14 +10590,19 @@ ${sim.httpServerTitle || ""}`);
       terminalLine("error", "% Port must be 1-65535.");
       return true;
     }
-    pushUndo();
     if (!router.config) router.config = {};
     const list = router.config.portForwards || (router.config.portForwards = []);
     const idx = list.findIndex((r) => r.outsideIp === outsideIp && r.outsidePort === outsidePort);
     if (m[1]) {
-      if (idx >= 0) list.splice(idx, 1);
+      if (idx < 0) {
+        terminalLine("error", `% No port-forward for ${outsideIp}:${outsidePort}.`);
+        return true;
+      }
+      pushUndo();
+      list.splice(idx, 1);
       terminalLine("", `Removed port-forward ${outsideIp}:${outsidePort}.`);
     } else {
+      pushUndo();
       const rule = { proto: "tcp", insideIp, insidePort, outsideIp, outsidePort };
       if (idx >= 0) list[idx] = rule;
       else list.push(rule);
@@ -10648,8 +10657,8 @@ ${sim.httpServerTitle || ""}`);
       return;
     }
     if (command.trim().toLowerCase().startsWith("iptables")) {
-      if (mode === "exec") {
-        terminalLine("error", "% Privileged mode required. Enter enable first.");
+      if (mode !== "privileged" && mode !== "config") {
+        terminalLine("error", mode === "exec" ? "% Privileged mode required. Enter enable first." : "% Leave the sub-mode first (exit) \u2014 iptables runs in privileged or config mode.");
         return;
       }
       runIptablesCommand(router, command, ["input", "forward"]);
@@ -10985,7 +10994,12 @@ ${sim.httpServerTitle || ""}`);
         terminalLine("error", "% Enter router rip mode first.");
         return true;
       }
-      const ifaceName2 = passiveMatch[1];
+      const target = routerInterfaceByName(router, passiveMatch[1]);
+      if (!target) {
+        terminalLine("error", `% Unknown interface ${passiveMatch[1]}`);
+        return true;
+      }
+      const ifaceName2 = target.name;
       pushUndo();
       if (!router.config.rip.passiveInterfaces.includes(ifaceName2)) {
         router.config.rip.passiveInterfaces.push(ifaceName2);
@@ -11133,7 +11147,9 @@ ${sim.httpServerTitle || ""}`);
     for (const iface of interfaces) {
       if (iface.mode === "trunk") {
         if (iface.nativeVlan && iface.nativeVlan !== 1) lines.push(`config vlan member add ${iface.nativeVlan} ${iface.name}`);
-        for (const vid of trunkAllowed[iface.name] || []) lines.push(`config vlan member add -t ${vid} ${iface.name}`);
+        const allowed = trunkAllowed[iface.name] || [];
+        for (const vid of allowed) lines.push(`config vlan member add -t ${vid} ${iface.name}`);
+        if (!allowed.length) lines.push(`# ${iface.name}: trunk carrying all VLANs (no SONiC command expresses this \u2014 add tagged members to pin it)`);
       } else if (iface.vlan && iface.vlan !== 1) {
         lines.push(`config vlan member add ${iface.vlan} ${iface.name}`);
       }
@@ -11177,10 +11193,10 @@ ${sim.httpServerTitle || ""}`);
     ].join("\n");
   }
   function setSwitchMirror(device, change) {
-    pushUndo();
     ensureConfig(device);
     const cfg = device.config;
     if (change === null) {
+      pushUndo();
       delete cfg.mirror;
       sync().syncPanel();
       sync().render();
@@ -11190,6 +11206,7 @@ ${sim.httpServerTitle || ""}`);
     if (!valid(change.dest)) return `Unknown interface ${change.dest}.`;
     const sources = (change.sources || []).filter(Boolean);
     for (const s of sources) if (!valid(s)) return `Unknown interface ${s}.`;
+    pushUndo();
     cfg.mirror = { name: change.name || "MON", dest: switchIfaceByName(device, change.dest).name, ...sources.length ? { sources: sources.map((s) => switchIfaceByName(device, s).name) } : {} };
     sync().syncPanel();
     sync().render();
@@ -11230,7 +11247,19 @@ ${sim.httpServerTitle || ""}`);
       if (portVlans[port] === id) delete portVlans[port];
     });
     device.config.portVlans = portVlans;
+    const trunkNative = normalisePortVlans(device.config.trunkNativeVlans || {});
+    Object.keys(trunkNative).forEach((port) => {
+      if (trunkNative[port] === id) delete trunkNative[port];
+    });
+    device.config.trunkNativeVlans = trunkNative;
+    const trunkAllowed = normaliseTrunkAllowedVlans(device.config.trunkAllowedVlans || {});
+    Object.keys(trunkAllowed).forEach((port) => {
+      trunkAllowed[port] = trunkAllowed[port].filter((v) => v !== id);
+      if (!trunkAllowed[port].length) delete trunkAllowed[port];
+    });
+    device.config.trunkAllowedVlans = trunkAllowed;
     sync().syncPanel();
+    sync().render();
     return `Removed VLAN ${id}.`;
   }
   function setSwitchPortVlan(device, portName, vlanId) {
@@ -11352,13 +11381,15 @@ ${sim.httpServerTitle || ""}`);
     if (!iface) return `Unknown interface ${portName}.`;
     const id = normaliseVlanId(vlanId);
     if (!id) return `Invalid VLAN ID: ${vlanId}`;
-    pushUndo();
     ensureConfig(device);
     const portModes = normalisePortModes(device.config.portModes || {});
     const portVlans = normalisePortVlans(device.config.portVlans || {});
     const trunkNative = normalisePortVlans(device.config.trunkNativeVlans || {});
     const trunkAllowed = normaliseTrunkAllowedVlans(device.config.trunkAllowedVlans || {});
     const name = iface.name;
+    const isMember = portModes[name] === "trunk" ? trunkNative[name] === id || !!trunkAllowed[name]?.includes(id) : (portVlans[name] || 1) === id;
+    if (!isMember) return `VLAN ${id} is not a member of ${name}.`;
+    pushUndo();
     let changed = false;
     if (portModes[name] === "trunk") {
       if (trunkNative[name] === id) {
@@ -17431,6 +17462,8 @@ Snort successfully validated the configuration${bad ? " (with errors)" : "."}`);
     document.getElementById("tutorialExit")?.addEventListener("click", exitTutorial);
     document.addEventListener("keydown", (e) => {
       if (!active) return;
+      const t = e.target;
+      if (t && (t.tagName === "INPUT" || t.tagName === "TEXTAREA" || t.isContentEditable)) return;
       if (e.key === "Escape") exitTutorial();
       else if (e.key === "ArrowLeft") back();
       else if (e.key === "ArrowRight") forward();

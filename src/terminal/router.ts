@@ -131,6 +131,10 @@ export function showRouterRunningConfig(router: Device): string {
     }),
     ...statics.map((r: any) => `ip route ${r.network} ${r.nextHop}`),
     ...(statics.length ? ["!"] : []),
+    // Static port-forwards are configured in this same config mode; the
+    // running-config used to omit them.
+    ...(router.config?.portForwards || []).map((r: any) => `ip nat inside source static ${r.proto} ${r.insideIp} ${r.insidePort} ${r.outsideIp} ${r.outsidePort}`),
+    ...((router.config?.portForwards || []).length ? ["!"] : []),
     ...(router.config?.rip?.enabled ? [
       "router rip",
       ...(router.config.rip.networks || []).map((n: string) => ` network ${n}`),
@@ -294,14 +298,16 @@ function routerStaticNatCommand(router: Device, lower: string): boolean {
   const insideIp = m[3], insidePort = Number(m[4]), outsideIp = m[5], outsidePort = Number(m[6]);
   if (!isValidIpv4(insideIp) || !isValidIpv4(outsideIp)) { terminalLine("error", "% Invalid IPv4 address."); return true; }
   if (![insidePort, outsidePort].every(p => p >= 1 && p <= 65535)) { terminalLine("error", "% Port must be 1-65535."); return true; }
-  pushUndo();
   if (!router.config) (router as any).config = {};
   const list = router.config.portForwards || (router.config.portForwards = []);
   const idx = list.findIndex((r: any) => r.outsideIp === outsideIp && r.outsidePort === outsidePort);
   if (m[1]) {
-    if (idx >= 0) list.splice(idx, 1);
+    if (idx < 0) { terminalLine("error", `% No port-forward for ${outsideIp}:${outsidePort}.`); return true; }
+    pushUndo();
+    list.splice(idx, 1);
     terminalLine("", `Removed port-forward ${outsideIp}:${outsidePort}.`);
   } else {
+    pushUndo();
     const rule = { proto: "tcp" as const, insideIp, insidePort, outsideIp, outsidePort };
     if (idx >= 0) list[idx] = rule; else list.push(rule);
     terminalLine("", `Port-forward ${outsideIp}:${outsidePort} → ${insideIp}:${insidePort}.`);
@@ -362,8 +368,8 @@ export function runRouterTerminalCommand(router: Device, rawCommand: string): vo
   }
   // netfilter lives in the router's shell: INPUT + FORWARD chains.
   if (command.trim().toLowerCase().startsWith("iptables")) {
-    if (mode === "exec") {
-      terminalLine("error", "% Privileged mode required. Enter enable first.");
+    if (mode !== "privileged" && mode !== "config") {   // what the registry (and `?`) advertise
+      terminalLine("error", mode === "exec" ? "% Privileged mode required. Enter enable first." : "% Leave the sub-mode first (exit) — iptables runs in privileged or config mode.");
       return;
     }
     runIptablesCommand(router, command, ["input", "forward"]);
@@ -738,7 +744,9 @@ function routerRipCommand(router: Device, command: string, lower: string): boole
       terminalLine("error", "% Enter router rip mode first.");
       return true;
     }
-    const ifaceName = passiveMatch[1];
+    const target = routerInterfaceByName(router, passiveMatch[1]);
+    if (!target) { terminalLine("error", `% Unknown interface ${passiveMatch[1]}`); return true; }
+    const ifaceName = target.name;   // canonical spelling, so the send loop's name check matches
     pushUndo();
     if (!router.config.rip!.passiveInterfaces.includes(ifaceName)) {
       router.config.rip!.passiveInterfaces.push(ifaceName);

@@ -2041,7 +2041,11 @@ export function firewallRuleMatches(rule: FirewallRule, ipv4: Ipv4Payload, conn:
 
 // ─── Connection tracking (netfilter conntrack) ───────────────────────────────
 
-// The proto + ports that key a flow. ICMP/other carry no ports (0,0).
+// The proto + ports that key a flow. ICMP/other carry no ports (0,0) — so an
+// ICMP/UDP entry is keyed on the address pair alone, and a reverse-direction
+// packet of an UNRELATED flow would read as "established". That is safe only
+// because the conntrack table is reset at every run start; if it ever persists
+// across runs, key ICMP on id/seq and UDP on ports first.
 function connTuple(ipv4: Ipv4Payload): { proto: string; sport: number; dport: number } {
   const p = ipv4.payload;
   if (p.type === "tcp") return { proto: "tcp", sport: p.srcPort, dport: p.dstPort };

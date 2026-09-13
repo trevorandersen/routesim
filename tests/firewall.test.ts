@@ -206,3 +206,18 @@ describe("iptables validates what it stores (G3-01)", () => {
     expect(f.config!.rules).toHaveLength(1);
   });
 });
+
+describe("iptables -L does not write (G3-02)", () => {
+  beforeAll(() => _noopFw());
+  beforeEach(() => _resetFw());
+  it("listing leaves no policy/rules keys behind; a -P materialises only the policy", () => {
+    const f = _addFw("firewall", 0, 0);
+    delete (f.config as any).policy; delete (f.config as any).rules;
+    _runIpt(f, "iptables -L", ["forward"]);
+    expect((f.config as any).policy).toBeUndefined();
+    expect((f.config as any).rules).toBeUndefined();
+    _runIpt(f, "iptables -P FORWARD DROP", ["forward"]);
+    expect((f.config as any).policy).toEqual({ forward: "drop" });
+    expect((f.config as any).rules).toBeUndefined();
+  });
+});

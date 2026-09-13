@@ -76,7 +76,12 @@ export function showSwitchRunningConfig(device: Device): string {
   for (const iface of interfaces) {
     if (iface.mode === "trunk") {
       if (iface.nativeVlan && iface.nativeVlan !== 1) lines.push(`config vlan member add ${iface.nativeVlan} ${iface.name}`);
-      for (const vid of trunkAllowed[iface.name] || []) lines.push(`config vlan member add -t ${vid} ${iface.name}`);
+      const allowed = trunkAllowed[iface.name] || [];
+      for (const vid of allowed) lines.push(`config vlan member add -t ${vid} ${iface.name}`);
+      // A trunk with no explicit allow-list carries every VLAN — SONiC has no
+      // "member add -t all", so the replayable form cannot express it. Say so
+      // rather than emit nothing (which replayed as an access port).
+      if (!allowed.length) lines.push(`# ${iface.name}: trunk carrying all VLANs (no SONiC command expresses this — add tagged members to pin it)`);
     } else if (iface.vlan && iface.vlan !== 1) {
       lines.push(`config vlan member add ${iface.vlan} ${iface.name}`);
     }
@@ -127,14 +132,14 @@ export function showSwitchMirror(device: Device): string {
 // is empty) to a monitor destination port. Shared by the CLI + the console
 // `mirror` command. Validates the ports against the switch's interface list.
 export function setSwitchMirror(device: Device, change: { name?: string; dest: string; sources?: string[] } | null): string {
-  pushUndo();
   ensureConfig(device);
   const cfg: any = device.config;
-  if (change === null) { delete cfg.mirror; sync().syncPanel(); sync().render(); return "Mirror session removed."; }
+  if (change === null) { pushUndo(); delete cfg.mirror; sync().syncPanel(); sync().render(); return "Mirror session removed."; }
   const valid = (p: string) => !!switchIfaceByName(device, p);
   if (!valid(change.dest)) return `Unknown interface ${change.dest}.`;
   const sources = (change.sources || []).filter(Boolean);
   for (const s of sources) if (!valid(s)) return `Unknown interface ${s}.`;
+  pushUndo();   // after validation — a rejected port must not leave a spurious entry / wipe redo
   cfg.mirror = { name: change.name || "MON", dest: switchIfaceByName(device, change.dest).name, ...(sources.length ? { sources: sources.map(s => switchIfaceByName(device, s).name) } : {}) };
   sync().syncPanel();
   sync().render();
@@ -180,7 +185,19 @@ export function removeSwitchVlan(device: Device, vlanId: string): string {
     if (portVlans[port] === id) delete portVlans[port];
   });
   device.config.portVlans = portVlans;
+  // Trunk allow-lists and native VLANs referenced the deleted VLAN too — a
+  // trunk kept "carrying" a VLAN that no longer existed.
+  const trunkNative = normalisePortVlans(device.config.trunkNativeVlans || {});
+  Object.keys(trunkNative).forEach(port => { if (trunkNative[port] === id) delete trunkNative[port]; });
+  device.config.trunkNativeVlans = trunkNative;
+  const trunkAllowed = normaliseTrunkAllowedVlans(device.config.trunkAllowedVlans || {});
+  Object.keys(trunkAllowed).forEach(port => {
+    trunkAllowed[port] = trunkAllowed[port].filter(v => v !== id);
+    if (!trunkAllowed[port].length) delete trunkAllowed[port];
+  });
+  device.config.trunkAllowedVlans = trunkAllowed;
   sync().syncPanel();
+  sync().render();
   return `Removed VLAN ${id}.`;
 }
 
@@ -314,13 +331,19 @@ function sonicVlanMemberDel(device: Device, vlanId: string, portName: string): s
   if (!iface) return `Unknown interface ${portName}.`;
   const id = normaliseVlanId(vlanId);
   if (!id) return `Invalid VLAN ID: ${vlanId}`;
-  pushUndo();
   ensureConfig(device);
   const portModes = normalisePortModes(device.config.portModes || {});
   const portVlans = normalisePortVlans(device.config.portVlans || {});
   const trunkNative = normalisePortVlans(device.config.trunkNativeVlans || {});
   const trunkAllowed = normaliseTrunkAllowedVlans(device.config.trunkAllowedVlans || {});
   const name = iface.name;
+  // Decide membership BEFORE the undo push: deleting a non-member is a no-op
+  // and must not leave a spurious entry (or wipe the redo stack).
+  const isMember = portModes[name] === "trunk"
+    ? (trunkNative[name] === id || !!trunkAllowed[name]?.includes(id))
+    : (portVlans[name] || 1) === id;
+  if (!isMember) return `VLAN ${id} is not a member of ${name}.`;
+  pushUndo();
   let changed = false;
   if (portModes[name] === "trunk") {
     if (trunkNative[name] === id) { delete trunkNative[name]; changed = true; }

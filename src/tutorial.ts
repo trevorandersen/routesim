@@ -346,6 +346,8 @@ export function setupTutorial(): void {
   // Esc exits the tutorial; arrow keys step back/forward.
   document.addEventListener("keydown", (e) => {
     if (!active) return;
+    const t = e.target as HTMLElement | null;
+    if (t && (t.tagName === "INPUT" || t.tagName === "TEXTAREA" || t.isContentEditable)) return;   // typing in the console / a field is not stepping
     if (e.key === "Escape") exitTutorial();
     else if (e.key === "ArrowLeft") back();
     else if (e.key === "ArrowRight") forward();

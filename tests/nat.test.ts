@@ -127,6 +127,7 @@ describe("nat — PAT overload", () => {
   it("natRole and rules survive a config round-trip", () => {
     natTopology();
     enableNat();
+    exec("cli R1 end");   // config-if -> privileged: iptables runs in privileged/config mode, as `?` says
     exec("cli R1 iptables -A FORWARD -p tcp --dport 23 -j DROP");
     const round = parseConfig(JSON.stringify(buildConfigPayload()));
     const r1 = round.devices.find((d: any) => d.name === "R1")!;
@@ -305,6 +306,7 @@ describe("router netfilter chains", () => {
   it("INPUT drops traffic to the router itself without affecting forwarding", () => {
     const { pc1, srv } = natTopology();
     enableNat();
+    exec("cli R1 end");   // config-if -> privileged
     exec("cli R1 iptables -A INPUT -p icmp -j DROP");
     const toRouter = runSimulationHeadless(buildPingEvents(pc1, "192.168.1.1") as any, pc1.id, "192.168.1.1", "ping");
     expect(toRouter.success).toBe(false);

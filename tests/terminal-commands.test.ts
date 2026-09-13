@@ -12,7 +12,7 @@ import { describe, it, expect, beforeAll, beforeEach, afterAll } from "bun:test"
 import { runConsoleScript } from "../src/commands";
 import { state } from "../src/state";
 import {
-  runRouterTerminalCommand, runSwitchTerminalCommand, runTerminalCommand, runDeviceCommand, runHostTerminalCommand } from "../src/terminal";
+  runRouterTerminalCommand, runSwitchTerminalCommand, runTerminalCommand, runDeviceCommand, runHostTerminalCommand, setSwitchPortMode, showSwitchRunningConfig, showRouterRunningConfig } from "../src/terminal";
 import { registerNoopCallbacks, resetState } from "./helpers";
 import { basicTopology, routedTopology, vlanTopology } from "./fixtures";
 
@@ -565,5 +565,72 @@ describe("terminal targets by name (G2-02) and `no network` symmetry (G2-04)", (
     const n = state.terminal.lines.length;
     runRouterTerminalCommand(r1, "no network 10.9.0.0/16");
     expect(state.terminal.lines.slice(n).some((l: any) => /not a RIP network/.test(l.text))).toBe(true);
+  });
+});
+
+describe("P3 sweep — switch shell", () => {
+  const managed = () => {
+    resetState();
+    runConsoleScript("add switch SW at 0 0\nadd computer A at -200 0\nadd computer B at 200 0\nlink SW A\nlink SW B\nmanaged SW on\nvlan SW add 20");
+    const sw = state.devices.find(d => d.name === "SW")!;
+    state.terminal = { deviceId: sw.id, mode: "exec", interfacePeerId: null, interfaceVlanTag: null, lines: [], history: [], historyIndex: -1 } as any;
+    return sw;
+  };
+  it("a rejected mirror (unknown port) pushes no undo entry", () => {
+    const sw = managed(); const before = state.undoStack.length;
+    runSwitchTerminalCommand(sw, "config mirror_session span add MON Ethernet9");
+    expect(state.undoStack.length).toBe(before);
+  });
+  it("deleting a non-member VLAN from a port pushes no undo entry and says so", () => {
+    const sw = managed(); const before = state.undoStack.length; const n = state.terminal.lines.length;
+    runSwitchTerminalCommand(sw, "config vlan member del 20 Ethernet1");
+    expect(state.undoStack.length).toBe(before);
+    expect(state.terminal.lines.slice(n).some((l: any) => /not a member/.test(l.text))).toBe(true);
+  });
+  it("`config vlan del` also clears trunk allow-lists and native VLANs referencing the VLAN", () => {
+    const sw = managed();
+    runSwitchTerminalCommand(sw, "config vlan member add -t 20 Ethernet1");
+    runSwitchTerminalCommand(sw, "config vlan member add 20 Ethernet2");
+    runSwitchTerminalCommand(sw, "config vlan del 20");
+    expect(JSON.stringify(sw.config!.trunkAllowedVlans || {})).not.toContain("20");
+    expect(JSON.stringify(sw.config!.trunkNativeVlans || {})).not.toContain("20");
+    expect(JSON.stringify(sw.config!.portVlans || {})).not.toContain("20");
+  });
+  it("the running-config names a trunk carrying all VLANs instead of omitting it", () => {
+    const sw = managed();
+    setSwitchPortMode(sw, "Ethernet1", "trunk");          // no allow-list = all VLANs
+    expect(showSwitchRunningConfig(sw)).toContain("Ethernet1: trunk carrying all VLANs");
+  });
+});
+
+describe("P3 sweep — router shell", () => {
+  const router = (mode: string) => {
+    resetState();
+    runConsoleScript("add router R1 at 0 0\nadd switch SW at 200 0\nlink R1 SW\ninterface R1 SW ip 10.0.0.1/24");
+    const r1 = state.devices.find(d => d.name === "R1")!;
+    state.terminal = { deviceId: r1.id, mode, interfacePeerId: null, interfaceVlanTag: null, lines: [], history: [], historyIndex: -1 } as any;
+    const run = (c: string) => { const n = state.terminal.lines.length; runRouterTerminalCommand(r1, c); return state.terminal.lines.slice(n).map((l: any) => l.text).join(" "); };
+    return { r1, run };
+  };
+  it("iptables is refused in a sub-mode, as the registry advertises", () => {
+    const { run } = router("interface");
+    expect(run("iptables -L")).toContain("Leave the sub-mode");
+  });
+  it("removing a port-forward that does not exist is an error and pushes no undo", () => {
+    const { run } = router("config"); const before = state.undoStack.length;
+    expect(run("no ip nat inside source static tcp 10.0.0.5 80 203.0.113.1 80")).toContain("No port-forward");
+    expect(state.undoStack.length).toBe(before);
+  });
+  it("passive-interface validates the interface and canonicalises its name", () => {
+    const { r1, run } = router("rip");
+    r1.config!.rip = { enabled: true, networks: [], passiveInterfaces: [], learnedRoutes: [] } as any;
+    expect(run("passive-interface Ethernet9")).toContain("Unknown interface");
+    run("passive-interface ethernet1");
+    expect(r1.config!.rip!.passiveInterfaces).toEqual(["Ethernet1"]);
+  });
+  it("show running-config includes the static port-forwards", () => {
+    const { r1, run } = router("config");
+    run("ip nat inside source static tcp 10.0.0.5 80 203.0.113.1 8080");
+    expect(showRouterRunningConfig(r1)).toContain("ip nat inside source static tcp 10.0.0.5 80 203.0.113.1 8080");
   });
 });

@@ -129,3 +129,8 @@ iptables CLI does. Powered-off firewalls drop everything.
 ## The CLI validates what it stores
 
 `parseFirewallRule` refuses a `-s`/`-d` that is not an IPv4 address or CIDR (`host/network "…" not found`, as iptables says), a `--dport` outside 1–65535, and `--icmp-type` without `-p icmp`. Each used to be accepted with "Appended", listed by `-L`, persisted — and never able to match a packet. The inspector's add-rule form already validated; the CLI the firewall scenarios are taught through did not.
+
+
+## Reads do not write
+
+`runIptablesCommand` no longer defaults every chain's policy into `config.policy` (and `rules` into `config.rules`) on every command: `iptables -L` used to persist `policy: { forward: "accept", … }` noise into the JSON payload. Mutating operations materialise only the fields they touch; `evaluateFirewall` already treats a missing policy as ACCEPT.

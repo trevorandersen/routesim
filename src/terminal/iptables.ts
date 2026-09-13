@@ -157,10 +157,12 @@ export function runIptablesCommand(device: Device, command: string, allowed: str
   const op = (args[0] || "").toLowerCase();
   ensureConfig(device);
   const cfg = device.config!;
-  cfg.rules = cfg.rules || [];
-  cfg.policy = cfg.policy || {};
-  for (const c of allowed) if (!cfg.policy[c]) cfg.policy[c] = "accept";
-  const chainRules = (chain: string): FirewallRule[] => cfg.rules!.filter(r => (r.chain || "forward") === chain);
+  // Reads (-L) must not write: defaulting every chain's policy into config on
+  // every command persisted `policy:{…:"accept"}` noise into the JSON payload.
+  // Mutating operations materialise the fields they touch.
+  const rulesOf = (): FirewallRule[] => (cfg.rules = cfg.rules || []);
+  const policyOf = (): Record<string, any> => (cfg.policy = cfg.policy || {});
+  const chainRules = (chain: string): FirewallRule[] => (cfg.rules || []).filter(r => (r.chain || "forward") === chain);
   const badChain = `iptables: chain must be ${allowed.map(c => c.toUpperCase()).join("|")}.`;
 
   if (op === "-l" || op === "--list") {
@@ -174,7 +176,7 @@ export function runIptablesCommand(device: Device, command: string, allowed: str
     if (args[1] && !args[1].startsWith("-") && !named) { terminalLine("error", badChain); return true; }
     const victims = named ? [named] : allowed;
     pushUndo();
-    cfg.rules = cfg.rules!.filter(r => !victims.includes(r.chain || "forward"));
+    cfg.rules = rulesOf().filter(r => !victims.includes(r.chain || "forward"));
     sync().syncPanel();
     terminalLine("", `Flushed ${victims.map(c => c.toUpperCase()).join(" + ")} rules.`);
     return true;
@@ -185,7 +187,7 @@ export function runIptablesCommand(device: Device, command: string, allowed: str
     const pol = (args[2] || "").toLowerCase();
     if (pol !== "accept" && pol !== "drop") { terminalLine("error", "iptables: policy must be ACCEPT or DROP."); return true; }
     pushUndo();
-    cfg.policy![chain] = pol;
+    policyOf()[chain] = pol;
     sync().syncPanel();
     terminalLine("", `Set ${chain.toUpperCase()} policy to ${pol.toUpperCase()}.`);
     return true;
@@ -198,7 +200,7 @@ export function runIptablesCommand(device: Device, command: string, allowed: str
     if (!Number.isInteger(n) || n < 1 || n > rules.length) { terminalLine("error", `iptables: no rule ${args[2]} in ${chain.toUpperCase()}.`); return true; }
     pushUndo();
     const victim = rules[n - 1];
-    cfg.rules = cfg.rules!.filter(r => r !== victim);
+    cfg.rules = rulesOf().filter(r => r !== victim);
     sync().syncPanel();
     terminalLine("", `Deleted ${chain.toUpperCase()} rule ${n}.`);
     return true;
@@ -213,14 +215,15 @@ export function runIptablesCommand(device: Device, command: string, allowed: str
     const parsed = parseFirewallRule(chain, rest);
     if (typeof parsed === "string") { terminalLine("error", parsed); return true; }
     pushUndo();
+    const all = rulesOf();
     if (inserting) {
       const existing = chainRules(chain);
       const insertAt = pos >= 1 ? Math.min(pos - 1, existing.length) : 0;
       const anchor = existing[insertAt];
-      const idx = anchor ? cfg.rules!.indexOf(anchor) : cfg.rules!.length;
-      cfg.rules!.splice(idx, 0, parsed);
+      const idx = anchor ? all.indexOf(anchor) : all.length;
+      all.splice(idx, 0, parsed);
     } else {
-      cfg.rules!.push(parsed);
+      all.push(parsed);
     }
     sync().syncPanel();
     terminalLine("", `${inserting ? "Inserted" : "Appended"} ${chain.toUpperCase()} rule (${parsed.target.toUpperCase()}).`);

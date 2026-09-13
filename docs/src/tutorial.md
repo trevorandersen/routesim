@@ -30,3 +30,5 @@ The tutorial reads `state` and drives `runConsoleCommand` + `closeDock` + `rende
 ## One undo point
 
 `startTutorial` takes one undo snapshot before it clears the canvas and then runs the whole demo — including every Back/Forward rebuild — under `isApplyingCompositeChange`, so nothing the tutorial does pushes an entry of its own; `exitTutorial` clears the flag. A single Undo after exiting restores whatever the learner had built. Previously the launch pushed ~20 entries and each rebuild another ~20, so three Back/Forward presses left the original 64 undos away and the fourth pushed it off the 80-entry cap.
+
+The document-level Esc / arrow-key handler ignores keystrokes whose target is an input, textarea, or contenteditable — typing in the console while the tutorial is active no longer steps it.

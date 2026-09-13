@@ -108,3 +108,8 @@ see the answer play out. They double as the curriculum's test fixtures
 ## Import validation
 
 `importScenario` (io.ts) validates **everything `loadScenario` will touch before registering**: the topology (via `normaliseConfig`) *and* every check via **`isValidScenarioCheck`** (scenarios.ts) — a known `kind`, a `label`, and the fields that kind's evaluator and the goal banner read (`from`/`to`, a 1–65535 `port` for `tcp`/`tcp-fail`, `contains` for `alert`, …). A scenario with any invalid check is skipped, not registered. Previously only `Array.isArray(checks)` was checked, so `checks: [null]` registered fine and then threw `c.label` in the banner on every re-select — a permanently broken dropdown entry. If a validated scenario still fails to load, `unregisterScenario` rolls the registration back.
+
+
+## Check tears an active run down first
+
+The goal checks run headless simulations on the shared `state.simulation`. `runActiveScenarioCheck` therefore stops a running or paused animated run through the `stopSimulation` bridge before evaluating — pressing Check mid-run used to replace the learner's run silently (status "done", the checker's log, and `headless` left `true`). `runSimulationHeadless` also restores `headless = false` on exit: the flag belongs to the run, not to whatever comes after it.

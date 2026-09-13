@@ -507,6 +507,25 @@ function routerShowCommand(router: Device, lower: string): boolean {
   return false;
 }
 
+// Resolve a name the listing does not carry: `EthernetN` as the BASE of an
+// interface whose sub-interfaces are what the view lists, or `EthernetN.V` as a
+// sub-interface that does not exist yet (created here — IOS/FRR create a
+// sub-interface by naming it). Returns the selection, or null.
+function routerBaseOrNewSubInterface(router: Device, name: string): { peerId: string; vlanTag: number | null } | null {
+  const m = name.match(/^(.+?)\.(\d+)$/);
+  const baseName = (m ? m[1] : name).toLowerCase();
+  const entry = routerInterfacesWithNames(router).find((i: any) => i.peer && i.name.toLowerCase().split(".")[0] === baseName);
+  if (!entry) return null;
+  if (!m) return { peerId: entry.peerId, vlanTag: null };
+  const vlan = normaliseVlanId(m[2]);
+  if (!vlan) return null;
+  pushUndo();
+  routerInterfaceFor(router, entry.peerId, vlan);   // creates the tagged entry, fully formed
+  sync().syncPanel();
+  sync().render();
+  return { peerId: entry.peerId, vlanTag: vlan };
+}
+
 // Handles interface-mode commands: `interface`, `ip address`, `no ip address`,
 // `encapsulation dot1q`. Returns true if the command matched.
 function routerInterfaceCommand(router: Device, command: string, lower: string): boolean {
@@ -520,7 +539,18 @@ function routerInterfaceCommand(router: Device, command: string, lower: string):
     }
     const iface = routerInterfaceByName(router, interfaceMatch[1]);
     if (!iface) {
-      terminalLine("error", `% Unknown interface ${interfaceMatch[1]}`);
+      // Not a listed name. Two cases IOS/FRR handle that the listing alone
+      // cannot: `Ethernet1` is the BASE of an interface that already has
+      // sub-interfaces (the view lists only those), and `Ethernet1.20` is a
+      // sub-interface that does not exist yet — naming it creates it.
+      const sel = routerBaseOrNewSubInterface(router, interfaceMatch[1]);
+      if (!sel) {
+        terminalLine("error", `% Unknown interface ${interfaceMatch[1]}`);
+        return true;
+      }
+      state.terminal.mode = "interface";
+      state.terminal.interfacePeerId = sel.peerId;
+      state.terminal.interfaceVlanTag = sel.vlanTag;
       return true;
     }
     state.terminal.mode = "interface";
@@ -558,6 +588,19 @@ function routerInterfaceCommand(router: Device, command: string, lower: string):
       return true;
     }
     pushUndo();
+    if (state.terminal.interfaceVlanTag == null) {
+      // On the BASE interface, `encapsulation dot1q N` creates (or selects) the
+      // .N sub-interface and moves the session onto it — the base keeps its own
+      // untagged identity. It used to retag the base itself, after which no
+      // second sub-interface could ever be made (router-on-a-stick was a dead end).
+      routerInterfaceFor(router, state.terminal.interfacePeerId, vlanId);
+      state.terminal.interfaceVlanTag = vlanId;
+      sync().syncPanel();
+      sync().render();
+      terminalLine("", `Encapsulation 802.1Q VLAN ${vlanId} — now configuring sub-interface .${vlanId}.`);
+      return true;
+    }
+    // On a sub-interface: change the VLAN it carries (its name follows the tag).
     const iface = routerInterfaceFor(router, state.terminal.interfacePeerId, state.terminal.interfaceVlanTag);
     iface.vlanTag = vlanId;
     state.terminal.interfaceVlanTag = vlanId;
@@ -569,6 +612,16 @@ function routerInterfaceCommand(router: Device, command: string, lower: string):
   if (lower === "no encapsulation dot1q" || lower === "no encapsulation") {
     if (state.terminal.mode !== "interface" || !state.terminal.interfacePeerId) {
       terminalLine("error", "% Interface mode required.");
+      return true;
+    }
+    if (state.terminal.interfaceVlanTag == null) {
+      terminalLine("error", "% The base interface carries no encapsulation.");
+      return true;
+    }
+    // Un-tagging a sub-interface would merge it into the base; refuse when a
+    // base entry already exists rather than leaving two untagged entries.
+    if ((router.config?.interfaces || []).some((i: any) => i.peerId === state.terminal.interfacePeerId && i.vlanTag == null)) {
+      terminalLine("error", "% The base interface already exists — remove the sub-interface's address instead (no ip address).");
       return true;
     }
     pushUndo();

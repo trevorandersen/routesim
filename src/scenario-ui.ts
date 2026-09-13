@@ -3,7 +3,7 @@
  * objective, a live checklist, and a Check button. Pure UI on top of
  * scenarios.ts. Registered as `syncScenarioPanel` in the callback bridge.
  */
-import { state } from "./state";
+import { state, sync } from "./state";
 import { dom } from "./dom";
 import { escapeHtml } from "./utils";
 import { getScenario, checkScenario, type ScenarioResult } from "./scenarios";
@@ -49,6 +49,10 @@ export function syncScenarioPanel(): void {
 export function runActiveScenarioCheck(): void {
   const scenario = getScenario(state.activeScenarioId);
   if (!scenario) return;
+  // The checks run headless simulations on the shared simulation state; an
+  // animated run in progress would be silently replaced by them. Stop it
+  // properly first (the same teardown Play/Stop/Clear use).
+  if (state.simulation.status === "running" || state.simulation.status === "paused") sync().stopSimulation?.();
   lastResult = checkScenario(scenario);
   syncScenarioPanel();
 }

@@ -9,6 +9,7 @@
  * exercised via their validation-error paths only.
  */
 import { describe, it, expect, beforeAll, beforeEach } from "bun:test";
+import { runConsoleScript } from "../src/commands";
 import { state } from "../src/state";
 import {
   runRouterTerminalCommand, runSwitchTerminalCommand, runTerminalCommand, runDeviceCommand,
@@ -493,5 +494,45 @@ describe("hostname — a CLI device's name is its hostname", () => {
     const sw = state.devices.find(d => d.id === "msw")!;
     runSwitchTerminalCommand(sw, "config hostname Core-SW");
     expect(sw.name).toBe("Core-SW");
+  });
+});
+
+describe("router-on-a-stick from the FRR shell (sub-interfaces are created by naming them)", () => {
+  function roas() {
+    resetState();
+    runConsoleScript("add router R1 at 0 0\nadd switch SW at 200 0\nmanaged SW on\nlink R1 SW");
+    const r1 = state.devices.find(d => d.name === "R1")!;
+    state.terminal = { deviceId: r1.id, mode: "config", interfacePeerId: null, interfaceVlanTag: null, lines: [], history: [], historyIndex: -1 } as any;
+    const run = (c: string) => { const n = state.terminal.lines.length; runRouterTerminalCommand(r1, c); return state.terminal.lines.slice(n).map((l: any) => l.text).join(" "); };
+    const tagged = () => r1.config!.interfaces!.filter(i => i.vlanTag != null).map(i => `${i.vlanTag}=${i.ipv4Address}`).sort();
+    return { r1, run, tagged };
+  }
+  it("base + encapsulation creates the .N sub-interface and leaves the base untagged", () => {
+    const { r1, run, tagged } = roas();
+    run("interface Ethernet1");
+    run("encapsulation dot1q 10");
+    expect(state.terminal.interfaceVlanTag).toBe(10);
+    run("ip address 192.168.10.1/24");
+    expect(tagged()).toEqual(["10=192.168.10.1"]);
+    run("exit");
+    expect(run("interface Ethernet1")).not.toContain("Unknown");   // the base is still enterable, untagged
+    expect(state.terminal.interfaceVlanTag).toBeNull();
+  });
+  it("interface Ethernet1.20 creates a second sub-interface; the base stays enterable", () => {
+    const { run, tagged } = roas();
+    run("interface Ethernet1"); run("encapsulation dot1q 10"); run("ip address 192.168.10.1/24"); run("exit");
+    expect(run("interface Ethernet1.20")).not.toContain("Unknown");
+    run("ip address 192.168.20.1/24");
+    expect(tagged()).toEqual(["10=192.168.10.1", "20=192.168.20.1"]);   // TWO sub-interfaces (this used to be impossible)
+    run("exit");
+    expect(run("interface Ethernet1")).not.toContain("Unknown");           // the base, even with sub-interfaces present
+    expect(state.terminal.interfaceVlanTag).toBeNull();
+  });
+  it("encapsulation on a sub-interface retags it; a bogus name is still unknown", () => {
+    const { run, tagged } = roas();
+    run("interface Ethernet1.10"); run("ip address 192.168.10.1/24");
+    run("encapsulation dot1q 30");
+    expect(tagged()).toEqual(["30=192.168.10.1"]);
+    expect(run("interface Ethernet9.5")).toContain("Unknown");
   });
 });

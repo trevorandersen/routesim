@@ -44,3 +44,12 @@ The bottom **dock** (`core.ts`) hosts three pane kinds behind one tab strip: the
 ## How it fits
 
 The terminal is a major surface area. The dispatchers parse user input and call the mutators/display helpers; the mutators are shared with `inspector.ts` so CLI and GUI edits are consistent. `ping`/`dhcp` build events via `simulation.ts` and start the run via `engine.startSimulation`. The mutators are unit-tested directly, and the dispatchers + mode machine have their own dispatcher test file.
+
+
+## Router sub-interfaces (router-on-a-stick) from the FRR shell
+
+- **A sub-interface is created by naming it.** `interface Ethernet1.20` on a cabled base creates the tagged entry (`routerBaseOrNewSubInterface` → `routerInterfaceFor(router, peer, 20)`) and enters it, as IOS/FRR do. `interface Ethernet1` remains enterable for the **base** even once its sub-interfaces exist (the listing shows only the sub-interfaces then; the base is resolved through them).
+- **`encapsulation dot1q N` on the base creates (or selects) the `.N` sub-interface and moves the session onto it** — the base keeps its own untagged identity. On a sub-interface it changes the VLAN that sub-interface carries (its name follows the tag).
+- **`no encapsulation dot1q`** is refused on the base, and on a sub-interface when a base entry already exists (un-tagging would leave two untagged entries for one peer).
+
+Before this, `encapsulation dot1q 10` **retagged the base itself**; afterwards `interface Ethernet1` and `interface Ethernet1.20` were both "Unknown", and a second `encapsulation` on `.10` retagged it rather than creating a second sub-interface — router-on-a-stick, one of the built-in topologies, could not be configured from the router's own terminal. `tests/terminal-commands.test.ts` pins the six-step sequence.

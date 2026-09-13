@@ -257,7 +257,7 @@ export function runSimulationHeadless(
   // stops TS from over-narrowing it to the literal assigned above.
   if ((sim.status as string) !== "done") finishSimulation();
 
-  return {
+  const result: SimResult = {
     success: mode === "dhcp" ? sim.dhcpSuccess
       : mode === "tcp" ? sim.tcpSuccess
       : mode === "http" ? sim.httpSuccess
@@ -278,6 +278,8 @@ export function runSimulationHeadless(
     log: sim.log,
     steps: sim.stepIndex,
   };
+  sim.headless = false;   // the flag belongs to the run, not to whatever comes after it
+  return result;
 }
 
 // ─── First boot (link-up / power-on autoconf) ────────────────────────────────

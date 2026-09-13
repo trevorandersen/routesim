@@ -233,6 +233,7 @@ export function applyConfigWithoutUndo(config: NormalisedConfig): void {
   state.devices = config.devices;
   state.links = config.links;
   state.selectedId = config.devices[0]?.id || null;
+  state.selectedLinkId = null;
   state.configuringId = null;
   // The old network's terminal sessions reference devices that no longer
   // exist — drop them all (closes the dock if it was showing a terminal).

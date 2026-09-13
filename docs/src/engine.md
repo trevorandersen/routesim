@@ -72,6 +72,10 @@ A host's **reply** (ICMP echo reply, TCP SYN-ACK/RST, DNS answer, HTTP response)
 - **A device deleted mid-run no longer strands the simulation.** `processNextStep` used to `return` early when an event's target device was gone, skipping the completion check — if that was the last queued work the run sat on "running" with live controls. The drop is logged against the sender and the step still **settles** (`settleStep`: process the next event if any, else finish).
 - **`syncSimLog` builds each pane's filter rows once** per sync (they were built twice — once for the union of present tokens, again per pane — every step of an animated run).
 
+## `runSimulationHeadless` leaves no flag behind
+
+The headless runner sets `sim.headless = true` for its duration and **restores it to `false` on exit**. It used to leave `true` on the shared state, so a scenario Check (or a console `run`) changed how the next UI sync interpreted the simulation until something started a new animated run.
+
 ## Spanning tree (STP)
 - **`runStpConvergence()`** (in **`src/stp.ts`**, re-exported here) — runs automatically before each simulation, right after `runRipConvergence()` (both `startSimulation` and `runSimulationHeadless`). Computes the spanning tree across managed switches and mutates `config` in place (like `runRipConvergence`), electing a root per connected component and marking each alternate port's link `link.stpBlocked`. The blocked flag folds into `linkAuthorizedForData(link)` (devices.ts) alongside WiFi/802.1X/MACsec, so the three chokepoints (`l2Reachable`/`findFirstHop`/the engine transit step) drop **data** on a blocked link; the transit step's control-frame `ctrl` set now includes `"bpdu"`, so BPDUs (alongside `dot11`/`dot1x`) bypass the gate. See [stp.md](stp.md) for the model.
 - **`handleBpdu`** — relays a Configuration BPDU arriving on a bridge's root port out its designated ports (root cost + 1), toward other switches only; it terminates (never loops). `processAtSwitch` early-returns here for `bpdu` frames. `buildStpEvents` (simulation.ts) seeds the flood from each root bridge's designated ports for the animated `stp`/headless `run stp` mode.

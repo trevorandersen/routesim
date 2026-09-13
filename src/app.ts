@@ -29,6 +29,7 @@ registerCallbacks({
   // (the sim path recomputes too — see startSimulation/runSimulationHeadless).
   recomputeStp: () => { runStpConvergence(); render(); },
   syncSimLog,
+  stopSimulation,
 });
 
 // Register UI callbacks that devices.ts needs without circular imports.

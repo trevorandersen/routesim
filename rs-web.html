@@ -4291,6 +4291,8 @@ Full legal text: https://creativecommons.org/publicdomain/zero/1.0/legalcode</pr
     const restored = JSON.parse(snapshot);
     state.devices = restored.devices;
     state.links = restored.links;
+    const gone = state.terminalSessions.map((s) => s.deviceId).filter((id) => !!id && !restored.devices.some((d) => d.id === id));
+    if (gone.length) dropTerminalSessions(gone);
     state.selectedId = restored.selectedId;
     state.configuringId = restored.configuringId;
     state.nameCounters = { ...freshNameCounters(), ...restored.nameCounters || {} };
@@ -4303,21 +4305,11 @@ Full legal text: https://creativecommons.org/publicdomain/zero/1.0/legalcode</pr
     sync().syncSimLog();
     sync().recomputeStp();
   }
+  function cancelActiveRun() {
+    if (state.simulation.status === "running" || state.simulation.status === "paused") sync().stopSimulation?.();
+  }
   function undo() {
-    if (state.simulation.status !== "idle" && state.simulation.status !== "done") {
-      state.simulation.status = "idle";
-      state.simulation.events = [];
-      state.simulation.log = [];
-      state.simulation.capture = [];
-      state.simulation.transits = [];
-      state.simulation.pendingArp = {};
-      const termInput = document.getElementById("terminalInput");
-      if (termInput) termInput.disabled = false;
-      const logOutput = document.getElementById("simLogOutput");
-      if (logOutput) logOutput.innerHTML = "";
-      const badge = document.getElementById("simLogBadge");
-      if (badge) badge.textContent = "";
-    }
+    cancelActiveRun();
     const snapshot = state.undoStack.pop();
     if (!snapshot) return;
     state.redoStack.push(networkSnapshot());
@@ -4326,6 +4318,7 @@ Full legal text: https://creativecommons.org/publicdomain/zero/1.0/legalcode</pr
     syncUndoButton();
   }
   function redo() {
+    cancelActiveRun();
     const snapshot = state.redoStack.pop();
     if (!snapshot) return;
     if (state.undoStack[state.undoStack.length - 1] !== networkSnapshot()) {
@@ -7719,7 +7712,7 @@ Full legal text: https://creativecommons.org/publicdomain/zero/1.0/legalcode</pr
     }
     if (guard >= MAX_STEPS && (sim.transits.length > 0 || sim.events.length > 0)) sim.stormDetected = true;
     if (sim.status !== "done") finishSimulation();
-    return {
+    const result = {
       success: mode === "dhcp" ? sim.dhcpSuccess : mode === "tcp" ? sim.tcpSuccess : mode === "http" ? sim.httpSuccess : mode === "dns" ? sim.dnsResolvedIp != null : mode === "associate" ? sim.wifiAssociated : mode === "dot1x" ? sim.dot1xAuthorized : mode === "stp" ? !sim.stormDetected : mode === "attack" ? sim.scanOpen.length > 0 || sim.sweepLive.length > 0 : sim.pingSuccess,
       refused: sim.tcpRefused,
       ttl: sim.pingTtl,
@@ -7732,6 +7725,8 @@ Full legal text: https://creativecommons.org/publicdomain/zero/1.0/legalcode</pr
       log: sim.log,
       steps: sim.stepIndex
     };
+    sim.headless = false;
+    return result;
   }
   var bootQueue = [];
   var pendingBootRun = false;
@@ -10784,6 +10779,20 @@ ${sim.httpServerTitle || ""}`);
     }
     return false;
   }
+  function routerBaseOrNewSubInterface(router, name) {
+    const m = name.match(/^(.+?)\.(\d+)$/);
+    const baseName = (m ? m[1] : name).toLowerCase();
+    const entry = routerInterfacesWithNames(router).find((i) => i.peer && i.name.toLowerCase().split(".")[0] === baseName);
+    if (!entry) return null;
+    if (!m) return { peerId: entry.peerId, vlanTag: null };
+    const vlan = normaliseVlanId(m[2]);
+    if (!vlan) return null;
+    pushUndo();
+    routerInterfaceFor(router, entry.peerId, vlan);
+    sync().syncPanel();
+    sync().render();
+    return { peerId: entry.peerId, vlanTag: vlan };
+  }
   function routerInterfaceCommand(router, command, lower) {
     const interfaceMatch = command.match(/^interface\s+(\S+)$/i);
     if (interfaceMatch) {
@@ -10793,7 +10802,14 @@ ${sim.httpServerTitle || ""}`);
       }
       const iface = routerInterfaceByName(router, interfaceMatch[1]);
       if (!iface) {
-        terminalLine("error", `% Unknown interface ${interfaceMatch[1]}`);
+        const sel = routerBaseOrNewSubInterface(router, interfaceMatch[1]);
+        if (!sel) {
+          terminalLine("error", `% Unknown interface ${interfaceMatch[1]}`);
+          return true;
+        }
+        state.terminal.mode = "interface";
+        state.terminal.interfacePeerId = sel.peerId;
+        state.terminal.interfaceVlanTag = sel.vlanTag;
         return true;
       }
       state.terminal.mode = "interface";
@@ -10831,6 +10847,14 @@ ${sim.httpServerTitle || ""}`);
         return true;
       }
       pushUndo();
+      if (state.terminal.interfaceVlanTag == null) {
+        routerInterfaceFor(router, state.terminal.interfacePeerId, vlanId);
+        state.terminal.interfaceVlanTag = vlanId;
+        sync().syncPanel();
+        sync().render();
+        terminalLine("", `Encapsulation 802.1Q VLAN ${vlanId} \u2014 now configuring sub-interface .${vlanId}.`);
+        return true;
+      }
       const iface = routerInterfaceFor(router, state.terminal.interfacePeerId, state.terminal.interfaceVlanTag);
       iface.vlanTag = vlanId;
       state.terminal.interfaceVlanTag = vlanId;
@@ -10842,6 +10866,14 @@ ${sim.httpServerTitle || ""}`);
     if (lower === "no encapsulation dot1q" || lower === "no encapsulation") {
       if (state.terminal.mode !== "interface" || !state.terminal.interfacePeerId) {
         terminalLine("error", "% Interface mode required.");
+        return true;
+      }
+      if (state.terminal.interfaceVlanTag == null) {
+        terminalLine("error", "% The base interface carries no encapsulation.");
+        return true;
+      }
+      if ((router.config?.interfaces || []).some((i) => i.peerId === state.terminal.interfacePeerId && i.vlanTag == null)) {
+        terminalLine("error", "% The base interface already exists \u2014 remove the sub-interface's address instead (no ip address).");
         return true;
       }
       pushUndo();
@@ -14339,6 +14371,7 @@ Snort successfully validated the configuration${bad ? " (with errors)" : "."}`);
   function runActiveScenarioCheck() {
     const scenario = getScenario(state.activeScenarioId);
     if (!scenario) return;
+    if (state.simulation.status === "running" || state.simulation.status === "paused") sync().stopSimulation?.();
     lastResult = checkScenario(scenario);
     syncScenarioPanel();
   }
@@ -15407,6 +15440,7 @@ Snort successfully validated the configuration${bad ? " (with errors)" : "."}`);
     state.devices = config.devices;
     state.links = config.links;
     state.selectedId = config.devices[0]?.id || null;
+    state.selectedLinkId = null;
     state.configuringId = null;
     dropTerminalSessions();
     state.linkStartId = null;
@@ -17385,7 +17419,8 @@ Snort successfully validated the configuration${bad ? " (with errors)" : "."}`);
       runStpConvergence();
       render();
     },
-    syncSimLog
+    syncSimLog,
+    stopSimulation
   });
   registerDeviceCallbacks({
     setTool,

@@ -12,6 +12,10 @@ export type SyncCallbacks = {
   syncOptionControls: () => void;
   recomputeStp: () => void;   // recompute the spanning tree for live canvas/inspector display (also runs at sim start)
   syncSimLog: () => void;     // rebuild the sim-log dock pane (packet list / event log)
+  // The engine's own run teardown (stops the animation loop, boot queue, transport
+  // pill, queues, conntrack). Bridged because state.ts cannot import engine.ts;
+  // every path that replaces the topology under a live run calls this first.
+  stopSimulation?: () => void;
 };
 
 // Available colour themes. The id is written to `<html data-theme>` and matched
@@ -560,6 +564,10 @@ export function restoreSnapshot(snapshot: string): void {
   const restored = JSON.parse(snapshot);
   state.devices = restored.devices;
   state.links = restored.links;
+  // Terminal sessions for devices the restored topology lacks would otherwise
+  // linger (and the active terminal could point at a vanished device).
+  const gone = state.terminalSessions.map(s => s.deviceId).filter((id): id is string => !!id && !restored.devices.some((d: any) => d.id === id));
+  if (gone.length) dropTerminalSessions(gone);
   state.selectedId = restored.selectedId;
   state.configuringId = restored.configuringId;
   state.nameCounters = { ...freshNameCounters(), ...(restored.nameCounters || {}) };
@@ -577,22 +585,16 @@ export function restoreSnapshot(snapshot: string): void {
   sync().recomputeStp();
 }
 
+// Undo/redo replace the topology; an active run must be torn down first,
+// through the engine's own stopSimulation (bridged). The hand-rolled teardown
+// that lived here stopped the status but not the animation loop, the boot
+// queue, or the transport pill — and redo had no guard at all.
+function cancelActiveRun(): void {
+  if (state.simulation.status === "running" || state.simulation.status === "paused") sync().stopSimulation?.();
+}
+
 export function undo(): void {
-  // Cancel active simulation before undoing
-  if (state.simulation.status !== "idle" && state.simulation.status !== "done") {
-    state.simulation.status = "idle";
-    state.simulation.events = [];
-    state.simulation.log = [];
-    state.simulation.capture = [];
-    state.simulation.transits = [];
-    state.simulation.pendingArp = {};
-    const termInput = document.getElementById("terminalInput") as HTMLInputElement | null;
-    if (termInput) termInput.disabled = false;
-    const logOutput = document.getElementById("simLogOutput");
-    if (logOutput) logOutput.innerHTML = "";
-    const badge = document.getElementById("simLogBadge");
-    if (badge) badge.textContent = "";
-  }
+  cancelActiveRun();
   const snapshot = state.undoStack.pop();
   if (!snapshot) return;
   state.redoStack.push(networkSnapshot()); // so redo can return here
@@ -602,6 +604,7 @@ export function undo(): void {
 }
 
 export function redo(): void {
+  cancelActiveRun();
   const snapshot = state.redoStack.pop();
   if (!snapshot) return;
   // Re-entering this state must land on the undo stack without clearing redo.

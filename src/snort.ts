@@ -8,10 +8,12 @@
  *             non-`pass` action as an alert; it can't drop, it's not inline)
  *   proto   — ip | icmp | tcp | udp
  *   ip      — any | A.B.C.D | A.B.C.D/len   (no variables/negation)
- *   port    — any | <number>
+ *   port    — any | <number> | a range (80:443, :1024, 1024:) | a list
+ *             ([80,443,8000:8080]) | any of those negated with a leading !
  *   dir     — -> | <>  (<> matches either orientation)
  * Supported options: msg, sid, rev, gid, priority, itype (ICMP type),
- *   flags (TCP flag letters S/A/F/R), content (substring, matched against a DNS
+ *   flags (TCP flag letters S/A/F/R; exact by default,
+ *   `+` = these plus any others, `*` = any of these), content (substring, matched against a DNS
  *   query name — the one payload "content" the frame model carries).
  *
  * Out of scope (documented): pcre, byte_test, flow, thresholds, rule variables.

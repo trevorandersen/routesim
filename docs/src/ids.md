@@ -24,9 +24,9 @@ Supported header — `action proto src_ip src_port dir dst_ip dst_port`:
 - **action** — alert / log / pass / drop / reject (a passive sensor treats any non-`pass` as an alert).
 - **proto** — `ip` (any IP frame) / `icmp` / `tcp` / `udp`.
 - **ip** — `any` / `A.B.C.D` / CIDR (`cidrContains`).
-- **port** — `any` / a number. **dir** — `->` or `<>` (either orientation).
+- **port** — `any`, a number, a range (`80:443`, `:1024`, `1024:`), a list (`[22,80,8000:8080]`), or any of those negated with `!`. **dir** — `->` or `<>` (either orientation).
 
-Supported options: `msg`, `sid`, `rev`, `gid`, `priority`, `itype` (ICMP type), `flags` (TCP flag letters S/A/F/R), `content` (substring, matched against a **DNS query name** — the one "content" the frame model carries). `frameCtx` extracts proto/IPs/ports/icmp-type/tcp-flags/dns-name from an `EthernetFrame`; non-IP frames (ARP/802.11/EAPOL/BPDU) never match. `formatAlert` emits the Snort fast line `[**] [gid:sid:rev] msg [**] [Priority: N] {PROTO} src(:port) -> dst(:port)` (timestamp omitted so alerts are deterministic for tests). `parseRules` memoises parsed rules by the raw-array identity (recomputed when the user edits `local.rules`). Out of scope (documented): pcre, byte_test, flow, thresholds, rule variables.
+Supported options: `msg`, `sid`, `rev`, `gid`, `priority`, `itype` (ICMP type), `flags` (TCP flag letters S/A/F/R; exact by default, `+` for these-plus-any, `*` for any-of), `content` (substring, matched against a **DNS query name** — the one "content" the frame model carries). `frameCtx` extracts proto/IPs/ports/icmp-type/tcp-flags/dns-name from an `EthernetFrame`; non-IP frames (ARP/802.11/EAPOL/BPDU) never match. `formatAlert` emits the Snort fast line `[**] [gid:sid:rev] msg [**] [Priority: N] {PROTO} src(:port) -> dst(:port)` (timestamp omitted so alerts are deterministic for tests). `parseRules` memoises parsed rules by the raw-array identity (recomputed when the user edits `local.rules`). Out of scope (documented): pcre, byte_test, flow, thresholds, rule variables.
 
 ## The sensor (`processAtIds`)
 

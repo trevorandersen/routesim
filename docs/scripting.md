@@ -6,7 +6,7 @@ Every interaction with the simulator is available as a text command. There are t
 2. **`window.routesim`** — a JS API for the browser console or an external/test harness.
 3. **Script runner** — run many commands at once (newlines separate commands; blank lines and `#` comments are ignored).
 
-A device is referenced by **name or id** (case-insensitive). Names should be single tokens (no spaces).
+A device is referenced by **name or id** (case-insensitive). A name containing a space must be quoted (see [Quoting](#quoting)).
 
 ## `window.routesim`
 

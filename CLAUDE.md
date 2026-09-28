@@ -78,41 +78,18 @@ Open `http://localhost:8767/rs-web.html` for the app (`/` redirects there), `/te
 
 ## Architecture
 
-Single-page canvas app. All state lives in one `AppState` object (`state.ts`). Modules communicate through a callback registry (`sync()`) to avoid circular imports. No framework, no virtual DOM — imperative `render()` redraws the full canvas, `syncPanel()` rebuilds inspector HTML, `syncTerminal()` rebuilds terminal HTML.
+Single-page canvas app. All state lives in one `AppState` object (`state.ts`). No framework, no virtual DOM — imperative `render()` redraws the full canvas, `syncPanel()` rebuilds inspector HTML, `syncTerminal()` rebuilds terminal HTML.
 
-### Module dependency flow
+**[docs/architecture.md](docs/architecture.md) is the map of the whole codebase**: every source file by layer (foundation → model → network logic → engine and CLIs → presentation → application → entry), the state-mutation rules, both callback bridges, the four front doors that converge on one set of mutators, the simulation pipeline, the topology lifecycle, and extension recipes. Keep it current when adding, removing, or re-layering a module.
 
-```
-app.ts (entry)
-  ├── state.ts       ← AppState, undo system, callback registry
-  ├── dom.ts         ← getElementById refs (evaluated at load time)
-  ├── ui.ts          ← event listeners, tool switching, keyboard shortcuts
-  ├── canvas.ts      ← render loop, pan/zoom, device/link/transit drawing
-  ├── inspector.ts   ← right panel: device details, link frame history
-  ├── terminal/      ← bottom dock (sessions/tabs/panes) + CLIs: core (dispatch/dock UI) + host, server (dnsmasq), router (FRR), switch (SONiC), firewall (iptables), ids (Snort)
-  ├── devices.ts     ← device/link CRUD, hit testing, LAN collapse/expand
-  ├── device-registry.ts ← per-type spec: label, name prefix, size, palette, icon, default config
-  ├── config.ts      ← topology serialise/apply + in-code default topologies
-  ├── io.ts          ← JSON import/export (config/scenario/script/log)
-  ├── ribbon.ts      ← tabbed ribbon UI (Main/File/View/Help) + scenario chooser options
-  ├── engine.ts      ← simulation engine: step loop, per-device frame processing
-  ├── packet-filter.ts ← sim-log packet-list display filter (protocol tokens + expression grammar)
-  ├── routing.ts     ← routing table, longest-match lookup, RIP convergence
-  ├── simulation.ts  ← buildPingEvents(), L2 reachability, routing utilities
-  ├── frame.ts       ← EthernetFrame factories, frame labels/colors
-  ├── normalise.ts   ← config normalisation, device defaults, router MAC generation
-  ├── help.ts        ← in-app Help → Guide reference (device + settings docs, single source of truth)
-  ├── prng.ts        ← seeded per-run PRNG for ephemeral ports/ids (clock default; `seed <n>` pins it)
-  ├── utils.ts       ← escapeHtml, IPv4/MAC validation, CSS color helpers
-  └── types.ts       ← all TypeScript interfaces
-```
+**Import cycles exist and are tolerated.** The model layer (`state`, `devices`, `normalise`) stays out of them via the callback bridges below, but `engine.ts` ↔ `terminal/*` and the application layer (`ui` ↔ `config`/`commands`/`console`/`io`/`scenarios`) are cyclic. The rule that keeps this safe: **inside a cycle, call imported functions only from function bodies, never at module top level** — a top-level use hits a temporal-dead-zone error in the bundle that unit tests (which import modules individually) will not catch.
 
 ### Callback bridges
 
 Two registration patterns break circular dependencies:
 
 - **`registerCallbacks()`** in `state.ts` — provides `render`, `syncPanel`, `syncTerminal`, `resizeCanvas` (and `stopSimulation`, the engine's run teardown — `undo`/`redo` and the scenario Check call it before replacing or running over the simulation state) to any module via `sync()`.
-- **`registerDeviceCallbacks()`** in `devices.ts` — provides `setTool`, `setNetworkPanel`, `linkUp` (first-boot autoconf when a cable comes up), `openTerminal` (configure auto-opens a CLI device's terminal, gated by `canOpenTerminal`), and `stopSimulation` (`clearNetwork` tears down an active run *before* deleting the topology it references — the same stop-before-replace order `applyConfigWithoutUndo` follows) so devices.ts can trigger UI/engine work without importing ui.ts/engine.ts/terminal/.
+- **`registerDeviceCallbacks()`** in `devices.ts` — provides `setTool`, `setNetworkPanel`, `openTerminal` (configure auto-opens a CLI device's terminal, gated by `canOpenTerminal`), and `stopSimulation` (`clearNetwork` tears down an active run *before* deleting the topology it references — the same stop-before-replace order `applyConfigWithoutUndo` follows) so devices.ts can trigger UI/engine work without importing ui.ts/engine.ts/terminal/. (It also still declares an optional `linkUp` hook that `addLink` fires, but nothing registers it since first boot moved to Play.)
 
 Both are wired in `app.ts` at startup.
 

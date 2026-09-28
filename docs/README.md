@@ -6,7 +6,7 @@ It is a single-page app with **no framework and no runtime dependencies** — it
 
 ## How to read these docs
 
-- **[architecture.md](architecture.md)** — the big picture: module layout, data flow, the callback registry that breaks circular imports, and the two-phase simulation model. Start here.
+- **[architecture.md](architecture.md)** — the map of the whole codebase: every source file by layer, the shared state and its mutation rules, the callback bridges and the import cycles they leave, how the GUI, terminals, console and scripts converge on one set of actions, the simulation pipeline, the topology lifecycle, and extension recipes. Start here.
 - **[build.md](build.md)** — how source becomes the single self-contained `rs-web.html`.
 - **[testing.md](testing.md)** — the Bun test suite, DOM mocking, fixtures, and how to run/write tests.
 - **[benchmarking.md](benchmarking.md)** — the micro-benchmark harness, p99 budgets, and when to add a benchmark.
@@ -50,6 +50,11 @@ It is a single-page app with **no framework and no runtime dependencies** — it
 | `src/settings-url.ts` | [settings-url.md](src/settings-url.md) | Read/apply settings from the URL query string (+ inverse) |
 | `src/tutorial.ts` | [tutorial.md](src/tutorial.md) | Tutorial mode: an auto-playing faux-cursor demo that builds a network |
 | `src/ribbon.ts` | [src/ribbon.md](src/ribbon.md) | Tabbed ribbon: tab switching + dynamic scenario buttons |
+| `src/tokenize.ts` | [tokenize.md](src/tokenize.md) | Quote-aware tokenizer for the command language, and its `quoteArg` inverse |
+| `src/prng.ts` | [prng.md](src/prng.md) | Seeded per-run PRNG for ephemeral ports and transaction ids |
+| `src/help.ts` | [help.md](src/help.md) | The in-app Help → Guide reference for every device type and setting |
+| `src/diagnostics.ts` | [testing.md](testing.md) | Read-only model invariants (`diagnoseState`), behind `routesim.diagnose()` and the lifecycle tests |
+| `src/stress.ts` | [testing.md](testing.md) | Seeded random command runner with a per-step invariant check |
 
 ## Conventions
 

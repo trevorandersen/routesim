@@ -48,7 +48,7 @@ export const DEVICE_DOCS: DeviceDoc[] = [
   { type: "ids", body: "A passive Snort sensor. Cable it to a managed switch's SPAN/monitor port; it matches the mirrored traffic against your Snort rules (`local.rules`) and raises alerts. It only detects — it never forwards or drops." },
   { type: "attacker", body: "An autonomous Red Team (Kali) adversary. Set a target and a plan, and on Play it launches a port scan, ping sweep or ARP spoof and reports nmap-style findings. Without an address, Play first boots it over DHCP like any host. Pair it with an IDS for a red-vs-blue detection exercise." },
   { type: "access-point", body: "A WiFi access point. It bridges associated laptops onto the wired LAN (like an unmanaged switch over the air) and broadcasts an SSID, optionally secured with a WPA2 password so only matching laptops authenticate." },
-  { type: "hub", body: "A layer-1 repeater: it floods every frame out all other ports with no MAC learning — the dumb predecessor to a switch. Useful for showing a single collision/broadcast domain and why switches are better." },
+  { type: "hub", body: "A layer-1 repeater: it floods every frame out all other ports with no MAC learning — the dumb predecessor to a switch. Useful for showing a single collision/broadcast domain and why switches are better. Every device on a hub hears every frame, but a router takes up only frames addressed to its own interface MAC (or broadcast) — so a router on a hub routes only what is sent to it." },
 ];
 
 // ─── Simulation settings ─────────────────────────────────────────────────────

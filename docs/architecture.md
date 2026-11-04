@@ -316,7 +316,7 @@ sequenceDiagram
 | `processAtComputer` | computer, laptop | ARP, ICMP echo, DHCP client, TCP handshake, HTTP, DNS client, WiFi association, 802.1X supplicant |
 | `processAtServer` | server | dnsmasq DNS and DHCP, then everything a computer does |
 | `processAtSwitch` | switch, access-point | MAC learning, flooding, 802.1Q access and trunk ports, SPAN mirroring, BPDU relay, 802.1X authenticator |
-| `processAtRouter` | router | ARP, DHCP server, TTL and ICMP errors, routing, NAT and port-forwarding, INPUT and FORWARD filtering |
+| `processAtRouter` | router | L2 admission (only frames to the ingress MAC or a broadcast), ARP, DHCP server, TTL and ICMP errors, routing, NAT and port-forwarding, INPUT and FORWARD filtering |
 | `processAtInternet` | internet | L3 transit between cabled routers by destination subnet |
 | `processAtHub` | hub | Repeats every frame out every other port |
 | `processAtFirewall` | firewall | Transparent bridge with stateful FORWARD filtering and REJECT responses |

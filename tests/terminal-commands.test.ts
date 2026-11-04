@@ -163,6 +163,20 @@ describe("runRouterTerminalCommand — FRR additions", () => {
     runRouterTerminalCommand(rtr, "show ip route rip");
     expect(hasError()).toBe(false);
   });
+
+  it("ip neigh flush all clears every interface's ARP cache (privileged), undoably", () => {
+    const rtr = loadRouter();
+    rtr.config.interfaces![0].arpTable = [{ ipv4Address: "192.168.10.10", macAddress: "02:DE:AD:00:00:01" }];
+    runRouterTerminalCommand(rtr, "ip neigh flush all");   // exec: refused
+    expect(hasError()).toBe(true);
+    expect(rtr.config.interfaces![0].arpTable).toHaveLength(1);
+    runRouterTerminalCommand(rtr, "enable");
+    runRouterTerminalCommand(rtr, "ip neigh flush all");
+    expect(rtr.config.interfaces!.every(i => !i.arpTable?.length)).toBe(true);
+    expect(state.terminal.lines.at(-1)!.text).toBe("Flushed 1 ARP entry.");
+    runConsoleScript("undo");
+    expect(state.devices.find(d => d.id === "rtr")!.config.interfaces![0].arpTable).toHaveLength(1);
+  });
 });
 
 describe("runRouterTerminalCommand — abbreviation & context ?", () => {
@@ -359,6 +373,19 @@ describe("host CLI — the inspector-set commands", () => {
     runTerminalCommand("ip addr add 192.168.1.999/24 dev eth0");
     expect(d.config.ipv4Address || "").not.toBe("192.168.1.999");
     expect(state.terminal.lines.some(l => l.kind === "error" && /Invalid/.test(l.text))).toBe(true);
+  });
+
+  it("ip neigh flush all empties the ARP cache, undoably", () => {
+    const d = pc();
+    d.config.arpTable = [{ ipv4Address: "192.168.1.1", macAddress: "02:DE:AD:00:00:01" }];
+    runTerminalCommand("ip neigh flush all");
+    expect(d.config.arpTable).toEqual([]);
+    expect(state.terminal.lines.at(-1)!.text).toBe("Flushed 1 ARP entry from eth0.");
+    runConsoleScript("undo");
+    expect(state.devices.find(x => x.id === "pc1")!.config.arpTable).toHaveLength(1);
+    runTerminalCommand("ip neigh flush dev eth0");
+    runTerminalCommand("ip neigh flush all");
+    expect(state.terminal.lines.at(-1)!.text).toBe("ARP cache is already empty.");
   });
 });
 

@@ -65,6 +65,18 @@ export function flushHostIp(device: Device): string {
   return "Flushed IPv4 address and ARP table from eth0.";
 }
 
+// `ip neigh flush all` — drop every cached neighbour, so the next frame to each
+// address ARPs afresh. The remedy for a stale entry: the simulator never ages
+// ARP out, so a cache naming a MAC that changed would otherwise stick.
+export function flushHostArp(device: Device): string {
+  const count = device.config?.arpTable?.length ?? 0;
+  if (!count) return "ARP cache is already empty.";
+  pushUndo();
+  device.config.arpTable = [];
+  sync().syncPanel();
+  return `Flushed ${count} ARP ${count === 1 ? "entry" : "entries"} from eth0.`;
+}
+
 export function setHostGateway(device: Device, address: string): string {
   const parsed = parseIpv4Token(address);
   if (!parsed) return `Invalid IPv4 address: ${address}`;
@@ -206,6 +218,11 @@ export function runHostTerminalCommand(host: Device, command: string): void {
     return;
   }
 
+  if (/^ip\s+(?:neigh|neighbour|neighbor)\s+flush\s+(?:all|dev\s+eth0)$/i.test(command)) {
+    terminalLine("", flushHostArp(host));
+    return;
+  }
+
   const ipFlushMatch = command.match(/^ip\s+(?:addr|address)\s+flush\s+dev\s+eth0$/i);
   if (ipFlushMatch) {
     terminalLine("", flushHostIp(host));
@@ -339,6 +356,7 @@ export function hostHelpLines(): string[] {
     "  hostname [name]               (show / set the hostname)",
     "  hostnamectl set-hostname <name>",
     "  arp -n",
+    "  ip neigh flush all            (clear the ARP cache)",
     "  cat /etc/resolv.conf",
     "  echo nameserver <ipv4> > /etc/resolv.conf",
     "  rm /etc/resolv.conf",

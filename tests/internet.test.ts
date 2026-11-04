@@ -15,6 +15,7 @@ import { buildRoutingTable, runRipConvergence } from "../src/routing";
 import { buildPingEvents, buildHttpEvents, l2Reachable } from "../src/simulation";
 import { buildConfigPayload, parseConfig } from "../src/config";
 import { createIcmpEchoRequest } from "../src/frame";
+import { deriveMac } from "../src/utils";
 import { runConsoleScript, runConsoleCommand as exec } from "../src/commands";
 import { registerNoopCallbacks, resetState } from "./helpers";
 
@@ -210,7 +211,7 @@ describe("the internet cloud", () => {
     const net = dev("NET"), r1 = dev("R1");
     const r1mac = r1.config!.interfaces!.find(i => i.peerId === net.id)!.macAddress;
     // A packet destined across the cloud (to R2) arriving with TTL 1 must expire here.
-    const frame = createIcmpEchoRequest(r1mac, "02:00:00:00:00:99", "203.0.113.1", "198.51.100.1", 1);
+    const frame = createIcmpEchoRequest(r1mac, deriveMac(net.id), "203.0.113.1", "198.51.100.1", 1);   // to the cloud's gateway MAC
     const out = processAtInternet(net, frame, r1.id);
     expect(out.length).toBe(1);
     const p = out[0].frame.payload as any;
@@ -219,6 +220,23 @@ describe("the internet cloud", () => {
     expect(p.srcIp).toBe("203.0.113.2");          // sourced from the cloud's gateway on R1's link
     expect(p.dstIp).toBe("203.0.113.1");          // back to the sender
     expect(out[0].toDeviceId).toBe(r1.id);
+  });
+
+  it("ignores a frame not addressed to the gateway MAC it presents (states why)", () => {
+    runConsoleScript(`
+      add router R1 at -200 0
+      add internet NET at 0 0
+      add router R2 at 200 0
+      link R1 NET
+      link R2 NET
+      interface R1 NET ip 203.0.113.1/30
+      interface R2 NET ip 198.51.100.1/30
+    `);
+    const net = dev("NET"), r1 = dev("R1");
+    const r1mac = r1.config!.interfaces!.find(i => i.peerId === net.id)!.macAddress!;
+    const frame = createIcmpEchoRequest(r1mac, "02:00:00:00:00:99", "203.0.113.1", "198.51.100.1", 64);
+    expect(processAtInternet(net, frame, r1.id)).toEqual([]);
+    expect(netLog().at(-1)).toContain("not ours to route");
   });
 
   it("traceroute from behind NAT sees every hop — errors are un-NAT'd via the embedded original", () => {

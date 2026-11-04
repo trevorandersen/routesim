@@ -4869,6 +4869,7 @@ Full legal text: https://creativecommons.org/publicdomain/zero/1.0/legalcode</pr
     if (!gone) return false;
     pushUndo();
     state.links = state.links.filter((l) => l.id !== linkId);
+    forgetArpEntries(/* @__PURE__ */ new Set([...orphanedIfaceMacs(gone.from, gone.to), ...orphanedIfaceMacs(gone.to, gone.from)]));
     if (state.selectedLinkId === linkId) state.selectedLinkId = null;
     sync().syncPanel();
     linksChanged([gone.from, gone.to]);
@@ -4901,8 +4902,13 @@ Full legal text: https://creativecommons.org/publicdomain/zero/1.0/legalcode</pr
     pushUndo();
     const id = state.selectedId;
     const neighbours = state.links.filter((link) => link.from === id || link.to === id).map((link) => link.from === id ? link.to : link.from);
-    state.devices = state.devices.filter((device) => device.id !== id);
     state.links = state.links.filter((link) => link.from !== id && link.to !== id);
+    if (selected) {
+      const gone = new Set(macsOwnedBy(selected));
+      for (const peer of neighbours) for (const mac of orphanedIfaceMacs(peer, selected.id)) gone.add(mac);
+      forgetArpEntries(gone, selected.id);
+    }
+    state.devices = state.devices.filter((device) => device.id !== id);
     state.selectedId = null;
     state.configuringId = null;
     state.linkStartId = null;
@@ -4910,6 +4916,39 @@ Full legal text: https://creativecommons.org/publicdomain/zero/1.0/legalcode</pr
     sync().syncPanel();
     sync().syncTerminal();
     linksChanged(neighbours);
+  }
+  function macsOwnedBy(device) {
+    const macs = [deriveMac(device.id)];
+    if (device.config?.macAddress) macs.push(normaliseMacAddress(device.config.macAddress));
+    for (const iface of device.config?.interfaces ?? []) if (iface.macAddress) macs.push(normaliseMacAddress(iface.macAddress));
+    return macs;
+  }
+  function liveMacsOf(device) {
+    const links = linksFor(device.id);
+    if (!links.length) return [];
+    const peers = new Set(links.map((link) => link.from === device.id ? link.to : link.from));
+    const macs = [deriveMac(device.id)];
+    if (device.config?.macAddress) macs.push(normaliseMacAddress(device.config.macAddress));
+    for (const iface of device.config?.interfaces ?? []) {
+      if (iface.macAddress && peers.has(iface.peerId)) macs.push(normaliseMacAddress(iface.macAddress));
+    }
+    return macs;
+  }
+  function orphanedIfaceMacs(routerId, peerId) {
+    const router = getDevice(routerId);
+    const ifaces = router?.config?.interfaces;
+    if (!ifaces?.length) return [];
+    if (state.links.some((l) => l.from === routerId && l.to === peerId || l.to === routerId && l.from === peerId)) return [];
+    return ifaces.filter((iface) => iface.peerId === peerId && iface.macAddress).map((iface) => normaliseMacAddress(iface.macAddress));
+  }
+  function forgetArpEntries(gone, skipId) {
+    if (!gone.size) return;
+    const keep = (entry) => !gone.has(normaliseMacAddress(entry.macAddress));
+    for (const device of state.devices) {
+      if (device.id === skipId || !device.config) continue;
+      if (device.config.arpTable?.length) device.config.arpTable = device.config.arpTable.filter(keep);
+      for (const iface of device.config.interfaces ?? []) if (iface.arpTable?.length) iface.arpTable = iface.arpTable.filter(keep);
+    }
   }
   function clearNetwork() {
     _stopSimulation?.();
@@ -9109,6 +9148,11 @@ Full legal text: https://creativecommons.org/publicdomain/zero/1.0/legalcode</pr
     }
     if (frame.payload.type !== "ipv4") return out;
     const ipv4 = frame.payload;
+    const dstMac = normaliseMacAddress(frame.dstMac);
+    if (dstMac !== cloudMac) {
+      logStep(device, "sim-learn", `${frameLabel(frame)} ${ipv4.srcIp}\u2192${ipv4.dstIp} is for ${dstMac}, not the internet gateway MAC ${cloudMac} \u2014 not ours to route, ignoring`);
+      return out;
+    }
     for (const port of ports) {
       const peer = port?.peer;
       if (!peer || peer.id === fromDeviceId || peer.type !== "router") continue;
@@ -9154,9 +9198,10 @@ Full legal text: https://creativecommons.org/publicdomain/zero/1.0/legalcode</pr
     if (fromDeviceId) {
       const peerIfaces = ifaces.filter((iface) => iface.peerId === fromDeviceId);
       if (peerIfaces.length > 1) {
-        ingressIface = peerIfaces.find(
+        const sameTag = peerIfaces.filter(
           (iface) => frame.vlanTag != null ? iface.vlanTag === frame.vlanTag : iface.vlanTag == null
         );
+        ingressIface = sameTag.find((iface) => normaliseMacAddress(iface.macAddress || "") === frame.dstMac) ?? sameTag[0] ?? null;
       } else {
         ingressIface = peerIfaces[0] || null;
       }
@@ -9169,8 +9214,18 @@ Full legal text: https://creativecommons.org/publicdomain/zero/1.0/legalcode</pr
       return handleRouterArp(device, frame, ifaces, ingressIface, fromDeviceId);
     } else if (frame.payload.type === "ipv4") {
       const ipv4 = frame.payload;
+      const ifaceMac = normaliseMacAddress(ingressIface.macAddress || "");
+      const groupAddressed = isGroupMac(frame.dstMac);
+      if (frame.dstMac !== ifaceMac && !groupAddressed) {
+        logStep(device, "sim-learn", `${frameLabel(frame)} ${ipv4.srcIp}\u2192${ipv4.dstIp} is for ${frame.dstMac}, not this interface's MAC ${ifaceMac} \u2014 not ours to route, ignoring`);
+        return outgoing;
+      }
       if (ipv4.dstIp === "255.255.255.255" && ipv4.payload.type === "dhcp") {
         return handleRouterDhcp(device, ingressIface, fromDeviceId, ipv4.payload, ipv4);
+      }
+      if (groupAddressed) {
+        logStep(device, "sim-learn", `${frameLabel(frame)} ${ipv4.srcIp}\u2192${ipv4.dstIp} was sent to link-layer ${frame.dstMac === BROADCAST_MAC ? "broadcast" : "multicast"} \u2014 a router does not route it off the segment, ignoring`);
+        return outgoing;
       }
       return routeIpv4Frame(device, frame, ifaces, ingressIface, fromDeviceId, ipv4);
     }
@@ -9192,10 +9247,17 @@ Full legal text: https://creativecommons.org/publicdomain/zero/1.0/legalcode</pr
       );
       outgoing.push({ frame: reply, toDeviceId: fromDeviceId });
     } else if (arp.operation === "reply") {
-      learnRouterArp(ingressIface, arp.senderIp, arp.senderMac);
-      logStep(device, "sim-arp", `Received ARP Reply on ${ifaceName(ingressIface)}: ${arp.senderIp} is-at ${arp.senderMac}`);
       const pendingKey = `${device.id}:${arp.senderIp}`;
       const pending = sim.pendingArp[pendingKey];
+      const ifaceMac = normaliseMacAddress(ingressIface.macAddress || "");
+      const known = (ingressIface.arpTable || []).some((e) => e.ipv4Address === arp.senderIp);
+      const forUs = frame.dstMac === ifaceMac || frame.dstMac === BROADCAST_MAC && (known || !!pending?.length);
+      if (!forUs) {
+        logStep(device, "sim-learn", `ARP Reply ${arp.senderIp} is-at ${arp.senderMac} is for ${frame.dstMac}, not this interface's MAC ${ifaceMac} \u2014 not learned, ignoring`);
+        return outgoing;
+      }
+      learnRouterArp(ingressIface, arp.senderIp, arp.senderMac);
+      logStep(device, "sim-arp", `Received ARP Reply on ${ifaceName(ingressIface)}: ${arp.senderIp} is-at ${arp.senderMac}`);
       if (pending && pending.length > 0) {
         const table = buildRoutingTable(device);
         for (const pf of pending) {
@@ -9731,6 +9793,10 @@ Full legal text: https://creativecommons.org/publicdomain/zero/1.0/legalcode</pr
       config.arpTable.push({ ipv4Address: ip, macAddress: mac });
     }
   }
+  function isGroupMac(mac) {
+    const first = parseInt(mac.slice(0, 2), 16);
+    return Number.isFinite(first) && (first & 1) === 1;
+  }
   function learnRouterArp(iface, ip, mac) {
     iface.arpTable = normaliseArpTable(iface.arpTable || []);
     const existing = iface.arpTable.find((e) => e.ipv4Address === ip);
@@ -10055,6 +10121,48 @@ Full legal text: https://creativecommons.org/publicdomain/zero/1.0/legalcode</pr
       return `${head}: ${ip} is this host's default gateway and no device answered for it \u2014 is the gateway address right, and is the router interface up on this subnet?`;
     return `${head}: no device on this subnet answered for ${ip} \u2014 is the address right, and is that host cabled and powered on?`;
   }
+  function staleArpEntries(origin) {
+    if (!origin) return [];
+    const sim = state.simulation;
+    const cfg = origin.config;
+    const roles = /* @__PURE__ */ new Map();
+    const note = (ip, role) => {
+      if (ip && !roles.has(ip)) roles.set(ip, role);
+    };
+    note(sim.pingTargetIp ?? sim.dnsResolvedIp, "the target");
+    note(cfg?.gatewayIpv4Address, `${origin.name}'s default gateway`);
+    note(cfg?.dnsServerIp, `${origin.name}'s nameserver`);
+    note(cfg?.ipv4Address, origin.name);
+    const live = /* @__PURE__ */ new Set();
+    for (const d of state.devices) for (const mac of liveMacsOf(d)) live.add(mac);
+    const ends = [sim.pingTargetIp ?? sim.dnsResolvedIp, cfg?.ipv4Address].filter((ip) => !!ip);
+    const found = [];
+    const check = (device, table, hops) => {
+      for (const entry of table ?? []) {
+        const role = roles.get(entry.ipv4Address) ?? hops?.get(entry.ipv4Address);
+        if (!role || !entry.macAddress) continue;
+        const mac = normaliseMacAddress(entry.macAddress);
+        if (live.has(mac)) continue;
+        const owner = state.devices.find((d) => macsOwnedBy(d).includes(mac));
+        const whose = owner ? `which belongs to ${owner.name}${owner.type === "router" ? "'s interface" : ""} with no cable now` : "which no device on the network owns";
+        const remedy = device.type === "router" ? "the simulator never ages ARP entries out, so flush the router's cache with `ip neigh flush all` (privileged mode) and retry" : "the simulator never ages ARP entries out, so flush the cache with `ip neigh flush all` and retry";
+        found.push({ device, reason: `Stale ARP entry: ${entry.ipv4Address} (${role}) is cached at ${entry.macAddress}, ${whose} \u2014 a router takes up only frames sent to its own interface MAC, so frames sent there are ignored; ${remedy}` });
+      }
+    };
+    for (const d of state.devices) {
+      check(d, d.config?.arpTable);
+      if (!d.config?.interfaces?.length) continue;
+      const hops = /* @__PURE__ */ new Map();
+      if (d.type === "router") {
+        for (const ip of ends) {
+          const hop = routingLookup(d, ip)?.nextHopIp;
+          if (hop && hop !== ip && !hops.has(hop)) hops.set(hop, `${d.name}'s next hop toward ${ip}`);
+        }
+      }
+      for (const iface of d.config.interfaces) check(d, iface.arpTable, hops);
+    }
+    return found;
+  }
   function runPostMortem(succeeded) {
     const sim = state.simulation;
     const origin = sim.originDeviceId ? getDevice(sim.originDeviceId) : void 0;
@@ -10073,6 +10181,12 @@ Full legal text: https://creativecommons.org/publicdomain/zero/1.0/legalcode</pr
       byDevice.set(id, list);
     }
     const lines = [];
+    if (!succeeded) {
+      for (const { device, reason } of staleArpEntries(origin)) {
+        logStep(device, "sim-drop", reason);
+        lines.push(device.id === sim.originDeviceId ? reason : `${device.name}: ${reason}`);
+      }
+    }
     for (const [id, entries] of byDevice) {
       const device = getDevice(id);
       if (!device) continue;
@@ -10301,6 +10415,14 @@ ${body}
     sync().render();
     return "Flushed IPv4 address and ARP table from eth0.";
   }
+  function flushHostArp(device) {
+    const count = device.config?.arpTable?.length ?? 0;
+    if (!count) return "ARP cache is already empty.";
+    pushUndo();
+    device.config.arpTable = [];
+    sync().syncPanel();
+    return `Flushed ${count} ARP ${count === 1 ? "entry" : "entries"} from eth0.`;
+  }
   function setHostGateway(device, address) {
     const parsed = parseIpv4Token(address);
     if (!parsed) return `Invalid IPv4 address: ${address}`;
@@ -10412,6 +10534,10 @@ ${body}
       } else {
         startSimulation(result, host.id, lookupMatch[1], "dns");
       }
+      return;
+    }
+    if (/^ip\s+(?:neigh|neighbour|neighbor)\s+flush\s+(?:all|dev\s+eth0)$/i.test(command)) {
+      terminalLine("", flushHostArp(host));
       return;
     }
     const ipFlushMatch = command.match(/^ip\s+(?:addr|address)\s+flush\s+dev\s+eth0$/i);
@@ -10537,6 +10663,7 @@ ${body}
       "  hostname [name]               (show / set the hostname)",
       "  hostnamectl set-hostname <name>",
       "  arp -n",
+      "  ip neigh flush all            (clear the ARP cache)",
       "  cat /etc/resolv.conf",
       "  echo nameserver <ipv4> > /etc/resolv.conf",
       "  rm /etc/resolv.conf",
@@ -10934,6 +11061,15 @@ ${body}
       ...rows.map((entry) => `${entry.ipv4Address.padEnd(24)}ether   ${entry.macAddress.padEnd(19)}C                     ${entry.iface}`)
     ].join("\n");
   }
+  function flushRouterArp(router) {
+    const ifaces = router.config?.interfaces ?? [];
+    const count = ifaces.reduce((n, iface) => n + (iface.arpTable?.length ?? 0), 0);
+    if (!count) return "ARP cache is already empty.";
+    pushUndo();
+    for (const iface of ifaces) iface.arpTable = [];
+    sync().syncPanel();
+    return `Flushed ${count} ARP ${count === 1 ? "entry" : "entries"}.`;
+  }
   function showRouterDhcpBindings(router) {
     const rows = routerInterfacesWithNames(router).flatMap(
       (iface) => normaliseDhcpLeases(iface.config.dhcpLeases || []).map((entry) => ({ ...entry, iface: iface.name }))
@@ -11057,6 +11193,7 @@ ${body}
     { tokens: ["show", "ip", "nat", "translations"], modes: ALL_ROUTER_MODES },
     { tokens: ["clear", "ip", "nat", "translation"], args: true, modes: ["privileged", "config"] },
     { tokens: ["iptables"], args: true, modes: ["privileged", "config"] },
+    { tokens: ["ip", "neigh", "flush", "all"], modes: ["privileged", "config"] },
     { tokens: ["encapsulation", "dot1q"], args: true, modes: ["interface"] },
     { tokens: ["no", "encapsulation", "dot1q"], modes: ["interface"] },
     { tokens: ["ip", "route"], args: true, modes: ["config"] },
@@ -11218,6 +11355,14 @@ ${body}
         return;
       }
       runIptablesCommand(router, command, ["input", "forward"]);
+      return;
+    }
+    if (/^ip\s+(?:neigh|neighbour|neighbor)\s+flush\s+all$/i.test(command.trim())) {
+      if (mode !== "privileged" && mode !== "config") {
+        terminalLine("error", mode === "exec" ? "% Privileged mode required. Enter enable first." : "% Leave the sub-mode first (exit) \u2014 ip neigh flush runs in privileged or config mode.");
+        return;
+      }
+      terminalLine("", flushRouterArp(router));
       return;
     }
     const hostnameMatch = command.match(/^hostname\s+(\S+)$/i);
@@ -13946,7 +14091,7 @@ Snort successfully validated the configuration${bad ? " (with errors)" : "."}`);
     { type: "ids", body: "A passive Snort sensor. Cable it to a managed switch's SPAN/monitor port; it matches the mirrored traffic against your Snort rules (`local.rules`) and raises alerts. It only detects \u2014 it never forwards or drops." },
     { type: "attacker", body: "An autonomous Red Team (Kali) adversary. Set a target and a plan, and on Play it launches a port scan, ping sweep or ARP spoof and reports nmap-style findings. Without an address, Play first boots it over DHCP like any host. Pair it with an IDS for a red-vs-blue detection exercise." },
     { type: "access-point", body: "A WiFi access point. It bridges associated laptops onto the wired LAN (like an unmanaged switch over the air) and broadcasts an SSID, optionally secured with a WPA2 password so only matching laptops authenticate." },
-    { type: "hub", body: "A layer-1 repeater: it floods every frame out all other ports with no MAC learning \u2014 the dumb predecessor to a switch. Useful for showing a single collision/broadcast domain and why switches are better." }
+    { type: "hub", body: "A layer-1 repeater: it floods every frame out all other ports with no MAC learning \u2014 the dumb predecessor to a switch. Useful for showing a single collision/broadcast domain and why switches are better. Every device on a hub hears every frame, but a router takes up only frames addressed to its own interface MAC (or broadcast) \u2014 so a router on a hub routes only what is sent to it." }
   ];
   var SETTING_GROUPS = [
     {

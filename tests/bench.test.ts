@@ -16,6 +16,7 @@ import { isTrunkLink } from "../src/canvas";
 import { processAtSwitch, processAtRouter, processAtServer, processAtInternet, buildRoutingTable, routingLookup, runRipConvergence, runStpConvergence, evaluateFirewall, connectionState, runSimulationHeadless } from "../src/engine";
 import { createArpRequest, createArpReply, createIcmpEchoRequest, createIcmpEchoReply, createTcpSegment, createDnsResponse, createDhcpDiscover, packetColumns, BROADCAST_MAC } from "../src/frame";
 import { runIdsRules } from "../src/snort";
+import { deriveMac } from "../src/utils";
 import { applyLogFilter, type FilterRow } from "../src/packet-filter";
 import { registerNoopCallbacks, resetState } from "./helpers";
 import { bench, printResults, type BenchResult } from "./bench-harness";
@@ -427,8 +428,11 @@ describe("bench: processAtInternet", () => {
     state.links = topo.links as any;
     initSim();
     const net = state.devices.find(d => d.id === "net-0")!;
-    // Destined to the last router's public address, so the routing scan visits every port.
-    const frame = createIcmpEchoRequest("02:00:00:00:00:01", "02:11:22:33:44:55", "203.0.0.1", "203.0.7.1", 64);
+    // Destined to the last router's public address, so the routing scan visits
+    // every port. Sent to the gateway MAC the cloud presents — a frame for any
+    // other MAC is ignored before routing, which would bench the wrong path.
+    const frame = createIcmpEchoRequest("02:00:00:00:00:01", deriveMac("net-0"), "203.0.0.1", "203.0.7.1", 64);
+    expect(processAtInternet(net, frame, "r-0")).toHaveLength(1);
     results.push(bench("processAtInternet — route, 8 routers", () => {
       state.simulation.log.length = 0;
       processAtInternet(net, frame, "r-0");
@@ -601,6 +605,7 @@ describe("bench: routing", () => {
       "02:00:02:00:0a:01", routerMac(0, 1),
       "192.168.2.10", "192.168.1.10", 64
     );
+    expect(processAtRouter(router, frame, "sw-1")).toHaveLength(1);   // the frame is addressed to the ingress MAC, so it really routes
     results.push(bench("processAtRouter — connected route", () => {
       state.simulation.log.length = 0;
       processAtRouter(router, frame, "sw-1");
@@ -634,6 +639,7 @@ describe("bench: routing", () => {
       "02:00:02:00:0a:01", routerMac(0, 1),
       "192.168.2.10", "10.0.0.10", 64
     );
+    expect(processAtRouter(router, frame, "sw-1")).toHaveLength(1);   // the frame is addressed to the ingress MAC, so it really routes
     results.push(bench("processAtRouter — static route", () => {
       state.simulation.log.length = 0;
       processAtRouter(router, frame, "sw-1");
@@ -659,6 +665,7 @@ describe("bench: routing", () => {
       "02:00:02:00:0a:01", routerMac(0, 1),
       "10.9.9.10", "192.168.1.2", 64
     );
+    expect(processAtRouter(router, frame, ingress.peerId)).toHaveLength(1);   // the frame is addressed to the ingress MAC, so it really routes
     results.push(bench("processAtRouter — NAT translate", () => {
       state.simulation.log.length = 0;
       router.config.natTranslations = []; // fresh table each run

@@ -2,7 +2,7 @@ import type { PortOption, Device, Link, DeviceType, DeviceConfig, NamedRouterIfa
 import { state, sync, pushUndo, networkSnapshot, dropTerminalSessions, resetCaptureState, linksChanged } from "./state";
 import { dom } from "./dom";
 import { deviceSize, defaultDeviceConfig, ensureConfig, normaliseRouterInterfaces, normalisePortVlans, normalisePortModes } from "./normalise";
-import { clampPortCount, clampApPortCount, clampRouterPortCount, escapeHtml, randomMac, isValidHostname, MAX_PHYSICAL_PORT } from "./utils";
+import { clampPortCount, clampApPortCount, clampRouterPortCount, escapeHtml, randomMac, isValidHostname, MAX_PHYSICAL_PORT, deriveMac, normaliseMacAddress } from "./utils";
 import { quoteArg } from "./tokenize";
 import { DEVICE_SPECS, USER_ADDABLE_TYPES, freshNameCounters, hasSingleNic, isHost, isDot1xSupplicant, defaultPortCount } from "./device-registry";
 
@@ -410,6 +410,7 @@ export function deleteLink(linkId: string): boolean {
   if (!gone) return false;
   pushUndo();
   state.links = state.links.filter(l => l.id !== linkId);
+  forgetArpEntries(new Set([...orphanedIfaceMacs(gone.from, gone.to), ...orphanedIfaceMacs(gone.to, gone.from)]));
   if (state.selectedLinkId === linkId) state.selectedLinkId = null;
   sync().syncPanel();
   // Later implicit ports renumber (flush the learnt MACs), and removing a
@@ -452,8 +453,15 @@ export function deleteSelection(): void {
   const id = state.selectedId;
   // Its neighbours lose a cable each — their learnt MACs are invalidated below.
   const neighbours = state.links.filter(link => link.from === id || link.to === id).map(link => link.from === id ? link.to : link.from);
-  state.devices = state.devices.filter(device => device.id !== id);
   state.links = state.links.filter(link => link.from !== id && link.to !== id);
+  if (selected) {
+    // The device's own MACs leave the wire, and so does each neighbouring
+    // router interface that was cabled to it.
+    const gone = new Set(macsOwnedBy(selected));
+    for (const peer of neighbours) for (const mac of orphanedIfaceMacs(peer, selected.id)) gone.add(mac);
+    forgetArpEntries(gone, selected.id);
+  }
+  state.devices = state.devices.filter(device => device.id !== id);
   state.selectedId = null;
   state.configuringId = null;
   state.linkStartId = null;
@@ -461,6 +469,62 @@ export function deleteSelection(): void {
   sync().syncPanel();
   sync().syncTerminal();
   linksChanged(neighbours);   // renumbered ports; removing a switch/link can change which ports block
+}
+
+// Every MAC address `device` answers to on the wire: its NIC, each router
+// interface, and the derived MAC a device without a configured one presents
+// (the internet cloud's gateway MAC, a switch's bridge MAC).
+export function macsOwnedBy(device: Device): string[] {
+  const macs = [deriveMac(device.id)];
+  if (device.config?.macAddress) macs.push(normaliseMacAddress(device.config.macAddress));
+  for (const iface of device.config?.interfaces ?? []) if (iface.macAddress) macs.push(normaliseMacAddress(iface.macAddress));
+  return macs;
+}
+
+// The MACs a device presents on a cable right now: none when it has no cable;
+// otherwise its NIC (or derived) MAC, and for a router only the interfaces
+// whose peer it is still cabled to. A router interface left behind when its
+// cable is moved keeps its MAC in the config, but nothing answers to it on the
+// wire — re-cabling the port creates a fresh interface with a new MAC.
+export function liveMacsOf(device: Device): string[] {
+  const links = linksFor(device.id);
+  if (!links.length) return [];
+  const peers = new Set(links.map(link => link.from === device.id ? link.to : link.from));
+  const macs = [deriveMac(device.id)];
+  if (device.config?.macAddress) macs.push(normaliseMacAddress(device.config.macAddress));
+  for (const iface of device.config?.interfaces ?? []) {
+    if (iface.macAddress && peers.has(iface.peerId)) macs.push(normaliseMacAddress(iface.macAddress));
+  }
+  return macs;
+}
+
+// The MACs of `routerId`'s interfaces facing `peerId` once no cable joins the
+// two any more (call after the link is removed). Empty for a non-router, or
+// while another cable to the same peer survives.
+function orphanedIfaceMacs(routerId: string, peerId: string): string[] {
+  const router = getDevice(routerId);
+  const ifaces = router?.config?.interfaces;
+  if (!ifaces?.length) return [];
+  if (state.links.some(l => (l.from === routerId && l.to === peerId) || (l.to === routerId && l.from === peerId))) return [];
+  return ifaces.filter(iface => iface.peerId === peerId && iface.macAddress).map(iface => normaliseMacAddress(iface.macAddress));
+}
+
+// MACs that just left the wire — a deleted device's, or a router interface's
+// whose cable was removed (with the device, or on its own) — take every ARP
+// entry pointing at them (a host's cache, each router interface's) with them.
+// This is the simulator's stand-in for ARP ageing — the simulation has no clock
+// to age entries out — and without it the device that now holds the address
+// (a replacement device, or the router's re-cabled port with its new MAC) is
+// never reached: the stale entry addresses the frames to a MAC no router takes
+// up. Undoable with the delete (the snapshot holds the tables).
+function forgetArpEntries(gone: Set<string>, skipId?: string): void {
+  if (!gone.size) return;
+  const keep = (entry: { macAddress: string }) => !gone.has(normaliseMacAddress(entry.macAddress));
+  for (const device of state.devices) {
+    if (device.id === skipId || !device.config) continue;
+    if (device.config.arpTable?.length) device.config.arpTable = device.config.arpTable.filter(keep);
+    for (const iface of device.config.interfaces ?? []) if (iface.arpTable?.length) iface.arpTable = iface.arpTable.filter(keep);
+  }
 }
 
 export function clearNetwork(): void {

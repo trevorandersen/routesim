@@ -61,6 +61,17 @@ export function showRouterArp(router: Device): string {
   ].join("\n");
 }
 
+// `ip neigh flush all`: drop every interface's ARP entries (undoable).
+export function flushRouterArp(router: Device): string {
+  const ifaces = router.config?.interfaces ?? [];
+  const count = ifaces.reduce((n, iface) => n + (iface.arpTable?.length ?? 0), 0);
+  if (!count) return "ARP cache is already empty.";
+  pushUndo();
+  for (const iface of ifaces) iface.arpTable = [];
+  sync().syncPanel();
+  return `Flushed ${count} ARP ${count === 1 ? "entry" : "entries"}.`;
+}
+
 export function showRouterDhcpBindings(router: Device): string {
   const rows = routerInterfacesWithNames(router).flatMap((iface: any) =>
     normaliseDhcpLeases(iface.config.dhcpLeases || []).map((entry: any) => ({ ...entry, iface: iface.name }))
@@ -200,6 +211,7 @@ const ROUTER_COMMANDS: RouterCmdSpec[] = [
   { tokens: ["show", "ip", "nat", "translations"], modes: ALL_ROUTER_MODES },
   { tokens: ["clear", "ip", "nat", "translation"], args: true, modes: ["privileged", "config"] },
   { tokens: ["iptables"], args: true, modes: ["privileged", "config"] },
+  { tokens: ["ip", "neigh", "flush", "all"], modes: ["privileged", "config"] },
   { tokens: ["encapsulation", "dot1q"], args: true, modes: ["interface"] },
   { tokens: ["no", "encapsulation", "dot1q"], modes: ["interface"] },
   { tokens: ["ip", "route"], args: true, modes: ["config"] },
@@ -373,6 +385,17 @@ export function runRouterTerminalCommand(router: Device, rawCommand: string): vo
       return;
     }
     runIptablesCommand(router, command, ["input", "forward"]);
+    return;
+  }
+  // The neighbour (ARP) cache lives in the router's Linux kernel too: `ip neigh
+  // flush all` clears every interface's entries, so each next hop ARPs afresh —
+  // the remedy for a stale entry, since the simulator never ages ARP out.
+  if (/^ip\s+(?:neigh|neighbour|neighbor)\s+flush\s+all$/i.test(command.trim())) {
+    if (mode !== "privileged" && mode !== "config") {
+      terminalLine("error", mode === "exec" ? "% Privileged mode required. Enter enable first." : "% Leave the sub-mode first (exit) — ip neigh flush runs in privileged or config mode.");
+      return;
+    }
+    terminalLine("", flushRouterArp(router));
     return;
   }
   // `hostname <name>` (config mode) renames the router — its prompt, canvas

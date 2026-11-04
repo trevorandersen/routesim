@@ -3,11 +3,13 @@ import { sameSubnet } from "../src/utils";
 import { state } from "../src/state";
 import { processAtSwitch, processAtRouter, processAtComputer, processAtHub, runSimulationHeadless, runTraceroute, linkLatencyFactor, startSimulation, stepOnce, allocateDhcpIp } from "../src/engine";
 import { buildRoutingTable, runRipConvergence, routingLookup } from "../src/routing";
-import { buildPingEvents } from "../src/simulation";
+import { buildPingEvents, buildDhcpEvents } from "../src/simulation";
 import { deleteLink, linksFor, addDevice, addLink } from "../src/devices";
 import { buildConfigPayload } from "../src/config";
 import { createArpRequest, createArpReply, createIcmpEchoRequest, createIcmpEchoReply, createDhcpOffer, createDhcpAck, BROADCAST_MAC } from "../src/frame";
 import { runConsoleScript } from "../src/commands";
+import { flushHostArp } from "../src/terminal/host";
+import { flushRouterArp } from "../src/terminal/router";
 import { registerNoopCallbacks, resetState } from "./helpers";
 import { basicTopology, routedTopology, vlanTopology, trunkTopology } from "./fixtures";
 
@@ -433,6 +435,299 @@ describe("processAtRouter — self-destined frames", () => {
       (o.frame.payload as any).payload.type === "icmp"
     );
     expect(icmpReply).toBe(false);
+  });
+});
+
+// A router takes up only frames addressed to its ingress interface's MAC (or a
+// link-layer broadcast it handles locally, like DHCP). A hub repeats every frame
+// to every port, so on a shared segment the router sees the hosts' own unicast
+// conversation — routing that would hand the recipient a TTL-63 duplicate.
+describe("processAtRouter — L2 admission (destination MAC)", () => {
+  beforeEach(() => resetState());
+
+  function hubWithRouter() {
+    runConsoleScript(`
+      add hub HUB at 200 0
+      add computer A at 0 0
+      add computer B at 400 0
+      add router R at 200 200
+      link A HUB
+      link B HUB
+      link R HUB
+      ip A 192.168.1.10/24
+      gateway A 192.168.1.1
+      ip B 192.168.1.20/24
+      gateway B 192.168.1.1
+      interface R HUB ip 192.168.1.1
+    `);
+    const dev = (n: string) => state.devices.find(d => d.name === n)!;
+    return { a: dev("A"), b: dev("B"), r: dev("R"), hub: dev("HUB") };
+  }
+  const actions = (name: string) => state.simulation.log.filter(l => l.deviceName === name).map(l => l.action);
+
+  it("an on-link ping across a hub gets exactly one reply, TTL 64, and no routed duplicate", () => {
+    const { a, r } = hubWithRouter();
+    const result = runSimulationHeadless(buildPingEvents(a, "192.168.1.20") as any, a.id, "192.168.1.20", "ping");
+    expect(result.success).toBe(true);
+    expect(state.simulation.pingTtl).toBe(64);   // straight from B, never via R (63)
+    expect(actions("A").filter(t => t.startsWith("Received ICMP Echo Reply"))).toHaveLength(1);
+    expect(actions("B").filter(t => t.startsWith("Received ICMP Echo Request"))).toHaveLength(1);
+    expect(actions("R").some(t => t.startsWith("Route ") || t.includes("Forward deferred"))).toBe(false);
+    expect(actions("R").some(t => t.includes("not ours to route"))).toBe(true);   // the reason is stated
+    // The A↔B ARP reply was not addressed to R, so R learned nothing from it.
+    expect(r.config.interfaces![0].arpTable ?? []).toEqual([]);
+  });
+
+  it("ignores a unicast IPv4 frame addressed to another MAC (states why)", () => {
+    const { a, b, r, hub } = hubWithRouter();
+    const frame = createIcmpEchoRequest(a.config.macAddress!, b.config.macAddress!, "192.168.1.10", "192.168.1.20", 64);
+    expect(processAtRouter(r, frame, hub.id)).toEqual([]);
+    expect(actions("R").at(-1)).toContain(`is for ${b.config.macAddress}`);
+  });
+
+  it("still routes a frame addressed to the ingress interface MAC", () => {
+    const { a } = hubWithRouter();
+    runConsoleScript(`
+      add computer C at 400 200
+      link R C
+      ip C 10.0.0.10/24
+      gateway C 10.0.0.1
+      interface R C ip 10.0.0.1
+    `);
+    const result = runSimulationHeadless(buildPingEvents(a, "10.0.0.10") as any, a.id, "10.0.0.10", "ping");
+    expect(result.success).toBe(true);
+    expect(state.simulation.pingTtl).toBe(63);   // exactly one routed hop
+    expect(actions("A").filter(t => t.startsWith("Received ICMP Echo Reply"))).toHaveLength(1);
+  });
+
+  it("does not route a link-layer broadcast IPv4 frame off the segment", () => {
+    const { a, r, hub } = hubWithRouter();
+    runConsoleScript(`
+      add computer C at 400 200
+      link R C
+      ip C 10.0.0.10/24
+      interface R C ip 10.0.0.1
+    `);
+    const frame = createIcmpEchoRequest(a.config.macAddress!, BROADCAST_MAC, "192.168.1.10", "10.0.0.10", 64);
+    expect(processAtRouter(r, frame, hub.id)).toEqual([]);
+    expect(actions("R").at(-1)).toContain("does not route it off the segment");
+  });
+
+  it("still serves DHCP broadcasts on a hub segment", () => {
+    const { r } = hubWithRouter();
+    runConsoleScript(`
+      add computer D at 0 200
+      link D HUB
+    `);
+    const d = state.devices.find(x => x.name === "D")!;
+    const result = runSimulationHeadless(buildDhcpEvents(d) as any, d.id, "", "dhcp");
+    expect(result.success).toBe(true);
+    expect(d.config.ipv4Address).toMatch(/^192\.168\.1\./);
+    expect(r.config.interfaces![0].dhcpLeases).toHaveLength(1);
+  });
+
+  it("learns an ARP reply sent to its MAC, refreshes a known entry from a gratuitous broadcast, but never creates one from it", () => {
+    const { r, hub } = hubWithRouter();
+    const iface = r.config.interfaces![0];
+    // Unicast to another host: not learned.
+    processAtRouter(r, createArpReply("02:00:00:00:00:20", "192.168.1.20", "02:00:00:00:00:10", "192.168.1.10"), hub.id);
+    expect(iface.arpTable ?? []).toEqual([]);
+    // Gratuitous broadcast for an IP R holds no entry for: not learned (arp_accept off).
+    processAtRouter(r, createArpReply("02:00:00:00:00:20", "192.168.1.20", BROADCAST_MAC, "192.168.1.20"), hub.id);
+    expect(iface.arpTable ?? []).toEqual([]);
+    // Addressed to R's interface MAC: learned.
+    processAtRouter(r, createArpReply("02:00:00:00:00:20", "192.168.1.20", iface.macAddress!, "192.168.1.1"), hub.id);
+    expect(iface.arpTable).toEqual([{ ipv4Address: "192.168.1.20", macAddress: "02:00:00:00:00:20" }]);
+    // A gratuitous broadcast now refreshes the existing entry.
+    processAtRouter(r, createArpReply("02:00:00:00:00:21", "192.168.1.20", BROADCAST_MAC, "192.168.1.20"), hub.id);
+    expect(iface.arpTable).toEqual([{ ipv4Address: "192.168.1.20", macAddress: "02:00:00:00:00:21" }]);
+  });
+
+  // The strict MAC filter is only faithful if a stale ARP cache can recover:
+  // the simulator has no ARP ageing, so deleting a device drops every entry
+  // pointing at its MACs, and a stale entry that survives is diagnosed.
+  function switchedGateway() {
+    runConsoleScript(`
+      add switch SW at 200 0
+      add computer A at 0 0
+      add computer C at 600 0
+      add router R at 400 0
+      link A SW
+      link R SW
+      link R C
+      ip A 192.168.1.10/24
+      gateway A 192.168.1.1
+      ip C 10.0.0.10/24
+      gateway C 10.0.0.1
+      interface R SW ip 192.168.1.1
+      interface R C ip 10.0.0.1
+    `);
+    return state.devices.find(d => d.name === "A")!;
+  }
+  const pingC = (a: any) => runSimulationHeadless(buildPingEvents(a, "10.0.0.10") as any, a.id, "10.0.0.10", "ping");
+
+  it("reaches a replacement gateway router after the old one is deleted (its ARP entries go with it)", () => {
+    const a = switchedGateway();
+    expect(pingC(a).success).toBe(true);
+    const oldMac = state.devices.find(d => d.name === "R")!.config.interfaces![0].macAddress;
+    expect(a.config.arpTable!.some(e => e.macAddress === oldMac)).toBe(true);   // the cache is warm
+    runConsoleScript(`
+      remove R
+      add router R2 at 400 0
+      link R2 SW
+      link R2 C
+      interface R2 SW ip 192.168.1.1
+      interface R2 C ip 10.0.0.1
+    `);
+    expect(a.config.arpTable!.some(e => e.macAddress === oldMac)).toBe(false);
+    const result = pingC(a);
+    expect(result.success).toBe(true);
+    expect(state.simulation.pingTtl).toBe(63);
+  });
+
+  it("undoing the delete restores the ARP entries it dropped", () => {
+    const a = switchedGateway();
+    pingC(a);
+    const before = JSON.stringify(a.config.arpTable);
+    runConsoleScript("remove R");
+    runConsoleScript("undo");
+    const restored = state.devices.find(d => d.name === "A")!;
+    expect(JSON.stringify(restored.config.arpTable)).toBe(before);
+  });
+
+  it("diagnoses a stale ARP entry (a MAC no device owns) and `ip neigh flush all` recovers", () => {
+    const a = switchedGateway();
+    a.config.arpTable = [{ ipv4Address: "192.168.1.1", macAddress: "02:DE:AD:00:00:01" }];
+    const failed = pingC(a);
+    expect(failed.success).toBe(false);
+    const line = failed.diagnosis.find(l => l.startsWith("Stale ARP entry"));
+    expect(line).toContain("192.168.1.1 (A's default gateway) is cached at 02:DE:AD:00:00:01");
+    expect(line).toContain("ip neigh flush all");
+    expect(flushHostArp(a)).toBe("Flushed 1 ARP entry from eth0.");
+    expect(pingC(a).success).toBe(true);
+  });
+
+  it("does not report a stale entry for an address the flow never used", () => {
+    const a = switchedGateway();
+    // A firewall-free failure: C is powered off. A's unrelated stale entry for
+    // 192.168.1.99 is beside the point and stays out of the diagnosis.
+    a.config.arpTable = [{ ipv4Address: "192.168.1.99", macAddress: "02:DE:AD:00:00:99" }];
+    state.devices.find(d => d.name === "C")!.poweredOff = true;
+    const failed = pingC(a);
+    expect(failed.success).toBe(false);
+    expect(failed.diagnosis.some(l => l.includes("Stale ARP entry"))).toBe(false);
+  });
+
+  it("routes a frame addressed to the second of two interfaces on the same segment", () => {
+    const { a, r, hub } = hubWithRouter();
+    r.config.interfaces!.push({ ...r.config.interfaces![0], name: "", ipv4Address: "192.168.1.2", macAddress: "02:00:00:00:00:F2", arpTable: [], dhcpLeases: [] });
+    runConsoleScript(`
+      add computer C at 400 200
+      link R C
+      ip C 10.0.0.10/24
+      interface R C ip 10.0.0.1
+    `);
+    const c = state.devices.find(d => d.name === "C")!;
+    r.config.interfaces!.find(i => i.peerId === c.id)!.arpTable = [{ ipv4Address: "10.0.0.10", macAddress: c.config.macAddress! }];
+    const frame = createIcmpEchoRequest(a.config.macAddress!, "02:00:00:00:00:F2", "192.168.1.10", "10.0.0.10", 64);
+    const out = processAtRouter(r, frame, hub.id);
+    expect(out).toHaveLength(1);
+    expect(out[0].toDeviceId).toBe(c.id);   // routed out the 10.0.0.0/24 interface
+    expect(out[0].frame.dstMac).toBe(c.config.macAddress!);
+    expect(out[0].frame.payload.type === "ipv4" && out[0].frame.payload.ttl).toBe(63);
+    expect(actions("R").some(t => t.includes("not ours to route"))).toBe(false);
+  });
+
+  // Re-cabling a router port gives it a fresh interface (and MAC); the old one
+  // stays in the config with no cable. Unplugging it must take the hosts'
+  // cached gateway MAC with it, or the strict MAC filter ignores their frames.
+  it("reaches the gateway after the router's cable moves to another switch on the LAN", () => {
+    const a = switchedGateway();
+    runConsoleScript(`
+      add switch SW2 at 200 200
+      link SW SW2
+    `);
+    expect(pingC(a).success).toBe(true);
+    runConsoleScript(`
+      unlink R SW
+      link R SW2
+      interface R SW2 ip 192.168.1.1
+    `);
+    const result = pingC(a);
+    expect(result.success).toBe(true);
+    expect(state.simulation.pingTtl).toBe(63);
+  });
+
+  it("reaches the gateway after the LAN switch is replaced", () => {
+    const a = switchedGateway();
+    expect(pingC(a).success).toBe(true);
+    runConsoleScript(`
+      remove SW
+      add switch SW2 at 200 0
+      link A SW2
+      link R SW2
+      interface R SW2 ip 192.168.1.1
+    `);
+    expect(pingC(a).success).toBe(true);
+  });
+
+  // R1 —(T)— R2, with a second switch T2 bridged to T for R2's cable to move to.
+  function twoRouters() {
+    runConsoleScript(`
+      add computer A at 0 0
+      add router R1 at 200 0
+      add switch T at 400 0
+      add switch T2 at 400 200
+      add router R2 at 600 0
+      add computer C at 800 0
+      link A R1
+      link R1 T
+      link T T2
+      link R2 T
+      link R2 C
+      ip A 192.168.1.10/24
+      gateway A 192.168.1.1
+      ip C 10.0.0.10/24
+      gateway C 10.0.0.1
+      interface R1 A ip 192.168.1.1
+      interface R1 T ip 172.16.0.1/24
+      interface R2 T ip 172.16.0.2/24
+      interface R2 C ip 10.0.0.1
+      route R1 10.0.0.0/24 172.16.0.2
+      route R2 192.168.1.0/24 172.16.0.1
+    `);
+    const dev = (n: string) => state.devices.find(d => d.name === n)!;
+    return { a: dev("A"), r1: dev("R1"), r2: dev("R2"), t: dev("T") };
+  }
+  const moveR2 = () => runConsoleScript(`
+    unlink R2 T
+    link R2 T2
+    interface R2 T2 ip 172.16.0.2/24
+  `);
+
+  it("a router reaches its next-hop router after that router's cable moves", () => {
+    const { a } = twoRouters();
+    expect(pingC(a).success).toBe(true);
+    moveR2();
+    expect(pingC(a).success).toBe(true);
+  });
+
+  it("names a router's stale next-hop entry, and the router's `ip neigh flush all` recovers", () => {
+    const { a, r1, r2, t } = twoRouters();
+    expect(pingC(a).success).toBe(true);
+    const oldMac = r2.config.interfaces!.find(i => i.peerId === t.id)!.macAddress;
+    moveR2();
+    // An entry the unplug purge never saw (as an imported topology might carry
+    // it): R1 still caches its next hop at R2's old, now cable-less interface.
+    const r1Iface = r1.config.interfaces!.find(i => i.peerId === t.id)!;
+    r1Iface.arpTable = [{ ipv4Address: "172.16.0.2", macAddress: oldMac }];
+    const failed = pingC(a);
+    expect(failed.success).toBe(false);
+    const line = failed.diagnosis.find(l => l.startsWith("R1: Stale ARP entry"));
+    expect(line).toContain(`172.16.0.2 (R1's next hop toward 10.0.0.10) is cached at ${oldMac}, which belongs to R2's interface with no cable now`);
+    expect(line).toContain("`ip neigh flush all` (privileged mode)");
+    expect(flushRouterArp(r1)).toMatch(/^Flushed \d+ ARP entr(y|ies)\.$/);
+    expect(pingC(a).success).toBe(true);
   });
 });
 

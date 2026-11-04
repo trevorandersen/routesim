@@ -149,10 +149,12 @@ describe("nat — ICMP errors restored via the embedded original datagram", () =
     const entry = r1.config!.natTranslations!.find(t => t.protocol === "icmp")!;
 
     // An ICMP error arrives from an intermediate router beyond the NAT,
-    // addressed to R1's outside IP, quoting the TRANSLATED flow — as the
-    // internet cloud's TTL branch (or any far router) would send it.
+    // addressed to R1's outside IP (and, at L2, its outside interface MAC),
+    // quoting the TRANSLATED flow — as the internet cloud's TTL branch (or any
+    // far router) would send it.
+    const outsideMac = r1.config!.interfaces!.find(i => i.peerId === srv.id)!.macAddress!;
     const te = createIcmpTimeExceeded(
-      "02:99:99:99:99:99", "02:00:00:00:00:01",
+      "02:99:99:99:99:99", outsideMac,
       "203.0.113.99", "203.0.113.2", 64, null,
       { srcIp: entry.outsideIp, dstIp: entry.destIp, proto: "icmp", flowId: entry.outsidePort });
     const out = processAtRouter(r1, te, srv.id);
@@ -168,8 +170,9 @@ describe("nat — ICMP errors restored via the embedded original datagram", () =
   it("an error quoting no known flow is not restored (stays router-destined)", () => {
     const { r1, srv } = natTopology();
     enableNat();
+    const outsideMac = r1.config!.interfaces!.find(i => i.peerId === srv.id)!.macAddress!;
     const te = createIcmpTimeExceeded(
-      "02:99:99:99:99:99", "02:00:00:00:00:01",
+      "02:99:99:99:99:99", outsideMac,
       "203.0.113.99", "203.0.113.2", 64, null,
       { srcIp: "203.0.113.2", dstIp: "203.0.113.77", proto: "icmp", flowId: 4242 });
     // No matching translation → the self-destined branch consumes it (no echo

@@ -1,7 +1,7 @@
-import type { EthernetFrame, ArpPayload, Ipv4Payload, DhcpPayload, TcpPayload, DnsPayload, Dot11Payload, Dot1xPayload, BpduPayload, NatEntry, SimEvent, SimLogEntry, ActiveTransit, FrameHistoryEntry, RouteEntry, RouterInterface, Device, DeviceType, FirewallRule, FirewallTarget, ConnState, Link, Cidr, SimMode } from "./types";
+import type { EthernetFrame, ArpPayload, Ipv4Payload, DhcpPayload, TcpPayload, DnsPayload, Dot11Payload, Dot1xPayload, BpduPayload, NatEntry, SimEvent, SimLogEntry, ActiveTransit, FrameHistoryEntry, RouteEntry, RouterInterface, Device, DeviceType, FirewallRule, FirewallTarget, ConnState, Link, Cidr, SimMode, ArpEntry } from "./types";
 import { state, pushUndo, sync } from "./state";
 import { dom } from "./dom";
-import { getDevice, linkedPortsFor, routerInterfacesWithNames, linkName, linkById, linksFor, linkDataBlockReason, macsecState } from "./devices";
+import { getDevice, linkedPortsFor, routerInterfacesWithNames, linkName, linkById, linksFor, linkDataBlockReason, macsecState, macsOwnedBy, liveMacsOf } from "./devices";
 import { normalisePortVlans, normalisePortModes, normaliseTrunkAllowedVlans, normaliseArpTable, normaliseMacTable, normaliseDhcpLeases, normaliseStaticRoutes, ensureConfig } from "./normalise";
 import { sameSubnet, prefixOf, isValidIpv4, escapeHtml, ipv4ToInt, intToIpv4, normaliseMacAddress, deriveMac, internetGatewayIp, parseIpv4, cidrOf, cidrHas } from "./utils";
 import { simRandomInt } from "./prng";
@@ -1725,6 +1725,13 @@ export function processAtInternet(device: Device, frame: EthernetFrame, fromDevi
 
   if (frame.payload.type !== "ipv4") return out;  // the cloud only routes IPv4
   const ipv4 = frame.payload;
+  // Same L2 admission as a router: only a frame sent to the gateway MAC the
+  // cloud presents is a request to route it.
+  const dstMac = normaliseMacAddress(frame.dstMac);
+  if (dstMac !== cloudMac) {
+    logStep(device, "sim-learn", `${frameLabel(frame)} ${ipv4.srcIp}→${ipv4.dstIp} is for ${dstMac}, not the internet gateway MAC ${cloudMac} — not ours to route, ignoring`);
+    return out;
+  }
 
   // Route by destination: hand the frame to the connected router whose public
   // subnet owns the destination address (or is the destination itself).
@@ -1782,10 +1789,13 @@ export function processAtRouter(device: Device, frame: EthernetFrame, fromDevice
   if (fromDeviceId) {
     const peerIfaces = ifaces.filter((iface: any) => iface.peerId === fromDeviceId);
     if (peerIfaces.length > 1) {
-      // Sub-interfaces: match by vlanTag
-      ingressIface = peerIfaces.find((iface: any) =>
+      // Sub-interfaces: match by vlanTag. Two interfaces on the same segment
+      // (two cables to one hub or switch) share a tag, so prefer the one the
+      // frame is addressed to — the L2 admission below checks that MAC.
+      const sameTag = peerIfaces.filter((iface: any) =>
         frame.vlanTag != null ? iface.vlanTag === frame.vlanTag : iface.vlanTag == null
       );
+      ingressIface = sameTag.find((iface: any) => normaliseMacAddress(iface.macAddress || "") === frame.dstMac) ?? sameTag[0] ?? null;
     } else {
       ingressIface = peerIfaces[0] || null;
     }
@@ -1800,10 +1810,31 @@ export function processAtRouter(device: Device, frame: EthernetFrame, fromDevice
     return handleRouterArp(device, frame, ifaces, ingressIface, fromDeviceId!);
   } else if (frame.payload.type === "ipv4") {
     const ipv4 = frame.payload as Ipv4Payload;
+    const ifaceMac = normaliseMacAddress(ingressIface.macAddress || "");
+
+    // L2 admission, as a real NIC filters: a router takes up an IPv4 frame only
+    // when it is addressed to the ingress interface's MAC, or to a link-layer
+    // group address (broadcast/multicast). A unicast frame for another host —
+    // repeated by a hub, or flooded by a switch that has not learned the
+    // destination yet — is not ours to route: routing it would hand the real
+    // recipient a duplicate with TTL already decremented.
+    const groupAddressed = isGroupMac(frame.dstMac);
+    if (frame.dstMac !== ifaceMac && !groupAddressed) {
+      logStep(device, "sim-learn", `${frameLabel(frame)} ${ipv4.srcIp}→${ipv4.dstIp} is for ${frame.dstMac}, not this interface's MAC ${ifaceMac} — not ours to route, ignoring`);
+      return outgoing;
+    }
 
     // Handle broadcast DHCP messages before any routing
     if (ipv4.dstIp === "255.255.255.255" && ipv4.payload.type === "dhcp") {
       return handleRouterDhcp(device, ingressIface, fromDeviceId!, ipv4.payload as DhcpPayload, ipv4);
+    }
+
+    // A link-layer broadcast/multicast is delivered to every station on the
+    // segment; a router never forwards it beyond that segment (only a frame
+    // sent to its own MAC is a request to route).
+    if (groupAddressed) {
+      logStep(device, "sim-learn", `${frameLabel(frame)} ${ipv4.srcIp}→${ipv4.dstIp} was sent to link-layer ${frame.dstMac === BROADCAST_MAC ? "broadcast" : "multicast"} — a router does not route it off the segment, ignoring`);
+      return outgoing;
     }
 
     return routeIpv4Frame(device, frame, ifaces, ingressIface, fromDeviceId!, ipv4);
@@ -1826,12 +1857,26 @@ function handleRouterArp(device: Device, frame: EthernetFrame, ifaces: any[], in
     );
     outgoing.push({ frame: reply, toDeviceId: fromDeviceId });
   } else if (arp.operation === "reply") {
+    // Learn only from a reply meant for this interface: one sent to its MAC (the
+    // answer to our own request), or a broadcast (gratuitous) reply that
+    // refreshes an entry we already hold or are resolving — as Linux does with
+    // arp_accept off. A reply unicast to another host (repeated by a hub, or
+    // flooded) is not ours: learning from it would let any on-link exchange
+    // write the router's cache.
+    const pendingKey = `${device.id}:${arp.senderIp}`;
+    const pending = sim.pendingArp[pendingKey];
+    const ifaceMac = normaliseMacAddress(ingressIface.macAddress || "");
+    const known = (ingressIface.arpTable || []).some((e: any) => e.ipv4Address === arp.senderIp);
+    const forUs = frame.dstMac === ifaceMac
+      || (frame.dstMac === BROADCAST_MAC && (known || !!pending?.length));
+    if (!forUs) {
+      logStep(device, "sim-learn", `ARP Reply ${arp.senderIp} is-at ${arp.senderMac} is for ${frame.dstMac}, not this interface's MAC ${ifaceMac} — not learned, ignoring`);
+      return outgoing;
+    }
     learnRouterArp(ingressIface, arp.senderIp, arp.senderMac);
     logStep(device, "sim-arp", `Received ARP Reply on ${ifaceName(ingressIface)}: ${arp.senderIp} is-at ${arp.senderMac}`);
 
     // Check for buffered frames
-    const pendingKey = `${device.id}:${arp.senderIp}`;
-    const pending = sim.pendingArp[pendingKey];
     if (pending && pending.length > 0) {
       const table = buildRoutingTable(device); // build once for the whole flush
       for (const pf of pending) {
@@ -2551,6 +2596,13 @@ function learnArp(config: any, ip: string, mac: string): void {
   }
 }
 
+// A link-layer group address (broadcast or multicast): the I/G bit — the least
+// significant bit of the first octet — is set.
+function isGroupMac(mac: string): boolean {
+  const first = parseInt(mac.slice(0, 2), 16);
+  return Number.isFinite(first) && (first & 1) === 1;
+}
+
 function learnRouterArp(iface: any, ip: string, mac: string): void {
   iface.arpTable = normaliseArpTable(iface.arpTable || []);
   const existing = iface.arpTable.find((e: any) => e.ipv4Address === ip);
@@ -2970,6 +3022,60 @@ function explainUnansweredArp(device: Device, ip: string, frames: EthernetFrame[
   return `${head}: no device on this subnet answered for ${ip} — is the address right, and is that host cabled and powered on?`;
 }
 
+// ARP cache entries that could have sunk this flow: an entry for one of its
+// endpoints (the origin, its target, its gateway or nameserver), or a router's
+// next hop toward either end, that maps the
+// address to a MAC nothing presents on a cable any more — a changed NIC
+// address, a router interface whose cable was moved (re-cabling the port gives
+// it a new MAC), or a cache imported from another topology. A router takes up
+// only frames sent to its own interface MAC, so a routed flow addressed there
+// dies with no ARP left to explain it. Reported only on a failed run.
+function staleArpEntries(origin: Device | undefined): { device: Device; reason: string }[] {
+  if (!origin) return [];
+  const sim = state.simulation;
+  const cfg = origin.config;
+  const roles = new Map<string, string>();
+  const note = (ip: string | null | undefined, role: string) => { if (ip && !roles.has(ip)) roles.set(ip, role); };
+  note(sim.pingTargetIp ?? sim.dnsResolvedIp, "the target");
+  note(cfg?.gatewayIpv4Address, `${origin.name}'s default gateway`);
+  note(cfg?.dnsServerIp, `${origin.name}'s nameserver`);
+  note(cfg?.ipv4Address, origin.name);
+  const live = new Set<string>();
+  for (const d of state.devices) for (const mac of liveMacsOf(d)) live.add(mac);
+  const ends = [sim.pingTargetIp ?? sim.dnsResolvedIp, cfg?.ipv4Address].filter((ip): ip is string => !!ip);
+  const found: { device: Device; reason: string }[] = [];
+  const check = (device: Device, table: ArpEntry[] | undefined, hops?: Map<string, string>) => {
+    for (const entry of table ?? []) {
+      const role = roles.get(entry.ipv4Address) ?? hops?.get(entry.ipv4Address);
+      if (!role || !entry.macAddress) continue;
+      const mac = normaliseMacAddress(entry.macAddress);
+      if (live.has(mac)) continue;
+      const owner = state.devices.find(d => macsOwnedBy(d).includes(mac));
+      const whose = owner
+        ? `which belongs to ${owner.name}${owner.type === "router" ? "'s interface" : ""} with no cable now`
+        : "which no device on the network owns";
+      const remedy = device.type === "router"
+        ? "the simulator never ages ARP entries out, so flush the router's cache with `ip neigh flush all` (privileged mode) and retry"
+        : "the simulator never ages ARP entries out, so flush the cache with `ip neigh flush all` and retry";
+      found.push({ device, reason: `Stale ARP entry: ${entry.ipv4Address} (${role}) is cached at ${entry.macAddress}, ${whose} — a router takes up only frames sent to its own interface MAC, so frames sent there are ignored; ${remedy}` });
+    }
+  };
+  for (const d of state.devices) {
+    check(d, d.config?.arpTable);
+    if (!d.config?.interfaces?.length) continue;
+    // A router's entry for its next hop toward either end of the flow.
+    const hops = new Map<string, string>();
+    if (d.type === "router") {
+      for (const ip of ends) {
+        const hop = routingLookup(d, ip)?.nextHopIp;
+        if (hop && hop !== ip && !hops.has(hop)) hops.set(hop, `${d.name}'s next hop toward ${ip}`);
+      }
+    }
+    for (const iface of d.config.interfaces) check(d, iface.arpTable, hops);
+  }
+  return found;
+}
+
 // The run's post-mortem, before finishSimulation discards its queues: explain
 // what no single step could. A storm is the whole story (queued frames are its
 // symptom); otherwise every pendingArp entry still holding frames is an ARP
@@ -2998,6 +3104,12 @@ function runPostMortem(succeeded: boolean): string[] {
     byDevice.set(id, list);
   }
   const lines: string[] = [];
+  if (!succeeded) {
+    for (const { device, reason } of staleArpEntries(origin)) {
+      logStep(device, "sim-drop", reason);
+      lines.push(device.id === sim.originDeviceId ? reason : `${device.name}: ${reason}`);
+    }
+  }
   for (const [id, entries] of byDevice) {
     const device = getDevice(id);
     if (!device) continue;

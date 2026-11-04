@@ -18,7 +18,7 @@ The single source of truth for the data model. No runtime code — only `interfa
 ## Frames & simulation
 
 - **`EthernetFrame`** — `srcMac`/`dstMac`/`etherType`/`vlanTag`/`payload`. The payload is `ArpPayload | Ipv4Payload` (an L2 frame carries either ARP or IPv4; `Ipv4Payload.payload` is itself `IcmpPayload | DhcpPayload | TcpPayload | DnsPayload`). An ICMP **error** (type 11/3) carries `IcmpPayload.original` (**`IcmpOriginal`**: src/dst IP, proto, flow id) — the sim's equivalent of real ICMP quoting the offending datagram's header, and what lets a NAT router restore the error to the inside sender (see [nat.md](nat.md)).
-- **`SimEvent`, `ActiveTransit`, `SimLogEntry`, `SimulationState`** — the queue, animated dots, log lines, and overall sim status used by `engine.ts`. `SimulationState.conntrack` is `Record<string, ConntrackEntry[]>` — connection tracking per filtering device (firewall/router), runtime only and reset each run.
+- **`SimEvent`, `ActiveTransit`, `SimLogEntry`, `SimulationState`** — the queue, animated dots, log lines, and overall sim status used by `engine.ts`. `SimulationState.conntrack` is `Record<string, ConntrackEntry[]>` — connection tracking per filtering device (firewall/router), runtime only and reset each run. **`SimMode`** (`SimulationState["mode"]`) names the run-mode union once, for both run entry points.
 - **`CaptureEntry`** — one packet-list row: running number, step, frame, endpoint device ids, link id (`sim.capture`).
 
 ## App state

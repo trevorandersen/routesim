@@ -73,8 +73,7 @@ function interruptSimOnCtrlC(event: KeyboardEvent, pane: "terminal" | "console")
   const echo = `${input.value}^C`;
   input.value = "";
   if (pane === "terminal") terminalLine("", echo); else consoleLine("error", echo);
-  stopSimulation();
-  dom.terminalInput.disabled = false;
+  stopSimulation();   // syncTerminal unlocks the input (the lock follows sim.status)
   return true;
 }
 
@@ -758,13 +757,12 @@ export function setupUI(): void {
 
   // Simulation controls — wired on the Main-tab ribbon and the floating
   // on-canvas transport pill (reachable from any tab while a sim runs).
-  const simStopAction = () => { stopSimulation(); dom.terminalInput.disabled = false; };
   dom.simPlayPause.addEventListener("click", handleSimPlayPause);
   dom.simStep.addEventListener("click", stepOnce);
-  dom.simStop.addEventListener("click", simStopAction);
+  dom.simStop.addEventListener("click", stopSimulation);
   dom.simTransportPlayPause.addEventListener("click", handleSimPlayPause);
   dom.simTransportStep.addEventListener("click", stepOnce);
-  dom.simTransportStop.addEventListener("click", simStopAction);
+  dom.simTransportStop.addEventListener("click", stopSimulation);
   dom.simSpeed.addEventListener("input", () => {
     state.simulation.speed = Number(dom.simSpeed.value) || 1000;
   });

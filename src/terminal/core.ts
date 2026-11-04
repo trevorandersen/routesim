@@ -21,6 +21,7 @@ import { runSwitchTerminalCommand } from "./switch";
 import { runFirewallTerminalCommand } from "./firewall";
 import { runIdsTerminalCommand } from "./ids";
 import { runAttackerTerminalCommand } from "./attacker";
+import { RUN_BUSY, animatedRunBlockReason, takePreemptionNote } from "../engine";
 
 // While true, lines pushed are flagged `injected` — the simulator typed them
 // (a GUI inspector edit driving the device CLI), not the user. See runDeviceCommand.
@@ -261,7 +262,26 @@ export function runTerminalCommand(rawCommand: string): void {
   }
   if (!command) return;
   terminalLine("command", `${terminalPromptText(host)} ${command}`);
+  // A command here can stop another run (a ping preempting a network boot, a
+  // traceroute stopping an animation — engine beginRun). Say so in this shell,
+  // under the command that caused it — unless the interrupted run was this
+  // device's own, whose session engine already wrote the note to.
+  takePreemptionNote();   // drop a note left by a run this command didn't start
+  const session = state.terminal;
+  const at = session.lines.length;
   run(host, command);
+  const note = takePreemptionNote();
+  if (note && !session.lines.slice(at).some(l => l.text === note)) session.lines.splice(at, 0, { kind: "error", text: note });
+}
+
+// Whether the active session is the busy shell: the one whose device started
+// the run in flight, as a real shell is busy only while its own foreground job
+// runs — PC-B's shell and the router's vtysh stay usable (to check an ARP cache
+// or a routing table mid-run), and a run-starting command there is refused with
+// RUN_BUSY by the command itself. A network boot locks nothing: the policy
+// function says a user's run may preempt it, so its shells stay usable too.
+function terminalBusy(): boolean {
+  return animatedRunBlockReason() !== null && state.terminal.deviceId === state.simulation.originDeviceId;
 }
 
 export function openTerminalFor(device: Device | undefined): void {
@@ -296,8 +316,19 @@ export function syncTerminal(): void {
   }
   const activeHost = getDevice(state.terminal.deviceId);
   dom.terminalPrompt.textContent = activeHost ? terminalPromptText(activeHost) : "device$";
+  // The input lock follows the run, not the command that started it: while the
+  // run this shell started is running or paused, the shell is busy, as a real
+  // one is until its foreground job exits (terminalBusy). Deriving it here
+  // (every sync) means no later re-render can unlock it mid-run — the old lock
+  // was set once by the command and cleared again at the end of the same
+  // submit. readOnly rather than disabled: a disabled input can't keep focus or
+  // see Ctrl+C, which is how the learner interrupts the run.
+  const busy = terminalBusy();
   dom.terminalInput.disabled = !activeHost;
-  dom.terminalInput.placeholder = activeHost ? (activeHost.type === "router" ? "?" : "help") : "Select a device";
+  dom.terminalInput.readOnly = busy;
+  dom.terminalInput.placeholder = !activeHost ? "Select a device"
+    : busy ? `Simulation ${state.simulation.status === "paused" ? "paused" : "running"} — Ctrl+C to stop`
+    : activeHost.type === "router" ? "?" : "help";
   dom.terminalOutput.innerHTML = state.terminal.lines.length
     ? state.terminal.lines.map(line => (
         `<p class="terminal-line ${escapeHtml(line.kind || "")}${line.injected ? " injected" : ""}">${escapeHtml(line.text)}</p>`
@@ -319,7 +350,13 @@ export function submitTerminalCommand(event: Event): void {
     }
   }
   state.terminal.historyIndex = -1;
-  runTerminalCommand(command);
+  if (command.trim() && terminalBusy()) {
+    // The busy shell's input is read-only; this catches a submit that slips
+    // through anyway (a value typed before the run began, an autofill).
+    terminalLine("error", RUN_BUSY);
+  } else {
+    runTerminalCommand(command);
+  }
   syncTerminal();
 }
 

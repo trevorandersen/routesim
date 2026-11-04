@@ -221,6 +221,8 @@ This is the completeness guarantee — the command set can express everything th
 
 `ping`/`dhcp` run the **animated** simulation (transit dots on the canvas) and return immediately. `run ping`/`run dhcp` run **headless** — the engine drains the event queue synchronously (no animation) and returns the result plus log. Use `run` in scripts and tests where you want a deterministic pass/fail; use the animated form to watch a packet traverse the network. Both are backed by the same per-device processing in `engine.ts` (see [src/engine.md](src/engine.md)).
 
+Only one run owns the simulator at a time ([run ownership](src/engine.md#run-ownership)). While an animated run is running or paused, a second animated verb (`ping`, `connect`, `http`, `dhcp`, `associate`, `dot1x`, `attack`, bare `stp`) fails with *"A simulation is already running (or paused) — wait for it to finish, or stop it first (Ctrl+C or Stop)."* — the run on screen is left alone. A headless verb (`run …`, `traceroute`, `scenario check`) instead stops the animated run first and puts a note as the first line of its output (*"Simulation stopped before it finished — the console's `run ping` needed the simulator."*, or *"… — a traceroute from PC3 …"* / *"… — the scenario Check …"*). A network boot started by Play gives way to either kind of run, and the rest of its queue is cancelled (*"Network boot interrupted — …; 2 hosts still unassigned (press Play to finish booting)."*).
+
 ## JSON import/export
 
 The app is a single self-contained file with no server, so persistence is **file import/export** (download + a file picker), in the ribbon's **File** tab and on `window.routesim`. Implemented in `src/io.ts`.

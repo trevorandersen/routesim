@@ -14,7 +14,7 @@ import {
   addSwitchVlan, removeSwitchVlan, setSwitchPortVlan, setSwitchPortMode, setSwitchTrunkNative, setSwitchStp, setSwitchMirror
 } from "./terminal";
 import { resizeCanvas } from "./canvas";
-import { syncSimLog, startSimulation } from "./engine";
+import { syncSimLog, startSimulation, animatedRunBlockReason } from "./engine";
 import { buildAssociationEvents, buildAttackEvents } from "./simulation";
 
 export function syncOptionControls(): void {
@@ -677,6 +677,8 @@ export function bindAttackerControls(device: any): void {
       .filter(c => c.checked).map(c => c.dataset.attack);
   }));
   document.getElementById("launchAttack")?.addEventListener("click", () => {
+    const busy = animatedRunBlockReason();   // another run owns the simulator (engine beginRun)
+    if (busy) { dom.modeLabel.textContent = busy; return; }
     if (target) device.config.attackTarget = target.value.trim();   // commit before launching
     const setup = buildAttackEvents(device);
     if (typeof setup === "string") { dom.modeLabel.textContent = setup; return; }
@@ -1303,6 +1305,8 @@ export function syncPanel(): void {
     bindWifiField("selectedSsid", "ssid", normaliseSsid);
     bindWifiField("selectedWifiPassword", "wifiPassword", normaliseWifiPassword);
     document.getElementById("associateLaptop")?.addEventListener("click", () => {
+      const busy = animatedRunBlockReason();
+      if (busy) { dom.modeLabel.textContent = busy; return; }
       const setup = buildAssociationEvents(selected);
       if (typeof setup === "string") { dom.modeLabel.textContent = setup; return; }
       startSimulation(setup, selected.id, selected.config?.ssid || "", "associate");

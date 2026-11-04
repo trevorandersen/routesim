@@ -7618,25 +7618,185 @@ Full legal text: https://creativecommons.org/publicdomain/zero/1.0/legalcode</pr
   }
 
   // src/engine.ts
-  function startSimulation(setup, originDeviceId, targetIp, mode = "ping", targetPort = null) {
+  var RUN_BUSY = "A simulation is already running (or paused) \u2014 wait for it to finish, or stop it first (Ctrl+C or Stop).";
+  function runActive() {
+    const status = state.simulation.status;
+    return status === "running" || status === "paused";
+  }
+  function animatedRunBlockReason() {
+    if (!runActive()) return null;
+    return !state.simulation.headless && bootRunActive ? null : RUN_BUSY;
+  }
+  function describeRun(mode, originDeviceId, headless, purpose) {
+    if (purpose) return purpose;
+    const origin = getDevice(originDeviceId)?.name;
+    return `${headless ? "a background check" : runNoun(mode)}${origin ? ` from ${origin}` : ""}`;
+  }
+  function runNoun(mode) {
+    switch (mode) {
+      case "ping":
+        return "a ping";
+      case "dhcp":
+        return "a DHCP request";
+      case "tcp":
+        return "a TCP connect";
+      case "http":
+        return "an HTTP request";
+      case "dns":
+        return "a DNS lookup";
+      case "associate":
+        return "a WiFi association";
+      case "dot1x":
+        return "an 802.1X login";
+      case "stp":
+        return "a spanning-tree run";
+      case "attack":
+        return "an attack run";
+    }
+  }
+  var preemptionNote = null;
+  function takePreemptionNote() {
+    const note = preemptionNote;
+    preemptionNote = null;
+    return note;
+  }
+  function preemptActiveRun(next) {
+    const sim = state.simulation;
+    let note;
+    if (bootRunActive) {
+      const left = unconfiguredBootableHosts().length;
+      note = `Network boot interrupted \u2014 ${next} needed the simulator; ${left} host${left === 1 ? "" : "s"} still unassigned (press Play to finish booting).`;
+    } else {
+      note = `Simulation stopped before it finished \u2014 ${next} needed the simulator.`;
+    }
+    const session = sessionFor(sim.originDeviceId);
+    if (session) terminalLineFor(session, "error", note);
+    stopSimulation();
+    dom.modeLabel.textContent = note;
+    preemptionNote = note;
+  }
+  function beginRun(setup, originDeviceId, targetIp, mode, targetPort, headless, purpose) {
+    const sim = state.simulation;
+    const boot = !headless && pendingBootRun;
+    pendingBootRun = false;
+    if (runActive()) {
+      if (sim.headless) {
+        if (!headless) return RUN_BUSY;
+      } else if (headless || bootRunActive) {
+        preemptActiveRun(describeRun(mode, originDeviceId, headless, purpose));
+      } else {
+        return RUN_BUSY;
+      }
+    }
+    if (!boot) bootQueue = [];
     runRipConvergence();
     runStpConvergence();
-    pushUndo();
-    state.inspectedFrame = null;
-    state.inspectedCapture = null;
+    if (!headless) {
+      if (!boot) pushUndo();
+      bootRunActive = boot;
+    }
+    resetRunState(setup, originDeviceId, targetIp, mode, targetPort, headless);
+    return null;
+  }
+  function resetRunState(setup, originDeviceId, targetIp, mode, targetPort, headless) {
     const sim = state.simulation;
-    bootRunActive = pendingBootRun;
-    pendingBootRun = false;
     sim.status = "running";
     sim.mode = mode;
-    sim.headless = false;
+    sim.headless = headless;
     sim.events = [];
     sim.log = [];
-    sim.capture = [];
-    state.dock.captureView = "live";
     sim.transits = [];
     sim.pendingArp = { ...setup.pendingArp };
     sim.stepIndex = 0;
+    sim.originDeviceId = originDeviceId;
+    sim.pingTargetIp = setup.dns ? null : targetIp;
+    sim.pingSuccess = false;
+    sim.pingTtl = 64;
+    sim.pingResponderIp = null;
+    sim.pingTimeExceeded = false;
+    sim.tcpSuccess = false;
+    sim.tcpRefused = false;
+    sim.tcpTargetPort = setup.dns?.port ?? targetPort;
+    sim.httpPath = setup.httpPath ?? "/";
+    sim.httpSuccess = false;
+    sim.httpStatus = null;
+    sim.httpStatusText = null;
+    sim.httpServerTitle = null;
+    sim.dnsName = setup.dns?.name ?? null;
+    sim.dnsResolvedIp = null;
+    sim.resolveThen = setup.dns?.then ?? null;
+    sim.dhcpOfferTaken = false;
+    sim.dhcpSuccess = false;
+    sim.dhcpAssignedIp = null;
+    sim.dhcpAssignedGateway = null;
+    sim.wifiAssociated = false;
+    sim.dot1xAuthorized = false;
+    sim.stormDetected = false;
+    sim.scanOpen = [];
+    sim.scanClosed = [];
+    sim.sweepLive = [];
+    sim.conntrack = {};
+    sim.dnatSessions = {};
+    sim.lossNoted = /* @__PURE__ */ new Set();
+    for (const d of state.devices) {
+      if (d.type === "ids" && d.config) d.config.alerts = [];
+      if ((d.type === "attacker" || d.type === "kali") && d.config) d.config.attackLog = [];
+    }
+  }
+  function runLabel(mode, target) {
+    const sim = state.simulation;
+    switch (mode) {
+      case "dhcp":
+        return "Requesting DHCP lease...";
+      case "tcp":
+        return `Opening TCP connection to ${target}:${sim.tcpTargetPort ?? "?"}...`;
+      case "http":
+        return `Requesting http://${target}${sim.httpPath}...`;
+      case "dns":
+        return `Resolving ${target}...`;
+      case "associate":
+        return `Associating to ${target || "WiFi"}...`;
+      case "dot1x":
+        return `802.1X authenticating ${target || "supplicant"}...`;
+      case "stp":
+        return "Spanning tree: advertising BPDUs from the root bridge...";
+      case "attack":
+        return "Red Team: launching attacks...";
+      case "ping":
+        return `Simulating ping to ${target}...`;
+    }
+  }
+  function runSucceeded(mode) {
+    const sim = state.simulation;
+    switch (mode) {
+      case "dhcp":
+        return sim.dhcpSuccess;
+      case "tcp":
+        return sim.tcpSuccess;
+      case "http":
+        return sim.httpSuccess;
+      case "dns":
+        return sim.dnsResolvedIp != null;
+      case "associate":
+        return sim.wifiAssociated;
+      case "dot1x":
+        return sim.dot1xAuthorized;
+      case "stp":
+        return !sim.stormDetected;
+      case "attack":
+        return sim.scanOpen.length > 0 || sim.sweepLive.length > 0;
+      case "ping":
+        return sim.pingSuccess;
+    }
+  }
+  function startSimulation(setup, originDeviceId, targetIp, mode = "ping", targetPort = null) {
+    const refusal = beginRun(setup, originDeviceId, targetIp, mode, targetPort, false);
+    if (refusal) return refusal;
+    state.inspectedFrame = null;
+    state.inspectedCapture = null;
+    const sim = state.simulation;
+    sim.capture = [];
+    state.dock.captureView = "live";
     let seeded = false;
     const seedNow = performance.now();
     for (const ev of setup.events) {
@@ -7651,49 +7811,14 @@ Full legal text: https://creativecommons.org/publicdomain/zero/1.0/legalcode</pr
       }
     }
     if (seeded) sim.stepIndex++;
-    sim.originDeviceId = originDeviceId;
-    sim.pingTargetIp = setup.dns ? null : targetIp;
-    sim.pingSuccess = false;
-    sim.pingTtl = 64;
-    sim.pingResponderIp = null;
-    sim.pingTimeExceeded = false;
-    sim.tcpSuccess = false;
-    sim.tcpRefused = false;
-    sim.tcpTargetPort = setup.dns?.port ?? targetPort;
-    sim.httpPath = setup.httpPath ?? "/";
-    sim.httpSuccess = false;
-    sim.httpStatus = null;
-    sim.httpStatusText = null;
-    sim.httpServerTitle = null;
-    sim.dnsName = setup.dns?.name ?? null;
-    sim.dnsResolvedIp = null;
-    sim.resolveThen = setup.dns?.then ?? null;
-    sim.dhcpOfferTaken = false;
-    sim.dhcpSuccess = false;
-    sim.dhcpAssignedIp = null;
-    sim.dhcpAssignedGateway = null;
-    sim.wifiAssociated = false;
-    sim.dot1xAuthorized = false;
-    sim.stormDetected = false;
-    sim.scanOpen = [];
-    sim.scanClosed = [];
-    sim.sweepLive = [];
-    sim.conntrack = {};
-    sim.dnatSessions = {};
-    sim.lossNoted = /* @__PURE__ */ new Set();
-    for (const d of state.devices) {
-      if (d.type === "ids" && d.config) d.config.alerts = [];
-      if ((d.type === "attacker" || d.type === "kali") && d.config) d.config.attackLog = [];
-    }
-    const target = setup.dns ? setup.dns.name : targetIp;
-    const label = mode === "dhcp" ? "Requesting DHCP lease..." : mode === "tcp" ? `Opening TCP connection to ${target}:${sim.tcpTargetPort ?? "?"}...` : mode === "http" ? `Requesting http://${target}${sim.httpPath}...` : mode === "dns" ? `Resolving ${target}...` : mode === "associate" ? `Associating to ${target || "WiFi"}...` : mode === "dot1x" ? `802.1X authenticating ${target || "supplicant"}...` : mode === "stp" ? "Spanning tree: advertising BPDUs from the root bridge..." : mode === "attack" ? "Red Team: launching attacks..." : `Simulating ping to ${target}...`;
-    state.terminal.lines.push({ kind: "sim", text: label });
+    state.terminal.lines.push({ kind: "sim", text: runLabel(mode, setup.dns ? setup.dns.name : targetIp) });
     if (!state.dock.open) openDock("simlog");
     syncTerminal();
     syncSimLog();
     updateSimControls();
     startAnimationLoop();
     if (sim.autoPlay && sim.transits.length === 0) processNextStep();
+    return null;
   }
   function stopSimulation() {
     const sim = state.simulation;
@@ -7706,6 +7831,7 @@ Full legal text: https://creativecommons.org/publicdomain/zero/1.0/legalcode</pr
     sim.pendingArp = {};
     bootQueue = [];
     pendingBootRun = false;
+    bootRunActive = false;
     state.inspectedCapture = null;
     state.dock.captureView = state.savedCaptures.length ? state.savedCaptures[state.savedCaptures.length - 1].id : "live";
     if (state.dock.compareBaseId === state.dock.captureView) state.dock.compareBaseId = "";
@@ -7719,19 +7845,23 @@ Full legal text: https://creativecommons.org/publicdomain/zero/1.0/legalcode</pr
     if (state.simulation.status === "running") {
       state.simulation.status = "paused";
       updateSimControls();
+      syncTerminal();
     }
   }
   function resumeSimulation() {
     if (state.simulation.status === "paused") {
       state.simulation.status = "running";
       updateSimControls();
+      syncTerminal();
       if (state.simulation.transits.length === 0) processNextStep();
     }
   }
   function stepOnce() {
     const sim = state.simulation;
     if (sim.status !== "paused" && sim.status !== "running") return;
+    const wasRunning = sim.status === "running";
     sim.status = "paused";
+    if (wasRunning) syncTerminal();
     if (sim.transits.length > 0) {
       for (const t of sim.transits) t.progress = 1;
       deliverCompletedTransits();
@@ -7739,52 +7869,24 @@ Full legal text: https://creativecommons.org/publicdomain/zero/1.0/legalcode</pr
     processNextStep();
     updateSimControls();
   }
-  function runSimulationHeadless(setup, originDeviceId, targetIp, mode = "ping", targetPort = null) {
-    runRipConvergence();
-    runStpConvergence();
+  function runSimulationHeadless(setup, originDeviceId, targetIp, mode = "ping", targetPort = null, purpose) {
+    beginRun(setup, originDeviceId, targetIp, mode, targetPort, true, purpose);
     const sim = state.simulation;
-    sim.status = "running";
-    sim.mode = mode;
-    sim.headless = true;
     sim.events = setup.events;
-    sim.log = [];
-    sim.transits = [];
-    sim.pendingArp = { ...setup.pendingArp };
-    sim.stepIndex = 0;
-    sim.originDeviceId = originDeviceId;
-    sim.pingTargetIp = setup.dns ? null : targetIp;
-    sim.pingSuccess = false;
-    sim.pingTtl = 64;
-    sim.pingResponderIp = null;
-    sim.pingTimeExceeded = false;
-    sim.tcpSuccess = false;
-    sim.tcpRefused = false;
-    sim.tcpTargetPort = setup.dns?.port ?? targetPort;
-    sim.httpPath = setup.httpPath ?? "/";
-    sim.httpSuccess = false;
-    sim.httpStatus = null;
-    sim.httpStatusText = null;
-    sim.httpServerTitle = null;
-    sim.dnsName = setup.dns?.name ?? null;
-    sim.dnsResolvedIp = null;
-    sim.resolveThen = setup.dns?.then ?? null;
-    sim.dhcpOfferTaken = false;
-    sim.dhcpSuccess = false;
-    sim.dhcpAssignedIp = null;
-    sim.dhcpAssignedGateway = null;
-    sim.wifiAssociated = false;
-    sim.dot1xAuthorized = false;
-    sim.stormDetected = false;
-    sim.scanOpen = [];
-    sim.scanClosed = [];
-    sim.sweepLive = [];
-    sim.conntrack = {};
-    sim.dnatSessions = {};
-    sim.lossNoted = /* @__PURE__ */ new Set();
-    for (const d of state.devices) {
-      if (d.type === "ids" && d.config) d.config.alerts = [];
-      if ((d.type === "attacker" || d.type === "kali") && d.config) d.config.attackLog = [];
+    try {
+      return drainHeadless(mode);
+    } finally {
+      if (sim.status !== "done") {
+        sim.status = "done";
+        sim.events = [];
+        sim.transits = [];
+        sim.pendingArp = {};
+      }
+      sim.headless = false;
     }
+  }
+  function drainHeadless(mode) {
+    const sim = state.simulation;
     const MAX_STEPS = 1e4;
     let guard = 0;
     processNextStep();
@@ -7795,8 +7897,8 @@ Full legal text: https://creativecommons.org/publicdomain/zero/1.0/legalcode</pr
     }
     if (guard >= MAX_STEPS && (sim.transits.length > 0 || sim.events.length > 0)) sim.stormDetected = true;
     if (sim.status !== "done") finishSimulation();
-    const result = {
-      success: mode === "dhcp" ? sim.dhcpSuccess : mode === "tcp" ? sim.tcpSuccess : mode === "http" ? sim.httpSuccess : mode === "dns" ? sim.dnsResolvedIp != null : mode === "associate" ? sim.wifiAssociated : mode === "dot1x" ? sim.dot1xAuthorized : mode === "stp" ? !sim.stormDetected : mode === "attack" ? sim.scanOpen.length > 0 || sim.sweepLive.length > 0 : sim.pingSuccess,
+    return {
+      success: runSucceeded(mode),
       refused: sim.tcpRefused,
       ttl: sim.pingTtl,
       responderIp: sim.pingResponderIp,
@@ -7808,12 +7910,11 @@ Full legal text: https://creativecommons.org/publicdomain/zero/1.0/legalcode</pr
       log: sim.log,
       steps: sim.stepIndex
     };
-    sim.headless = false;
-    return result;
   }
   var bootQueue = [];
   var pendingBootRun = false;
   var bootRunActive = false;
+  var bootUndoPending = false;
   function hostNeedsBoot(device) {
     return !!device && (device.type === "computer" || device.type === "laptop" || device.type === "kali" || device.type === "server") && !device.poweredOff && !device.config?.ipv4Address && state.links.some((l) => !l.hidden && !l.shutdown && (l.from === device.id || l.to === device.id));
   }
@@ -7846,6 +7947,7 @@ Full legal text: https://creativecommons.org/publicdomain/zero/1.0/legalcode</pr
       dom.modeLabel.textContent = "Nothing to boot \u2014 every host already has an address.";
       return false;
     }
+    bootUndoPending = true;
     return bootNextHost();
   }
   function bootNextHost() {
@@ -7857,10 +7959,12 @@ Full legal text: https://creativecommons.org/publicdomain/zero/1.0/legalcode</pr
         const setup = buildDhcpEvents(device);
         if (typeof setup === "string") continue;
         dom.modeLabel.textContent = `Booting ${device.name} via DHCP...`;
+        takeBootUndo();
         pendingBootRun = true;
         startSimulation(setup, device.id, "", "dhcp");
         return true;
       }
+      takeBootUndo();
       assignApipa(device);
       apipaCount++;
     }
@@ -7869,26 +7973,33 @@ Full legal text: https://creativecommons.org/publicdomain/zero/1.0/legalcode</pr
       sync().render();
       sync().syncPanel();
     }
+    bootUndoPending = false;
     return false;
   }
+  function takeBootUndo() {
+    if (!bootUndoPending) return;
+    bootUndoPending = false;
+    pushUndo();
+  }
   function runTraceroute(source, targetText, maxHops = 30) {
+    const purpose = `a traceroute from ${source.name}`;
     const target = findPingTarget(targetText);
     let targetIp = target ? target.config?.ipv4Address || targetText : targetText.trim();
     if (!target && !isValidIpv4(targetIp)) {
       const lookup = buildResolveEvents(source, targetIp, null, null);
       if (typeof lookup === "string") return `traceroute: unknown host ${targetIp}`;
-      const res = runSimulationHeadless(lookup, source.id, targetIp, "dns");
+      const res = runSimulationHeadless(lookup, source.id, targetIp, "dns", null, purpose);
       if (!res.resolvedIp) return `traceroute: unknown host ${targetIp}`;
       targetIp = res.resolvedIp;
     }
     const warm = buildPingEvents(source, targetIp);
-    if (typeof warm !== "string") runSimulationHeadless(warm, source.id, targetIp, "ping");
+    if (typeof warm !== "string") runSimulationHeadless(warm, source.id, targetIp, "ping", null, purpose);
     const hops = [];
     let reached = false;
     for (let ttl = 1; ttl <= maxHops; ttl++) {
       const setup = buildPingEvents(source, targetIp, { ttl });
       if (typeof setup === "string") return setup;
-      const res = runSimulationHeadless(setup, source.id, targetIp, "ping");
+      const res = runSimulationHeadless(setup, source.id, targetIp, "ping", null, purpose);
       if (res.success) {
         hops.push({ ttl, ip: res.responderIp || targetIp, reached: true });
         reached = true;
@@ -9782,8 +9893,6 @@ ${sim.httpServerTitle || ""}`);
     sim.status = "done";
     if (sim.headless) return;
     if (!bootRunActive) saveCurrentCapture();
-    const termInput = document.getElementById("terminalInput");
-    if (termInput) termInput.disabled = false;
     syncSimLog();
     syncTerminal();
     sync().syncPanel();
@@ -9904,6 +10013,11 @@ ${sim.httpServerTitle || ""}`);
     const ns = device.config?.dnsServerIp;
     return ns ? `nameserver ${ns}` : "# /etc/resolv.conf is empty (no nameserver configured)";
   }
+  function refuseIfRunning() {
+    const reason = animatedRunBlockReason();
+    if (reason) terminalLine("error", reason);
+    return reason != null;
+  }
   function runHostTerminalCommand(host, command) {
     const lower = command.toLowerCase();
     if (lower === "clear") {
@@ -9953,12 +10067,12 @@ ${sim.httpServerTitle || ""}`);
     }
     const lookupMatch = command.match(/^(?:nslookup|host|dig)\s+(\S+)$/i);
     if (lookupMatch) {
+      if (refuseIfRunning()) return;
       const result = buildResolveEvents(host, lookupMatch[1], null, null);
       if (typeof result === "string") {
         terminalLine("error", result);
       } else {
         startSimulation(result, host.id, lookupMatch[1], "dns");
-        dom.terminalInput.disabled = true;
       }
       return;
     }
@@ -9994,24 +10108,24 @@ ${sim.httpServerTitle || ""}`);
       return;
     }
     if (lower === "dhcp" || lower === "dhclient") {
+      if (refuseIfRunning()) return;
       const result = buildDhcpEvents(host);
       if (typeof result === "string") {
         terminalLine("error", result);
       } else {
         startSimulation(result, host.id, "", "dhcp");
-        dom.terminalInput.disabled = true;
       }
       return;
     }
     const ncMatch = command.match(/^nc\s+(?:-z\s+)?(\S+)\s+(\d+)$/i);
     if (ncMatch) {
+      if (refuseIfRunning()) return;
       const port = Number(ncMatch[2]);
       const result = buildConnectEvents(host, ncMatch[1], port);
       if (typeof result === "string") {
         terminalLine("error", result);
       } else {
         startSimulation(result, host.id, resolvePingTargetIp(ncMatch[1]), "tcp", port);
-        dom.terminalInput.disabled = true;
       }
       return;
     }
@@ -10032,12 +10146,12 @@ ${sim.httpServerTitle || ""}`);
         terminalLine("error", `${tool}: (3) URL rejected: Port number was not a decimal number between 0 and 65535`);
         return;
       }
+      if (refuseIfRunning()) return;
       const result = buildHttpEvents(host, target, port, path);
       if (typeof result === "string") {
         terminalLine("error", result);
       } else {
         startSimulation(result, host.id, resolvePingTargetIp(target), "http", port);
-        dom.terminalInput.disabled = true;
       }
       return;
     }
@@ -10058,6 +10172,7 @@ ${sim.httpServerTitle || ""}`);
     }
     const pingMatch = command.match(/^ping(?:\s+-c\s+\d+)?\s+(.+)$/i);
     if (pingMatch) {
+      if (refuseIfRunning()) return;
       const targetText = pingMatch[1].trim();
       const result = buildPingEvents(host, targetText);
       if (typeof result === "string") {
@@ -10065,7 +10180,6 @@ ${sim.httpServerTitle || ""}`);
       } else {
         const targetIp = resolvePingTargetIp(targetText);
         startSimulation(result, host.id, targetIp);
-        dom.terminalInput.disabled = true;
       }
       return;
     }
@@ -11768,13 +11882,15 @@ Snort successfully validated the configuration${bad ? " (with errors)" : "."}`);
     "Compiled without:",
     "Available nsock engines: epoll poll select"
   ].join("\n");
-  function launch(device, setup, kind) {
-    if (typeof setup === "string") {
-      terminalLine("error", setup);
+  function launch(device, build, kind) {
+    const busy = animatedRunBlockReason();
+    if (busy) {
+      terminalLine("error", busy);
       return;
     }
-    if (state.simulation.status === "running" || state.simulation.status === "paused") {
-      terminalLine("error", "A simulation is already running (or paused) \u2014 stop it first.");
+    const setup = build();
+    if (typeof setup === "string") {
+      terminalLine("error", setup);
       return;
     }
     startSimulation(setup, device.id, "", "attack");
@@ -11804,17 +11920,17 @@ Snort successfully validated the configuration${bad ? " (with errors)" : "."}`);
     }
     const sweep = command.match(/^(?:sudo\s+)?nmap\s+-sn\s+(\S+)\s*$/i);
     if (sweep) {
-      launch(device, buildSweepEvents(device, sweep[1]), `ping sweep of ${sweep[1]}`);
+      launch(device, () => buildSweepEvents(device, sweep[1]), `ping sweep of ${sweep[1]}`);
       return;
     }
     const scan = command.match(/^(?:sudo\s+)?nmap\s+(?:-sS\s+)?(\S+)\s*$/i);
     if (scan) {
-      launch(device, buildScanEvents(device, scan[1]), `SYN scan of ${scan[1]}`);
+      launch(device, () => buildScanEvents(device, scan[1]), `SYN scan of ${scan[1]}`);
       return;
     }
     const spoof = command.match(/^(?:sudo\s+)?arpspoof\s+(?:-t\s+\S+\s+)?(\S+)\s*$/i);
     if (spoof) {
-      launch(device, buildArpSpoofEvents(device, spoof[1]), `ARP spoof of ${spoof[1]}`);
+      launch(device, () => buildArpSpoofEvents(device, spoof[1]), `ARP spoof of ${spoof[1]}`);
       return;
     }
     if (/^(?:sudo\s+)?nmap\b/i.test(command)) {
@@ -12008,7 +12124,15 @@ Snort successfully validated the configuration${bad ? " (with errors)" : "."}`);
     }
     if (!command) return;
     terminalLine("command", `${terminalPromptText(host)} ${command}`);
+    takePreemptionNote();
+    const session = state.terminal;
+    const at = session.lines.length;
     run(host, command);
+    const note = takePreemptionNote();
+    if (note && !session.lines.slice(at).some((l) => l.text === note)) session.lines.splice(at, 0, { kind: "error", text: note });
+  }
+  function terminalBusy() {
+    return animatedRunBlockReason() !== null && state.terminal.deviceId === state.simulation.originDeviceId;
   }
   function openTerminalFor(device) {
     if (!device || !hasTerminal(device)) {
@@ -12038,8 +12162,10 @@ Snort successfully validated the configuration${bad ? " (with errors)" : "."}`);
     }
     const activeHost = getDevice(state.terminal.deviceId);
     dom.terminalPrompt.textContent = activeHost ? terminalPromptText(activeHost) : "device$";
+    const busy = terminalBusy();
     dom.terminalInput.disabled = !activeHost;
-    dom.terminalInput.placeholder = activeHost ? activeHost.type === "router" ? "?" : "help" : "Select a device";
+    dom.terminalInput.readOnly = busy;
+    dom.terminalInput.placeholder = !activeHost ? "Select a device" : busy ? `Simulation ${state.simulation.status === "paused" ? "paused" : "running"} \u2014 Ctrl+C to stop` : activeHost.type === "router" ? "?" : "help";
     dom.terminalOutput.innerHTML = state.terminal.lines.length ? state.terminal.lines.map((line) => `<p class="terminal-line ${escapeHtml(line.kind || "")}${line.injected ? " injected" : ""}">${escapeHtml(line.text)}</p>`).join("") : `<p class="terminal-line muted">No device terminal attached \u2014 select a device and open its terminal, or use the device list.</p>`;
     dom.terminalOutput.scrollTop = dom.terminalOutput.scrollHeight;
     syncDock();
@@ -12056,7 +12182,11 @@ Snort successfully validated the configuration${bad ? " (with errors)" : "."}`);
       }
     }
     state.terminal.historyIndex = -1;
-    runTerminalCommand(command);
+    if (command.trim() && terminalBusy()) {
+      terminalLine("error", RUN_BUSY);
+    } else {
+      runTerminalCommand(command);
+    }
     syncTerminal();
   }
   function handleTerminalKeydown(event) {
@@ -12674,6 +12804,11 @@ Snort successfully validated the configuration${bad ? " (with errors)" : "."}`);
       device.config.attacks = Array.from(document.querySelectorAll(".attack-check")).filter((c) => c.checked).map((c) => c.dataset.attack);
     }));
     document.getElementById("launchAttack")?.addEventListener("click", () => {
+      const busy = animatedRunBlockReason();
+      if (busy) {
+        dom.modeLabel.textContent = busy;
+        return;
+      }
       if (target) device.config.attackTarget = target.value.trim();
       const setup = buildAttackEvents(device);
       if (typeof setup === "string") {
@@ -13285,6 +13420,11 @@ Snort successfully validated the configuration${bad ? " (with errors)" : "."}`);
       bindWifiField("selectedSsid", "ssid", normaliseSsid);
       bindWifiField("selectedWifiPassword", "wifiPassword", normaliseWifiPassword);
       document.getElementById("associateLaptop")?.addEventListener("click", () => {
+        const busy = animatedRunBlockReason();
+        if (busy) {
+          dom.modeLabel.textContent = busy;
+          return;
+        }
         const setup = buildAssociationEvents(selected);
         if (typeof setup === "string") {
           dom.modeLabel.textContent = setup;
@@ -14411,6 +14551,7 @@ Snort successfully validated the configuration${bad ? " (with errors)" : "."}`);
   function linkExists(aId, bId) {
     return state.links.some((l) => !l.hidden && (l.from === aId && l.to === bId || l.from === bId && l.to === aId));
   }
+  var CHECK_PURPOSE = "the scenario Check";
   function evaluate(check) {
     if (check.kind === "link") {
       const a = resolve(check.a);
@@ -14426,7 +14567,7 @@ Snort successfully validated the configuration${bad ? " (with errors)" : "."}`);
       if (!from) return false;
       const to = resolve(check.to)?.config?.ipv4Address || check.to;
       const setup = buildPingEvents(from, to);
-      const success = typeof setup === "string" ? false : runSimulationHeadless(setup, from.id, to, "ping").success;
+      const success = typeof setup === "string" ? false : runSimulationHeadless(setup, from.id, to, "ping", null, CHECK_PURPOSE).success;
       return check.kind === "ping" ? success : !success;
     }
     if (check.kind === "tcp" || check.kind === "tcp-fail") {
@@ -14434,7 +14575,7 @@ Snort successfully validated the configuration${bad ? " (with errors)" : "."}`);
       if (!from) return false;
       const to = resolve(check.to)?.config?.ipv4Address || check.to;
       const setup = buildConnectEvents(from, to, check.port);
-      const success = typeof setup === "string" ? false : runSimulationHeadless(setup, from.id, to, "tcp", check.port).success;
+      const success = typeof setup === "string" ? false : runSimulationHeadless(setup, from.id, to, "tcp", check.port, CHECK_PURPOSE).success;
       return check.kind === "tcp" ? success : !success;
     }
     if (check.kind === "http") {
@@ -14443,7 +14584,7 @@ Snort successfully validated the configuration${bad ? " (with errors)" : "."}`);
       const to = resolve(check.to)?.config?.ipv4Address || check.to;
       const setup = buildHttpEvents(from, to, 80, check.path || "/");
       if (typeof setup === "string") return false;
-      const r = runSimulationHeadless(setup, from.id, to, "http", 80);
+      const r = runSimulationHeadless(setup, from.id, to, "http", 80, CHECK_PURPOSE);
       return check.status != null ? r.httpStatus === check.status : r.httpStatus != null && r.httpStatus >= 200 && r.httpStatus < 300;
     }
     if (check.kind === "dns") {
@@ -14451,7 +14592,7 @@ Snort successfully validated the configuration${bad ? " (with errors)" : "."}`);
       if (!from) return false;
       const setup = buildResolveEvents(from, check.name, null, null);
       if (typeof setup === "string") return false;
-      const r = runSimulationHeadless(setup, from.id, check.name, "dns");
+      const r = runSimulationHeadless(setup, from.id, check.name, "dns", null, CHECK_PURPOSE);
       if (!r.resolvedIp) return false;
       return !check.ip || r.resolvedIp === check.ip;
     }
@@ -14460,7 +14601,7 @@ Snort successfully validated the configuration${bad ? " (with errors)" : "."}`);
       if (!host) return false;
       const setup = buildDhcpEvents(host);
       if (typeof setup === "string") return false;
-      return runSimulationHeadless(setup, host.id, "", "dhcp").success;
+      return runSimulationHeadless(setup, host.id, "", "dhcp", null, CHECK_PURPOSE).success;
     }
     if (check.kind === "alert") {
       const from = resolve(check.from);
@@ -14470,11 +14611,11 @@ Snort successfully validated the configuration${bad ? " (with errors)" : "."}`);
       if (from.type === "attacker") {
         const setup = buildScanEvents(from, check.to);
         if (typeof setup === "string") return false;
-        runSimulationHeadless(setup, from.id, "", "attack");
+        runSimulationHeadless(setup, from.id, "", "attack", null, CHECK_PURPOSE);
       } else {
         const setup = check.port != null ? buildConnectEvents(from, to, check.port) : buildPingEvents(from, to);
         if (typeof setup === "string") return false;
-        runSimulationHeadless(setup, from.id, to, check.port != null ? "tcp" : "ping", check.port ?? null);
+        runSimulationHeadless(setup, from.id, to, check.port != null ? "tcp" : "ping", check.port ?? null, CHECK_PURPOSE);
       }
       const needle = check.contains.toLowerCase();
       return state.devices.some((d) => d.type === "ids" && (d.config?.alerts || []).some((a) => a.toLowerCase().includes(needle)));
@@ -14522,7 +14663,6 @@ Snort successfully validated the configuration${bad ? " (with errors)" : "."}`);
   function runActiveScenarioCheck() {
     const scenario = getScenario(state.activeScenarioId);
     if (!scenario) return;
-    if (state.simulation.status === "running" || state.simulation.status === "paused") sync().stopSimulation?.();
     lastResult = checkScenario(scenario);
     syncScenarioPanel();
   }
@@ -14761,7 +14901,6 @@ Snort successfully validated the configuration${bad ? " (with errors)" : "."}`);
     if (pane === "terminal") terminalLine("", echo);
     else consoleLine("error", echo);
     stopSimulation();
-    dom.terminalInput.disabled = false;
     return true;
   }
   function handleSimPlayPause() {
@@ -15377,16 +15516,12 @@ Snort successfully validated the configuration${bad ? " (with errors)" : "."}`);
     bindOptionToggle(dom.optSilentStp, "silentStp");
     bindOptionToggle(dom.optInstantDns, "instantDns");
     window.addEventListener("resize", resizeCanvas);
-    const simStopAction = () => {
-      stopSimulation();
-      dom.terminalInput.disabled = false;
-    };
     dom.simPlayPause.addEventListener("click", handleSimPlayPause);
     dom.simStep.addEventListener("click", stepOnce);
-    dom.simStop.addEventListener("click", simStopAction);
+    dom.simStop.addEventListener("click", stopSimulation);
     dom.simTransportPlayPause.addEventListener("click", handleSimPlayPause);
     dom.simTransportStep.addEventListener("click", stepOnce);
-    dom.simTransportStop.addEventListener("click", simStopAction);
+    dom.simTransportStop.addEventListener("click", stopSimulation);
     dom.simSpeed.addEventListener("input", () => {
       state.simulation.speed = Number(dom.simSpeed.value) || 1e3;
     });
@@ -16210,6 +16345,8 @@ Snort successfully validated the configuration${bad ? " (with errors)" : "."}`);
     if (typeof src === "string") return err(src);
     const dst = args[1];
     if (!dst) return err(`ping: missing target.`);
+    const busy = animatedRunBlockReason();
+    if (busy) return err(busy);
     const setup = buildPingEvents(src, dst);
     if (typeof setup === "string") return err(setup);
     startSimulation(setup, src.id, targetIpFor(dst), "ping");
@@ -16221,6 +16358,8 @@ Snort successfully validated the configuration${bad ? " (with errors)" : "."}`);
     const dst = args[1];
     const port = Number(args[2]);
     if (!dst || !args[2]) return err(`connect: expected "connect <src> <dst> <port>".`);
+    const busy = animatedRunBlockReason();
+    if (busy) return err(busy);
     const setup = buildConnectEvents(src, dst, port);
     if (typeof setup === "string") return err(setup);
     startSimulation(setup, src.id, targetIpFor(dst), "tcp", port);
@@ -16233,6 +16372,8 @@ Snort successfully validated the configuration${bad ? " (with errors)" : "."}`);
     const { host, port, path } = parseHttpTarget(args[1], args[2] || "/");
     if (!host) return err(`http: no host specified.`);
     if (!Number.isInteger(port) || port < 1 || port > 65535) return err(`http: invalid port in "${args[1]}".`);
+    const busy = animatedRunBlockReason();
+    if (busy) return err(busy);
     const setup = buildHttpEvents(src, host, port, path);
     if (typeof setup === "string") return err(setup);
     startSimulation(setup, src.id, targetIpFor(host), "http", port);
@@ -16241,6 +16382,8 @@ Snort successfully validated the configuration${bad ? " (with errors)" : "."}`);
   function cmdDhcp(args) {
     const host = resolveDevice(args[0]);
     if (typeof host === "string") return err(host);
+    const busy = animatedRunBlockReason();
+    if (busy) return err(busy);
     const setup = buildDhcpEvents(host);
     if (typeof setup === "string") return err(setup);
     startSimulation(setup, host.id, "", "dhcp");
@@ -16249,6 +16392,8 @@ Snort successfully validated the configuration${bad ? " (with errors)" : "."}`);
   function cmdAssociate(args) {
     const laptop = resolveDevice(args[0]);
     if (typeof laptop === "string") return err(laptop);
+    const busy = animatedRunBlockReason();
+    if (busy) return err(busy);
     const setup = buildAssociationEvents(laptop);
     if (typeof setup === "string") return err(setup);
     const ssid = associatedAp(laptop)?.ap.config?.ssid || "";
@@ -16355,6 +16500,8 @@ Snort successfully validated the configuration${bad ? " (with errors)" : "."}`);
   function cmdDot1x(args) {
     const host = resolveDevice(args[0]);
     if (typeof host === "string") return err(host);
+    const busy = animatedRunBlockReason();
+    if (busy) return err(busy);
     const setup = buildDot1xEvents(host);
     if (typeof setup === "string") return err(setup);
     startSimulation(setup, host.id, host.config?.dot1x?.identity || "", "dot1x");
@@ -16437,6 +16584,8 @@ Snort successfully validated the configuration${bad ? " (with errors)" : "."}`);
     const node = resolveDevice(args[0]);
     if (typeof node === "string") return err(node);
     if (node.type !== "attacker" && node.type !== "kali") return err(`${node.name} is not a Kali PC or Red Team host.`);
+    const busy = animatedRunBlockReason();
+    if (busy) return err(busy);
     const kind = args[1] && /^(scan|sweep|arp-spoof)$/i.test(args[1]) ? args[1].toLowerCase() : void 0;
     const targetArg = (kind ? args.slice(2) : args.slice(1)).join(" ").trim();
     if (targetArg && kind !== "arp-spoof") node.config.attackTarget = targetArg;
@@ -16481,6 +16630,8 @@ Snort successfully validated the configuration${bad ? " (with errors)" : "."}`);
   }
   function cmdStp(args) {
     if (args.length === 0) {
+      const busy = animatedRunBlockReason();
+      if (busy) return err(busy);
       const setup = buildStpEvents();
       if (typeof setup === "string") return err(setup);
       startSimulation(setup, setup.events[0]?.fromDeviceId || "", "", "stp");
@@ -16523,10 +16674,11 @@ Snort successfully validated the configuration${bad ? " (with errors)" : "."}`);
   }
   function cmdRun(args) {
     const mode = (args[0] || "").toLowerCase();
+    const purpose = `the console's \`run ${mode}\``;
     if (mode === "stp") {
       const setup = buildStpEvents();
       if (typeof setup === "string") return err(setup);
-      const r = runSimulationHeadless(setup, setup.events[0]?.fromDeviceId || "", "", "stp");
+      const r = runSimulationHeadless(setup, setup.events[0]?.fromDeviceId || "", "", "stp", null, purpose);
       const blocked = state.links.filter((l) => l.stpBlocked).length;
       return {
         ok: r.success,
@@ -16539,7 +16691,7 @@ Snort successfully validated the configuration${bad ? " (with errors)" : "."}`);
       if (typeof host === "string") return err(host);
       const setup = buildDot1xEvents(host);
       if (typeof setup === "string") return err(setup);
-      const r = runSimulationHeadless(setup, host.id, "", "dot1x");
+      const r = runSimulationHeadless(setup, host.id, "", "dot1x", null, purpose);
       return {
         ok: r.success,
         data: r,
@@ -16551,7 +16703,7 @@ Snort successfully validated the configuration${bad ? " (with errors)" : "."}`);
       if (typeof laptop === "string") return err(laptop);
       const setup = buildAssociationEvents(laptop);
       if (typeof setup === "string") return err(setup);
-      const r = runSimulationHeadless(setup, laptop.id, "", "associate");
+      const r = runSimulationHeadless(setup, laptop.id, "", "associate", null, purpose);
       return {
         ok: r.success,
         data: r,
@@ -16565,7 +16717,7 @@ Snort successfully validated the configuration${bad ? " (with errors)" : "."}`);
       if (!dst) return err(`run ping: missing target.`);
       const setup = buildPingEvents(src, dst);
       if (typeof setup === "string") return err(setup);
-      const r = runSimulationHeadless(setup, src.id, targetIpFor(dst), "ping");
+      const r = runSimulationHeadless(setup, src.id, targetIpFor(dst), "ping", null, purpose);
       return {
         ok: r.success,
         data: r,
@@ -16580,7 +16732,7 @@ Snort successfully validated the configuration${bad ? " (with errors)" : "."}`);
       if (!dst || !args[3]) return err(`run connect: expected "run connect <src> <dst> <port>".`);
       const setup = buildConnectEvents(src, dst, port);
       if (typeof setup === "string") return err(setup);
-      const r = runSimulationHeadless(setup, src.id, targetIpFor(dst), "tcp", port);
+      const r = runSimulationHeadless(setup, src.id, targetIpFor(dst), "tcp", port, purpose);
       return {
         ok: r.success,
         data: r,
@@ -16596,7 +16748,7 @@ Snort successfully validated the configuration${bad ? " (with errors)" : "."}`);
       if (!Number.isInteger(port) || port < 1 || port > 65535) return err(`run http: invalid port in "${args[2]}".`);
       const setup = buildHttpEvents(src, host, port, path);
       if (typeof setup === "string") return err(setup);
-      const r = runSimulationHeadless(setup, src.id, targetIpFor(host), "http", port);
+      const r = runSimulationHeadless(setup, src.id, targetIpFor(host), "http", port, purpose);
       return {
         ok: r.success,
         data: r,
@@ -16608,7 +16760,7 @@ Snort successfully validated the configuration${bad ? " (with errors)" : "."}`);
       if (typeof host === "string") return err(host);
       const setup = buildDhcpEvents(host);
       if (typeof setup === "string") return err(setup);
-      const r = runSimulationHeadless(setup, host.id, "", "dhcp");
+      const r = runSimulationHeadless(setup, host.id, "", "dhcp", null, purpose);
       return {
         ok: r.success,
         data: r,
@@ -16622,7 +16774,7 @@ Snort successfully validated the configuration${bad ? " (with errors)" : "."}`);
       if (!name) return err(`run resolve: expected "run resolve <src> <name>".`);
       const setup = buildResolveEvents(src, name, null, null);
       if (typeof setup === "string") return err(setup);
-      const r = runSimulationHeadless(setup, src.id, name, "dns");
+      const r = runSimulationHeadless(setup, src.id, name, "dns", null, purpose);
       return {
         ok: r.success,
         data: r,
@@ -17079,7 +17231,11 @@ Snort successfully validated the configuration${bad ? " (with errors)" : "."}`);
     if (!handler) return err(`Unknown command: ${verb}. Try "help".`);
     const tail = (n) => n < ends.length ? trimmed.slice(ends[n]).trim() : "";
     try {
-      return handler(tokens.slice(1), tail(0), tail);
+      takePreemptionNote();
+      const result = handler(tokens.slice(1), tail(0), tail);
+      const note = takePreemptionNote();
+      if (note) result.output.unshift(note);
+      return result;
     } catch (e) {
       return err(`Error: ${e?.message || String(e)}`);
     }

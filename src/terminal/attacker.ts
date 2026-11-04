@@ -7,7 +7,7 @@
 import type { Device } from "../types";
 import { state } from "../state";
 import { buildScanEvents, buildSweepEvents, buildArpSpoofEvents } from "../simulation";
-import { startSimulation } from "../engine";
+import { startSimulation, animatedRunBlockReason } from "../engine";
 import { terminalLine } from "./core";
 import { runHostTerminalCommand } from "./host";
 import type { PingSetup } from "../simulation";
@@ -20,9 +20,13 @@ const NMAP_VERSION = [
   "Available nsock engines: epoll poll select",
 ].join("\n");
 
-function launch(device: Device, setup: PingSetup | string, kind: string): void {
+// `build` is deferred so a refused launch builds nothing: building reseeds the
+// run PRNG, which would perturb the run already in flight (engine beginRun).
+function launch(device: Device, build: () => PingSetup | string, kind: string): void {
+  const busy = animatedRunBlockReason();
+  if (busy) { terminalLine("error", busy); return; }
+  const setup = build();
   if (typeof setup === "string") { terminalLine("error", setup); return; }
-  if (state.simulation.status === "running" || state.simulation.status === "paused") { terminalLine("error", "A simulation is already running (or paused) — stop it first."); return; }
   startSimulation(setup, device.id, "", "attack");
   terminalLine("", `Starting Nmap-style ${kind}... (results appear here when the run finishes).`);
 }
@@ -46,15 +50,15 @@ export function runAttackerTerminalCommand(device: Device, command: string): voi
 
   // nmap -sn <subnet>  — ping sweep (check before -sS / bare scan).
   const sweep = command.match(/^(?:sudo\s+)?nmap\s+-sn\s+(\S+)\s*$/i);
-  if (sweep) { launch(device, buildSweepEvents(device, sweep[1]), `ping sweep of ${sweep[1]}`); return; }
+  if (sweep) { launch(device, () => buildSweepEvents(device, sweep[1]), `ping sweep of ${sweep[1]}`); return; }
 
   // nmap [-sS] <target>  — SYN scan.
   const scan = command.match(/^(?:sudo\s+)?nmap\s+(?:-sS\s+)?(\S+)\s*$/i);
-  if (scan) { launch(device, buildScanEvents(device, scan[1]), `SYN scan of ${scan[1]}`); return; }
+  if (scan) { launch(device, () => buildScanEvents(device, scan[1]), `SYN scan of ${scan[1]}`); return; }
 
   // arpspoof [-t victim] <gateway> — we impersonate the gateway IP (the last arg).
   const spoof = command.match(/^(?:sudo\s+)?arpspoof\s+(?:-t\s+\S+\s+)?(\S+)\s*$/i);
-  if (spoof) { launch(device, buildArpSpoofEvents(device, spoof[1]), `ARP spoof of ${spoof[1]}`); return; }
+  if (spoof) { launch(device, () => buildArpSpoofEvents(device, spoof[1]), `ARP spoof of ${spoof[1]}`); return; }
 
   // An nmap invocation we don't model — say so, rather than handing a scanner
   // command to the host shell (which would only call it an unknown command).

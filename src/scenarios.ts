@@ -140,6 +140,9 @@ function linkExists(aId: string, bId: string): boolean {
     !l.hidden && ((l.from === aId && l.to === bId) || (l.from === bId && l.to === aId)));
 }
 
+// Names a Check in the note left if it stops an animated run (engine beginRun).
+const CHECK_PURPOSE = "the scenario Check";
+
 function evaluate(check: ScenarioCheck): boolean {
   if (check.kind === "link") {
     const a = resolve(check.a); const b = resolve(check.b);
@@ -155,7 +158,7 @@ function evaluate(check: ScenarioCheck): boolean {
     const to = resolve(check.to)?.config?.ipv4Address || check.to;
     const setup = buildPingEvents(from, to);
     const success = typeof setup === "string" ? false
-      : runSimulationHeadless(setup, from.id, to, "ping").success;
+      : runSimulationHeadless(setup, from.id, to, "ping", null, CHECK_PURPOSE).success;
     return check.kind === "ping" ? success : !success;
   }
   if (check.kind === "tcp" || check.kind === "tcp-fail") {
@@ -164,7 +167,7 @@ function evaluate(check: ScenarioCheck): boolean {
     const to = resolve(check.to)?.config?.ipv4Address || check.to;
     const setup = buildConnectEvents(from, to, check.port);
     const success = typeof setup === "string" ? false
-      : runSimulationHeadless(setup, from.id, to, "tcp", check.port).success;
+      : runSimulationHeadless(setup, from.id, to, "tcp", check.port, CHECK_PURPOSE).success;
     return check.kind === "tcp" ? success : !success;
   }
   if (check.kind === "http") {
@@ -173,7 +176,7 @@ function evaluate(check: ScenarioCheck): boolean {
     const to = resolve(check.to)?.config?.ipv4Address || check.to;
     const setup = buildHttpEvents(from, to, 80, check.path || "/");
     if (typeof setup === "string") return false;
-    const r = runSimulationHeadless(setup, from.id, to, "http", 80);
+    const r = runSimulationHeadless(setup, from.id, to, "http", 80, CHECK_PURPOSE);
     return check.status != null ? r.httpStatus === check.status : (r.httpStatus != null && r.httpStatus >= 200 && r.httpStatus < 300);
   }
   if (check.kind === "dns") {
@@ -181,7 +184,7 @@ function evaluate(check: ScenarioCheck): boolean {
     if (!from) return false;
     const setup = buildResolveEvents(from, check.name, null, null);
     if (typeof setup === "string") return false;
-    const r = runSimulationHeadless(setup, from.id, check.name, "dns");
+    const r = runSimulationHeadless(setup, from.id, check.name, "dns", null, CHECK_PURPOSE);
     if (!r.resolvedIp) return false;
     return !check.ip || r.resolvedIp === check.ip;
   }
@@ -190,7 +193,7 @@ function evaluate(check: ScenarioCheck): boolean {
     if (!host) return false;
     const setup = buildDhcpEvents(host);
     if (typeof setup === "string") return false;
-    return runSimulationHeadless(setup, host.id, "", "dhcp").success;
+    return runSimulationHeadless(setup, host.id, "", "dhcp", null, CHECK_PURPOSE).success;
   }
   if (check.kind === "alert") {
     const from = resolve(check.from);
@@ -204,11 +207,11 @@ function evaluate(check: ScenarioCheck): boolean {
     if (from.type === "attacker") {
       const setup = buildScanEvents(from, check.to);
       if (typeof setup === "string") return false;
-      runSimulationHeadless(setup, from.id, "", "attack");
+      runSimulationHeadless(setup, from.id, "", "attack", null, CHECK_PURPOSE);
     } else {
       const setup = check.port != null ? buildConnectEvents(from, to, check.port) : buildPingEvents(from, to);
       if (typeof setup === "string") return false;
-      runSimulationHeadless(setup, from.id, to, check.port != null ? "tcp" : "ping", check.port ?? null);
+      runSimulationHeadless(setup, from.id, to, check.port != null ? "tcp" : "ping", check.port ?? null, CHECK_PURPOSE);
     }
     const needle = check.contains.toLowerCase();
     return state.devices.some(d => d.type === "ids" && (d.config?.alerts || []).some((a: string) => a.toLowerCase().includes(needle)));

@@ -9,7 +9,7 @@ import { describe, it, expect, beforeAll, afterAll, beforeEach } from "bun:test"
 import { state, registerCallbacks, undo, redo, networkSnapshot } from "../src/state";
 import { registerNoopCallbacks, resetState } from "./helpers";
 import { basicTopology } from "./fixtures";
-import { startSimulation, stopSimulation, runSimulationHeadless } from "../src/engine";
+import { startSimulation, stopSimulation, runSimulationHeadless, takePreemptionNote } from "../src/engine";
 import { buildPingEvents } from "../src/simulation";
 import { diagnoseState } from "../src/diagnostics";
 import { runConsoleCommand as exec } from "../src/commands";
@@ -91,7 +91,7 @@ describe("scenario Check and headless runs", () => {
     runSimulationHeadless(buildPingEvents(pc1, "192.168.1.20") as any, pc1.id, "192.168.1.20");
     expect(state.simulation.headless).toBe(false);
   });
-  it("Check during an animated run stops it through the bridge instead of replacing it", () => {
+  it("Check during an animated run stops it first (engine beginRun) instead of replacing it", () => {
     startRun(loadBasic());
     registerScenario({ id: "__lc", name: "lc", objective: "", topology: {}, checks: [{ kind: "ping", from: "pc2", to: "pc1", label: "l" }] } as any);
     state.activeScenarioId = "__lc";
@@ -103,6 +103,8 @@ describe("scenario Check and headless runs", () => {
       expect(state.simulation.transits).toEqual([]);
       expect(state.simulation.headless).toBe(false);
       expect(diagnoseState(state)).toEqual([]);
+      // ...and it says so in the learner's words.
+      expect(takePreemptionNote()).toContain("the scenario Check needed the simulator");
     } finally { unregisterScenario("__lc"); state.activeScenarioId = null; }
   });
 });

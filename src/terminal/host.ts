@@ -4,11 +4,10 @@
  */
 import type { Device } from "../types";
 import { state, sync, pushUndo } from "../state";
-import { dom } from "../dom";
 import { isValidIpv4, isValidMac, normaliseMacAddress, parseIpv4Token, prefixOf, clampPrefixLength } from "../utils";
 import { normaliseArpTable, ensureConfig } from "../normalise";
 import { buildPingEvents, buildDhcpEvents, buildConnectEvents, buildResolveEvents, buildHttpEvents, parseHttpTarget, findPingTarget, hostnameToIp } from "../simulation";
-import { startSimulation, runTraceroute } from "../engine";
+import { startSimulation, runTraceroute, animatedRunBlockReason } from "../engine";
 import { applyHostname } from "../devices";
 import { terminalLine } from "./core";
 
@@ -124,6 +123,17 @@ export function showResolvConf(device: Device): string {
   return ns ? `nameserver ${ns}` : "# /etc/resolv.conf is empty (no nameserver configured)";
 }
 
+// A command that animates a run can't start while another one owns the
+// simulator (engine beginRun) — say why, before building any frames (building
+// reseeds the run PRNG under the in-flight run). Only the shell that started the
+// run is read-only (terminal/core terminalBusy), so this is what refuses a run
+// typed in any other device's shell, the console `cli` verb, or an injected command.
+function refuseIfRunning(): boolean {
+  const reason = animatedRunBlockReason();
+  if (reason) terminalLine("error", reason);
+  return reason != null;
+}
+
 export function runHostTerminalCommand(host: Device, command: string): void {
   const lower = command.toLowerCase();
   if (lower === "clear") {
@@ -186,12 +196,12 @@ export function runHostTerminalCommand(host: Device, command: string): void {
 
   const lookupMatch = command.match(/^(?:nslookup|host|dig)\s+(\S+)$/i);
   if (lookupMatch) {
+    if (refuseIfRunning()) return;
     const result = buildResolveEvents(host, lookupMatch[1], null, null);
     if (typeof result === "string") {
       terminalLine("error", result);
     } else {
       startSimulation(result, host.id, lookupMatch[1], "dns");
-      dom.terminalInput.disabled = true;
     }
     return;
   }
@@ -234,25 +244,25 @@ export function runHostTerminalCommand(host: Device, command: string): void {
   }
 
   if (lower === "dhcp" || lower === "dhclient") {
+    if (refuseIfRunning()) return;
     const result = buildDhcpEvents(host);
     if (typeof result === "string") {
       terminalLine("error", result);
     } else {
       startSimulation(result, host.id, "", "dhcp");
-      dom.terminalInput.disabled = true;
     }
     return;
   }
 
   const ncMatch = command.match(/^nc\s+(?:-z\s+)?(\S+)\s+(\d+)$/i);
   if (ncMatch) {
+    if (refuseIfRunning()) return;
     const port = Number(ncMatch[2]);
     const result = buildConnectEvents(host, ncMatch[1], port);
     if (typeof result === "string") {
       terminalLine("error", result);
     } else {
       startSimulation(result, host.id, resolvePingTargetIp(ncMatch[1]), "tcp", port);
-      dom.terminalInput.disabled = true;
     }
     return;
   }
@@ -270,12 +280,12 @@ export function runHostTerminalCommand(host: Device, command: string): void {
       terminalLine("error", `${tool}: (3) URL rejected: Port number was not a decimal number between 0 and 65535`);
       return;
     }
+    if (refuseIfRunning()) return;
     const result = buildHttpEvents(host, target, port, path);
     if (typeof result === "string") {
       terminalLine("error", result);
     } else {
       startSimulation(result, host.id, resolvePingTargetIp(target), "http", port);
-      dom.terminalInput.disabled = true;
     }
     return;
   }
@@ -298,6 +308,7 @@ export function runHostTerminalCommand(host: Device, command: string): void {
 
   const pingMatch = command.match(/^ping(?:\s+-c\s+\d+)?\s+(.+)$/i);
   if (pingMatch) {
+    if (refuseIfRunning()) return;
     const targetText = pingMatch[1].trim();
     const result = buildPingEvents(host, targetText);
     if (typeof result === "string") {
@@ -306,7 +317,6 @@ export function runHostTerminalCommand(host: Device, command: string): void {
     } else {
       const targetIp = resolvePingTargetIp(targetText);
       startSimulation(result, host.id, targetIp);
-      dom.terminalInput.disabled = true;
     }
     return;
   }

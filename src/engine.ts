@@ -1,4 +1,4 @@
-import type { EthernetFrame, ArpPayload, Ipv4Payload, DhcpPayload, TcpPayload, DnsPayload, Dot11Payload, Dot1xPayload, BpduPayload, NatEntry, SimEvent, SimLogEntry, ActiveTransit, FrameHistoryEntry, RouteEntry, RouterInterface, Device, DeviceType, FirewallRule, FirewallTarget, ConnState, Link, Cidr } from "./types";
+import type { EthernetFrame, ArpPayload, Ipv4Payload, DhcpPayload, TcpPayload, DnsPayload, Dot11Payload, Dot1xPayload, BpduPayload, NatEntry, SimEvent, SimLogEntry, ActiveTransit, FrameHistoryEntry, RouteEntry, RouterInterface, Device, DeviceType, FirewallRule, FirewallTarget, ConnState, Link, Cidr, SimMode } from "./types";
 import { state, pushUndo, sync } from "./state";
 import { dom } from "./dom";
 import { getDevice, linkedPortsFor, routerInterfacesWithNames, linkName, linkById, linksFor, linkAuthorizedForData, macsecState } from "./devices";
@@ -20,48 +20,143 @@ import type { LogFilter, CaptureEntry } from "./types";
 export { buildRoutingTable, routingLookup, runRipConvergence } from "./routing";
 export { runStpConvergence } from "./stp";
 
-// ─── Public API ──────────────────────────────────────────────────────────────
+// ─── Run ownership ───────────────────────────────────────────────────────────
 
-export function startSimulation(setup: PingSetup, originDeviceId: string, targetIp: string, mode: "ping" | "dhcp" | "tcp" | "dns" | "http" | "associate" | "dot1x" | "stp" | "attack" = "ping", targetPort: number | null = null): void {
+// One run owns `state.simulation` at a time. Both entry points — the animated
+// startSimulation and the synchronous runSimulationHeadless — go through
+// beginRun, which settles any run already in flight and then performs the ONE
+// shared reset of the per-run state. The two used to carry byte-identical
+// copies of that reset and checked nothing, so a second command silently
+// replaced a run mid-animation: its result never printed, its capture was
+// never archived, the transport pill stayed up, and a preempted network boot
+// resumed afterwards. The policy, chosen for the learner:
+// - A new ANIMATED run while the user's animated run is running or paused is
+//   refused, with a reason. That run is the lesson on screen; replacing it
+//   would lose it without a word, and the way out (wait, or Ctrl+C / Stop) is
+//   one keystroke away.
+// - A NETWORK-BOOT run yields. Boot DHCP is background chatter Play started,
+//   not an experiment, so a user's run preempts it: the rest of the boot queue
+//   is cancelled and the status line says how many hosts are still unassigned.
+// - A HEADLESS run (console `run`, traceroute, a scenario Check) finishes in
+//   one synchronous call, so refusing it would only make the learner stop the
+//   animation by hand first. Instead the animated run is torn down properly
+//   (the same teardown as Stop) and its terminal says why it ended.
+export const RUN_BUSY = "A simulation is already running (or paused) — wait for it to finish, or stop it first (Ctrl+C or Stop).";
+
+function runActive(): boolean {
+  const status = state.simulation.status;
+  return status === "running" || status === "paused";
+}
+
+// Why a new animated run cannot start right now, or null if it can (nothing in
+// flight, or only a preemptible network boot). Callers check this BEFORE
+// building their frames: the builders reseed the run PRNG, which would perturb
+// the in-flight run's later draws under a pinned seed.
+export function animatedRunBlockReason(): string | null {
+  if (!runActive()) return null;
+  return !state.simulation.headless && bootRunActive ? null : RUN_BUSY;
+}
+
+// What a run is, in the learner's words — names the run that needed the
+// simulator in a preemption note ("a ping from PC3"). A headless caller can
+// name itself instead (`purpose`: "traceroute from PC3", "the scenario Check");
+// otherwise it is "a background check", never the internal word "headless".
+function describeRun(mode: SimMode, originDeviceId: string, headless: boolean, purpose?: string): string {
+  if (purpose) return purpose;
+  const origin = getDevice(originDeviceId)?.name;
+  return `${headless ? "a background check" : runNoun(mode)}${origin ? ` from ${origin}` : ""}`;
+}
+
+function runNoun(mode: SimMode): string {
+  switch (mode) {
+    case "ping": return "a ping";
+    case "dhcp": return "a DHCP request";
+    case "tcp": return "a TCP connect";
+    case "http": return "an HTTP request";
+    case "dns": return "a DNS lookup";
+    case "associate": return "a WiFi association";
+    case "dot1x": return "an 802.1X login";
+    case "stp": return "a spanning-tree run";
+    case "attack": return "an attack run";
+  }
+}
+
+// The note from the last preemption, until a caller collects it — the console
+// prints it above the output of the command that caused it.
+let preemptionNote: string | null = null;
+
+export function takePreemptionNote(): string | null {
+  const note = preemptionNote;
+  preemptionNote = null;
+  return note;
+}
+
+// Tear the in-flight animated run down so `next` can own the simulator, and
+// say so where the learner is looking: the interrupted run's terminal session,
+// the status line, and (via takePreemptionNote) the console.
+function preemptActiveRun(next: string): void {
+  const sim = state.simulation;
+  let note: string;
+  if (bootRunActive) {
+    const left = unconfiguredBootableHosts().length;
+    note = `Network boot interrupted — ${next} needed the simulator; ${left} host${left === 1 ? "" : "s"} still unassigned (press Play to finish booting).`;
+  } else {
+    note = `Simulation stopped before it finished — ${next} needed the simulator.`;
+  }
+  const session = sessionFor(sim.originDeviceId);
+  if (session) terminalLineFor(session, "error", note);
+  stopSimulation();   // the Stop teardown — it also cancels the queued boot chain
+  dom.modeLabel.textContent = note;
+  preemptionNote = note;
+}
+
+// Claim the simulator for a new run: refuse or preempt whatever is in flight
+// (see the policy above), converge, and reset the per-run state. Returns the
+// refusal reason, or null once the run owns `state.simulation`. Only an
+// animated run is ever refused.
+function beginRun(setup: PingSetup, originDeviceId: string, targetIp: string, mode: SimMode, targetPort: number | null, headless: boolean, purpose?: string): string | null {
+  const sim = state.simulation;
+  const boot = !headless && pendingBootRun;   // armed by bootNextHost just before its startSimulation
+  pendingBootRun = false;
+  if (runActive()) {
+    if (sim.headless) {
+      if (!headless) return RUN_BUSY;           // never start an animation inside a headless drain
+    } else if (headless || bootRunActive) {
+      preemptActiveRun(describeRun(mode, originDeviceId, headless, purpose));
+    } else {
+      return RUN_BUSY;
+    }
+  }
+  // A run that isn't part of the boot chain ends it: finishSimulation would
+  // otherwise resume booting after the user's run.
+  if (!boot) bootQueue = [];
   // Converge routing (RIP) and the spanning tree before the run, so frames route
   // correctly and loops are already broken (blocked ports) before the first hop.
   runRipConvergence();
   runStpConvergence();
-  pushUndo();
-  state.inspectedFrame = null; // a new run invalidates the inspected frame
-  state.inspectedCapture = null;
+  if (!headless) {
+    // An animated run is an undo point (so the tables it learns can be undone) —
+    // except a boot run: startNetworkBoot took ONE snapshot for the whole chain,
+    // so one Ctrl+Z undoes one Play press rather than one host.
+    if (!boot) pushUndo();
+    bootRunActive = boot;   // latched for the run's lifetime (keeps boot chatter out of the compare archive)
+  }
+  resetRunState(setup, originDeviceId, targetIp, mode, targetPort, headless);
+  return null;
+}
+
+// The one per-run reset of `state.simulation`, shared by both entry points.
+// The packet capture is not touched here — only an animated run clears it.
+function resetRunState(setup: PingSetup, originDeviceId: string, targetIp: string, mode: SimMode, targetPort: number | null, headless: boolean): void {
   const sim = state.simulation;
-  bootRunActive = pendingBootRun; // is this a network-boot run? (armed by bootNextHost)
-  pendingBootRun = false;
   sim.status = "running";
   sim.mode = mode;
-  sim.headless = false;
+  sim.headless = headless;
   sim.events = [];
   sim.log = [];
-  sim.capture = [];
-  state.dock.captureView = "live"; // watch the run that's starting, not an archived one
   sim.transits = [];
   sim.pendingArp = { ...setup.pendingArp };
   sim.stepIndex = 0;
-  // Animate the first leg (source → first hop) as a transit instead of injecting
-  // an arrive event straight at the first hop — otherwise the initial frame
-  // appears to originate at the connected switch/router rather than leaving the
-  // source. Every later hop already animates this way (a completed transit
-  // creates the next arrive event). Headless runs drain the events directly.
-  let seeded = false;
-  const seedNow = performance.now();
-  for (const ev of setup.events) {
-    if (ev.linkId && ev.fromDeviceId && ev.fromDeviceId !== ev.deviceId) {
-      const seedLink = linkById(ev.linkId);
-      const src = getDevice(ev.fromDeviceId);
-      seeded = true;   // the source emitted (or tried to) — it is step 1 either way
-      if (seedLink && src && !admitOnLink(src, seedLink, ev.frame)) continue;   // dropped on the first leg (loss / gate)
-      sim.transits.push({ frame: ev.frame, linkId: ev.linkId, fromDeviceId: ev.fromDeviceId, toDeviceId: ev.deviceId, progress: 0, startTime: seedNow, latencyFactor: linkLatencyFactor(seedLink), silent: isSilentFrame(ev.frame) });
-    } else {
-      sim.events.push(ev);
-    }
-  }
-  if (seeded) sim.stepIndex++; // the source emitting is step 1
   sim.originDeviceId = originDeviceId;
   sim.pingTargetIp = setup.dns ? null : targetIp;
   sim.pingSuccess = false;
@@ -96,28 +191,85 @@ export function startSimulation(setup: PingSetup, originDeviceId: string, target
     if (d.type === "ids" && d.config) d.config.alerts = [];
     if ((d.type === "attacker" || d.type === "kali") && d.config) (d.config as any).attackLog = [];
   }
-  const target = setup.dns ? setup.dns.name : targetIp;
-  const label = mode === "dhcp" ? "Requesting DHCP lease..."
-    : mode === "tcp" ? `Opening TCP connection to ${target}:${sim.tcpTargetPort ?? "?"}...`
-    : mode === "http" ? `Requesting http://${target}${sim.httpPath}...`
-    : mode === "dns" ? `Resolving ${target}...`
-    : mode === "associate" ? `Associating to ${target || "WiFi"}...`
-    : mode === "dot1x" ? `802.1X authenticating ${target || "supplicant"}...`
-    : mode === "stp" ? "Spanning tree: advertising BPDUs from the root bridge..."
-    : mode === "attack" ? "Red Team: launching attacks..."
-    : `Simulating ping to ${target}...`;
-  state.terminal.lines.push({ kind: "sim", text: label });
+}
+
+// The terminal line announcing a run. A switch with no default makes a new
+// SimMode a compile error here rather than a silent "Simulating ping".
+function runLabel(mode: SimMode, target: string): string {
+  const sim = state.simulation;
+  switch (mode) {
+    case "dhcp": return "Requesting DHCP lease...";
+    case "tcp": return `Opening TCP connection to ${target}:${sim.tcpTargetPort ?? "?"}...`;
+    case "http": return `Requesting http://${target}${sim.httpPath}...`;
+    case "dns": return `Resolving ${target}...`;
+    case "associate": return `Associating to ${target || "WiFi"}...`;
+    case "dot1x": return `802.1X authenticating ${target || "supplicant"}...`;
+    case "stp": return "Spanning tree: advertising BPDUs from the root bridge...";
+    case "attack": return "Red Team: launching attacks...";
+    case "ping": return `Simulating ping to ${target}...`;
+  }
+}
+
+// Whether the finished run achieved its mode's goal (the headless SimResult).
+function runSucceeded(mode: SimMode): boolean {
+  const sim = state.simulation;
+  switch (mode) {
+    case "dhcp": return sim.dhcpSuccess;
+    case "tcp": return sim.tcpSuccess;
+    case "http": return sim.httpSuccess;
+    case "dns": return sim.dnsResolvedIp != null;
+    case "associate": return sim.wifiAssociated;
+    case "dot1x": return sim.dot1xAuthorized;
+    case "stp": return !sim.stormDetected;
+    case "attack": return sim.scanOpen.length > 0 || sim.sweepLive.length > 0;
+    case "ping": return sim.pingSuccess;
+  }
+}
+
+// ─── Public API ──────────────────────────────────────────────────────────────
+
+// Starts an animated run. Returns null once it is running, or the reason it
+// was refused (another animated run owns the simulator — see beginRun).
+export function startSimulation(setup: PingSetup, originDeviceId: string, targetIp: string, mode: SimMode = "ping", targetPort: number | null = null): string | null {
+  const refusal = beginRun(setup, originDeviceId, targetIp, mode, targetPort, false);
+  if (refusal) return refusal;
+  state.inspectedFrame = null; // a new run invalidates the inspected frame
+  state.inspectedCapture = null;
+  const sim = state.simulation;
+  sim.capture = [];
+  state.dock.captureView = "live"; // watch the run that's starting, not an archived one
+  // Animate the first leg (source → first hop) as a transit instead of injecting
+  // an arrive event straight at the first hop — otherwise the initial frame
+  // appears to originate at the connected switch/router rather than leaving the
+  // source. Every later hop already animates this way (a completed transit
+  // creates the next arrive event). Headless runs drain the events directly.
+  let seeded = false;
+  const seedNow = performance.now();
+  for (const ev of setup.events) {
+    if (ev.linkId && ev.fromDeviceId && ev.fromDeviceId !== ev.deviceId) {
+      const seedLink = linkById(ev.linkId);
+      const src = getDevice(ev.fromDeviceId);
+      seeded = true;   // the source emitted (or tried to) — it is step 1 either way
+      if (seedLink && src && !admitOnLink(src, seedLink, ev.frame)) continue;   // dropped on the first leg (loss / gate)
+      sim.transits.push({ frame: ev.frame, linkId: ev.linkId, fromDeviceId: ev.fromDeviceId, toDeviceId: ev.deviceId, progress: 0, startTime: seedNow, latencyFactor: linkLatencyFactor(seedLink), silent: isSilentFrame(ev.frame) });
+    } else {
+      sim.events.push(ev);
+    }
+  }
+  if (seeded) sim.stepIndex++; // the source emitting is step 1
+  state.terminal.lines.push({ kind: "sim", text: runLabel(mode, setup.dns ? setup.dns.name : targetIp) });
   // Surface the hop-by-hop log: open the dock on the Sim Log pane if nothing
   // is showing; if the dock is already open, leave the user's tab alone (the
   // Sim Log tab badge counts entries as they arrive).
   if (!state.dock.open) openDock("simlog");
-  syncTerminal();
+  syncTerminal();   // locks the terminal input for the run's lifetime (derived from sim.status)
   syncSimLog();
   updateSimControls(); // reveal the floating transport pill + set the pause icon
   startAnimationLoop();
   // With a seeded first-leg transit, the animation loop drives processing once
   // it lands; only kick the queue directly if nothing was seeded.
   if (sim.autoPlay && sim.transits.length === 0) processNextStep();
+  return null;
 }
 
 export function stopSimulation(): void {
@@ -131,6 +283,7 @@ export function stopSimulation(): void {
   sim.pendingArp = {};
   bootQueue = [];          // stop also cancels any in-flight network-boot chain
   pendingBootRun = false;
+  bootRunActive = false;
   state.inspectedCapture = null; // the capture it referenced is gone
   // The live capture was just cleared — fall back to the most recent saved run.
   state.dock.captureView = state.savedCaptures.length ? state.savedCaptures[state.savedCaptures.length - 1].id : "live";
@@ -146,6 +299,7 @@ export function pauseSimulation(): void {
   if (state.simulation.status === "running") {
     state.simulation.status = "paused";
     updateSimControls();
+    syncTerminal();   // the busy shell's placeholder says "paused"
   }
 }
 
@@ -153,6 +307,7 @@ export function resumeSimulation(): void {
   if (state.simulation.status === "paused") {
     state.simulation.status = "running";
     updateSimControls();
+    syncTerminal();
     if (state.simulation.transits.length === 0) processNextStep();
   }
 }
@@ -160,7 +315,9 @@ export function resumeSimulation(): void {
 export function stepOnce(): void {
   const sim = state.simulation;
   if (sim.status !== "paused" && sim.status !== "running") return;
+  const wasRunning = sim.status === "running";
   sim.status = "paused";
+  if (wasRunning) syncTerminal();   // the busy shell's placeholder says "paused"
   // If transits are in progress, complete them instantly
   if (sim.transits.length > 0) {
     for (const t of sim.transits) t.progress = 1;
@@ -187,57 +344,34 @@ export interface SimResult {
 // Runs a simulation to completion synchronously — no animation / requestAnimationFrame —
 // and returns the result plus the hop-by-hop log. Reuses the same process handlers as
 // the animated path; powers the console `run` command, window.routesim, and tests.
+// Never refused: an animated run in flight is stopped first, with a note (beginRun)
+// naming `purpose` — what needed the simulator, in the learner's words.
 export function runSimulationHeadless(
-  setup: PingSetup, originDeviceId: string, targetIp: string, mode: "ping" | "dhcp" | "tcp" | "dns" | "http" | "associate" | "dot1x" | "stp" | "attack" = "ping", targetPort: number | null = null
+  setup: PingSetup, originDeviceId: string, targetIp: string, mode: SimMode = "ping", targetPort: number | null = null, purpose?: string
 ): SimResult {
-  runRipConvergence();
-  runStpConvergence();
+  beginRun(setup, originDeviceId, targetIp, mode, targetPort, true, purpose);
   const sim = state.simulation;
-  sim.status = "running";
-  sim.mode = mode;
-  sim.headless = true;
-  sim.events = setup.events;
-  sim.log = [];
   // sim.capture is deliberately left alone: headless runs don't capture, and
   // a scenario check (or first-boot chatter) must not wipe the packet list.
-  sim.transits = [];
-  sim.pendingArp = { ...setup.pendingArp };
-  sim.stepIndex = 0;
-  sim.originDeviceId = originDeviceId;
-  sim.pingTargetIp = setup.dns ? null : targetIp;
-  sim.pingSuccess = false;
-  sim.pingTtl = 64;
-  sim.pingResponderIp = null;
-  sim.pingTimeExceeded = false;
-  sim.tcpSuccess = false;
-  sim.tcpRefused = false;
-  sim.tcpTargetPort = setup.dns?.port ?? targetPort;
-  sim.httpPath = setup.httpPath ?? "/";
-  sim.httpSuccess = false;
-  sim.httpStatus = null;
-  sim.httpStatusText = null;
-  sim.httpServerTitle = null;
-  sim.dnsName = setup.dns?.name ?? null;
-  sim.dnsResolvedIp = null;
-  sim.resolveThen = setup.dns?.then ?? null;
-  sim.dhcpOfferTaken = false;
-  sim.dhcpSuccess = false;
-  sim.dhcpAssignedIp = null;
-  sim.dhcpAssignedGateway = null;
-  sim.wifiAssociated = false;
-  sim.dot1xAuthorized = false;
-  sim.stormDetected = false;
-  sim.scanOpen = []; sim.scanClosed = []; sim.sweepLive = [];
-  sim.conntrack = {};   // connection tracking starts empty each run
-  sim.dnatSessions = {};
-  sim.lossNoted = new Set();
-  // Each run reports only its own detections/findings — clear IDS alert logs and
-  // attacker findings (like sim.log / sim.capture) so they don't accumulate.
-  for (const d of state.devices) {
-    if (d.type === "ids" && d.config) d.config.alerts = [];
-    if ((d.type === "attacker" || d.type === "kali") && d.config) (d.config as any).attackLog = [];
+  sim.events = setup.events;
+  try {
+    return drainHeadless(mode);
+  } finally {
+    // A run that threw mid-drain must still end: a stale "running" headless run
+    // would make beginRun refuse every later animated run and lock the origin
+    // terminal, with no transport pill on screen to stop it from.
+    if ((sim.status as string) !== "done") {
+      sim.status = "done";
+      sim.events = [];
+      sim.transits = [];
+      sim.pendingArp = {};
+    }
+    sim.headless = false;   // the flag belongs to the run, not to whatever comes after it
   }
+}
 
+function drainHeadless(mode: SimMode): SimResult {
+  const sim = state.simulation;
   // Drain the event queue, completing each batch of transits instantly. processNextStep
   // recurses internally while status === "running" and events have no transits, and calls
   // finishSimulation() once fully drained. The guard caps pathological loops (an L2 loop
@@ -257,16 +391,8 @@ export function runSimulationHeadless(
   // stops TS from over-narrowing it to the literal assigned above.
   if ((sim.status as string) !== "done") finishSimulation();
 
-  const result: SimResult = {
-    success: mode === "dhcp" ? sim.dhcpSuccess
-      : mode === "tcp" ? sim.tcpSuccess
-      : mode === "http" ? sim.httpSuccess
-      : mode === "dns" ? sim.dnsResolvedIp != null
-      : mode === "associate" ? sim.wifiAssociated
-      : mode === "dot1x" ? sim.dot1xAuthorized
-      : mode === "stp" ? !sim.stormDetected
-      : mode === "attack" ? (sim.scanOpen.length > 0 || sim.sweepLive.length > 0)
-      : sim.pingSuccess,
+  return {
+    success: runSucceeded(mode),
     refused: sim.tcpRefused,
     ttl: sim.pingTtl,
     responderIp: sim.pingResponderIp,
@@ -278,8 +404,6 @@ export function runSimulationHeadless(
     log: sim.log,
     steps: sim.stepIndex,
   };
-  sim.headless = false;   // the flag belongs to the run, not to whatever comes after it
-  return result;
 }
 
 // ─── First boot (link-up / power-on autoconf) ────────────────────────────────
@@ -293,10 +417,15 @@ export function runSimulationHeadless(
 let bootQueue: string[] = [];
 // A network-boot run (Play auto-DHCP for unconfigured hosts) is chained chatter,
 // not a user experiment — `pendingBootRun` is armed by bootNextHost just before
-// its startSimulation, latched into `bootRunActive` for the run's lifetime, and
-// keeps the run's capture out of the multi-run compare archive.
+// its startSimulation and latched into `bootRunActive` by beginRun for the run's
+// lifetime. It keeps the run's capture out of the multi-run compare archive,
+// skips the per-run undo point, and marks the run as one a user's run preempts.
 let pendingBootRun = false;
 let bootRunActive = false;
+// One Play press is ONE undo point, taken lazily by bootNextHost the first time
+// it actually changes something (a boot run or an APIPA assignment) — so a press
+// that boots nothing leaves the undo/redo stacks alone.
+let bootUndoPending = false;
 
 function hostNeedsBoot(device: Device | undefined): boolean {
   return !!device && (device.type === "computer" || device.type === "laptop" || device.type === "kali" || device.type === "server")
@@ -339,6 +468,9 @@ export function startNetworkBoot(): boolean {
     dom.modeLabel.textContent = "Nothing to boot — every host already has an address.";
     return false;
   }
+  // ONE undo point for the whole Play press: the boot runs below skip their own
+  // (beginRun), and the direct-APIPA path never had one.
+  bootUndoPending = true;
   return bootNextHost();
 }
 
@@ -355,11 +487,13 @@ function bootNextHost(): boolean {
       const setup = buildDhcpEvents(device!);
       if (typeof setup === "string") continue;
       dom.modeLabel.textContent = `Booting ${device!.name} via DHCP...`;
+      takeBootUndo();
       pendingBootRun = true; // a boot run — keep its capture out of the compare archive
       startSimulation(setup, device!.id, "", "dhcp");
       return true;
     }
     // Auto-DHCP off, APIPA on (the only way we reach here): self-assign directly.
+    takeBootUndo();
     assignApipa(device!);
     apipaCount++;
   }
@@ -368,7 +502,14 @@ function bootNextHost(): boolean {
     sync().render();
     sync().syncPanel();
   }
+  bootUndoPending = false;   // the queue drained — a press that changed nothing took no undo point
   return false;
+}
+
+function takeBootUndo(): void {
+  if (!bootUndoPending) return;
+  bootUndoPending = false;
+  pushUndo();
 }
 
 export interface TracerouteHop { ttl: number; ip: string | null; reached: boolean }
@@ -378,6 +519,7 @@ export interface TracerouteResult { targetIp: string; hops: TracerouteHop[]; rea
 // answered each round — a router's ICMP Time-Exceeded (intermediate hop) or the
 // destination's Echo Reply (final hop). Reuses runSimulationHeadless per probe.
 export function runTraceroute(source: Device, targetText: string, maxHops = 30): TracerouteResult | string {
+  const purpose = `a traceroute from ${source.name}`;   // names it if it stops an animated run
   const target = findPingTarget(targetText);
   let targetIp = target ? (target.config?.ipv4Address || targetText) : targetText.trim();
   if (!target && !isValidIpv4(targetIp)) {
@@ -385,7 +527,7 @@ export function runTraceroute(source: Device, targetText: string, maxHops = 30):
     // (real DNS frames), then trace the answer.
     const lookup = buildResolveEvents(source, targetIp, null, null);
     if (typeof lookup === "string") return `traceroute: unknown host ${targetIp}`;
-    const res = runSimulationHeadless(lookup, source.id, targetIp, "dns");
+    const res = runSimulationHeadless(lookup, source.id, targetIp, "dns", null, purpose);
     if (!res.resolvedIp) return `traceroute: unknown host ${targetIp}`;
     targetIp = res.resolvedIp;
   }
@@ -396,14 +538,14 @@ export function runTraceroute(source: Device, targetText: string, maxHops = 30):
   // Probes target the resolved IP directly (per-probe TTLs must apply to the
   // ICMP leg, not a DNS round-trip).
   const warm = buildPingEvents(source, targetIp);
-  if (typeof warm !== "string") runSimulationHeadless(warm, source.id, targetIp, "ping");
+  if (typeof warm !== "string") runSimulationHeadless(warm, source.id, targetIp, "ping", null, purpose);
 
   const hops: TracerouteHop[] = [];
   let reached = false;
   for (let ttl = 1; ttl <= maxHops; ttl++) {
     const setup = buildPingEvents(source, targetIp, { ttl });
     if (typeof setup === "string") return setup; // validation error (e.g. cannot resolve / no gateway)
-    const res = runSimulationHeadless(setup, source.id, targetIp, "ping");
+    const res = runSimulationHeadless(setup, source.id, targetIp, "ping", null, purpose);
     if (res.success) {
       hops.push({ ttl, ip: res.responderIp || targetIp, reached: true });
       reached = true;
@@ -2764,11 +2906,8 @@ function finishSimulation(): void {
   // Archive this run's packet capture so a later run can be compared against it
   // — except network-boot chatter, which would flood the small history ring.
   if (!bootRunActive) saveCurrentCapture();
-  // Re-enable terminal input
-  const termInput = document.getElementById("terminalInput") as HTMLInputElement | null;
-  if (termInput) termInput.disabled = false;
   syncSimLog();
-  syncTerminal();
+  syncTerminal();   // unlocks the terminal input (the lock follows sim.status)
   sync().syncPanel();
   updateSimControls();
   stopAnimationLoop();

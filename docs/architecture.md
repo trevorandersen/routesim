@@ -179,7 +179,7 @@ The undo system, not the type, decides which is which: `networkSnapshot()` deep-
 2. **One user action is one undo point.** Multi-command operations set `state.isApplyingCompositeChange` after their single `pushUndo()`, so the inner mutators do not push their own. The tutorial and script import use this. Inspector text fields push once on focus (`captureUndoOnFocus`), not per keystroke. The stack is capped at 80 entries, and any push clears redo.
 3. **Mutate, then sync.** After changing `state`, call the matching `sync().render()`, `sync().syncPanel()`, `sync().syncTerminal()` and so on. Nothing repaints automatically.
 4. **Reassign or push collections; never splice them silently.** `devices.ts` keeps lazy `Map` indexes (`getDevice`, `linksFor`, `linkById`) that rebuild when the array's identity or length changes. In-place field edits are fine, because the index holds object references.
-5. **Stop a live run before replacing the topology.** Undo, redo, loading a config, loading a scenario, clearing the network and scenario checks all call `stopSimulation` first. See [section 10](#10-topology-lifecycle).
+5. **Stop a live run before replacing the topology.** Undo, redo, loading a config, loading a scenario and clearing the network all call `stopSimulation` first; a headless run (scenario checks, `run`, traceroute) stops it through the engine's `beginRun`. See [section 10](#10-topology-lifecycle).
 
 Derived state is recomputed, not stored. RIP-learned routes, spanning-tree roles, conntrack, IDS alerts, attack logs and frame history are rebuilt at each run and never serialised. That is why a removed link cannot leave a stale route behind.
 
@@ -286,9 +286,11 @@ sequenceDiagram
   U->>S: buildPingEvents(src, target) (or DHCP, TCP, DNS, attack…)
   S->>S: validate, seedSimRng(), resolve first hop
   S-->>U: error string, or {events, pendingArp}
+  U->>E: animatedRunBlockReason() — refuse before building if a run owns the sim
   U->>E: startSimulation(setup, origin, target, mode)
+  E->>E: beginRun(): refuse, or preempt a boot run (with a note)
   E->>R: runRipConvergence(), runStpConvergence()
-  E->>E: pushUndo(), reset sim state, seed first leg as a transit
+  E->>E: pushUndo(), resetRunState(), seed first leg as a transit
   loop animationTick (requestAnimationFrame)
     E->>E: advance transit progress (speed × link latency)
     E->>E: deliverCompletedTransits(): record capture row, queue arrive event
@@ -302,6 +304,8 @@ sequenceDiagram
   E->>T: terminalLineFor(origin session, result)
   E->>E: boot queue: next host, if a network boot is running
 ```
+
+**Ownership.** One run owns `state.simulation` at a time. Both entry points go through `beginRun` in `engine.ts`, which performs the one shared reset of the per-run state and settles whatever is in flight first: a new animated run is refused while the user's animated run is running or paused, a network-boot run is preempted (and its queue cancelled), and a headless run stops an animated one first. Every preemption leaves a note in the interrupted run's terminal, on the status line and in the console output. The terminal input lock is derived in `syncTerminal` from the same policy (`animatedRunBlockReason`), scoped to the shell that started the run. See [engine.md](src/engine.md#run-ownership).
 
 **Setup.** Each `build*Events` function validates the request and returns either an error string or a starting queue of `SimEvent`s plus a `pendingArp` map of frames waiting on ARP resolution. Because validation returns before any run starts, every shell command's error path is testable without the engine.
 
@@ -339,7 +343,7 @@ Many paths replace the whole network. All of them must leave no trace of the pre
 | Load a scenario | `scenarios.loadScenario` → `applyConfig` | via `applyConfig` | Sets the active scenario |
 | Undo and redo | `state.undo` / `redo` → `restoreSnapshot` | `sync().stopSimulation` | Drops sessions for devices the snapshot lacks |
 | Clear the network | `devices.clearNetwork` | device callback `stopSimulation` | Sessions, captures, selection |
-| Scenario Check | `scenario-ui.runActiveScenarioCheck` | `sync().stopSimulation` | Headless checks then run on a quiet model |
+| Scenario Check (and any headless run) | `scenario-ui.runActiveScenarioCheck` → `runSimulationHeadless` | `engine.beginRun` (with a surfaced note) | Headless checks then run on a quiet model; a queued network boot is cancelled |
 | Script import | `io.runImportedScript` | per command | One undo point for the whole script |
 
 `diagnoseState()` in `diagnostics.ts` is the executable form of these guarantees. `tests/lifecycle.test.ts` drives each path mid-run and asserts the result is empty. `window.routesim.diagnose()` runs the same check in the live app.

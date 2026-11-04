@@ -14,7 +14,7 @@ import {
   addDevice, addLink, deleteLink, linkBlockReason, deleteSelection, clearNetwork, collapseLan, expandLan,
   getDevice, moveDevice, linkName, routerInterfacesWithNames } from "./devices";
 import {
-  startSimulation, stopSimulation, pauseSimulation, resumeSimulation, stepOnce,
+  startSimulation, stopSimulation, pauseSimulation, resumeSimulation, stepOnce, animatedRunBlockReason, takePreemptionNote,
   runSimulationHeadless, runTraceroute,
 } from "./engine";
 import { buildPingEvents, buildDhcpEvents, buildConnectEvents, buildResolveEvents, buildHttpEvents, parseHttpTarget, buildAssociationEvents, buildDot1xEvents, buildStpEvents, buildScanEvents, buildSweepEvents, buildArpSpoofEvents, buildAttackEvents, associatedAp, findPingTarget } from "./simulation";
@@ -364,6 +364,10 @@ function cmdPing(args: string[]): CommandResult {
   if (typeof src === "string") return err(src);
   const dst = args[1];
   if (!dst) return err(`ping: missing target.`);
+  // An animated run can't start while another owns the simulator (engine
+  // beginRun) — refused here, before building: building reseeds the run PRNG,
+  // which would perturb the in-flight run. Same check in every animated verb.
+  const busy = animatedRunBlockReason(); if (busy) return err(busy);
   const setup = buildPingEvents(src, dst);
   if (typeof setup === "string") return err(setup);
   startSimulation(setup, src.id, targetIpFor(dst), "ping");
@@ -376,6 +380,7 @@ function cmdConnect(args: string[]): CommandResult {
   const dst = args[1];
   const port = Number(args[2]);
   if (!dst || !args[2]) return err(`connect: expected "connect <src> <dst> <port>".`);
+  const busy = animatedRunBlockReason(); if (busy) return err(busy);
   const setup = buildConnectEvents(src, dst, port);
   if (typeof setup === "string") return err(setup);
   startSimulation(setup, src.id, targetIpFor(dst), "tcp", port);
@@ -389,6 +394,7 @@ function cmdHttp(args: string[]): CommandResult {
   const { host, port, path } = parseHttpTarget(args[1], args[2] || "/");
   if (!host) return err(`http: no host specified.`);
   if (!Number.isInteger(port) || port < 1 || port > 65535) return err(`http: invalid port in "${args[1]}".`);
+  const busy = animatedRunBlockReason(); if (busy) return err(busy);
   const setup = buildHttpEvents(src, host, port, path);
   if (typeof setup === "string") return err(setup);
   startSimulation(setup, src.id, targetIpFor(host), "http", port);
@@ -398,6 +404,7 @@ function cmdHttp(args: string[]): CommandResult {
 function cmdDhcp(args: string[]): CommandResult {
   const host = resolveDevice(args[0]);
   if (typeof host === "string") return err(host);
+  const busy = animatedRunBlockReason(); if (busy) return err(busy);
   const setup = buildDhcpEvents(host);
   if (typeof setup === "string") return err(setup);
   startSimulation(setup, host.id, "", "dhcp");
@@ -407,6 +414,7 @@ function cmdDhcp(args: string[]): CommandResult {
 function cmdAssociate(args: string[]): CommandResult {
   const laptop = resolveDevice(args[0]);
   if (typeof laptop === "string") return err(laptop);
+  const busy = animatedRunBlockReason(); if (busy) return err(busy);
   const setup = buildAssociationEvents(laptop);
   if (typeof setup === "string") return err(setup);
   const ssid = associatedAp(laptop)?.ap.config?.ssid || "";
@@ -527,6 +535,7 @@ function cmdMacsec(args: string[]): CommandResult {
 function cmdDot1x(args: string[]): CommandResult {
   const host = resolveDevice(args[0]);
   if (typeof host === "string") return err(host);
+  const busy = animatedRunBlockReason(); if (busy) return err(busy);
   const setup = buildDot1xEvents(host);
   if (typeof setup === "string") return err(setup);
   startSimulation(setup, host.id, host.config?.dot1x?.identity || "", "dot1x");
@@ -625,6 +634,7 @@ function cmdAttack(args: string[]): CommandResult {
   const node = resolveDevice(args[0]);
   if (typeof node === "string") return err(node);
   if (node.type !== "attacker" && node.type !== "kali") return err(`${node.name} is not a Kali PC or Red Team host.`);
+  const busy = animatedRunBlockReason(); if (busy) return err(busy);   // before the target is stored
   const kind = args[1] && /^(scan|sweep|arp-spoof)$/i.test(args[1]) ? args[1].toLowerCase() : undefined;
   const targetArg = (kind ? args.slice(2) : args.slice(1)).join(" ").trim();
   // A scan/sweep target argument overrides (and remembers) the configured
@@ -667,6 +677,7 @@ function cmdRedteam(args: string[]): CommandResult {
 // `stp <switch> priority <n>` configures a managed switch.
 function cmdStp(args: string[]): CommandResult {
   if (args.length === 0) {
+    const busy = animatedRunBlockReason(); if (busy) return err(busy);
     const setup = buildStpEvents();
     if (typeof setup === "string") return err(setup);
     // The seeded events originate at a root bridge (fromDeviceId) — use it as the
@@ -702,10 +713,12 @@ function cmdStp(args: string[]): CommandResult {
 
 function cmdRun(args: string[]): CommandResult {
   const mode = (args[0] || "").toLowerCase();
+  // Names this run in the note left if it stops an animated run (engine beginRun).
+  const purpose = `the console's \`run ${mode}\``;
   if (mode === "stp") {
     const setup = buildStpEvents();
     if (typeof setup === "string") return err(setup);
-    const r = runSimulationHeadless(setup, setup.events[0]?.fromDeviceId || "", "", "stp");
+    const r = runSimulationHeadless(setup, setup.events[0]?.fromDeviceId || "", "", "stp", null, purpose);
     const blocked = state.links.filter(l => l.stpBlocked).length;
     return { ok: r.success, data: r,
       output: [r.success ? `stp: spanning tree converged — ${blocked} port(s) blocking (${r.steps} BPDUs)` : "stp: broadcast storm — no spanning tree to break the loop"] };
@@ -715,7 +728,7 @@ function cmdRun(args: string[]): CommandResult {
     if (typeof host === "string") return err(host);
     const setup = buildDot1xEvents(host);
     if (typeof setup === "string") return err(setup);
-    const r = runSimulationHeadless(setup, host.id, "", "dot1x");
+    const r = runSimulationHeadless(setup, host.id, "", "dot1x", null, purpose);
     return { ok: r.success, data: r,
       output: [r.success ? `dot1x: ${host.name} authenticated — port authorised (${r.steps} frames)` : `dot1x: authentication failed`] };
   }
@@ -724,7 +737,7 @@ function cmdRun(args: string[]): CommandResult {
     if (typeof laptop === "string") return err(laptop);
     const setup = buildAssociationEvents(laptop);
     if (typeof setup === "string") return err(setup);
-    const r = runSimulationHeadless(setup, laptop.id, "", "associate");
+    const r = runSimulationHeadless(setup, laptop.id, "", "associate", null, purpose);
     return { ok: r.success, data: r,
       output: [r.success ? `associate: ${laptop.name} joined the WiFi (${r.steps} frames)` : "associate: handshake did not complete"] };
   }
@@ -735,7 +748,7 @@ function cmdRun(args: string[]): CommandResult {
     if (!dst) return err(`run ping: missing target.`);
     const setup = buildPingEvents(src, dst);
     if (typeof setup === "string") return err(setup);
-    const r = runSimulationHeadless(setup, src.id, targetIpFor(dst), "ping");
+    const r = runSimulationHeadless(setup, src.id, targetIpFor(dst), "ping", null, purpose);
     return { ok: r.success, data: r,
       output: [`ping ${dst}: ${r.success ? `reachable (ttl=${r.ttl})` : "unreachable"} — ${r.steps} steps`] };
   }
@@ -747,7 +760,7 @@ function cmdRun(args: string[]): CommandResult {
     if (!dst || !args[3]) return err(`run connect: expected "run connect <src> <dst> <port>".`);
     const setup = buildConnectEvents(src, dst, port);
     if (typeof setup === "string") return err(setup);
-    const r = runSimulationHeadless(setup, src.id, targetIpFor(dst), "tcp", port);
+    const r = runSimulationHeadless(setup, src.id, targetIpFor(dst), "tcp", port, purpose);
     return { ok: r.success, data: r,
       output: [`connect ${dst}:${port}: ${r.success ? "open (handshake completed)" : r.refused ? "refused (RST)" : "timed out"} — ${r.steps} steps`] };
   }
@@ -760,7 +773,7 @@ function cmdRun(args: string[]): CommandResult {
     if (!Number.isInteger(port) || port < 1 || port > 65535) return err(`run http: invalid port in "${args[2]}".`);
     const setup = buildHttpEvents(src, host, port, path);
     if (typeof setup === "string") return err(setup);
-    const r = runSimulationHeadless(setup, src.id, targetIpFor(host), "http", port);
+    const r = runSimulationHeadless(setup, src.id, targetIpFor(host), "http", port, purpose);
     return { ok: r.success, data: r,
       output: [`http http://${host}:${port}${path}: ${r.httpStatus != null ? `${r.httpStatus}` : r.refused ? "refused" : "no response"} — ${r.steps} steps`] };
   }
@@ -769,7 +782,7 @@ function cmdRun(args: string[]): CommandResult {
     if (typeof host === "string") return err(host);
     const setup = buildDhcpEvents(host);
     if (typeof setup === "string") return err(setup);
-    const r = runSimulationHeadless(setup, host.id, "", "dhcp");
+    const r = runSimulationHeadless(setup, host.id, "", "dhcp", null, purpose);
     return { ok: r.success, data: r,
       output: [r.success ? `dhcp: assigned ${r.assignedIp} (gw ${r.assignedGateway})` : "dhcp: no response"] };
   }
@@ -780,7 +793,7 @@ function cmdRun(args: string[]): CommandResult {
     if (!name) return err(`run resolve: expected "run resolve <src> <name>".`);
     const setup = buildResolveEvents(src, name, null, null);
     if (typeof setup === "string") return err(setup);
-    const r = runSimulationHeadless(setup, src.id, name, "dns");
+    const r = runSimulationHeadless(setup, src.id, name, "dns", null, purpose);
     return { ok: r.success, data: r,
       output: [`resolve ${name}: ${r.resolvedIp || "no answer"} — ${r.steps} steps`] };
   }
@@ -1171,7 +1184,13 @@ export function runConsoleCommand(line: string): CommandResult {
   // line, a Snort rule) that must reach them exactly as typed, unsplit.
   const tail = (n: number) => (n < ends.length ? trimmed.slice(ends[n]).trim() : "");
   try {
-    return handler(tokens.slice(1), tail(0), tail);
+    takePreemptionNote();   // drop a note left by a run this command didn't start
+    const result = handler(tokens.slice(1), tail(0), tail);
+    // A headless verb (run, traceroute, scenario check) stops an animated run in
+    // flight first (engine beginRun) — say so here too, not just in its terminal.
+    const note = takePreemptionNote();
+    if (note) result.output.unshift(note);
+    return result;
   } catch (e: any) {
     return err(`Error: ${e?.message || String(e)}`);
   }

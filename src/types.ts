@@ -702,6 +702,10 @@ export interface CaptureEntry {
   macsec?: boolean;  // traversed a MACsec-secured link — shown encrypted in the packet list
 }
 
+// The kind of run a simulation is — one name for the union both run entry
+// points (startSimulation / runSimulationHeadless) take.
+export type SimMode = SimulationState["mode"];
+
 export interface SimulationState {
   status: "idle" | "running" | "paused" | "done";
   mode: "ping" | "dhcp" | "tcp" | "dns" | "http" | "associate" | "dot1x" | "stp" | "attack";

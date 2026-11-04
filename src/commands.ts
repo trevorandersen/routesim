@@ -7,7 +7,7 @@
  * tests. See docs/scripting.md for the command reference.
  */
 import type { Device, DeviceType } from "./types";
-import { state, undo, redo, sync, pushUndo, THEMES } from "./state";
+import { state, undo, redo, sync, pushUndo, THEMES, linksChanged } from "./state";
 import { USER_ADDABLE_TYPES, isHost, isDot1xSupplicant, defaultPortCount } from "./device-registry";
 import { dom } from "./dom";
 import {
@@ -178,7 +178,7 @@ function cmdLinkState(args: string[], down: boolean): CommandResult {
   pushUndo();
   if (down) link.shutdown = true; else delete link.shutdown;
   sync().syncPanel();
-  sync().render();
+  linksChanged([link.from, link.to]);   // flush learnt MACs + re-run STP (also re-renders), as toggleLinkShutdown does
   return ok(`Link ${a.name} ↔ ${b.name} is now ${down ? "administratively down (shut)" : "up (no shut)"}.`);
 }
 function cmdShut(args: string[]): CommandResult { return cmdLinkState(args, true); }

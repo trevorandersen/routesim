@@ -1,4 +1,4 @@
-import { state, pushUndo, sync, dropTerminalSessions, resetCaptureState } from "./state";
+import { state, pushUndo, sync, dropTerminalSessions, resetCaptureState, flushLearnedMacs } from "./state";
 import { dom } from "./dom";
 import type { SerialisedTopology, Device, Link } from "./types";
 
@@ -252,8 +252,11 @@ export function applyConfigWithoutUndo(config: NormalisedConfig): void {
   state.activeScenarioId = null;
   setTool("select");
   fitNetwork();
-  // Converge the spanning tree so a loaded topology shows its blocked ports /
+  // A loaded file's MAC tables were learnt over whatever cabling it was saved
+  // with — never trust them (the linksChanged invalidation, all bridges). Then
+  // converge the spanning tree so a loaded topology shows its blocked ports /
   // root bridge immediately (without waiting for the first simulation).
+  flushLearnedMacs();
   runStpConvergence();
   syncPanel();
   syncTerminal();

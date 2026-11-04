@@ -1,5 +1,5 @@
 import type { Link, DeviceType } from "./types";
-import { state, sync, pushUndo, captureUndoOnFocus } from "./state";
+import { state, sync, pushUndo, captureUndoOnFocus, linksChanged } from "./state";
 import { DEVICE_SPECS, isHost, offersTerminal, defaultPortCount } from "./device-registry";
 import { dom } from "./dom";
 import { escapeHtml, isValidIpv4, isValidMac, normaliseMacAddress, randomMac, parseIpv4Token, prefixOf, networkOf, normaliseSsid, normaliseWifiPassword } from "./utils";
@@ -916,7 +916,7 @@ function renderLinkPanel(link: Link): void {
       pushUndo();
       if (event.target.checked) link.shutdown = true; else delete link.shutdown;
       syncPanel();
-      sync().render(); // redraw the link's down/up styling
+      linksChanged([link.from, link.to]); // flush learnt MACs, re-run STP, redraw the down/up styling
     });
   }
   // Bandwidth / latency / loss: a positive number sets the property; blank or

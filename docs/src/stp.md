@@ -5,7 +5,7 @@ The L2 counterpart to [`routing.ts`](engine.md)'s RIP convergence. `runStpConver
 ## When it runs
 
 - **Before every simulation** — called in `startSimulation` and `runSimulationHeadless` ([engine.ts](engine.md)) right after `runRipConvergence`, so loops are already broken (blocked ports) before the first hop.
-- **On topology / STP-config change** — via the `recomputeStp` callback (registered in [app.ts](app.md) as `runStpConvergence()` + `render()`), so a loaded looped topology, a freshly drawn redundant cable, a shut link, an undo, or an `stp on/off` shows its blocked port live without waiting for a run. Wired at: `applyConfigWithoutUndo` ([config.ts](config.md)), `addLink`/`deleteLink`/`deleteSelection`/`toggleLinkShutdown` ([devices.ts](devices.md)), `restoreSnapshot` ([state.ts](state.md)), and the `stp`/`managed` mutators.
+- **On topology / STP-config change** — via the `recomputeStp` callback (registered in [app.ts](app.md) as `runStpConvergence()` + `render()`), so a loaded looped topology, a freshly drawn redundant cable, a shut link, an undo, or an `stp on/off` shows its blocked port live without waiting for a run. Wired at: `applyConfigWithoutUndo` ([config.ts](config.md)), the `stp`/`managed` mutators, and every link change through the `linksChanged` hook ([state.ts](state.md) — which also flushes learnt MAC tables): `addLink`/`deleteLink`/`deleteSelection`/`toggleLinkShutdown`/`collapseLan`/`expandLan` ([devices.ts](devices.md)), the `shut`/`noshut` commands and the link inspector toggle (which previously skipped the recompute), and `restoreSnapshot`.
 
 ## The algorithm
 

@@ -1,4 +1,4 @@
-import type { AppState, TerminalSession } from "./types";
+import type { AppState, Device, TerminalSession } from "./types";
 import { shiftToPositive } from "./normalise";
 import { freshNameCounters } from "./device-registry";
 
@@ -10,7 +10,7 @@ export type SyncCallbacks = {
   syncScenarioPanel: () => void;
   syncCoordReadout: () => void;
   syncOptionControls: () => void;
-  recomputeStp: () => void;   // recompute the spanning tree for live canvas/inspector display (also runs at sim start)
+  recomputeStp: () => void;   // recompute the spanning tree for live canvas/inspector display (also runs at sim start); link changes reach it through linksChanged()
   syncSimLog: () => void;     // rebuild the sim-log dock pane (packet list / event log)
   // The engine's own run teardown (stops the animation loop, boot queue, transport
   // pill, queues, conntrack). Bridged because state.ts cannot import engine.ts;
@@ -515,6 +515,62 @@ export const wifiVlanConfig = {
 // Keep all built-in topologies in positive coordinate space.
 [defaultConfig, vlanRoasConfig, routerMeshConfig, wifiVlanConfig].forEach(c => shiftToPositive(c));
 
+// --- Derived-state invalidation ---
+
+// A bridge's MAC table is learnt state derived from the cabling it was learnt
+// over: an entry names the port a source MAC arrived on. When that cabling
+// changes the entry can lie — implicit ports are numbered densely, so removing
+// one cable renames every later port on that switch, and a host moved to
+// another switch is still "behind" the old port on every bridge in between.
+// Hosts' ARP caches stay warm, so no broadcast would ever re-learn it. Real
+// bridges flush the downed port and, on a topology change, age out the whole
+// broadcast domain quickly (802.1D TCN / 802.1w TC flush); here every learnt
+// (DYNAMIC) entry on every bridge in the affected L2 domain is dropped, so the
+// next frame floods once and re-learns. STATIC entries are configuration and
+// stay. Omit `deviceIds` to flush every bridge (load / undo / redo).
+export function flushLearnedMacs(deviceIds?: readonly string[]): void {
+  const flush = (device: Device | undefined) => {
+    const table = device?.config?.macTable;
+    if (Array.isArray(table) && table.length) device!.config!.macTable = table.filter(e => e.type === "STATIC");
+  };
+  if (!deviceIds) { state.devices.forEach(flush); return; }
+  const byId = new Map(state.devices.map(d => [d.id, d]));
+  // Every link counts, shut or hidden included — over-flushing costs one flood,
+  // under-flushing strands unicast.
+  const adjacent = new Map<string, string[]>();
+  const connect = (a: string, b: string) => {
+    const list = adjacent.get(a);
+    if (list) list.push(b); else adjacent.set(a, [b]);
+  };
+  for (const link of state.links) { connect(link.from, link.to); connect(link.to, link.from); }
+  // A router or the internet cloud ends the broadcast domain (as in l2Reachable):
+  // it is never expanded through, so a change on one side leaves the other alone.
+  const isL3Boundary = (d: Device | undefined) => d?.type === "router" || d?.type === "internet";
+  const seen = new Set(deviceIds);
+  const queue = [...seen];
+  while (queue.length) {
+    const id = queue.pop()!;
+    const device = byId.get(id);
+    flush(device);
+    if (isL3Boundary(device)) continue;
+    for (const next of adjacent.get(id) ?? []) {
+      if (seen.has(next)) continue;
+      seen.add(next);
+      queue.push(next);
+    }
+  }
+}
+
+// The one hook for "the cabling changed": a link was added, removed, shut or
+// un-shut, a device (and its links) went, or the whole topology was replaced.
+// Invalidates everything derived from the cabling — learnt MAC tables, then the
+// spanning tree (the recomputeStp bridge, which also re-renders). `deviceIds`
+// are the devices whose links changed (both ends of a link); omit for "all".
+export function linksChanged(deviceIds?: readonly string[]): void {
+  flushLearnedMacs(deviceIds);
+  sync().recomputeStp();
+}
+
 // --- Undo system ---
 
 export function networkSnapshot(): string {
@@ -584,8 +640,9 @@ export function restoreSnapshot(snapshot: string): void {
   sync().syncPanel();
   sync().syncSimLog();
   // Restoring a different topology can change which ports the spanning tree
-  // blocks — recompute so the canvas reflects the restored state (also renders).
-  sync().recomputeStp();
+  // blocks, and the snapshot's MAC tables were learnt over whatever cabling
+  // stood when it was taken — flush them and recompute (also renders).
+  linksChanged();
 }
 
 // Undo/redo replace the topology; an active run must be torn down first,

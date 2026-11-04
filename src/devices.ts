@@ -1,5 +1,5 @@
 import type { PortOption, Device, Link, DeviceType, DeviceConfig, NamedRouterIface } from "./types";
-import { state, sync, pushUndo, networkSnapshot, dropTerminalSessions, resetCaptureState } from "./state";
+import { state, sync, pushUndo, networkSnapshot, dropTerminalSessions, resetCaptureState, linksChanged } from "./state";
 import { dom } from "./dom";
 import { deviceSize, defaultDeviceConfig, ensureConfig, normaliseRouterInterfaces, normalisePortVlans, normalisePortModes } from "./normalise";
 import { clampPortCount, clampApPortCount, clampRouterPortCount, escapeHtml, randomMac, isValidHostname, MAX_PHYSICAL_PORT } from "./utils";
@@ -366,9 +366,11 @@ export function addLink(fromId: string, toId: string, fromPort?: number, toPort?
     if (_linkUp) _linkUp(fromId, toId);
   }
   state.linkStartId = null;
-  // A new cable can open or close a loop — recompute the spanning tree so any
-  // newly blocked/unblocked port shows live (also re-renders).
-  sync().recomputeStp();
+  // A new cable renumbers implicit ports (flush the learnt MACs on its L2
+  // domain) and can open or close a loop — recompute the spanning tree so any
+  // newly blocked/unblocked port shows live (also re-renders). A re-link of an
+  // existing cable changed nothing to flush.
+  linksChanged(exists ? [] : [fromId, toId]);
   sync().syncPanel();
 }
 
@@ -404,12 +406,15 @@ function resolvePort(deviceId: string, requested: number | undefined): number {
 
 // Remove a link by id. Returns true if one was removed.
 export function deleteLink(linkId: string): boolean {
-  if (!state.links.some(l => l.id === linkId)) return false;
+  const gone = state.links.find(l => l.id === linkId);
+  if (!gone) return false;
   pushUndo();
   state.links = state.links.filter(l => l.id !== linkId);
   if (state.selectedLinkId === linkId) state.selectedLinkId = null;
   sync().syncPanel();
-  sync().recomputeStp();   // removing a redundant link can unblock the surviving one
+  // Later implicit ports renumber (flush the learnt MACs), and removing a
+  // redundant link can unblock the surviving one.
+  linksChanged([gone.from, gone.to]);
   return true;
 }
 
@@ -425,7 +430,9 @@ export function toggleLinkShutdown(linkId: string): Link | null {
   state.selectedId = null;
   state.configuringId = null;
   sync().syncPanel();
-  sync().recomputeStp();   // a shut redundant link lets the spanning tree re-open the other
+  // A shut port's learnt MACs are gone (it carries nothing), and a shut
+  // redundant link lets the spanning tree re-open the other.
+  linksChanged([link.from, link.to]);
   return link;
 }
 
@@ -443,6 +450,8 @@ export function deleteSelection(): void {
   }
   pushUndo();
   const id = state.selectedId;
+  // Its neighbours lose a cable each — their learnt MACs are invalidated below.
+  const neighbours = state.links.filter(link => link.from === id || link.to === id).map(link => link.from === id ? link.to : link.from);
   state.devices = state.devices.filter(device => device.id !== id);
   state.links = state.links.filter(link => link.from !== id && link.to !== id);
   state.selectedId = null;
@@ -451,7 +460,7 @@ export function deleteSelection(): void {
   if (id) dropTerminalSessions([id]); // a deleted device's session tab goes with it
   sync().syncPanel();
   sync().syncTerminal();
-  sync().recomputeStp();   // removing a switch/link can change which ports block
+  linksChanged(neighbours);   // renumbered ports; removing a switch/link can change which ports block
 }
 
 export function clearNetwork(): void {
@@ -777,7 +786,9 @@ export function collapseLan(anchor: any): void {
   state.configuringId = null;
   state.linkStartId = null;
   sync().syncPanel();
-  sync().render();
+  // Hidden member cables drop out of every outside peer's port numbering — the
+  // learnt MACs and the spanning tree are recomputed (also re-renders).
+  linksChanged();
   dom.modeLabel.textContent = `Collapsed ${members.length} devices into ${lan.name}.`;
 }
 
@@ -809,7 +820,7 @@ export function expandLan(lan: any): void {
   state.configuringId = null;
   state.linkStartId = null;
   sync().syncPanel();
-  sync().render();
+  linksChanged();   // the member cables are back in the port numbering (also re-renders)
   dom.modeLabel.textContent = `Expanded ${lan.name}.`;
 }
 

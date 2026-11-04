@@ -4351,6 +4351,45 @@ Full legal text: https://creativecommons.org/publicdomain/zero/1.0/legalcode</pr
     ]
   };
   [defaultConfig, vlanRoasConfig, routerMeshConfig, wifiVlanConfig].forEach((c) => shiftToPositive(c));
+  function flushLearnedMacs(deviceIds) {
+    const flush = (device) => {
+      const table = device?.config?.macTable;
+      if (Array.isArray(table) && table.length) device.config.macTable = table.filter((e) => e.type === "STATIC");
+    };
+    if (!deviceIds) {
+      state.devices.forEach(flush);
+      return;
+    }
+    const byId = new Map(state.devices.map((d) => [d.id, d]));
+    const adjacent = /* @__PURE__ */ new Map();
+    const connect = (a, b) => {
+      const list = adjacent.get(a);
+      if (list) list.push(b);
+      else adjacent.set(a, [b]);
+    };
+    for (const link of state.links) {
+      connect(link.from, link.to);
+      connect(link.to, link.from);
+    }
+    const isL3Boundary = (d) => d?.type === "router" || d?.type === "internet";
+    const seen = new Set(deviceIds);
+    const queue = [...seen];
+    while (queue.length) {
+      const id = queue.pop();
+      const device = byId.get(id);
+      flush(device);
+      if (isL3Boundary(device)) continue;
+      for (const next of adjacent.get(id) ?? []) {
+        if (seen.has(next)) continue;
+        seen.add(next);
+        queue.push(next);
+      }
+    }
+  }
+  function linksChanged(deviceIds) {
+    flushLearnedMacs(deviceIds);
+    sync().recomputeStp();
+  }
   function networkSnapshot() {
     return JSON.stringify({
       devices: state.devices,
@@ -4404,7 +4443,7 @@ Full legal text: https://creativecommons.org/publicdomain/zero/1.0/legalcode</pr
     resetCaptureState();
     sync().syncPanel();
     sync().syncSimLog();
-    sync().recomputeStp();
+    linksChanged();
   }
   function cancelActiveRun() {
     if (state.simulation.status === "running" || state.simulation.status === "paused") sync().stopSimulation?.();
@@ -4798,7 +4837,7 @@ Full legal text: https://creativecommons.org/publicdomain/zero/1.0/legalcode</pr
       if (_linkUp) _linkUp(fromId, toId);
     }
     state.linkStartId = null;
-    sync().recomputeStp();
+    linksChanged(exists ? [] : [fromId, toId]);
     sync().syncPanel();
   }
   function nextAvailablePort(deviceId) {
@@ -4824,12 +4863,13 @@ Full legal text: https://creativecommons.org/publicdomain/zero/1.0/legalcode</pr
     return nextAvailablePort(deviceId);
   }
   function deleteLink(linkId) {
-    if (!state.links.some((l) => l.id === linkId)) return false;
+    const gone = state.links.find((l) => l.id === linkId);
+    if (!gone) return false;
     pushUndo();
     state.links = state.links.filter((l) => l.id !== linkId);
     if (state.selectedLinkId === linkId) state.selectedLinkId = null;
     sync().syncPanel();
-    sync().recomputeStp();
+    linksChanged([gone.from, gone.to]);
     return true;
   }
   function toggleLinkShutdown(linkId) {
@@ -4842,7 +4882,7 @@ Full legal text: https://creativecommons.org/publicdomain/zero/1.0/legalcode</pr
     state.selectedId = null;
     state.configuringId = null;
     sync().syncPanel();
-    sync().recomputeStp();
+    linksChanged([link.from, link.to]);
     return link;
   }
   function deleteSelection() {
@@ -4858,6 +4898,7 @@ Full legal text: https://creativecommons.org/publicdomain/zero/1.0/legalcode</pr
     }
     pushUndo();
     const id = state.selectedId;
+    const neighbours = state.links.filter((link) => link.from === id || link.to === id).map((link) => link.from === id ? link.to : link.from);
     state.devices = state.devices.filter((device) => device.id !== id);
     state.links = state.links.filter((link) => link.from !== id && link.to !== id);
     state.selectedId = null;
@@ -4866,7 +4907,7 @@ Full legal text: https://creativecommons.org/publicdomain/zero/1.0/legalcode</pr
     if (id) dropTerminalSessions([id]);
     sync().syncPanel();
     sync().syncTerminal();
-    sync().recomputeStp();
+    linksChanged(neighbours);
   }
   function clearNetwork() {
     _stopSimulation?.();
@@ -5121,7 +5162,7 @@ Full legal text: https://creativecommons.org/publicdomain/zero/1.0/legalcode</pr
     state.configuringId = null;
     state.linkStartId = null;
     sync().syncPanel();
-    sync().render();
+    linksChanged();
     dom.modeLabel.textContent = `Collapsed ${members.length} devices into ${lan.name}.`;
   }
   function expandLan(lan) {
@@ -5152,7 +5193,7 @@ Full legal text: https://creativecommons.org/publicdomain/zero/1.0/legalcode</pr
     state.configuringId = null;
     state.linkStartId = null;
     sync().syncPanel();
-    sync().render();
+    linksChanged();
     dom.modeLabel.textContent = `Expanded ${lan.name}.`;
   }
   function routerInterfaceFor(router, peerId, vlanTag) {
@@ -8895,8 +8936,9 @@ Full legal text: https://creativecommons.org/publicdomain/zero/1.0/legalcode</pr
     }
     const isBroadcast = frame.dstMac === BROADCAST_MAC;
     let forwardPorts = [];
+    const floodPorts = () => ports.map((_, idx) => idx).filter((idx) => idx !== ingressIdx).filter((idx) => ingressVlan == null || portCarriesVlan(`Ethernet${idx + 1}`, ingressVlan));
     if (isBroadcast) {
-      forwardPorts = ports.map((_, idx) => idx).filter((idx) => idx !== ingressIdx).filter((idx) => ingressVlan == null || portCarriesVlan(`Ethernet${idx + 1}`, ingressVlan));
+      forwardPorts = floodPorts();
       const portNames = forwardPorts.map((i) => `Ethernet${i + 1}`).join(", ");
       logStep(device, "sim-forward", `Flood ${frameLabel(frame)} \u2192 ${portNames || "(none)"}`);
     } else {
@@ -8906,16 +8948,20 @@ Full legal text: https://creativecommons.org/publicdomain/zero/1.0/legalcode</pr
         if (managed && ingressVlan != null && e.vlan && Number(e.vlan) !== ingressVlan) return false;
         return true;
       });
-      if (entry) {
-        const portIdx = ports.findIndex((_, idx) => `Ethernet${idx + 1}` === entry.port);
-        if (portIdx >= 0 && portIdx !== ingressIdx) {
+      const portIdx = entry ? ports.findIndex((_, idx) => `Ethernet${idx + 1}` === entry.port) : -1;
+      if (entry && !ports[portIdx]?.peer) {
+        if (entry.type !== "STATIC") config.macTable = config.macTable.filter((e) => e !== entry);
+        logStep(device, "sim-learn", `Stale MAC entry ${frame.dstMac} \u2192 ${entry.port} \u2014 no cable on that port now, so the entry is ${entry.type === "STATIC" ? "ignored" : "forgotten"}`);
+      }
+      if (entry && ports[portIdx]?.peer) {
+        if (portIdx !== ingressIdx) {
           forwardPorts = [portIdx];
           logStep(device, "sim-forward", `Forward ${frameLabel(frame)} \u2192 ${entry.port} (known unicast)`);
         } else {
-          logStep(device, "sim-drop", `Drop ${frameLabel(frame)} \u2014 dest port is ingress`);
+          logStep(device, "sim-drop", `Drop ${frameLabel(frame)} \u2014 ${frame.dstMac} was learnt on ingress port ${entry.port}, so the switch filters it (the destination is on the segment it came from)`);
         }
       } else {
-        forwardPorts = ports.map((_, idx) => idx).filter((idx) => idx !== ingressIdx).filter((idx) => ingressVlan == null || portCarriesVlan(`Ethernet${idx + 1}`, ingressVlan));
+        forwardPorts = floodPorts();
         const portNames = forwardPorts.map((i) => `Ethernet${i + 1}`).join(", ");
         logStep(device, "sim-forward", `Flood ${frameLabel(frame)} \u2192 ${portNames} (unknown unicast)`);
       }
@@ -13309,7 +13355,7 @@ Snort successfully validated the configuration${bad ? " (with errors)" : "."}`);
         if (event.target.checked) link.shutdown = true;
         else delete link.shutdown;
         syncPanel();
-        sync().render();
+        linksChanged([link.from, link.to]);
       });
     }
     const linkNumberField = (id, key, max) => {
@@ -13867,7 +13913,7 @@ Snort successfully validated the configuration${bad ? " (with errors)" : "."}`);
     { type: "laptop", body: "A WiFi-only host. Instead of a cable it associates to an access point whose SSID (and password, if secured) matches \u2014 otherwise it behaves exactly like a client PC on the wired LAN it reaches through the AP." },
     { type: "kali", body: "A hand-driven pentest workstation. Its terminal is an ordinary Linux shell plus `nmap -sS` (SYN port scan), `nmap -sn` (ping sweep) and `arpspoof` \u2014 you launch the attacks yourself, one command at a time." },
     { type: "server", body: "A host that also runs dnsmasq \u2014 DNS A-records and a DHCP pool \u2014 and can serve HTTP. The DNS / DHCP / RADIUS / Web tool variants are the same device with a different service switched on; enable more from the inspector." },
-    { type: "switch", body: "Forwards frames by learning which MAC lives on each port (floods the unknown). The basic switch is unmanaged; the Managed variant adds 802.1Q VLANs, a SONiC-style CLI, SPAN port mirroring (to feed an IDS), and spanning tree." },
+    { type: "switch", body: "Forwards frames by learning which MAC lives on each port (floods the unknown). Adding, removing or shutting a cable flushes what it learnt on that LAN, so a moved host is re-learnt. The basic switch is unmanaged; the Managed variant adds 802.1Q VLANs, a SONiC-style CLI, SPAN port mirroring (to feed an IDS), and spanning tree." },
     { type: "router", body: "Forwards IP packets between subnets \u2014 longest-prefix routing, static routes and RIP \u2014 over an FRR-style CLI, with NAT and netfilter INPUT/FORWARD chains. The Border variant is the edge archetype (a \u201CB\u201D badge): the natural home for NAT and a firewall." },
     { type: "internet", body: "Stands in for the public internet. Cable several routers to it \u2014 each on its own public subnet \u2014 and it routes between them by destination, handing each a default route and answering ARP for the gateway it presents. Pair with NAT + port-forwarding for the full multi-site story." },
     { type: "firewall", body: "A transparent inline packet filter (the netfilter FORWARD chain). Write `iptables` rules to accept / drop / reject by protocol, address, port and connection state; a stateful `-m state ESTABLISHED,RELATED` ruleset lets replies back while blocking new inbound flows." },
@@ -16020,6 +16066,7 @@ Snort successfully validated the configuration${bad ? " (with errors)" : "."}`);
     state.activeScenarioId = null;
     setTool("select");
     fitNetwork();
+    flushLearnedMacs();
     runStpConvergence();
     syncPanel();
     syncTerminal();
@@ -16404,7 +16451,7 @@ Snort successfully validated the configuration${bad ? " (with errors)" : "."}`);
     if (down) link.shutdown = true;
     else delete link.shutdown;
     sync().syncPanel();
-    sync().render();
+    linksChanged([link.from, link.to]);
     return ok(`Link ${a.name} \u2194 ${b.name} is now ${down ? "administratively down (shut)" : "up (no shut)"}.`);
   }
   function cmdShut(args) {

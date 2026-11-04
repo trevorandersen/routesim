@@ -1477,13 +1477,14 @@ export function processAtSwitch(device: Device, frame: EthernetFrame, fromDevice
   // Forwarding decision
   const isBroadcast = frame.dstMac === BROADCAST_MAC;
   let forwardPorts: number[] = [];
+  // Flood to all ports except ingress (same VLAN if managed)
+  const floodPorts = () => ports
+    .map((_, idx) => idx)
+    .filter(idx => idx !== ingressIdx)
+    .filter(idx => ingressVlan == null || portCarriesVlan(`Ethernet${idx + 1}`, ingressVlan));
 
   if (isBroadcast) {
-    // Flood to all ports except ingress (same VLAN if managed)
-    forwardPorts = ports
-      .map((_, idx) => idx)
-      .filter(idx => idx !== ingressIdx)
-      .filter(idx => ingressVlan == null || portCarriesVlan(`Ethernet${idx + 1}`, ingressVlan));
+    forwardPorts = floodPorts();
     const portNames = forwardPorts.map(i => `Ethernet${i + 1}`).join(", ");
     logStep(device, "sim-forward", `Flood ${frameLabel(frame)} → ${portNames || "(none)"}`);
   } else {
@@ -1495,21 +1496,27 @@ export function processAtSwitch(device: Device, frame: EthernetFrame, fromDevice
       return true;
     });
 
-    if (entry) {
-      // Known unicast
-      const portIdx = ports.findIndex((_, idx) => `Ethernet${idx + 1}` === entry.port);
-      if (portIdx >= 0 && portIdx !== ingressIdx) {
+    // Known unicast — unless the entry names a port with no cable on it any
+    // more. Link changes flush the table (linksChanged), so this is a backstop:
+    // a stale entry must never strand the frame (the old "dest port is ingress"
+    // drop) — forget it and treat the destination as unknown.
+    const portIdx = entry ? ports.findIndex((_, idx) => `Ethernet${idx + 1}` === entry.port) : -1;
+    if (entry && !ports[portIdx]?.peer) {
+      if (entry.type !== "STATIC") config.macTable = config.macTable.filter(e => e !== entry);
+      logStep(device, "sim-learn", `Stale MAC entry ${frame.dstMac} → ${entry.port} — no cable on that port now, so the entry is ${entry.type === "STATIC" ? "ignored" : "forgotten"}`);
+    }
+    if (entry && ports[portIdx]?.peer) {
+      if (portIdx !== ingressIdx) {
         forwardPorts = [portIdx];
         logStep(device, "sim-forward", `Forward ${frameLabel(frame)} → ${entry.port} (known unicast)`);
       } else {
-        logStep(device, "sim-drop", `Drop ${frameLabel(frame)} — dest port is ingress`);
+        // 802.1D filtering: the destination was learnt on the port the frame
+        // arrived on, so it is already on that segment — never sent back out.
+        logStep(device, "sim-drop", `Drop ${frameLabel(frame)} — ${frame.dstMac} was learnt on ingress port ${entry.port}, so the switch filters it (the destination is on the segment it came from)`);
       }
     } else {
       // Unknown unicast — flood
-      forwardPorts = ports
-        .map((_, idx) => idx)
-        .filter(idx => idx !== ingressIdx)
-        .filter(idx => ingressVlan == null || portCarriesVlan(`Ethernet${idx + 1}`, ingressVlan));
+      forwardPorts = floodPorts();
       const portNames = forwardPorts.map(i => `Ethernet${i + 1}`).join(", ");
       logStep(device, "sim-forward", `Flood ${frameLabel(frame)} → ${portNames} (unknown unicast)`);
     }

@@ -8,7 +8,7 @@
  *   bun test tests/bench.test.ts
  */
 import { describe, it, expect, beforeAll, beforeEach } from "bun:test";
-import { state } from "../src/state";
+import { state, flushLearnedMacs } from "../src/state";
 import { getDevice, linkedPortsFor, connectedIds, linkById, linkAuthorizedForData } from "../src/devices";
 import { l2Reachable, getVlanForDevice, buildScanEvents } from "../src/simulation";
 import { runConsoleScript } from "../src/commands";
@@ -806,6 +806,24 @@ describe("bench: STP convergence", () => {
       expect(results[results.length - 1].passed).toBe(true);
     });
   }
+
+  // linksChanged's MAC flush runs on every cable add/remove/shut (and every
+  // scripted `link`/`unlink`): a BFS over the whole L2 domain from both ends,
+  // dropping each bridge's learnt entries. Worst case — one 30-switch domain,
+  // 20 learnt entries per bridge, so every bridge is visited and filtered.
+  it("flushLearnedMacs — 30-switch domain, 20 entries each", () => {
+    const topo = switchRing(30);
+    state.devices = topo.devices as any;
+    state.links = topo.links as any;
+    const learnt = Array.from({ length: 20 }, (_, i) => ({
+      macAddress: `02:00:00:00:00:${String(i).padStart(2, "0")}`, port: `Ethernet${(i % 3) + 1}`, type: "DYNAMIC", vlan: "1",
+    }));
+    results.push(bench("flushLearnedMacs — 30 switches", () => {
+      for (const d of state.devices) d.config!.macTable = learnt;   // refill (filter never mutates `learnt`)
+      flushLearnedMacs(["sw-0", "sw-1"]);
+    }, { budget: 150, warmup: 20, minTime: 1000 }));
+    expect(results[results.length - 1].passed).toBe(true);
+  });
 
   it("prints results", () => {
     if (results.length) printResults(results);

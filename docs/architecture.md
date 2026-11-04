@@ -181,7 +181,7 @@ The undo system, not the type, decides which is which: `networkSnapshot()` deep-
 4. **Reassign or push collections; never splice them silently.** `devices.ts` keeps lazy `Map` indexes (`getDevice`, `linksFor`, `linkById`) that rebuild when the array's identity or length changes. In-place field edits are fine, because the index holds object references.
 5. **Stop a live run before replacing the topology.** Undo, redo, loading a config, loading a scenario and clearing the network all call `stopSimulation` first; a headless run (scenario checks, `run`, traceroute) stops it through the engine's `beginRun`. See [section 10](#10-topology-lifecycle).
 
-Derived state is recomputed, not stored. RIP-learned routes, spanning-tree roles, conntrack, IDS alerts, attack logs and frame history are rebuilt at each run and never serialised. That is why a removed link cannot leave a stale route behind.
+Derived state is recomputed, not stored. RIP-learned routes, spanning-tree roles, conntrack, IDS alerts, attack logs and frame history are rebuilt at each run and never serialised. That is why a removed link cannot leave a stale route behind. Switch MAC tables are learnt during runs and do persist between them, so they are **invalidated** instead: every link change ends with `linksChanged(ids)` (`state.ts`), which flushes the learnt entries on the affected L2 domain and recomputes the spanning tree; topology load, undo and redo flush every bridge.
 
 ## 6. The callback bridges
 
@@ -198,7 +198,7 @@ Low layers sometimes need to trigger high-layer work: an undo must repaint the c
 | `syncScenarioPanel` | `scenario-ui.syncScenarioPanel` | Scenario load, check, dismiss |
 | `syncCoordReadout` | `ui.syncCoordReadout` | Selection changes |
 | `syncOptionControls` | `inspector.syncOptionControls` | Settings changes from console or URL |
-| `recomputeStp` | `stp.runStpConvergence` then `render` | Topology or STP config edits, so blocked links show live |
+| `recomputeStp` | `stp.runStpConvergence` then `render` | STP config edits, and every link change through `state.linksChanged` (which first flushes learnt MAC tables), so blocked links show live |
 | `syncSimLog` | `engine.syncSimLog` | Capture view and filter changes |
 | `stopSimulation` | `engine.stopSimulation` | `undo`, `redo`; optional in the type |
 

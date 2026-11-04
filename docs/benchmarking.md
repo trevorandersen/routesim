@@ -56,7 +56,7 @@ The budget is still a **p99** — the gate didn't move to p50.
 | `bench: routing` | `buildRoutingTable` and `processAtRouter` (connected/static/NAT translate) |
 | `bench: routingLookup` | Per-frame route resolution — building the table per call vs reusing a prebuilt table (the ARP-flush path) |
 | `bench: RIP convergence` | `runRipConvergence` at 5/10/15 routers on `ripStress` (ring + cross-links + two stub LANs per router), plus a check that the fixture converges every router to its full table |
-| `bench: STP convergence` | `runStpConvergence` at 10/30 managed switches (a ring with chords — many L2 loops to resolve) |
+| `bench: STP convergence` | `runStpConvergence` at 10/30 managed switches (a ring with chords — many L2 loops to resolve), and `flushLearnedMacs` over that 30-switch domain with 20 learnt entries per bridge — the `linksChanged` MAC flush every cable add/remove/shut runs |
 
 ## Integer CIDR pass (R62/R63/R109/R112)
 

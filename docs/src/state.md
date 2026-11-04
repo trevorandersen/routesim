@@ -18,6 +18,7 @@ The heart of the app. Holds the single mutable `state` object, the cross-module 
 - **`networkSnapshot()`** — deep-copies only the persistent network (`devices`, `links`), stripping transient data like per-link frame history, so snapshots stay small.
 - **`pushUndo()` / `pushUndoSnapshot(snap)`** — push the current (or a pre-captured) snapshot onto an 80-deep stack.
 - **`captureUndoOnFocus(input)`** — used by the inspector: captures a snapshot when a text field gains focus, so a whole edit is one undo step (not one per keystroke).
+- **`captureUndoOnFocusWithin(container, selector)`** — the delegated form, bound once on a stable container through the bubbling `focusin`/`focusout`, so it covers inputs the container re-renders (the router interface rows).
 - **`restoreSnapshot()` / `undo()`** — pop and apply; `syncUndoButton()` toggles the toolbar button's enabled state.
 
 ### Static data

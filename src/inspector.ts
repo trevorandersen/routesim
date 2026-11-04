@@ -1,5 +1,5 @@
-import type { Link, DeviceType } from "./types";
-import { state, sync, pushUndo, captureUndoOnFocus, linksChanged } from "./state";
+import type { Device, Link, DeviceType } from "./types";
+import { state, sync, pushUndo, captureUndoOnFocus, captureUndoOnFocusWithin, linksChanged } from "./state";
 import { DEVICE_SPECS, isHost, offersTerminal, defaultPortCount } from "./device-registry";
 import { dom } from "./dom";
 import { escapeHtml, isValidIpv4, isValidMac, normaliseMacAddress, randomMac, parseIpv4Token, prefixOf, networkOf, normaliseSsid, normaliseWifiPassword } from "./utils";
@@ -555,18 +555,6 @@ export function renderMacAddressTable(device: any): string {
   `;
 }
 
-export function bindPortRemoveButtons(): void {
-  document.querySelectorAll(".port-remove").forEach(button => {
-    button.addEventListener("click", () => {
-      // Route through deleteLink (undo + selection clear + recomputeStp) — a bare
-      // state.links filter left spanning tree stale, leaving the survivor of a
-      // redundant loop wrongly blocked until the next run.
-      const id = (button as HTMLElement).dataset.linkId;
-      if (id && deleteLink(id)) sync().render();
-    });
-  });
-}
-
 // SPAN port mirroring control (managed switches): a dropdown to pick the monitor
 // port that an IDS listens on (or "off"), plus per-port source checkboxes to
 // choose which ports' traffic is mirrored (all ticked = the whole switch).
@@ -723,41 +711,95 @@ export function bindStpControls(device: any): void {
   }
 }
 
-// Wires the managed-switch VLAN/mode controls. Each handler delegates to the
-// terminal mutators, which validate, pushUndo(), and sync().syncPanel() —
-// re-rendering the panel (so no manual rebind is needed afterwards).
-export function bindSwitchPortControls(device: any): void {
-  document.querySelectorAll(".port-mode-select").forEach(el => {
-    el.addEventListener("change", (event: any) => {
-      setSwitchPortMode(device, event.target.dataset.port, event.target.value);
+// The element under a delegated event that matches `selector`, or null — the
+// click may land on a child (the port-remove button's SVG), so walk up.
+function delegateTarget<E extends HTMLElement>(event: Event, selector: string): E | null {
+  return (event.target as HTMLElement | null)?.closest<E>(selector) ?? null;
+}
+
+// Wires the switch/hub port rows (the link-remove × and, when managed, the
+// mode/VLAN/native selects) and the managed-switch VLAN chips + Add control.
+// Bound by delegation on the stable #switchPortList / #switchVlanList
+// containers, so the port-count spinner can re-render the rows without a
+// rebind: per-element listeners were lost on re-render, and re-binding them
+// stacked a second Add-VLAN listener on the untouched VLAN list (R90). Each
+// handler goes through the terminal mutators (or deleteLink), which validate,
+// pushUndo(), and re-sync — so the inspector edit and the CLI share one path.
+export function bindSwitchPortControls(device: Device): void {
+  const portList = document.getElementById("switchPortList");
+  if (portList) {
+    portList.addEventListener("change", event => {
+      const select = delegateTarget<HTMLSelectElement>(event, ".port-mode-select, .port-vlan-select, .port-native-select");
+      const port = select?.dataset.port;
+      if (!select || !port) return;
+      if (select.classList.contains("port-mode-select")) setSwitchPortMode(device, port, select.value);
+      else if (select.classList.contains("port-vlan-select")) setSwitchPortVlan(device, port, select.value);
+      else setSwitchTrunkNative(device, port, select.value);
     });
-  });
-  document.querySelectorAll(".port-vlan-select").forEach(el => {
-    el.addEventListener("change", (event: any) => {
-      setSwitchPortVlan(device, event.target.dataset.port, event.target.value);
-    });
-  });
-  document.querySelectorAll(".port-native-select").forEach(el => {
-    el.addEventListener("change", (event: any) => {
-      setSwitchTrunkNative(device, event.target.dataset.port, event.target.value);
-    });
-  });
-  const addVlanBtn = document.getElementById("addVlanBtn");
-  const addVlanId = document.getElementById("addVlanId") as HTMLInputElement;
-  if (addVlanBtn && addVlanId) {
-    const add = () => {
-      if (!addVlanId.value.trim()) return;
-      addSwitchVlan(device, addVlanId.value);
-    };
-    addVlanBtn.addEventListener("click", add);
-    addVlanId.addEventListener("keydown", (event: any) => {
-      if (event.key === "Enter") { event.preventDefault(); add(); }
+    portList.addEventListener("click", event => {
+      // Route through deleteLink (undo + selection clear + recomputeStp) — a bare
+      // state.links filter left spanning tree stale, leaving the survivor of a
+      // redundant loop wrongly blocked until the next run.
+      const id = delegateTarget(event, ".port-remove")?.dataset.linkId;
+      if (id && deleteLink(id)) sync().render();
     });
   }
-  document.querySelectorAll(".vlan-remove").forEach(el => {
-    el.addEventListener("click", (event: any) => {
-      removeSwitchVlan(device, event.target.dataset.vlan);
-    });
+  const vlanList = document.getElementById("switchVlanList");
+  if (!vlanList) return;
+  const add = () => {
+    const addVlanId = document.getElementById("addVlanId") as HTMLInputElement | null;
+    if (!addVlanId || !addVlanId.value.trim()) return;
+    addSwitchVlan(device, addVlanId.value);
+  };
+  vlanList.addEventListener("click", event => {
+    if (delegateTarget(event, "#addVlanBtn")) { add(); return; }
+    const vlan = delegateTarget(event, ".vlan-remove")?.dataset.vlan;
+    if (vlan) removeSwitchVlan(device, vlan);
+  });
+  vlanList.addEventListener("keydown", event => {
+    if ((event as KeyboardEvent).key === "Enter" && delegateTarget(event, "#addVlanId")) { event.preventDefault(); add(); }
+  });
+}
+
+// Wires the router interface rows (the address/prefix inputs and the per-port
+// unlink ×) by delegation on the stable #routerInterfaceList container. The
+// Ethernet/Serial port-count spinners re-render the rows in place, and the
+// per-row listeners used to be bound only by syncPanel — so after a port-count
+// change every interface edit was silently dropped (R6). Delegation makes the
+// rows' wiring independent of who renders them.
+export function bindRouterInterfaceList(device: Device): void {
+  const list = document.getElementById("routerInterfaceList");
+  if (!list) return;
+  captureUndoOnFocusWithin(list, ".router-interface-ip");
+  list.addEventListener("input", event => {
+    const input = delegateTarget<HTMLInputElement>(event, ".router-interface-ip");
+    if (!input) return;
+    const { peerId, ifaceName } = input.dataset;
+    if (!peerId && !ifaceName) return;
+    const value = input.value.trim();
+    const parsed = value === "" ? null : parseIpv4Token(value);
+    if (value !== "" && !parsed) {
+      input.setCustomValidity("Enter a valid IPv4 address (optionally with /prefix).");
+      return;
+    }
+    input.setCustomValidity("");
+    const vlanTag = input.dataset.vlanTag != null ? Number(input.dataset.vlanTag) : undefined;
+    // Connected ports key by peer; unconnected ports key by interface name.
+    const iface = peerId ? routerInterfaceFor(device, peerId, vlanTag) : routerInterfaceForName(device, ifaceName!);
+    iface.ipv4Address = parsed ? parsed.address : "";
+    if (parsed?.prefixLength != null) iface.prefixLength = parsed.prefixLength;
+    input.title = iface.ipv4Address ? `Subnet: ${networkOf(iface.ipv4Address, prefixOf(iface))}` : "";
+  });
+  // The per-interface unlink (×) removes that port's cable.
+  list.addEventListener("click", event => {
+    const peerId = delegateTarget(event, ".iface-unlink")?.dataset.peerId;
+    if (!peerId) return;
+    const link = linksFor(device.id).find((l: Link) => l.from === peerId || l.to === peerId);
+    if (link && deleteLink(link.id)) {
+      state.selectedId = device.id; // deleteLink clears link selection only; keep the router selected
+      syncPanel();
+      sync().render();
+    }
   });
 }
 
@@ -1338,9 +1380,9 @@ export function syncPanel(): void {
           event.target.setCustomValidity("");
           ensureConfig(selected);
           selected.config.ethernetPorts = value;
+          // The rows' listeners are delegated on the list (bindSwitchPortControls),
+          // so re-rendering them needs no rebind — and must not stack one.
           document.getElementById("switchPortList")!.innerHTML = renderSwitchPorts(selected);
-          bindPortRemoveButtons();
-          bindSwitchPortControls(selected);
         }
       });
     }
@@ -1359,38 +1401,6 @@ export function syncPanel(): void {
         }
       });
     }
-    document.querySelectorAll(".router-interface-ip").forEach(input => {
-      captureUndoOnFocus(input as HTMLInputElement);
-      input.addEventListener("input", (event: any) => {
-        const { peerId, ifaceName } = event.target.dataset;
-        if (!peerId && !ifaceName) return;
-        const value = event.target.value.trim();
-        const parsed = value === "" ? null : parseIpv4Token(value);
-        if (value !== "" && !parsed) {
-          event.target.setCustomValidity("Enter a valid IPv4 address (optionally with /prefix).");
-          return;
-        }
-        event.target.setCustomValidity("");
-        const vlanTag = event.target.dataset.vlanTag != null ? Number(event.target.dataset.vlanTag) : undefined;
-        // Connected ports key by peer; unconnected ports key by interface name.
-        const iface = peerId ? routerInterfaceFor(selected, peerId, vlanTag) : routerInterfaceForName(selected, ifaceName);
-        iface.ipv4Address = parsed ? parsed.address : "";
-        if (parsed?.prefixLength != null) iface.prefixLength = parsed.prefixLength;
-        event.target.title = iface.ipv4Address ? `Subnet: ${networkOf(iface.ipv4Address, prefixOf(iface))}` : "";
-      });
-    });
-    // The per-interface unlink (×) removes that port's cable.
-    document.querySelectorAll(".iface-unlink").forEach(button => {
-      button.addEventListener("click", (event: any) => {
-        const peerId = event.currentTarget.dataset.peerId;
-        const link = linksFor(selected.id).find((l: Link) => l.from === peerId || l.to === peerId);
-        if (link && deleteLink(link.id)) {
-          state.selectedId = selected.id; // deleteLink clears link selection only; keep the router selected
-          syncPanel();
-          sync().render();
-        }
-      });
-    });
     const routerRole = document.getElementById("selectedRouterRole") as HTMLSelectElement | null;
     if (routerRole) {
       routerRole.addEventListener("change", (event: any) => {
@@ -1419,11 +1429,12 @@ export function syncPanel(): void {
         } else {
           selected.config.serialPorts = value;
         }
+        // Delegated on the list (bindRouterInterfaceList): the new rows are live.
         document.getElementById("routerInterfaceList")!.innerHTML = renderRouterInterfaces(selected);
       });
     });
-    bindPortRemoveButtons();
     bindSwitchPortControls(selected);
+    if (selected.type === "router") bindRouterInterfaceList(selected);
     bindStpControls(selected);
     bindMirrorControl(selected);
     if (selected.type === "ids") bindIdsControls(selected);

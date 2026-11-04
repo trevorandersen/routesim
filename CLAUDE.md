@@ -53,6 +53,7 @@ Test infrastructure:
 | `tests/preload.ts` | DOM mocking (runs before every test via bunfig.toml) |
 | `tests/helpers.ts` | `registerNoopCallbacks()`, `resetState()` |
 | `tests/fixtures.ts` | `basicTopology()`, `routedTopology()`, `vlanTopology()`, `trunkTopology()` |
+| `tests/mini-dom.ts` | A small parsed element tree (`installMiniDom()`, mounted behind `dom.detailsPanel`) for driving real inspector wiring — `syncPanel()`, type into a field, assert on the config |
 | `tests/bench-harness.ts` | Benchmark timing (sub-µs batching, a GC before each pass, best-of-3 re-measure of an over-budget pass), p99 budgets, results formatting |
 | `tests/bench-fixtures.ts` | Scalable topology generators for benchmarks |
 

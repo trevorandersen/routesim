@@ -2,13 +2,14 @@
  * Inspector render-helper tests. These functions return HTML strings built
  * from device config + topology state, so they can be asserted on directly.
  */
-import { describe, it, expect, beforeAll, beforeEach } from "bun:test";
-import { state } from "../src/state";
-import { renderSwitchPorts, renderSwitchVlans, renderRouterInterfaces, renderFramePanel, ipSourceInfo } from "../src/inspector";
+import { describe, it, expect, beforeAll, beforeEach, afterEach } from "bun:test";
+import { state, undo } from "../src/state";
+import { renderSwitchPorts, renderSwitchVlans, renderRouterInterfaces, renderFramePanel, ipSourceInfo, syncPanel } from "../src/inspector";
 import { findTransitAt } from "../src/canvas";
 import { createIcmpEchoRequest, createTcpSegment } from "../src/frame";
 import { dom } from "../src/dom";
 import { registerNoopCallbacks, resetState } from "./helpers";
+import { installMiniDom, typeInto, MiniEvent, type MiniElement } from "./mini-dom";
 import { basicTopology, routedTopology, vlanTopology } from "./fixtures";
 
 beforeAll(() => registerNoopCallbacks());
@@ -134,5 +135,105 @@ describe("click-a-packet frame inspector", () => {
     expect(html).toContain("443");
     expect(html).toContain("SYN");
     expect(html).toContain("6 (TCP)");
+  });
+});
+
+// These drive the real syncPanel wiring over a parsed element tree
+// (tests/mini-dom.ts): a port-count spinner re-renders only the interface /
+// port rows, and the rows' controls must still work afterwards — exactly
+// once each.
+describe("inspector wiring survives a port-count re-render", () => {
+  let mini: ReturnType<typeof installMiniDom>;
+  beforeEach(() => {
+    resetState();
+    mini = installMiniDom();
+  });
+  afterEach(() => mini.uninstall());
+
+  const load = (topo: { devices: unknown[]; links: unknown[] }, id: string) => {
+    state.devices = topo.devices as any;
+    state.links = topo.links as any;
+    state.selectedId = id;
+    syncPanel();
+    return state.devices.find(d => d.id === id)!;
+  };
+  const byId = (id: string): MiniElement => {
+    const el = mini.panel.getElementById(id);
+    if (!el) throw new Error(`#${id} not rendered`);
+    return el;
+  };
+  const one = (selector: string): MiniElement => {
+    const el = mini.panel.querySelector(selector);
+    if (!el) throw new Error(`${selector} not rendered`);
+    return el;
+  };
+
+  it("R6: an interface IP typed after raising the router's port count reaches the config", () => {
+    const rtr = load(routedTopology(), "rtr");
+    typeInto(byId("selectedRouterEthernetPorts"), "6");
+    byId("selectedRouterEthernetPorts").blur();
+    // The new port is rendered, and typing into it updates the router's config.
+    const eth5 = one('.router-interface-ip[data-iface-name="Ethernet5"]');
+    typeInto(eth5, "10.0.5.1/24");
+    eth5.blur();
+    const iface = rtr.config!.interfaces!.find((i: any) => i.name === "Ethernet5");
+    expect(iface).toMatchObject({ ipv4Address: "10.0.5.1", prefixLength: 24 });
+    expect(eth5.title).toBe("Subnet: 10.0.5.0/24");
+    // A connected row re-rendered by the same spinner is live too.
+    typeInto(one('.router-interface-ip[data-peer-id="sw-a"]'), "192.168.11.1/24");
+    expect(rtr.config!.interfaces!.find((i: any) => i.peerId === "sw-a")!.ipv4Address).toBe("192.168.11.1");
+  });
+
+  it("R6: the delegated edit is one undo step, and an invalid entry is flagged, not stored", () => {
+    const rtr = load(routedTopology(), "rtr");
+    typeInto(byId("selectedRouterSerialPorts"), "3");
+    byId("selectedRouterSerialPorts").blur();
+    const before = state.undoStack.length;
+    const eth1 = one('.router-interface-ip[data-peer-id="sw-a"]');
+    typeInto(eth1, "10.9.9");
+    expect(eth1.validationMessage).toContain("valid IPv4");
+    expect(rtr.config!.interfaces!.find((i: any) => i.peerId === "sw-a")!.ipv4Address).toBe("192.168.10.1");
+    eth1.value = "10.9.9.1/24";
+    eth1.dispatchEvent(new MiniEvent("input"));
+    expect(eth1.validationMessage).toBe("");
+    eth1.blur();
+    expect(state.undoStack.length).toBe(before + 1);
+    undo();
+    const restored = state.devices.find(d => d.id === "rtr")!;
+    expect(restored.config!.interfaces!.find((i: any) => i.peerId === "sw-a")!.ipv4Address).toBe("192.168.10.1");
+  });
+
+  it("R6: the unlink button on a re-rendered row still removes that cable", () => {
+    load(routedTopology(), "rtr");
+    typeInto(byId("selectedRouterEthernetPorts"), "5");
+    one('.iface-unlink[data-peer-id="sw-b"]').click();
+    expect(state.links.some(l => l.id === "l4")).toBe(false);
+    expect(state.selectedId).toBe("rtr");
+  });
+
+  it("R90: Add VLAN after a switch port-count change adds once, with one undo entry", () => {
+    const msw = load(vlanTopology(), "msw");
+    typeInto(byId("selectedPorts"), "10");
+    typeInto(byId("selectedPorts"), "12"); // several spinner steps
+    byId("selectedPorts").blur();
+    const before = state.undoStack.length;
+    byId("addVlanId").value = "30";
+    byId("addVlanBtn").click();
+    expect(msw.config!.vlans!.map((v: any) => v.id)).toContain(30);
+    expect(state.undoStack.length).toBe(before + 1);
+  });
+
+  it("R90: the re-rendered port rows' mode select and remove button still work", () => {
+    const msw = load(vlanTopology(), "msw");
+    typeInto(byId("selectedPorts"), "10");
+    const mode = one('.port-mode-select[data-port="Ethernet2"]');
+    mode.value = "trunk";
+    mode.dispatchEvent(new MiniEvent("change"));
+    expect(msw.config!.portModes!.Ethernet2).toBe("trunk");
+    // The remove button's click usually lands on its SVG child.
+    const removeIcon = one(".port-remove").querySelector("path")!;
+    const linkId = one(".port-remove").dataset.linkId!;
+    removeIcon.click();
+    expect(state.links.some(l => l.id === linkId)).toBe(false);
   });
 });

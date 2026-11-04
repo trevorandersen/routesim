@@ -99,6 +99,10 @@ const el: any = {
 mock.module("../src/dom", () => ({
   dom: new Proxy({} as any, {
     get(_target, prop) {
+      // A test can mount a real element tree (tests/mini-dom.ts) behind a
+      // dom.* name, e.g. the inspector panel, to drive its listeners.
+      const mounted = (globalThis as any).__routesimDomMounts?.[prop];
+      if (mounted) return mounted;
       if (prop === "toolButtons") return [];
       if (prop === "themeButtons") return [];
       if (prop === "ctx") return null;

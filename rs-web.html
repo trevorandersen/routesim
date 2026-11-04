@@ -4470,16 +4470,29 @@ Full legal text: https://creativecommons.org/publicdomain/zero/1.0/legalcode</pr
     restoreSnapshot(snapshot);
     syncUndoButton();
   }
+  function beginUndoCapture(input) {
+    if (!input.dataset.undoSnapshot) input.dataset.undoSnapshot = networkSnapshot();
+  }
+  function endUndoCapture(input) {
+    const snapshot = input.dataset.undoSnapshot;
+    delete input.dataset.undoSnapshot;
+    if (snapshot && snapshot !== networkSnapshot()) {
+      pushUndoSnapshot(snapshot);
+    }
+  }
   function captureUndoOnFocus(input) {
-    input.addEventListener("focus", () => {
-      if (!input.dataset.undoSnapshot) input.dataset.undoSnapshot = networkSnapshot();
+    input.addEventListener("focus", () => beginUndoCapture(input));
+    input.addEventListener("blur", () => endUndoCapture(input));
+  }
+  function captureUndoOnFocusWithin(container, selector) {
+    const match = (event) => event.target?.closest(selector) ?? null;
+    container.addEventListener("focusin", (event) => {
+      const input = match(event);
+      if (input) beginUndoCapture(input);
     });
-    input.addEventListener("blur", () => {
-      const snapshot = input.dataset.undoSnapshot;
-      delete input.dataset.undoSnapshot;
-      if (snapshot && snapshot !== networkSnapshot()) {
-        pushUndoSnapshot(snapshot);
-      }
+    container.addEventListener("focusout", (event) => {
+      const input = match(event);
+      if (input) endUndoCapture(input);
     });
   }
 
@@ -13202,14 +13215,6 @@ Snort successfully validated the configuration${bad ? " (with errors)" : "."}`);
     </table>
   `;
   }
-  function bindPortRemoveButtons() {
-    document.querySelectorAll(".port-remove").forEach((button) => {
-      button.addEventListener("click", () => {
-        const id = button.dataset.linkId;
-        if (id && deleteLink(id)) sync().render();
-      });
-    });
-  }
   function renderMirrorSection(device) {
     const mirror = device.config?.mirror;
     const dest = mirror?.dest || "";
@@ -13350,41 +13355,78 @@ Snort successfully validated the configuration${bad ? " (with errors)" : "."}`);
       });
     }
   }
+  function delegateTarget(event, selector) {
+    return event.target?.closest(selector) ?? null;
+  }
   function bindSwitchPortControls(device) {
-    document.querySelectorAll(".port-mode-select").forEach((el) => {
-      el.addEventListener("change", (event) => {
-        setSwitchPortMode(device, event.target.dataset.port, event.target.value);
+    const portList = document.getElementById("switchPortList");
+    if (portList) {
+      portList.addEventListener("change", (event) => {
+        const select = delegateTarget(event, ".port-mode-select, .port-vlan-select, .port-native-select");
+        const port = select?.dataset.port;
+        if (!select || !port) return;
+        if (select.classList.contains("port-mode-select")) setSwitchPortMode(device, port, select.value);
+        else if (select.classList.contains("port-vlan-select")) setSwitchPortVlan(device, port, select.value);
+        else setSwitchTrunkNative(device, port, select.value);
       });
-    });
-    document.querySelectorAll(".port-vlan-select").forEach((el) => {
-      el.addEventListener("change", (event) => {
-        setSwitchPortVlan(device, event.target.dataset.port, event.target.value);
-      });
-    });
-    document.querySelectorAll(".port-native-select").forEach((el) => {
-      el.addEventListener("change", (event) => {
-        setSwitchTrunkNative(device, event.target.dataset.port, event.target.value);
-      });
-    });
-    const addVlanBtn = document.getElementById("addVlanBtn");
-    const addVlanId = document.getElementById("addVlanId");
-    if (addVlanBtn && addVlanId) {
-      const add = () => {
-        if (!addVlanId.value.trim()) return;
-        addSwitchVlan(device, addVlanId.value);
-      };
-      addVlanBtn.addEventListener("click", add);
-      addVlanId.addEventListener("keydown", (event) => {
-        if (event.key === "Enter") {
-          event.preventDefault();
-          add();
-        }
+      portList.addEventListener("click", (event) => {
+        const id = delegateTarget(event, ".port-remove")?.dataset.linkId;
+        if (id && deleteLink(id)) sync().render();
       });
     }
-    document.querySelectorAll(".vlan-remove").forEach((el) => {
-      el.addEventListener("click", (event) => {
-        removeSwitchVlan(device, event.target.dataset.vlan);
-      });
+    const vlanList = document.getElementById("switchVlanList");
+    if (!vlanList) return;
+    const add = () => {
+      const addVlanId = document.getElementById("addVlanId");
+      if (!addVlanId || !addVlanId.value.trim()) return;
+      addSwitchVlan(device, addVlanId.value);
+    };
+    vlanList.addEventListener("click", (event) => {
+      if (delegateTarget(event, "#addVlanBtn")) {
+        add();
+        return;
+      }
+      const vlan = delegateTarget(event, ".vlan-remove")?.dataset.vlan;
+      if (vlan) removeSwitchVlan(device, vlan);
+    });
+    vlanList.addEventListener("keydown", (event) => {
+      if (event.key === "Enter" && delegateTarget(event, "#addVlanId")) {
+        event.preventDefault();
+        add();
+      }
+    });
+  }
+  function bindRouterInterfaceList(device) {
+    const list = document.getElementById("routerInterfaceList");
+    if (!list) return;
+    captureUndoOnFocusWithin(list, ".router-interface-ip");
+    list.addEventListener("input", (event) => {
+      const input = delegateTarget(event, ".router-interface-ip");
+      if (!input) return;
+      const { peerId, ifaceName: ifaceName2 } = input.dataset;
+      if (!peerId && !ifaceName2) return;
+      const value = input.value.trim();
+      const parsed = value === "" ? null : parseIpv4Token(value);
+      if (value !== "" && !parsed) {
+        input.setCustomValidity("Enter a valid IPv4 address (optionally with /prefix).");
+        return;
+      }
+      input.setCustomValidity("");
+      const vlanTag = input.dataset.vlanTag != null ? Number(input.dataset.vlanTag) : void 0;
+      const iface = peerId ? routerInterfaceFor(device, peerId, vlanTag) : routerInterfaceForName(device, ifaceName2);
+      iface.ipv4Address = parsed ? parsed.address : "";
+      if (parsed?.prefixLength != null) iface.prefixLength = parsed.prefixLength;
+      input.title = iface.ipv4Address ? `Subnet: ${networkOf(iface.ipv4Address, prefixOf(iface))}` : "";
+    });
+    list.addEventListener("click", (event) => {
+      const peerId = delegateTarget(event, ".iface-unlink")?.dataset.peerId;
+      if (!peerId) return;
+      const link = linksFor(device.id).find((l) => l.from === peerId || l.to === peerId);
+      if (link && deleteLink(link.id)) {
+        state.selectedId = device.id;
+        syncPanel();
+        sync().render();
+      }
     });
   }
   function bindFirewallControls(device, chains) {
@@ -13960,8 +14002,6 @@ Snort successfully validated the configuration${bad ? " (with errors)" : "."}`);
             ensureConfig(selected);
             selected.config.ethernetPorts = value;
             document.getElementById("switchPortList").innerHTML = renderSwitchPorts(selected);
-            bindPortRemoveButtons();
-            bindSwitchPortControls(selected);
           }
         });
       }
@@ -13980,36 +14020,6 @@ Snort successfully validated the configuration${bad ? " (with errors)" : "."}`);
           }
         });
       }
-      document.querySelectorAll(".router-interface-ip").forEach((input) => {
-        captureUndoOnFocus(input);
-        input.addEventListener("input", (event) => {
-          const { peerId, ifaceName: ifaceName2 } = event.target.dataset;
-          if (!peerId && !ifaceName2) return;
-          const value = event.target.value.trim();
-          const parsed = value === "" ? null : parseIpv4Token(value);
-          if (value !== "" && !parsed) {
-            event.target.setCustomValidity("Enter a valid IPv4 address (optionally with /prefix).");
-            return;
-          }
-          event.target.setCustomValidity("");
-          const vlanTag = event.target.dataset.vlanTag != null ? Number(event.target.dataset.vlanTag) : void 0;
-          const iface = peerId ? routerInterfaceFor(selected, peerId, vlanTag) : routerInterfaceForName(selected, ifaceName2);
-          iface.ipv4Address = parsed ? parsed.address : "";
-          if (parsed?.prefixLength != null) iface.prefixLength = parsed.prefixLength;
-          event.target.title = iface.ipv4Address ? `Subnet: ${networkOf(iface.ipv4Address, prefixOf(iface))}` : "";
-        });
-      });
-      document.querySelectorAll(".iface-unlink").forEach((button) => {
-        button.addEventListener("click", (event) => {
-          const peerId = event.currentTarget.dataset.peerId;
-          const link = linksFor(selected.id).find((l) => l.from === peerId || l.to === peerId);
-          if (link && deleteLink(link.id)) {
-            state.selectedId = selected.id;
-            syncPanel();
-            sync().render();
-          }
-        });
-      });
       const routerRole = document.getElementById("selectedRouterRole");
       if (routerRole) {
         routerRole.addEventListener("change", (event) => {
@@ -14041,8 +14051,8 @@ Snort successfully validated the configuration${bad ? " (with errors)" : "."}`);
           document.getElementById("routerInterfaceList").innerHTML = renderRouterInterfaces(selected);
         });
       });
-      bindPortRemoveButtons();
       bindSwitchPortControls(selected);
+      if (selected.type === "router") bindRouterInterfaceList(selected);
       bindStpControls(selected);
       bindMirrorControl(selected);
       if (selected.type === "ids") bindIdsControls(selected);

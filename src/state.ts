@@ -678,15 +678,35 @@ export function redo(): void {
   syncUndoButton();
 }
 
+function beginUndoCapture(input: HTMLElement): void {
+  if (!input.dataset.undoSnapshot) input.dataset.undoSnapshot = networkSnapshot();
+}
+
+function endUndoCapture(input: HTMLElement): void {
+  const snapshot = input.dataset.undoSnapshot;
+  delete input.dataset.undoSnapshot;
+  if (snapshot && snapshot !== networkSnapshot()) {
+    pushUndoSnapshot(snapshot);
+  }
+}
+
 export function captureUndoOnFocus(input: HTMLInputElement): void {
-  input.addEventListener("focus", () => {
-    if (!(input as any).dataset.undoSnapshot) (input as any).dataset.undoSnapshot = networkSnapshot();
+  input.addEventListener("focus", () => beginUndoCapture(input));
+  input.addEventListener("blur", () => endUndoCapture(input));
+}
+
+// The delegated form of captureUndoOnFocus, for inputs a container re-renders
+// (the router interface rows): bound once on the stable container, it covers
+// every current and future `selector` match via the bubbling focusin/focusout.
+export function captureUndoOnFocusWithin(container: HTMLElement, selector: string): void {
+  const match = (event: Event): HTMLElement | null =>
+    (event.target as HTMLElement | null)?.closest<HTMLElement>(selector) ?? null;
+  container.addEventListener("focusin", event => {
+    const input = match(event);
+    if (input) beginUndoCapture(input);
   });
-  input.addEventListener("blur", () => {
-    const snapshot = (input as any).dataset.undoSnapshot;
-    delete (input as any).dataset.undoSnapshot;
-    if (snapshot && snapshot !== networkSnapshot()) {
-      pushUndoSnapshot(snapshot);
-    }
+  container.addEventListener("focusout", event => {
+    const input = match(event);
+    if (input) endUndoCapture(input);
   });
 }

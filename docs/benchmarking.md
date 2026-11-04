@@ -44,6 +44,7 @@ The budget is still a **p99** — the gate didn't move to p50.
 | `bench: l2Reachable` | VLAN-aware BFS reachability (runs on every ping/DHCP validation) |
 | `bench: render-path helpers` | `getVlanForDevice` and `isTrunkLink` — the memoised per-frame port-map reads the render loop runs once per host/link |
 | `bench: linkById` | The lazy by-id link index (replaces per-frame `state.links.find`) |
+| `bench: linkAuthorizedForData` | The data-path gate every transit runs — the common open port, and the worst 802.1X case (all 24 ports under port control, the link on the last, so the port-name resolution walks the whole list) |
 | `bench: processAtSwitch` | Unmanaged flood, managed 802.1Q flood, known unicast |
 | `bench: processAtInternet` | The internet cloud's L3 routing decision — worst case (destined to the last of 8 connected routers, so the routing scan visits every port) |
 | `bench: firewall` | `evaluateFirewall` worst case — a full 50-rule scan with no match — and `connectionState` worst case — the stateful conntrack lookup over 50 tracked flows with no match (a full table scan) |

@@ -13,6 +13,7 @@ import { routingLookup, runRipConvergence, buildRoutingTable } from "./routing";
 import { runStpConvergence, isStpParticipant } from "./stp";
 import { runIdsRules } from "./snort";
 import { applyLogFilter, presentTokens, isFilterActive, PROTOCOL_CHIPS } from "./packet-filter";
+import { isBootable, isDot1xSupplicant } from "./device-registry";
 import type { FilterRow } from "./packet-filter";
 import type { LogFilter, CaptureEntry } from "./types";
 
@@ -428,7 +429,7 @@ let bootRunActive = false;
 let bootUndoPending = false;
 
 function hostNeedsBoot(device: Device | undefined): boolean {
-  return !!device && (device.type === "computer" || device.type === "laptop" || device.type === "kali" || device.type === "server")
+  return !!device && isBootable(device.type)
     && !device.poweredOff && !device.config?.ipv4Address
     && state.links.some(l => !l.hidden && !l.shutdown && (l.from === device.id || l.to === device.id));
 }
@@ -444,16 +445,35 @@ export function unconfiguredBootableHosts(): Device[] {
 // auto-DHCP off but APIPA on → the host self-assigns link-local directly.
 // Autonomous Red Team: when Play is pressed and there's nothing to boot, launch
 // the first ready attacker's enabled attacks. Returns whether one launched.
+// With Red Team actors placed but none ready, says why the first one can't go
+// (rather than leaving "Nothing to boot" as the only word on it).
 export function launchRedTeam(): boolean {
   const sim = state.simulation;
   if (sim.status === "running" || sim.status === "paused") return false;
-  const attacker = state.devices.find(d => d.type === "attacker" && !d.poweredOff && d.config?.ipv4Address && (d.config?.attacks?.length ?? 0) > 0);
-  if (!attacker) return false;
+  const actors = state.devices.filter(d => d.type === "attacker");
+  const attacker = actors.find(d => !redTeamNotReadyReason(d));
+  if (!attacker) {
+    if (actors.length) dom.modeLabel.textContent = redTeamNotReadyReason(actors[0])!;
+    return false;
+  }
   const setup = buildAttackEvents(attacker);
   if (typeof setup === "string") { dom.modeLabel.textContent = setup; return false; }
   dom.modeLabel.textContent = `${attacker.name}: launching attacks...`;
   startSimulation(setup, attacker.id, "", "attack");
   return true;
+}
+
+// Why a Red Team actor can't launch on Play, or null when it's ready.
+function redTeamNotReadyReason(actor: Device): string | null {
+  if (actor.poweredOff) return `${actor.name} is powered off — power it on to launch its attacks.`;
+  if (!actor.config?.ipv4Address) {
+    const cabled = state.links.some(l => !l.hidden && !l.shutdown && (l.from === actor.id || l.to === actor.id));
+    return cabled
+      ? `${actor.name} has no IP address — set a static IP, or turn on Auto-DHCP / APIPA fallback (Settings) so Play boots it.`
+      : `${actor.name} has no IP address and no cable — connect it to the network first.`;
+  }
+  if (!(actor.config.attacks?.length)) return `${actor.name} has no attacks enabled — pick a scan, sweep or ARP spoof in its inspector.`;
+  return null;
 }
 
 export function startNetworkBoot(): boolean {
@@ -880,7 +900,7 @@ function supplicantByIdentity(sw: Device, identity: string): { host: Device; lin
   for (const link of linksFor(sw.id)) {
     if (link.hidden || link.shutdown || link.wireless) continue;
     const host = getDevice(link.from === sw.id ? link.to : link.from);
-    if (host && (host.type === "computer" || host.type === "laptop" || host.type === "kali" || host.type === "server") && host.config?.dot1x?.identity === identity) {
+    if (host && isDot1xSupplicant(host.type) && host.config?.dot1x?.identity === identity) {
       return { host, link };
     }
   }

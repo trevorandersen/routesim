@@ -12,7 +12,7 @@ import {
 } from "./normalise";
 import { connectedIds, clearNetwork, nextDeviceNumber, physicalPeerIds } from "./devices";
 import { runStpConvergence } from "./stp";
-import { DEVICE_TYPES } from "./device-registry";
+import { DEVICE_TYPES, defaultPortCount } from "./device-registry";
 import { render, fitNetwork } from "./canvas";
 import { syncPanel } from "./inspector";
 import { syncTerminal } from "./terminal";
@@ -41,7 +41,7 @@ export function buildConfigPayload(): SerialisedTopology {
       ...(type === "access-point" ? {
         config: {
           managed: false,
-          ethernetPorts: clampApPortCount(config?.ethernetPorts ?? 1),
+          ethernetPorts: clampApPortCount(config?.ethernetPorts ?? defaultPortCount(type)),
           macTable: normaliseMacTable(config?.macTable || []),
           ...wifiConfigForPayload(config),
         }
@@ -63,7 +63,7 @@ export function buildConfigPayload(): SerialisedTopology {
       ...(type === "switch" ? {
         config: {
           managed: Boolean(config?.managed),
-          ethernetPorts: clampPortCount(config?.ethernetPorts ?? 8),
+          ethernetPorts: clampPortCount(config?.ethernetPorts ?? defaultPortCount(type)),
           macTable: normaliseMacTable(config?.macTable || []),
           ...(config?.managed ? {
             vlans: normaliseVlans(config?.vlans || []),
@@ -83,7 +83,7 @@ export function buildConfigPayload(): SerialisedTopology {
       } : {}),
       ...(type === "router" ? {
         config: {
-          ethernetPorts: clampRouterPortCount(config?.ethernetPorts ?? 4),
+          ethernetPorts: clampRouterPortCount(config?.ethernetPorts ?? defaultPortCount(type)),
           serialPorts: clampRouterPortCount(config?.serialPorts ?? 4),
           ...(config?.role === "border" || config?.role === "internal" ? { role: config.role } : {}),
           interfaces: routerInterfacesForPayload({ id, config }),
@@ -100,7 +100,7 @@ export function buildConfigPayload(): SerialisedTopology {
       } : {}),
       ...(type === "firewall" ? {
         config: {
-          ethernetPorts: config?.ethernetPorts ?? 2,
+          ethernetPorts: config?.ethernetPorts ?? defaultPortCount(type),
           rules: normaliseFirewallRules(config?.rules || []),
           policy: { forward: config?.policy?.forward === "drop" ? "drop" : "accept" },
           ...macsecPayload(config)
@@ -124,10 +124,10 @@ export function buildConfigPayload(): SerialisedTopology {
         config: hostConfigForPayload(config)
       } : {}),
       ...(type === "hub" ? {
-        config: { ethernetPorts: clampPortCount(config?.ethernetPorts ?? 4) }
+        config: { ethernetPorts: clampPortCount(config?.ethernetPorts ?? defaultPortCount(type)) }
       } : {}),
       ...(type === "internet" ? {
-        config: { ethernetPorts: clampPortCount(config?.ethernetPorts ?? 8) }
+        config: { ethernetPorts: clampPortCount(config?.ethernetPorts ?? defaultPortCount(type)) }
       } : {}),
       ...(type === "lan" ? {
         config: {

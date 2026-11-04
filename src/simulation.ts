@@ -6,6 +6,7 @@ import { normalisePortVlans, normalisePortModes, normaliseTrunkAllowedVlans, mem
 import { isValidIpv4, sameSubnet, prefixOf, deriveMac, networkOf, prefixLengthOfCidr, ipv4ToInt, intToIpv4 } from "./utils";
 import { createArpRequest, createArpReply, createIcmpEchoRequest, createDhcpDiscover, createTcpSegment, createDnsQuery, createDot11Frame, createDot1xFrame, createBpduFrame, BROADCAST_MAC } from "./frame";
 import { simRandomInt, seedSimRng } from "./prng";
+import { isHost, isDot1xSupplicant } from "./device-registry";
 
 export interface PingSetup {
   events: SimEvent[];
@@ -95,11 +96,11 @@ export function getVlanForDevice(deviceId: string): number {
   return 1;
 }
 
-const PING_TARGET_TYPES = new Set(["computer", "laptop", "kali", "server", "attacker"]);
+// A ping/name target is any host (the registry's host role).
 export function findPingTarget(value: string): any {
   const target = String(value || "").trim().toLowerCase();
   return state.devices.find(device =>
-    PING_TARGET_TYPES.has(device.type) && (
+    isHost(device.type) && (
       String(device.config?.ipv4Address || "").toLowerCase() === target ||
       device.name.toLowerCase() === target
     )
@@ -112,8 +113,7 @@ export function findPingTarget(value: string): any {
 export function hostnameToIp(name: string): string | null {
   const n = String(name || "").trim().toLowerCase();
   const d = state.devices.find(dev =>
-    (dev.type === "computer" || dev.type === "laptop" || dev.type === "kali" || dev.type === "server" || dev.type === "attacker") &&
-    dev.name.toLowerCase() === n);
+    isHost(dev.type) && dev.name.toLowerCase() === n);
   return d?.config?.ipv4Address || null;
 }
 
@@ -436,14 +436,14 @@ export function buildAssociationEvents(laptop: any): PingSetup | string {
 // Seed the 802.1X exchange: a supplicant host sends EAPOL-Start to its
 // authenticator switch (the port it's on must be under 802.1X port control).
 export function buildDot1xEvents(host: any): PingSetup | string {
-  if (!["computer", "laptop", "server"].includes(host.type)) return `${host.name} is not a host (802.1X supplicant).`;
+  if (!isDot1xSupplicant(host.type)) return `${host.name} is not a host (802.1X supplicant).`;
   const srcMac = host.config?.macAddress;
   if (!srcMac) return `${host.name}: eth0 has no MAC address.`;
   if (!host.config?.dot1x?.identity) return `${host.name} has no 802.1X identity — set one with "supplicant ${host.name} <identity> <password>".`;
   for (const link of linksFor(host.id)) {
     if (link.hidden || link.shutdown) continue;
     const info = dot1xLinkInfo(link);
-    if (info && info.host.id === host.id) {
+    if (info && info.peer.id === host.id) {
       const start = createDot1xFrame(srcMac, "01:80:C2:00:00:03", "eapol-start", host.config.dot1x.identity);
       return { events: [{ type: "frame_arrive" as const, frame: start, deviceId: info.sw.id, fromDeviceId: host.id, linkId: link.id }], pendingArp: {} };
     }

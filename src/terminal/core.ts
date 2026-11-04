@@ -14,6 +14,7 @@ import { state, sync, freshTerminalSession } from "../state";
 import { dom } from "../dom";
 import { escapeHtml } from "../utils";
 import { getDevice } from "../devices";
+import { isHost, offersTerminal } from "../device-registry";
 import { runHostTerminalCommand } from "./host";
 import { runServerTerminalCommand } from "./server";
 import { runRouterTerminalCommand } from "./router";
@@ -216,18 +217,25 @@ export function stopDockResize(): void {
   requestAnimationFrame(() => sync().resizeCanvas());
 }
 
+// The prompt each device's reference NOS shows. Root shells (dnsmasq server,
+// the Snort sensor editing /etc/snort) read `root@host:~#`; other hosts are a
+// user shell; the router's vtysh prompt follows its CLI mode.
 export function terminalPromptText(device: Device): string {
-  if (device.type === "computer" || device.type === "laptop" || device.type === "kali" || device.type === "attacker") return `${device.name}$`;
-  if (device.type === "server") return `root@${device.name}:~#`;
+  if (device.type === "server" || device.type === "ids") return `root@${device.name}:~#`;
+  if (isHost(device.type)) return `${device.name}$`;
   if (device.type === "switch") return `${device.name}#`;
   if (device.type === "firewall") return `root@${device.name}#`;
-  if (state.terminal.mode === "config") return `${device.name}(config)#`;
-  if (state.terminal.mode === "interface") return `${device.name}(config-if)#`;
-  if (state.terminal.mode === "rip") return `${device.name}(config-router)#`;
-  if (state.terminal.mode === "privileged") return `${device.name}#`;
-  return `${device.name}>`;
+  if (device.type === "router") {
+    if (state.terminal.mode === "config") return `${device.name}(config)#`;
+    if (state.terminal.mode === "interface") return `${device.name}(config-if)#`;
+    if (state.terminal.mode === "rip") return `${device.name}(config-router)#`;
+    if (state.terminal.mode === "privileged") return `${device.name}#`;
+    return `${device.name}>`;
+  }
+  return `${device.name}$`;
 }
-// One CLI per device type; a type absent here has no terminal.
+// One CLI per device type; a type absent here has no terminal. Must agree with
+// the registry's `terminal` role (tests/device-registry.test.ts checks it).
 const CLI_DISPATCH: Partial<Record<DeviceType, (device: Device, command: string) => void>> = {
   computer: runHostTerminalCommand,
   laptop: runHostTerminalCommand,
@@ -246,10 +254,10 @@ export function hasTerminal(device: Device | undefined): boolean {
 
 // Whether openTerminalFor would actually attach a working session (vs show an
 // error placeholder): a CLI device that is powered on and, for switches,
-// managed. Used to auto-open a terminal when configuring.
+// managed (the registry's terminal role). Used to auto-open a terminal when
+// configuring.
 export function canOpenTerminal(device: Device | undefined): boolean {
-  return hasTerminal(device) && !device!.poweredOff
-    && !(device!.type === "switch" && !device!.config?.managed);
+  return hasTerminal(device) && !device!.poweredOff && offersTerminal(device!);
 }
 
 export function runTerminalCommand(rawCommand: string): void {

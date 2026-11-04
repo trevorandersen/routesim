@@ -3095,6 +3095,9 @@ Full legal text: https://creativecommons.org/publicdomain/zero/1.0/legalcode</pr
 
   // src/device-registry.ts
   var DEFAULT_SSID = "RouteSim";
+  var NO_ROLES = { host: false, singleNic: false, bootable: false, dot1xSupplicant: false, hostname: false, terminal: false };
+  var HOST_ROLES = { host: true, singleNic: true, bootable: true, dot1xSupplicant: true, hostname: true, terminal: true };
+  var APPLIANCE_ROLES = { ...NO_ROLES, hostname: true, terminal: true };
   var DEVICE_SPECS = {
     computer: {
       label: "Client PC",
@@ -3104,6 +3107,7 @@ Full legal text: https://creativecommons.org/publicdomain/zero/1.0/legalcode</pr
       paletteVar: "pc",
       iconRadius: 10,
       userAddable: true,
+      roles: HOST_ROLES,
       iconPaths: [
         "M3 5a1 1 0 0 1 1 -1h16a1 1 0 0 1 1 1v10a1 1 0 0 1 -1 1h-16a1 1 0 0 1 -1 -1v-10",
         "M7 20h10",
@@ -3120,6 +3124,7 @@ Full legal text: https://creativecommons.org/publicdomain/zero/1.0/legalcode</pr
       paletteVar: "server",
       iconRadius: 10,
       userAddable: true,
+      roles: HOST_ROLES,
       iconPaths: [
         "M3 7a3 3 0 0 1 3 -3h12a3 3 0 0 1 3 3v2a3 3 0 0 1 -3 3h-12a3 3 0 0 1 -3 -3z",
         "M3 15a3 3 0 0 1 3 -3h12a3 3 0 0 1 3 3v2a3 3 0 0 1 -3 3h-12a3 3 0 0 1 -3 -3z",
@@ -3138,6 +3143,7 @@ Full legal text: https://creativecommons.org/publicdomain/zero/1.0/legalcode</pr
       paletteVar: "pc",
       iconRadius: 10,
       userAddable: true,
+      roles: HOST_ROLES,
       iconPaths: [
         "M3 19l18 0",
         "M5 5h14a1 1 0 0 1 1 1v9a1 1 0 0 1 -1 1h-14a1 1 0 0 1 -1 -1v-9a1 1 0 0 1 1 -1z"
@@ -3155,6 +3161,7 @@ Full legal text: https://creativecommons.org/publicdomain/zero/1.0/legalcode</pr
       paletteVar: "kali",
       iconRadius: 10,
       userAddable: true,
+      roles: HOST_ROLES,
       // A monitor with a shell prompt — a pentest workstation you drive by hand
       // (the Kali terminal: nmap, arpspoof). Distinct from the plain Client PC.
       iconPaths: [
@@ -3177,13 +3184,15 @@ Full legal text: https://creativecommons.org/publicdomain/zero/1.0/legalcode</pr
       paletteVar: "switch",
       iconRadius: 8,
       userAddable: true,
+      roles: { ...NO_ROLES, hostname: "managed", terminal: "managed" },
+      defaultPorts: 8,
       iconPaths: [
         "M16 3l4 4l-4 4",
         "M10 7l10 0",
         "M8 13l-4 4l4 4",
         "M4 17l9 0"
       ],
-      defaultConfig: () => ({ managed: false, ethernetPorts: 8, macTable: [], vlans: [], portVlans: {}, portModes: {}, trunkAllowedVlans: {}, trunkNativeVlans: {} })
+      defaultConfig: () => ({ managed: false, macTable: [], vlans: [], portVlans: {}, portModes: {}, trunkAllowedVlans: {}, trunkNativeVlans: {} })
     },
     router: {
       label: "Router",
@@ -3194,6 +3203,8 @@ Full legal text: https://creativecommons.org/publicdomain/zero/1.0/legalcode</pr
       iconRadius: 12,
       iconStrokeWidth: 0.77,
       userAddable: true,
+      roles: APPLIANCE_ROLES,
+      defaultPorts: 4,
       iconPaths: [
         "M12 12m-9 0a9 9 0 1 0 18 0a9 9 0 1 0 -18 0",
         "M6 12h5",
@@ -3205,7 +3216,7 @@ Full legal text: https://creativecommons.org/publicdomain/zero/1.0/legalcode</pr
         "M12 14v5",
         "M10 17l2 2l2 -2"
       ],
-      defaultConfig: () => ({ ethernetPorts: 4, serialPorts: 4, interfaces: [] })
+      defaultConfig: () => ({ serialPorts: 4, interfaces: [] })
     },
     firewall: {
       label: "Firewall",
@@ -3215,11 +3226,13 @@ Full legal text: https://creativecommons.org/publicdomain/zero/1.0/legalcode</pr
       paletteVar: "fw",
       iconRadius: 10,
       userAddable: true,
+      roles: APPLIANCE_ROLES,
+      defaultPorts: 2,
       iconPaths: [
         "M12 3a12 12 0 0 0 8.5 3a12 12 0 0 1 -8.5 15a12 12 0 0 1 -8.5 -15a12 12 0 0 0 8.5 -3",
         "M9 12l2 2l4 -4"
       ],
-      defaultConfig: () => ({ ethernetPorts: 2, rules: [], policy: { forward: "accept" } })
+      defaultConfig: () => ({ rules: [], policy: { forward: "accept" } })
     },
     hub: {
       label: "Hub",
@@ -3229,6 +3242,8 @@ Full legal text: https://creativecommons.org/publicdomain/zero/1.0/legalcode</pr
       paletteVar: "hub",
       iconRadius: 8,
       userAddable: true,
+      roles: NO_ROLES,
+      defaultPorts: 4,
       iconPaths: [
         "M12 12m-2 0a2 2 0 1 0 4 0a2 2 0 1 0 -4 0",
         "M5 6m-1.5 0a1.5 1.5 0 1 0 3 0a1.5 1.5 0 1 0 -3 0",
@@ -3240,7 +3255,7 @@ Full legal text: https://creativecommons.org/publicdomain/zero/1.0/legalcode</pr
         "M10.5 13.5l-4 3",
         "M13.5 13.5l4 3"
       ],
-      defaultConfig: () => ({ ethernetPorts: 4 })
+      defaultConfig: () => ({})
     },
     "access-point": {
       label: "Access Point",
@@ -3250,6 +3265,8 @@ Full legal text: https://creativecommons.org/publicdomain/zero/1.0/legalcode</pr
       paletteVar: "switch",
       iconRadius: 8,
       userAddable: true,
+      roles: NO_ROLES,
+      defaultPorts: 1,
       iconPaths: [
         "M12 12l0 .01",
         "M14.828 9.172a4 4 0 0 1 0 5.656",
@@ -3262,7 +3279,7 @@ Full legal text: https://creativecommons.org/publicdomain/zero/1.0/legalcode</pr
       // processAtSwitch. Wireless associations are not ethernet ports, so the
       // port count is just the one LAN uplink. It broadcasts an SSID (a laptop may
       // only associate if its SSID — and password, if set — match).
-      defaultConfig: () => ({ managed: false, ethernetPorts: 1, macTable: [], ssid: DEFAULT_SSID })
+      defaultConfig: () => ({ managed: false, macTable: [], ssid: DEFAULT_SSID })
     },
     internet: {
       label: "Internet",
@@ -3272,13 +3289,15 @@ Full legal text: https://creativecommons.org/publicdomain/zero/1.0/legalcode</pr
       paletteVar: "internet",
       iconRadius: 10,
       userAddable: true,
+      roles: NO_ROLES,
+      defaultPorts: 8,
       // A cloud — the external internet. An L3 transit (engine: processAtInternet):
       // connect several routers, each on its own public subnet, and it routes IPv4
       // between them by destination, presenting a default gateway to each.
       iconPaths: [
         "M6.657 18c-2.572 0 -4.657 -2.007 -4.657 -4.483c0 -2.475 2.085 -4.482 4.657 -4.482c.393 -1.762 1.794 -3.2 3.675 -3.773c1.88 -.572 3.956 -.193 5.444 1c1.488 1.19 2.162 3.007 1.77 4.769h.99c1.913 0 3.464 1.56 3.464 3.486c0 1.927 -1.551 3.487 -3.465 3.487h-12.15z"
       ],
-      defaultConfig: () => ({ ethernetPorts: 8 })
+      defaultConfig: () => ({})
     },
     ids: {
       label: "IDS",
@@ -3288,6 +3307,8 @@ Full legal text: https://creativecommons.org/publicdomain/zero/1.0/legalcode</pr
       paletteVar: "ids",
       iconRadius: 10,
       userAddable: true,
+      // A Linux box with one sniffing NIC — a shell and a hostname, but no IP host role.
+      roles: { ...NO_ROLES, singleNic: true, hostname: true, terminal: true },
       // An eye — a passive sensor that *watches* a mirrored copy of traffic.
       iconPaths: [
         "M10 12a2 2 0 1 0 4 0a2 2 0 1 0 -4 0",
@@ -3309,6 +3330,7 @@ Full legal text: https://creativecommons.org/publicdomain/zero/1.0/legalcode</pr
       paletteVar: "attacker",
       iconRadius: 10,
       userAddable: true,
+      roles: HOST_ROLES,
       // A skull — the universal "adversary" glyph.
       iconPaths: [
         "M12 4c4.418 0 8 3.358 8 7.5c0 1.737 -.62 3.34 -1.668 4.628c-.184 .226 -.332 .48 -.332 .755v1.617a1 1 0 0 1 -1 1h-10a1 1 0 0 1 -1 -1v-1.617c0 -.275 -.148 -.529 -.332 -.755a7.287 7.287 0 0 1 -1.668 -4.628c0 -4.142 3.582 -7.5 8 -7.5z",
@@ -3329,6 +3351,7 @@ Full legal text: https://creativecommons.org/publicdomain/zero/1.0/legalcode</pr
       paletteVar: "lan",
       iconRadius: 14,
       userAddable: false,
+      roles: NO_ROLES,
       iconPaths: [
         "M7 18a4.6 4.4 0 0 1 -1.2 -8.9a5.8 5.6 0 0 1 10.8 -1.9a4.7 4.5 0 0 1 1.4 8.8",
         "M8 18h9",
@@ -3343,6 +3366,35 @@ Full legal text: https://creativecommons.org/publicdomain/zero/1.0/legalcode</pr
   var USER_ADDABLE_TYPES = DEVICE_TYPES.filter((t) => DEVICE_SPECS[t].userAddable);
   function freshNameCounters() {
     return Object.fromEntries(DEVICE_TYPES.map((t) => [t, 1]));
+  }
+  function defaultConfigFor(type) {
+    const spec = DEVICE_SPECS[type];
+    if (!spec) return {};
+    return spec.defaultPorts != null ? { ethernetPorts: spec.defaultPorts, ...spec.defaultConfig() } : spec.defaultConfig();
+  }
+  function defaultPortCount(type) {
+    return DEVICE_SPECS[type]?.defaultPorts ?? 0;
+  }
+  function isHost(type) {
+    return !!type && DEVICE_SPECS[type]?.roles.host === true;
+  }
+  function hasSingleNic(type) {
+    return !!type && DEVICE_SPECS[type]?.roles.singleNic === true;
+  }
+  function isBootable(type) {
+    return !!type && DEVICE_SPECS[type]?.roles.bootable === true;
+  }
+  function isDot1xSupplicant(type) {
+    return !!type && DEVICE_SPECS[type]?.roles.dot1xSupplicant === true;
+  }
+  function gateHolds(gate2, device) {
+    return gate2 === "managed" ? !!device.config?.managed : gate2 === true;
+  }
+  function hasHostname(device) {
+    return gateHolds(DEVICE_SPECS[device.type]?.roles.hostname, device);
+  }
+  function offersTerminal(device) {
+    return gateHolds(DEVICE_SPECS[device.type]?.roles.terminal, device);
   }
 
   // src/normalise.ts
@@ -3602,13 +3654,13 @@ Full legal text: https://creativecommons.org/publicdomain/zero/1.0/legalcode</pr
   }
   function normaliseDeviceConfig(device) {
     if (device.type === "hub") {
-      return { ethernetPorts: clampPortCount(device.config?.ethernetPorts ?? device.ethernetPorts ?? 4) };
+      return { ethernetPorts: clampPortCount(device.config?.ethernetPorts ?? device.ethernetPorts ?? defaultPortCount("hub")) };
     }
     if (device.type === "internet") {
-      return { ethernetPorts: clampPortCount(device.config?.ethernetPorts ?? device.ethernetPorts ?? 8) };
+      return { ethernetPorts: clampPortCount(device.config?.ethernetPorts ?? device.ethernetPorts ?? defaultPortCount("internet")) };
     }
     if (device.type === "switch") {
-      const ethernetPorts = clampPortCount(device.config?.ethernetPorts ?? device.ethernetPorts ?? 8);
+      const ethernetPorts = clampPortCount(device.config?.ethernetPorts ?? device.ethernetPorts ?? defaultPortCount("switch"));
       const managed = Boolean(device.config?.managed ?? device.managed ?? false);
       return {
         managed,
@@ -3630,7 +3682,7 @@ Full legal text: https://creativecommons.org/publicdomain/zero/1.0/legalcode</pr
       };
     }
     if (device.type === "router") {
-      const ethernetPorts = clampRouterPortCount(device.config?.ethernetPorts ?? device.ethernetPorts ?? 4);
+      const ethernetPorts = clampRouterPortCount(device.config?.ethernetPorts ?? device.ethernetPorts ?? defaultPortCount("router"));
       const serialPorts = clampRouterPortCount(device.config?.serialPorts ?? device.serialPorts ?? 4);
       const interfaces = normaliseRouterInterfaces(device.config?.interfaces || device.interfaces || [], device.id);
       const invalidInterface = interfaces.find((entry) => entry.ipv4Address && !isValidIpv4(entry.ipv4Address));
@@ -3658,7 +3710,7 @@ Full legal text: https://creativecommons.org/publicdomain/zero/1.0/legalcode</pr
       };
     }
     if (device.type === "firewall") {
-      const ethernetPorts = clampPortCount(device.config?.ethernetPorts ?? device.ethernetPorts ?? 2);
+      const ethernetPorts = clampPortCount(device.config?.ethernetPorts ?? device.ethernetPorts ?? defaultPortCount("firewall"));
       const rawPolicy = device.config?.policy || {};
       return {
         ethernetPorts,
@@ -3707,7 +3759,7 @@ Full legal text: https://creativecommons.org/publicdomain/zero/1.0/legalcode</pr
     if (device.type === "access-point") {
       return {
         managed: false,
-        ethernetPorts: clampApPortCount(device.config?.ethernetPorts ?? device.ethernetPorts ?? 1),
+        ethernetPorts: clampApPortCount(device.config?.ethernetPorts ?? device.ethernetPorts ?? defaultPortCount("access-point")),
         macTable: normaliseMacTable(device.config?.macTable || device.macTable || []),
         ...normaliseWifiFields(device)
       };
@@ -3799,7 +3851,7 @@ Full legal text: https://creativecommons.org/publicdomain/zero/1.0/legalcode</pr
     return device.config;
   }
   function defaultDeviceConfig(type) {
-    return DEVICE_SPECS[type]?.defaultConfig() ?? {};
+    return defaultConfigFor(type);
   }
   function shiftToPositive(config, margin = 80) {
     const devices = config?.devices || [];
@@ -4479,10 +4531,6 @@ Full legal text: https://creativecommons.org/publicdomain/zero/1.0/legalcode</pr
   };
 
   // src/devices.ts
-  function hasHostname(device) {
-    if (device.type === "switch") return !!device.config?.managed;
-    return ["computer", "laptop", "kali", "server", "router", "firewall", "ids", "attacker"].includes(device.type);
-  }
   function applyHostname(device, name) {
     const next = String(name || "").trim();
     if (!isValidHostname(next))
@@ -4506,14 +4554,14 @@ Full legal text: https://creativecommons.org/publicdomain/zero/1.0/legalcode</pr
       height: deviceSize(type).height,
       config: defaultDeviceConfig(type)
     };
-    if (type === "computer" || type === "laptop" || type === "kali" || type === "server" || type === "attacker") device.config.macAddress = randomMac();
+    if (isHost(type)) device.config.macAddress = randomMac();
     state.devices.push(device);
     state.selectedId = device.id;
     sync().syncPanel();
     sync().render();
     return device;
   }
-  var PLACEMENT_TOOLS = /* @__PURE__ */ new Set(["computer", "laptop", "kali", "server", "dns-server", "dhcp-server", "radius-server", "web-server", "switch", "managed-switch", "router", "border-router", "internet", "firewall", "ids", "attacker", "hub", "access-point"]);
+  var PLACEMENT_TOOLS = /* @__PURE__ */ new Set([...USER_ADDABLE_TYPES, "managed-switch", "border-router", "dns-server", "dhcp-server", "radius-server", "web-server"]);
   var SERVER_PRESETS = {
     "dns-server": { namePrefix: "DNS", config: () => ({ dnsmasqRunning: true, dnsRecords: [] }) },
     "dhcp-server": { namePrefix: "DHCP", config: () => ({ dnsmasqRunning: true, dnsRecords: [] }) },
@@ -4554,7 +4602,7 @@ Full legal text: https://creativecommons.org/publicdomain/zero/1.0/legalcode</pr
   }
   function hostNicTaken(deviceId) {
     const device = getDevice(deviceId);
-    if (!device || !["computer", "laptop", "kali", "server", "ids", "attacker"].includes(device.type)) return null;
+    if (!device || !hasSingleNic(device.type)) return null;
     const cabled = state.links.some((l) => l.from === deviceId || l.to === deviceId);
     return cabled ? device.name : null;
   }
@@ -4591,24 +4639,27 @@ Full legal text: https://creativecommons.org/publicdomain/zero/1.0/legalcode</pr
     const apPassword = ap.config?.wifiPassword || "";
     return !apPassword || (laptop.config?.wifiPassword || "") === apPassword;
   }
+  function dot1xPortEnd(link, sw, peer) {
+    if (sw?.type !== "switch" || !sw.config?.portAuth || !peer) return null;
+    const idx = linkedPortsFor(sw.id).findIndex((p) => p?.link?.id === link.id);
+    if (idx < 0) return null;
+    const port = `Ethernet${idx + 1}`;
+    return { sw, peer, mode: sw.config.portAuth[port] || "force-authorized", port };
+  }
   function dot1xLinkInfo(link) {
     if (!link || link.wireless) return null;
     const a = getDevice(link.from), b = getDevice(link.to);
-    const sw = a?.type === "switch" ? a : b?.type === "switch" ? b : null;
-    if (!sw?.config?.portAuth) return null;
-    const host = a?.type === "switch" ? b : a;
-    if (!host || !["computer", "laptop", "server"].includes(host.type)) return null;
-    const ports = linkedPortsFor(sw.id);
-    const idx = ports.findIndex((p) => p?.peer?.id === host.id);
-    if (idx < 0) return null;
-    const port = `Ethernet${idx + 1}`;
-    return { sw, host, mode: sw.config.portAuth[port] || "force-authorized", port };
+    return dot1xPortEnd(link, a, b) ?? dot1xPortEnd(link, b, a);
   }
-  function dot1xPortAuthorized(link) {
-    const info = dot1xLinkInfo(link);
+  function dot1xEndAuthorized(link, info) {
     if (!info || info.mode === "force-authorized") return true;
     if (info.mode === "force-unauthorized") return false;
     return !!link.dot1xAuthorized;
+  }
+  function dot1xPortAuthorized(link) {
+    if (!link || link.wireless) return true;
+    const a = getDevice(link.from), b = getDevice(link.to);
+    return dot1xEndAuthorized(link, dot1xPortEnd(link, a, b)) && dot1xEndAuthorized(link, dot1xPortEnd(link, b, a));
   }
   function macsecState(link) {
     const a = getDevice(link?.from), b = getDevice(link?.to);
@@ -5065,7 +5116,7 @@ Full legal text: https://creativecommons.org/publicdomain/zero/1.0/legalcode</pr
     return iface;
   }
   function routerInterfacesWithNames(router, cabledOnly = false) {
-    const ethernetPorts = clampRouterPortCount(router.config?.ethernetPorts ?? 4);
+    const ethernetPorts = clampRouterPortCount(router.config?.ethernetPorts ?? defaultPortCount("router"));
     const serialPorts = clampRouterPortCount(router.config?.serialPorts ?? 4);
     const configured = normaliseRouterInterfaces(router.config?.interfaces || [], router.id);
     const linked = linkedPortsFor(router.id).filter((port) => port).map((port) => {
@@ -5184,7 +5235,7 @@ Full legal text: https://creativecommons.org/publicdomain/zero/1.0/legalcode</pr
   function buildPortList(deviceId) {
     const device = getDevice(deviceId);
     if (!device) return [];
-    if (device.type === "computer" || device.type === "laptop" || device.type === "kali" || device.type === "server" || device.type === "attacker" || device.type === "ids") {
+    if (hasSingleNic(device.type)) {
       const linked = linkedPortsFor(deviceId);
       const occupied = linked.length > 0;
       return [{
@@ -5194,7 +5245,7 @@ Full legal text: https://creativecommons.org/publicdomain/zero/1.0/legalcode</pr
         connectedTo: occupied ? linked[0]?.peer?.name || null : null
       }];
     }
-    if (device.type === "switch" || device.type === "hub" || device.type === "access-point" || device.type === "firewall" || device.type === "internet") {
+    if (device.type !== "router" && defaultPortCount(device.type) > 0) {
       const ifaces = switchInterfacesWithNames(device);
       return ifaces.map((iface) => ({
         name: iface.name,
@@ -5226,8 +5277,8 @@ Full legal text: https://creativecommons.org/publicdomain/zero/1.0/legalcode</pr
       addLink(fromId, toId);
       return;
     }
-    const showFromPicker = !["computer", "laptop", "kali", "server", "attacker", "ids"].includes(fromDevice.type);
-    const showToPicker = !["computer", "laptop", "kali", "server", "attacker", "ids"].includes(toDevice.type);
+    const showFromPicker = !hasSingleNic(fromDevice.type);
+    const showToPicker = !hasSingleNic(toDevice.type);
     if (!showFromPicker && !showToPicker) {
       addLink(fromId, toId, 1, 1);
       return;
@@ -5905,16 +5956,15 @@ Full legal text: https://creativecommons.org/publicdomain/zero/1.0/legalcode</pr
     }
     return 1;
   }
-  var PING_TARGET_TYPES = /* @__PURE__ */ new Set(["computer", "laptop", "kali", "server", "attacker"]);
   function findPingTarget(value) {
     const target = String(value || "").trim().toLowerCase();
     return state.devices.find(
-      (device) => PING_TARGET_TYPES.has(device.type) && (String(device.config?.ipv4Address || "").toLowerCase() === target || device.name.toLowerCase() === target)
+      (device) => isHost(device.type) && (String(device.config?.ipv4Address || "").toLowerCase() === target || device.name.toLowerCase() === target)
     );
   }
   function hostnameToIp(name) {
     const n = String(name || "").trim().toLowerCase();
-    const d = state.devices.find((dev) => (dev.type === "computer" || dev.type === "laptop" || dev.type === "kali" || dev.type === "server" || dev.type === "attacker") && dev.name.toLowerCase() === n);
+    const d = state.devices.find((dev) => isHost(dev.type) && dev.name.toLowerCase() === n);
     return d?.config?.ipv4Address || null;
   }
   function buildPingEvents(source, targetText, options = {}) {
@@ -6160,14 +6210,14 @@ Full legal text: https://creativecommons.org/publicdomain/zero/1.0/legalcode</pr
     };
   }
   function buildDot1xEvents(host) {
-    if (!["computer", "laptop", "server"].includes(host.type)) return `${host.name} is not a host (802.1X supplicant).`;
+    if (!isDot1xSupplicant(host.type)) return `${host.name} is not a host (802.1X supplicant).`;
     const srcMac = host.config?.macAddress;
     if (!srcMac) return `${host.name}: eth0 has no MAC address.`;
     if (!host.config?.dot1x?.identity) return `${host.name} has no 802.1X identity \u2014 set one with "supplicant ${host.name} <identity> <password>".`;
     for (const link of linksFor(host.id)) {
       if (link.hidden || link.shutdown) continue;
       const info = dot1xLinkInfo(link);
-      if (info && info.host.id === host.id) {
+      if (info && info.peer.id === host.id) {
         const start = createDot1xFrame(srcMac, "01:80:C2:00:00:03", "eapol-start", host.config.dot1x.identity);
         return { events: [{ type: "frame_arrive", frame: start, deviceId: info.sw.id, fromDeviceId: host.id, linkId: link.id }], pendingArp: {} };
       }
@@ -6370,11 +6420,10 @@ Full legal text: https://creativecommons.org/publicdomain/zero/1.0/legalcode</pr
   function syncZoomLevel() {
     dom.zoomLevel.textContent = `${Math.round(state.scale * 100)}%`;
   }
-  var HOST_TYPES = /* @__PURE__ */ new Set(["computer", "laptop", "kali", "server", "attacker"]);
   function linkColorFor(from, to) {
     if (from.type === "router" && to.type === "router") return cssColor("--link-router");
     if (from.type === "switch" || to.type === "switch") {
-      if (!HOST_TYPES.has(from.type) && !HOST_TYPES.has(to.type)) return cssColor("--link-switch");
+      if (!isHost(from.type) && !isHost(to.type)) return cssColor("--link-switch");
     }
     return cssColor("--link-host");
   }
@@ -6615,7 +6664,7 @@ Full legal text: https://creativecommons.org/publicdomain/zero/1.0/legalcode</pr
       ctx.fillText(label, device.x, labelY);
       labelY += 17;
     }
-    if (HOST_TYPES.has(device.type) && state.options.showIpAddresses) {
+    if (isHost(device.type) && state.options.showIpAddresses) {
       ctx.font = FONT_SECONDARY;
       if (device.config?.ipv4Address) {
         ctx.fillStyle = cssColor("--label-ip");
@@ -6626,13 +6675,13 @@ Full legal text: https://creativecommons.org/publicdomain/zero/1.0/legalcode</pr
       }
       labelY += 15;
     }
-    if (HOST_TYPES.has(device.type) && state.options.showMacAddresses && device.config?.macAddress) {
+    if (isHost(device.type) && state.options.showMacAddresses && device.config?.macAddress) {
       ctx.fillStyle = cssColor("--label-mac");
       ctx.font = FONT_SMALL;
       ctx.fillText(device.config.macAddress, device.x, labelY);
       labelY += 13;
     }
-    if (HOST_TYPES.has(device.type) && state.options.showIpAddresses) {
+    if (isHost(device.type) && state.options.showIpAddresses) {
       const vlan = getVlanForDevice(device.id);
       if (vlan > 1) {
         const color = vlanColor(vlan);
@@ -7916,7 +7965,7 @@ Full legal text: https://creativecommons.org/publicdomain/zero/1.0/legalcode</pr
   var bootRunActive = false;
   var bootUndoPending = false;
   function hostNeedsBoot(device) {
-    return !!device && (device.type === "computer" || device.type === "laptop" || device.type === "kali" || device.type === "server") && !device.poweredOff && !device.config?.ipv4Address && state.links.some((l) => !l.hidden && !l.shutdown && (l.from === device.id || l.to === device.id));
+    return !!device && isBootable(device.type) && !device.poweredOff && !device.config?.ipv4Address && state.links.some((l) => !l.hidden && !l.shutdown && (l.from === device.id || l.to === device.id));
   }
   function unconfiguredBootableHosts() {
     return state.devices.filter(hostNeedsBoot);
@@ -7924,8 +7973,12 @@ Full legal text: https://creativecommons.org/publicdomain/zero/1.0/legalcode</pr
   function launchRedTeam() {
     const sim = state.simulation;
     if (sim.status === "running" || sim.status === "paused") return false;
-    const attacker = state.devices.find((d) => d.type === "attacker" && !d.poweredOff && d.config?.ipv4Address && (d.config?.attacks?.length ?? 0) > 0);
-    if (!attacker) return false;
+    const actors = state.devices.filter((d) => d.type === "attacker");
+    const attacker = actors.find((d) => !redTeamNotReadyReason(d));
+    if (!attacker) {
+      if (actors.length) dom.modeLabel.textContent = redTeamNotReadyReason(actors[0]);
+      return false;
+    }
     const setup = buildAttackEvents(attacker);
     if (typeof setup === "string") {
       dom.modeLabel.textContent = setup;
@@ -7934,6 +7987,15 @@ Full legal text: https://creativecommons.org/publicdomain/zero/1.0/legalcode</pr
     dom.modeLabel.textContent = `${attacker.name}: launching attacks...`;
     startSimulation(setup, attacker.id, "", "attack");
     return true;
+  }
+  function redTeamNotReadyReason(actor) {
+    if (actor.poweredOff) return `${actor.name} is powered off \u2014 power it on to launch its attacks.`;
+    if (!actor.config?.ipv4Address) {
+      const cabled = state.links.some((l) => !l.hidden && !l.shutdown && (l.from === actor.id || l.to === actor.id));
+      return cabled ? `${actor.name} has no IP address \u2014 set a static IP, or turn on Auto-DHCP / APIPA fallback (Settings) so Play boots it.` : `${actor.name} has no IP address and no cable \u2014 connect it to the network first.`;
+    }
+    if (!actor.config.attacks?.length) return `${actor.name} has no attacks enabled \u2014 pick a scan, sweep or ARP spoof in its inspector.`;
+    return null;
   }
   function startNetworkBoot() {
     const sim = state.simulation;
@@ -8268,7 +8330,7 @@ Full legal text: https://creativecommons.org/publicdomain/zero/1.0/legalcode</pr
     for (const link of linksFor(sw.id)) {
       if (link.hidden || link.shutdown || link.wireless) continue;
       const host = getDevice(link.from === sw.id ? link.to : link.from);
-      if (host && (host.type === "computer" || host.type === "laptop" || host.type === "kali" || host.type === "server") && host.config?.dot1x?.identity === identity) {
+      if (host && isDot1xSupplicant(host.type) && host.config?.dot1x?.identity === identity) {
         return { host, link };
       }
     }
@@ -12086,15 +12148,18 @@ Snort successfully validated the configuration${bad ? " (with errors)" : "."}`);
     requestAnimationFrame(() => sync().resizeCanvas());
   }
   function terminalPromptText(device) {
-    if (device.type === "computer" || device.type === "laptop" || device.type === "kali" || device.type === "attacker") return `${device.name}$`;
-    if (device.type === "server") return `root@${device.name}:~#`;
+    if (device.type === "server" || device.type === "ids") return `root@${device.name}:~#`;
+    if (isHost(device.type)) return `${device.name}$`;
     if (device.type === "switch") return `${device.name}#`;
     if (device.type === "firewall") return `root@${device.name}#`;
-    if (state.terminal.mode === "config") return `${device.name}(config)#`;
-    if (state.terminal.mode === "interface") return `${device.name}(config-if)#`;
-    if (state.terminal.mode === "rip") return `${device.name}(config-router)#`;
-    if (state.terminal.mode === "privileged") return `${device.name}#`;
-    return `${device.name}>`;
+    if (device.type === "router") {
+      if (state.terminal.mode === "config") return `${device.name}(config)#`;
+      if (state.terminal.mode === "interface") return `${device.name}(config-if)#`;
+      if (state.terminal.mode === "rip") return `${device.name}(config-router)#`;
+      if (state.terminal.mode === "privileged") return `${device.name}#`;
+      return `${device.name}>`;
+    }
+    return `${device.name}$`;
   }
   var CLI_DISPATCH = {
     computer: runHostTerminalCommand,
@@ -12112,7 +12177,7 @@ Snort successfully validated the configuration${bad ? " (with errors)" : "."}`);
     return !!device && device.type in CLI_DISPATCH;
   }
   function canOpenTerminal(device) {
-    return hasTerminal(device) && !device.poweredOff && !(device.type === "switch" && !device.config?.managed);
+    return hasTerminal(device) && !device.poweredOff && offersTerminal(device);
   }
   function runTerminalCommand(rawCommand) {
     const host = getDevice(state.terminal.deviceId);
@@ -13165,8 +13230,7 @@ Snort successfully validated the configuration${bad ? " (with errors)" : "."}`);
     } else {
       const neighbors = connectedIds(selected.id).map((id) => getDevice(id)).filter(isVisibleDevice);
       const selectedType = DEVICE_SPECS[selected.type]?.label ?? "Device";
-      const isHost = selected.type === "computer" || selected.type === "laptop" || selected.type === "kali" || selected.type === "server" || selected.type === "attacker";
-      const pcConfigFields = isHost ? `
+      const pcConfigFields = isHost(selected.type) ? `
       <div class="field">
         <label class="label-with-badge" for="selectedIpv4">IPv4 address / prefix ${ipSourceBadge(selected.config)}</label>
         <div class="input-with-button">
@@ -13219,7 +13283,7 @@ Snort successfully validated the configuration${bad ? " (with errors)" : "."}`);
       </div>
       <div class="field">
         <label for="selectedPorts">Ethernet ports</label>
-        <input id="selectedPorts" type="number" min="4" max="24" step="1" value="${escapeHtml(selected.config?.ethernetPorts || 8)}">
+        <input id="selectedPorts" type="number" min="4" max="24" step="1" value="${escapeHtml(selected.config?.ethernetPorts || defaultPortCount(selected.type))}">
       </div>
       ${selected.config?.managed ? `
       <div class="field">
@@ -13253,7 +13317,7 @@ Snort successfully validated the configuration${bad ? " (with errors)" : "."}`);
       <div class="field-row">
         <div class="field">
           <label for="selectedRouterEthernetPorts">Ethernet ports</label>
-          <input id="selectedRouterEthernetPorts" type="number" min="0" max="12" step="1" value="${escapeHtml(selected.config?.ethernetPorts ?? 4)}">
+          <input id="selectedRouterEthernetPorts" type="number" min="0" max="12" step="1" value="${escapeHtml(selected.config?.ethernetPorts ?? defaultPortCount(selected.type))}">
         </div>
         <div class="field">
           <label for="selectedRouterSerialPorts">Serial ports</label>
@@ -13279,7 +13343,7 @@ Snort successfully validated the configuration${bad ? " (with errors)" : "."}`);
       const firewallConfigFields = selected.type === "firewall" ? `
       <div class="field">
         <label for="selectedFwPorts">Ethernet ports</label>
-        <input id="selectedFwPorts" type="number" min="2" max="8" step="1" value="${escapeHtml(selected.config?.ethernetPorts ?? 2)}">
+        <input id="selectedFwPorts" type="number" min="2" max="8" step="1" value="${escapeHtml(selected.config?.ethernetPorts ?? defaultPortCount(selected.type))}">
       </div>
       <div class="field">
         <label>Netfilter (iptables FORWARD)</label>
@@ -13293,7 +13357,7 @@ Snort successfully validated the configuration${bad ? " (with errors)" : "."}`);
       <div style="height: 10px"></div>
       <div class="field">
         <label for="selectedPorts">Ethernet ports</label>
-        <input id="selectedPorts" type="number" min="4" max="24" step="1" value="${escapeHtml(selected.config?.ethernetPorts || 4)}">
+        <input id="selectedPorts" type="number" min="4" max="24" step="1" value="${escapeHtml(selected.config?.ethernetPorts || defaultPortCount(selected.type))}">
       </div>
       <div class="field">
         <label>Ports</label>
@@ -13322,7 +13386,7 @@ Snort successfully validated the configuration${bad ? " (with errors)" : "."}`);
         </button>
         <div style="height: 10px"></div>
       ` : ""}
-      ${isHost || selected.type === "router" || selected.type === "firewall" || selected.type === "ids" || selected.type === "switch" && selected.config?.managed ? `
+      ${offersTerminal(selected) ? `
         <button class="wide-button" id="openSelectedTerminal">
           <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 17l6 -6l-6 -6"></path><path d="M12 19h8"></path></svg>
           Terminal
@@ -13603,7 +13667,7 @@ Snort successfully validated the configuration${bad ? " (with errors)" : "."}`);
     { type: "internet", body: "Stands in for the public internet. Cable several routers to it \u2014 each on its own public subnet \u2014 and it routes between them by destination, handing each a default route and answering ARP for the gateway it presents. Pair with NAT + port-forwarding for the full multi-site story." },
     { type: "firewall", body: "A transparent inline packet filter (the netfilter FORWARD chain). Write `iptables` rules to accept / drop / reject by protocol, address, port and connection state; a stateful `-m state ESTABLISHED,RELATED` ruleset lets replies back while blocking new inbound flows." },
     { type: "ids", body: "A passive Snort sensor. Cable it to a managed switch's SPAN/monitor port; it matches the mirrored traffic against your Snort rules (`local.rules`) and raises alerts. It only detects \u2014 it never forwards or drops." },
-    { type: "attacker", body: "An autonomous Red Team (Kali) adversary. Set a target and a plan, and on Play it launches a port scan, ping sweep or ARP spoof and reports nmap-style findings. Pair it with an IDS for a red-vs-blue detection exercise." },
+    { type: "attacker", body: "An autonomous Red Team (Kali) adversary. Set a target and a plan, and on Play it launches a port scan, ping sweep or ARP spoof and reports nmap-style findings. Without an address, Play first boots it over DHCP like any host. Pair it with an IDS for a red-vs-blue detection exercise." },
     { type: "access-point", body: "A WiFi access point. It bridges associated laptops onto the wired LAN (like an unmanaged switch over the air) and broadcasts an SSID, optionally secured with a WPA2 password so only matching laptops authenticate." },
     { type: "hub", body: "A layer-1 repeater: it floods every frame out all other ports with no MAC learning \u2014 the dumb predecessor to a switch. Useful for showing a single collision/broadcast domain and why switches are better." }
   ];
@@ -15567,7 +15631,7 @@ Snort successfully validated the configuration${bad ? " (with errors)" : "."}`);
         ...type === "access-point" ? {
           config: {
             managed: false,
-            ethernetPorts: clampApPortCount(config?.ethernetPorts ?? 1),
+            ethernetPorts: clampApPortCount(config?.ethernetPorts ?? defaultPortCount(type)),
             macTable: normaliseMacTable(config?.macTable || []),
             ...wifiConfigForPayload(config)
           }
@@ -15588,7 +15652,7 @@ Snort successfully validated the configuration${bad ? " (with errors)" : "."}`);
         ...type === "switch" ? {
           config: {
             managed: Boolean(config?.managed),
-            ethernetPorts: clampPortCount(config?.ethernetPorts ?? 8),
+            ethernetPorts: clampPortCount(config?.ethernetPorts ?? defaultPortCount(type)),
             macTable: normaliseMacTable(config?.macTable || []),
             ...config?.managed ? {
               vlans: normaliseVlans(config?.vlans || []),
@@ -15607,7 +15671,7 @@ Snort successfully validated the configuration${bad ? " (with errors)" : "."}`);
         } : {},
         ...type === "router" ? {
           config: {
-            ethernetPorts: clampRouterPortCount(config?.ethernetPorts ?? 4),
+            ethernetPorts: clampRouterPortCount(config?.ethernetPorts ?? defaultPortCount(type)),
             serialPorts: clampRouterPortCount(config?.serialPorts ?? 4),
             ...config?.role === "border" || config?.role === "internal" ? { role: config.role } : {},
             interfaces: routerInterfacesForPayload({ id, config }),
@@ -15624,7 +15688,7 @@ Snort successfully validated the configuration${bad ? " (with errors)" : "."}`);
         } : {},
         ...type === "firewall" ? {
           config: {
-            ethernetPorts: config?.ethernetPorts ?? 2,
+            ethernetPorts: config?.ethernetPorts ?? defaultPortCount(type),
             rules: normaliseFirewallRules(config?.rules || []),
             policy: { forward: config?.policy?.forward === "drop" ? "drop" : "accept" },
             ...macsecPayload(config)
@@ -15648,10 +15712,10 @@ Snort successfully validated the configuration${bad ? " (with errors)" : "."}`);
           config: hostConfigForPayload(config)
         } : {},
         ...type === "hub" ? {
-          config: { ethernetPorts: clampPortCount(config?.ethernetPorts ?? 4) }
+          config: { ethernetPorts: clampPortCount(config?.ethernetPorts ?? defaultPortCount(type)) }
         } : {},
         ...type === "internet" ? {
-          config: { ethernetPorts: clampPortCount(config?.ethernetPorts ?? 8) }
+          config: { ethernetPorts: clampPortCount(config?.ethernetPorts ?? defaultPortCount(type)) }
         } : {},
         ...type === "lan" ? {
           config: {
@@ -15995,7 +16059,7 @@ Snort successfully validated the configuration${bad ? " (with errors)" : "."}`);
   }
   function nextCommand(app, step, random) {
     const devices = app.devices.filter((device) => device.type !== "lan");
-    const hosts = devices.filter((device) => device.type === "computer" || device.type === "laptop" || device.type === "kali" || device.type === "server" || device.type === "attacker");
+    const hosts = devices.filter((device) => isHost(device.type));
     const switches = devices.filter((device) => device.type === "switch");
     const visibleLinks = app.links.filter((link) => !link.hidden);
     const roll = integer(random, 0, 13);
@@ -16403,7 +16467,7 @@ Snort successfully validated the configuration${bad ? " (with errors)" : "."}`);
   function cmdSupplicant(args) {
     const host = resolveDevice(args[0]);
     if (typeof host === "string") return err(host);
-    if (!["computer", "laptop", "kali", "server"].includes(host.type)) return err(`${host.name} is not a host.`);
+    if (!isDot1xSupplicant(host.type)) return err(`${host.name} is not a host (802.1X supplicant).`);
     const identity = args[1], password = args[2];
     if (!identity || password == null) return err("Usage: supplicant <host> <identity> <password>");
     pushUndo();
@@ -16447,7 +16511,7 @@ Snort successfully validated the configuration${bad ? " (with errors)" : "."}`);
   function cmdPorts(args) {
     const host = resolveDevice(args[0]);
     if (typeof host === "string") return err(host);
-    if (!["computer", "laptop", "kali", "server"].includes(host.type)) return err(`${host.name} is not a host (only computers/laptops/servers listen on ports).`);
+    if (!isHost(host.type)) return err(`${host.name} is not a host (only hosts listen on ports).`);
     const spec = args.slice(1).join(" ").trim();
     if (!spec || /^(none|off|clear)$/i.test(spec)) {
       pushUndo();
@@ -16881,7 +16945,7 @@ Snort successfully validated the configuration${bad ? " (with errors)" : "."}`);
     if (typeof device === "string") return err(device);
     const c = device.config || {};
     const lines = [`${device.name} (${device.type})`];
-    if (device.type === "computer" || device.type === "laptop" || device.type === "kali" || device.type === "server" || device.type === "attacker") {
+    if (isHost(device.type)) {
       lines.push(
         `  ip: ${c.ipv4Address ? `${c.ipv4Address}/${prefixOf(c)} (subnet ${networkOf(c.ipv4Address, prefixOf(c))})` : "(unset)"}`,
         `  gateway: ${c.gatewayIpv4Address || "(unset)"}`,
@@ -16896,9 +16960,9 @@ Snort successfully validated the configuration${bad ? " (with errors)" : "."}`);
         if (c.dhcpRouterIp) lines.push(`  dhcp router option: ${c.dhcpRouterIp}`);
       }
     } else if (device.type === "access-point") {
-      lines.push(`  ssid: ${c.ssid || "(none)"}${c.wifiPassword ? " (secured)" : " (open)"}`, `  uplink ports: ${c.ethernetPorts ?? 1}`);
+      lines.push(`  ssid: ${c.ssid || "(none)"}${c.wifiPassword ? " (secured)" : " (open)"}`, `  uplink ports: ${c.ethernetPorts ?? defaultPortCount("access-point")}`);
     } else if (device.type === "switch") {
-      lines.push(`  managed: ${Boolean(c.managed)}`, `  ports: ${c.ethernetPorts ?? 8}`);
+      lines.push(`  managed: ${Boolean(c.managed)}`, `  ports: ${c.ethernetPorts ?? defaultPortCount("switch")}`);
       if (c.managed && c.vlans?.length) lines.push(`  vlans: ${c.vlans.map((v) => v.id).join(", ")}`);
     } else if (device.type === "router") {
       for (const i of c.interfaces || []) lines.push(`  iface \u2192 ${getDevice(i.peerId)?.name || i.peerId}: ${i.ipv4Address ? `${i.ipv4Address}/${prefixOf(i)}` : "(unset)"}`);
@@ -17251,12 +17315,12 @@ Snort successfully validated the configuration${bad ? " (with errors)" : "."}`);
       if (d.type === "lan") continue;
       lines.push(`add ${d.type} ${quoteArg(d.name)} at ${Math.round(d.x)} ${Math.round(d.y)}`);
     }
-    const DEFAULT_PORTS = { switch: 8, hub: 4, internet: 8, router: 4, "access-point": 1, firewall: 2 };
     for (const d of payload.devices) {
       if (d.type === "lan") continue;
       if (d.poweredOff) lines.push(`power ${quoteArg(d.name)} off`);
       const c = d.config || {};
-      if (d.type in DEFAULT_PORTS && c.ethernetPorts != null && c.ethernetPorts !== DEFAULT_PORTS[d.type]) lines.push(`portcount ${quoteArg(d.name)} ${c.ethernetPorts}`);
+      const defaultPorts = defaultPortCount(d.type);
+      if (defaultPorts > 0 && c.ethernetPorts != null && c.ethernetPorts !== defaultPorts) lines.push(`portcount ${quoteArg(d.name)} ${c.ethernetPorts}`);
       if (d.type === "router" && c.serialPorts != null && c.serialPorts !== 4) lines.push(`portcount ${quoteArg(d.name)} serial ${c.serialPorts}`);
     }
     for (const l of payload.links) {
@@ -17273,7 +17337,7 @@ Snort successfully validated the configuration${bad ? " (with errors)" : "."}`);
     }
     for (const d of payload.devices) {
       const c = d.config || {};
-      if (d.type === "computer" || d.type === "laptop" || d.type === "kali" || d.type === "server") {
+      if (isHost(d.type)) {
         if (c.ipv4Address) lines.push(`ip ${quoteArg(d.name)} ${c.ipv4Address}/${prefixOf(c)}`);
         if (c.gatewayIpv4Address) lines.push(`gateway ${quoteArg(d.name)} ${c.gatewayIpv4Address}`);
         if (c.macAddress) lines.push(`mac ${quoteArg(d.name)} ${c.macAddress}`);
@@ -17287,6 +17351,11 @@ Snort successfully validated the configuration${bad ? " (with errors)" : "."}`);
         for (const u of c.radius?.users || []) lines.push(`radius ${quoteArg(d.name)} ${quoteArg(u.identity)} ${u.password ? quoteArg(u.password) : ""}`.trimEnd());
         if (Array.isArray(c.openPorts)) lines.push(c.openPorts.length ? `ports ${quoteArg(d.name)} ${c.openPorts.join(",")}` : `ports ${quoteArg(d.name)} closed`);
         if (c.httpEnabled) lines.push(`web ${quoteArg(d.name)} on${c.httpTitle ? ` ${quoteArg(c.httpTitle)}` : ""}`);
+        if (d.type === "attacker") {
+          if (Array.isArray(c.attacks)) lines.push(`redteam ${quoteArg(d.name)} attacks ${c.attacks.join(",")}`);
+          if (c.attackTarget) lines.push(`redteam ${quoteArg(d.name)} target ${c.attackTarget}`);
+          if (c.spoofIp) lines.push(`redteam ${quoteArg(d.name)} spoof ${c.spoofIp}`);
+        }
       } else if (d.type === "switch") {
         if (c.managed) {
           lines.push(`managed ${quoteArg(d.name)}`);
@@ -17307,14 +17376,6 @@ Snort successfully validated the configuration${bad ? " (with errors)" : "."}`);
       } else if (d.type === "ids") {
         lines.push(`idsrule ${quoteArg(d.name)} clear`);
         for (const rule of c.idsRules || []) lines.push(`idsrule ${quoteArg(d.name)} ${rule}`);
-      } else if (d.type === "attacker") {
-        if (c.ipv4Address) lines.push(`ip ${quoteArg(d.name)} ${c.ipv4Address}/${prefixOf(c)}`);
-        if (c.gatewayIpv4Address) lines.push(`gateway ${quoteArg(d.name)} ${c.gatewayIpv4Address}`);
-        if (c.macAddress) lines.push(`mac ${quoteArg(d.name)} ${c.macAddress}`);
-        if (c.dnsServerIp) lines.push(`nameserver ${quoteArg(d.name)} ${c.dnsServerIp}`);
-        if (Array.isArray(c.attacks)) lines.push(`redteam ${quoteArg(d.name)} attacks ${c.attacks.join(",")}`);
-        if (c.attackTarget) lines.push(`redteam ${quoteArg(d.name)} target ${c.attackTarget}`);
-        if (c.spoofIp) lines.push(`redteam ${quoteArg(d.name)} spoof ${c.spoofIp}`);
       } else if (d.type === "router") {
         if (c.role === "border") lines.push(`role ${quoteArg(d.name)} border`);
         for (const i of c.interfaces || []) {

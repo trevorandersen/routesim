@@ -8,7 +8,7 @@
  */
 import type { Device, DeviceType } from "./types";
 import { state, undo, redo, sync, pushUndo, THEMES } from "./state";
-import { USER_ADDABLE_TYPES } from "./device-registry";
+import { USER_ADDABLE_TYPES, isHost, isDot1xSupplicant, defaultPortCount } from "./device-registry";
 import { dom } from "./dom";
 import {
   addDevice, addLink, deleteLink, linkBlockReason, deleteSelection, clearNetwork, collapseLan, expandLan,
@@ -426,7 +426,7 @@ function cmdAssociate(args: string[]): CommandResult {
 function cmdSupplicant(args: string[]): CommandResult {
   const host = resolveDevice(args[0]);
   if (typeof host === "string") return err(host);
-  if (!["computer", "laptop", "kali", "server"].includes(host.type)) return err(`${host.name} is not a host.`);
+  if (!isDot1xSupplicant(host.type)) return err(`${host.name} is not a host (802.1X supplicant).`);
   const identity = args[1], password = args[2];
   if (!identity || password == null) return err("Usage: supplicant <host> <identity> <password>");
   pushUndo();
@@ -476,7 +476,7 @@ function cmdRadius(args: string[]): CommandResult {
 function cmdPorts(args: string[]): CommandResult {
   const host = resolveDevice(args[0]);
   if (typeof host === "string") return err(host);
-  if (!["computer", "laptop", "kali", "server"].includes(host.type)) return err(`${host.name} is not a host (only computers/laptops/servers listen on ports).`);
+  if (!isHost(host.type)) return err(`${host.name} is not a host (only hosts listen on ports).`);
   const spec = args.slice(1).join(" ").trim();
   if (!spec || /^(none|off|clear)$/i.test(spec)) {
     pushUndo();
@@ -900,7 +900,7 @@ function cmdShow(args: string[]): CommandResult {
   if (typeof device === "string") return err(device);
   const c: any = device.config || {};
   const lines = [`${device.name} (${device.type})`];
-  if (device.type === "computer" || device.type === "laptop" || device.type === "kali" || device.type === "server" || device.type === "attacker") {
+  if (isHost(device.type)) {
     lines.push(
       `  ip: ${c.ipv4Address ? `${c.ipv4Address}/${prefixOf(c)} (subnet ${networkOf(c.ipv4Address, prefixOf(c))})` : "(unset)"}`,
       `  gateway: ${c.gatewayIpv4Address || "(unset)"}`,
@@ -915,9 +915,9 @@ function cmdShow(args: string[]): CommandResult {
       if (c.dhcpRouterIp) lines.push(`  dhcp router option: ${c.dhcpRouterIp}`);
     }
   } else if (device.type === "access-point") {
-    lines.push(`  ssid: ${c.ssid || "(none)"}${c.wifiPassword ? " (secured)" : " (open)"}`, `  uplink ports: ${c.ethernetPorts ?? 1}`);
+    lines.push(`  ssid: ${c.ssid || "(none)"}${c.wifiPassword ? " (secured)" : " (open)"}`, `  uplink ports: ${c.ethernetPorts ?? defaultPortCount("access-point")}`);
   } else if (device.type === "switch") {
-    lines.push(`  managed: ${Boolean(c.managed)}`, `  ports: ${c.ethernetPorts ?? 8}`);
+    lines.push(`  managed: ${Boolean(c.managed)}`, `  ports: ${c.ethernetPorts ?? defaultPortCount("switch")}`);
     if (c.managed && c.vlans?.length) lines.push(`  vlans: ${c.vlans.map((v: any) => v.id).join(", ")}`);
   } else if (device.type === "router") {
     for (const i of (c.interfaces || [])) lines.push(`  iface → ${getDevice(i.peerId)?.name || i.peerId}: ${i.ipv4Address ? `${i.ipv4Address}/${prefixOf(i)}` : "(unset)"}`);
@@ -1224,12 +1224,12 @@ export function exportTopologyScript(): string {
   // Power state and non-default port capacities — previously unrepresentable,
   // so a saved-then-replayed topology silently came back powered on with
   // default port counts.
-  const DEFAULT_PORTS: Record<string, number> = { switch: 8, hub: 4, internet: 8, router: 4, "access-point": 1, firewall: 2 };
   for (const d of payload.devices) {
     if (d.type === "lan") continue;
     if (d.poweredOff) lines.push(`power ${quoteArg(d.name)} off`);
     const c = d.config || {};
-    if (d.type in DEFAULT_PORTS && c.ethernetPorts != null && c.ethernetPorts !== DEFAULT_PORTS[d.type]) lines.push(`portcount ${quoteArg(d.name)} ${c.ethernetPorts}`);
+    const defaultPorts = defaultPortCount(d.type);
+    if (defaultPorts > 0 && c.ethernetPorts != null && c.ethernetPorts !== defaultPorts) lines.push(`portcount ${quoteArg(d.name)} ${c.ethernetPorts}`);
     if (d.type === "router" && c.serialPorts != null && c.serialPorts !== 4) lines.push(`portcount ${quoteArg(d.name)} serial ${c.serialPorts}`);
   }
 
@@ -1252,7 +1252,10 @@ export function exportTopologyScript(): string {
 
   for (const d of payload.devices) {
     const c = d.config || {};
-    if (d.type === "computer" || d.type === "laptop" || d.type === "kali" || d.type === "server") {
+    if (isHost(d.type)) {
+      // Every host — PC, laptop, server, Kali PC, Red Team actor — shares the
+      // host lines (address, supplicant, listening ports); the type-specific
+      // ones (SSID, dnsmasq, the Red Team plan) are gated within.
       if (c.ipv4Address) lines.push(`ip ${quoteArg(d.name)} ${c.ipv4Address}/${prefixOf(c)}`);
       if (c.gatewayIpv4Address) lines.push(`gateway ${quoteArg(d.name)} ${c.gatewayIpv4Address}`);
       if (c.macAddress) lines.push(`mac ${quoteArg(d.name)} ${c.macAddress}`);
@@ -1267,6 +1270,11 @@ export function exportTopologyScript(): string {
       for (const u of (c.radius?.users || [])) lines.push(`radius ${quoteArg(d.name)} ${quoteArg(u.identity)} ${u.password ? quoteArg(u.password) : ""}`.trimEnd());
       if (Array.isArray(c.openPorts)) lines.push(c.openPorts.length ? `ports ${quoteArg(d.name)} ${c.openPorts.join(",")}` : `ports ${quoteArg(d.name)} closed`);
       if (c.httpEnabled) lines.push(`web ${quoteArg(d.name)} on${c.httpTitle ? ` ${quoteArg(c.httpTitle)}` : ""}`);
+      if (d.type === "attacker") {
+        if (Array.isArray(c.attacks)) lines.push(`redteam ${quoteArg(d.name)} attacks ${c.attacks.join(",")}`);
+        if (c.attackTarget) lines.push(`redteam ${quoteArg(d.name)} target ${c.attackTarget}`);
+        if (c.spoofIp) lines.push(`redteam ${quoteArg(d.name)} spoof ${c.spoofIp}`);
+      }
     } else if (d.type === "switch") {
       if (c.managed) {
         lines.push(`managed ${quoteArg(d.name)}`);   // a managed switch needs its management plane on before VLAN/STP config
@@ -1290,14 +1298,6 @@ export function exportTopologyScript(): string {
       // Reset the default rule set, then re-add the exact local.rules contents.
       lines.push(`idsrule ${quoteArg(d.name)} clear`);
       for (const rule of (c.idsRules || [])) lines.push(`idsrule ${quoteArg(d.name)} ${rule}`);
-    } else if (d.type === "attacker") {
-      if (c.ipv4Address) lines.push(`ip ${quoteArg(d.name)} ${c.ipv4Address}/${prefixOf(c)}`);
-      if (c.gatewayIpv4Address) lines.push(`gateway ${quoteArg(d.name)} ${c.gatewayIpv4Address}`);
-      if (c.macAddress) lines.push(`mac ${quoteArg(d.name)} ${c.macAddress}`);
-      if (c.dnsServerIp) lines.push(`nameserver ${quoteArg(d.name)} ${c.dnsServerIp}`);
-      if (Array.isArray(c.attacks)) lines.push(`redteam ${quoteArg(d.name)} attacks ${c.attacks.join(",")}`);
-      if (c.attackTarget) lines.push(`redteam ${quoteArg(d.name)} target ${c.attackTarget}`);
-      if (c.spoofIp) lines.push(`redteam ${quoteArg(d.name)} spoof ${c.spoofIp}`);
     } else if (d.type === "router") {
       if (c.role === "border") lines.push(`role ${quoteArg(d.name)} border`);
       for (const i of (c.interfaces || [])) {

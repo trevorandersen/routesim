@@ -157,3 +157,129 @@ describe("802.1X correlates the exchange by the supplicant's MAC (F09)", () => {
     expect(linkOf("PC2").dot1xAuthorized).toBeFalsy();
   });
 });
+
+// R7: port control is a property of the SWITCH PORT, not of the peer type. It
+// used to apply only when the peer was a computer/laptop/server, so a Kali PC,
+// a Red Team host, a hub (and everything behind it) or a router on an
+// `auto`/`force-unauthorized` port passed data as if the port were open.
+describe("802.1X port control applies to whatever is plugged in (R7)", () => {
+  beforeEach(() => resetState());
+
+  // `peer` is cabled to SW Ethernet1, under the given port-control mode; R1
+  // (10.0.0.1) is the thing to reach on Ethernet2; RAD is the RADIUS server.
+  function lockedPort(peerType: string, mode: string) {
+    runConsoleScript(`
+      clear
+      add ${peerType} K1 at 0 0
+      add switch SW at 150 0
+      add router R1 at 300 0
+      add server RAD at 150 150
+      link K1 SW
+      link SW R1
+      link SW RAD
+      ip K1 10.0.0.66/24
+      gateway K1 10.0.0.1
+      interface R1 SW ip 10.0.0.1
+      ip RAD 10.0.0.2/24
+      radius RAD alice secret123
+      portauth SW Ethernet1 ${mode}
+    `);
+    return byName("K1");
+  }
+
+  it("a Kali PC on a force-unauthorized port is blocked, like a PC", () => {
+    lockedPort("kali", "force-unauthorized");
+    const r = exec("run ping K1 10.0.0.1");
+    expect(r.ok).toBe(false);
+  });
+
+  it("a Red Team host on an `auto` port is blocked until it authenticates", () => {
+    const rt = lockedPort("attacker", "auto");
+    expect(exec("run ping K1 10.0.0.1").ok).toBe(false);
+    // With valid (stolen) credentials it can run the supplicant like any host.
+    expect(exec("supplicant K1 alice secret123").ok).toBe(true);
+    authenticate(rt);
+    expect(state.simulation.dot1xAuthorized).toBe(true);
+    expect(exec("run ping K1 10.0.0.1").ok).toBe(true);
+  });
+
+  it("a Kali PC can run the supplicant (the console and the exchange agree)", () => {
+    const k = lockedPort("kali", "auto");
+    expect(exec("supplicant K1 alice secret123").ok).toBe(true);
+    expect(typeof buildDot1xEvents(k)).not.toBe("string");   // used to be "not a host"
+    authenticate(k);
+    expect(exec("run ping K1 10.0.0.1").ok).toBe(true);
+  });
+
+  it("a hub on an `auto` port does not open it for the hosts behind it", () => {
+    runConsoleScript(`
+      clear
+      add hub HUB at 0 0
+      add computer PC1 at -150 0
+      add switch SW at 150 0
+      add router R1 at 300 0
+      link HUB SW
+      link SW R1
+      link PC1 HUB
+      ip PC1 10.0.0.10/24
+      gateway PC1 10.0.0.1
+      interface R1 SW ip 10.0.0.1
+      portauth SW Ethernet1 auto
+    `);
+    expect(exec("run ping PC1 10.0.0.1").ok).toBe(false);
+    exec("portauth SW Ethernet1 force-authorized");
+    expect(exec("run ping PC1 10.0.0.1").ok).toBe(true);    // the same path, port opened
+  });
+
+  it("a router on a force-unauthorized port is cut off", () => {
+    runConsoleScript(`
+      clear
+      add computer PC1 at 0 0
+      add switch SW at 150 0
+      add router R1 at 300 0
+      link PC1 SW
+      link SW R1
+      ip PC1 10.0.0.10/24
+      gateway PC1 10.0.0.1
+      interface R1 SW ip 10.0.0.1
+      portauth SW Ethernet2 force-unauthorized
+    `);
+    expect(exec("run ping PC1 10.0.0.1").ok).toBe(false);
+    const swR1 = state.links.find(l => [l.from, l.to].includes(byName("R1").id))!;
+    expect(dot1xPortAuthorized(swR1)).toBe(false);
+  });
+
+  it("both ends of a switch↔switch link are checked", () => {
+    runConsoleScript(`
+      clear
+      add switch SW1 at 0 0
+      add switch SW2 at 200 0
+      link SW1 SW2
+      portauth SW1 Ethernet1 force-authorized
+      portauth SW2 Ethernet1 force-unauthorized
+    `);
+    expect(dot1xPortAuthorized(state.links[0])).toBe(false);   // SW2's end holds it closed
+  });
+});
+
+describe("a Red Team host's supplicant and ports round-trip through the script", () => {
+  beforeEach(() => resetState());
+  it("the attacker shares the host export lines", () => {
+    runConsoleScript(`
+      clear
+      add attacker RT1 at 0 0
+      ip RT1 10.0.0.66/24
+      supplicant RT1 alice secret123
+      ports RT1 22
+    `);
+    const script = exportTopologyScript();
+    expect(script).toContain("ip RT1 10.0.0.66/24");
+    expect(script).toContain("supplicant RT1 alice secret123");
+    expect(script).toContain("ports RT1 22");
+    expect(script).toContain("redteam RT1 attacks scan");
+    resetState();
+    runConsoleScript(script);
+    expect(byName("RT1").config.dot1x).toEqual({ identity: "alice", password: "secret123" });
+    expect(byName("RT1").config.openPorts).toEqual([22]);
+  });
+});

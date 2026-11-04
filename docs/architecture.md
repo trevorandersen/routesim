@@ -95,7 +95,7 @@ Every source file, grouped by layer. Line counts are approximate and indicate we
 | `types.ts` | 800 | Every interface: devices, the `DeviceConfig` superset, frames and payloads, simulation state, `AppState`. No runtime code. | `Device`, `DeviceConfig`, `EthernetFrame`, `SimulationState`, `AppState` | [types.md](src/types.md) |
 | `utils.ts` | 230 | Pure helpers: IPv4 and MAC maths and validation, HTML escaping, the `cssColor` cache, port bounds. | `ipv4ToInt`, `cidrContains`, `escapeHtml`, `cssColor`, `MAX_PHYSICAL_PORT` | [utils.md](src/utils.md) |
 | `dom.ts` | 90 | Cached `getElementById` references, resolved once at load. Mocked wholesale in tests. | `dom` | [dom.md](src/dom.md) |
-| `device-registry.ts` | 220 | One spec per device type: label, name prefix, size, palette, icon paths, default config. | `DEVICE_SPECS`, `DEVICE_TYPES`, `freshNameCounters` | [devices.md](src/devices.md) |
+| `device-registry.ts` | 300 | One spec per device type: label, name prefix, size, palette, icon paths, default config, default Ethernet port count, and the capability **roles** (host, single NIC, bootable, 802.1X supplicant, hostname, terminal). Code asks the role helpers instead of listing device types. | `DEVICE_SPECS`, `DEVICE_TYPES`, `freshNameCounters`, `defaultConfigFor`, `defaultPortCount`, `isHost`, `hasSingleNic`, `isBootable`, `isDot1xSupplicant`, `hasHostname`, `offersTerminal` | [devices.md](src/devices.md) |
 | `frame.ts` | 470 | Factories for every frame kind plus label, colour and packet-list column helpers. | `createArpRequest`, `createIcmpEchoRequest`, `createBpduFrame`, `frameLabel`, `frameColor` | [frame.md](src/frame.md) |
 | `prng.ts` | 60 | Per-run seeded PRNG for ports and transaction ids. Clock-seeded by default; `seed <n>` pins it. | `mulberry32`, `seedSimRng`, `simRandomInt`, `setSeedOverride` | [prng.md](src/prng.md) |
 | `tokenize.ts` | 70 | Quote-aware tokenizer for the console language, and its inverse for export. | `tokenizeCommand`, `quoteArg` | [tokenize.md](src/tokenize.md) |
@@ -401,10 +401,10 @@ bash build.sh
 **Add a device type.**
 
 1. Add the type to `DeviceType` and its config fields to `types.ts`.
-2. Add a `DEVICE_SPECS` entry in `device-registry.ts`: label, prefix, size, palette, icon, defaults.
+2. Add a `DEVICE_SPECS` entry in `device-registry.ts`: label, prefix, size, palette, icon, defaults, `defaultPorts` (if it has an Ethernet port count), and its `roles` — `host` (an IP end-system: ping/name target, inspector host fields, IP label, a MAC on creation), `singleNic` (one cable, no port picker), `bootable` (Play network-boots it), `dot1xSupplicant`, `hostname` and `terminal` (`true`, `false`, or `"managed"` for "only with the management plane on"). Every capability check reads these through `isHost`/`hasSingleNic`/`isBootable`/`isDot1xSupplicant`/`hasHostname`/`offersTerminal`, so a correct entry classifies the type everywhere at once — never add a hand-written list of device types. `tests/device-registry.test.ts` checks that each consumer agrees with the spec for every type.
 3. Add normalisation in `normalise.ts` and a payload branch in `config.ts`. The exhaustiveness test enforces the second.
 4. Add `processAt<Type>` to `engine.ts` and register it in `PROCESSORS`.
-5. Optionally add a shell in `terminal/` and register it in `CLI_DISPATCH`.
+5. Optionally add a shell in `terminal/`, register it in `CLI_DISPATCH`, and give it a prompt in `terminalPromptText`. The registry test fails if `CLI_DISPATCH` and the `terminal` role disagree.
 6. Add `--<palette>-*` CSS variables for every theme, and a tool button in `template.html`.
 7. Add a help entry in `help.ts`. The help test enforces it.
 

@@ -3,14 +3,10 @@ import { state, sync, pushUndo, networkSnapshot, dropTerminalSessions, resetCapt
 import { dom } from "./dom";
 import { deviceSize, defaultDeviceConfig, ensureConfig, normaliseRouterInterfaces, normalisePortVlans, normalisePortModes } from "./normalise";
 import { clampPortCount, clampApPortCount, clampRouterPortCount, escapeHtml, randomMac, isValidHostname, MAX_PHYSICAL_PORT } from "./utils";
-import { DEVICE_SPECS, freshNameCounters } from "./device-registry";
+import { DEVICE_SPECS, USER_ADDABLE_TYPES, freshNameCounters, hasSingleNic, isHost, defaultPortCount } from "./device-registry";
 
-// CLI devices carry a hostname — it's their canvas name, prompt, and the name
-// they resolve as. (Unmanaged switches and hubs have no shell; LANs are groups.)
-export function hasHostname(device: Device): boolean {
-  if (device.type === "switch") return !!device.config?.managed;
-  return ["computer", "laptop", "kali", "server", "router", "firewall", "ids", "attacker"].includes(device.type);
-}
+// The hostname role lives in the device registry; re-exported for the inspector.
+export { hasHostname } from "./device-registry";
 
 // Set a CLI device's hostname, which IS its canvas name. Validates against the
 // RFC-1123 label rule, pushes undo, and re-syncs the panel/terminal/canvas.
@@ -40,8 +36,8 @@ export function addDevice(type: DeviceType, x: number, y: number, name?: string)
     height: deviceSize(type).height,
     config: defaultDeviceConfig(type)
   };
-  // A new host (computer/laptop/Kali PC/server/red-team) gets a NIC MAC so it can communicate immediately.
-  if (type === "computer" || type === "laptop" || type === "kali" || type === "server" || type === "attacker") (device.config as any).macAddress = randomMac();
+  // A new host gets a NIC MAC so it can communicate immediately.
+  if (isHost(type)) device.config.macAddress = randomMac();
   state.devices.push(device as any);
   state.selectedId = device.id;
   sync().syncPanel();
@@ -49,9 +45,10 @@ export function addDevice(type: DeviceType, x: number, y: number, name?: string)
   return device;
 }
 
-// Tools that place a device on a canvas click. "managed-switch" is a UI variant
-// of the switch tool (the Switch tool group), not a distinct device type.
-export const PLACEMENT_TOOLS = new Set(["computer", "laptop", "kali", "server", "dns-server", "dhcp-server", "radius-server", "web-server", "switch", "managed-switch", "router", "border-router", "internet", "firewall", "ids", "attacker", "hub", "access-point"]);
+// Tools that place a device on a canvas click: every user-addable type, plus the
+// UI variants placeToolDevice resolves to a real type + preset ("managed-switch",
+// "border-router", the server role presets) — not distinct device types.
+export const PLACEMENT_TOOLS = new Set<string>([...USER_ADDABLE_TYPES, "managed-switch", "border-router", "dns-server", "dhcp-server", "radius-server", "web-server"]);
 
 // The Server tool group places a `server` pre-configured for a role. They are all
 // the same `server` device type — so the inspector, frame processing, and
@@ -114,12 +111,12 @@ export function placeToolDevice(tool: string, x: number, y: number): Device {
   return addDevice(tool as DeviceType, x, y);
 }
 
-// Hosts (computer/server) and the IDS sensor model a single NIC, so they take at
-// most one cable. Returns the offending device's name when fully cabled, else
-// null. (Multi-NIC hosts are a future option — see ROADMAP.)
+// Hosts and the IDS sensor model a single NIC (the registry's singleNic role), so
+// they take at most one cable. Returns the offending device's name when fully
+// cabled, else null. (Multi-NIC hosts are a future option — see ROADMAP.)
 function hostNicTaken(deviceId: string): string | null {
   const device = getDevice(deviceId);
-  if (!device || !["computer", "laptop", "kali", "server", "ids", "attacker"].includes(device.type)) return null;
+  if (!device || !hasSingleNic(device.type)) return null;
   // Count ANY link, including a hidden one: a host collapsed into a LAN still
   // holds its single cable, so it must not be linkable again (the console `link`
   // command resolves by name regardless of collapse state).
@@ -176,31 +173,48 @@ export function wifiLinkAuthenticated(link: any): boolean {
   return !apPassword || (laptop.config?.wifiPassword || "") === apPassword;
 }
 
-// The 802.1X authenticator port for a host↔managed-switch link, or null when the
-// link isn't under port control. Cheap early-out (a switch with no portAuth map
-// pays only a property read) so non-802.1X topologies don't hit the hot path.
-export function dot1xLinkInfo(link: any): { sw: any; host: any; mode: string; port: string } | null {
-  if (!link || link.wireless) return null;
-  const a = getDevice(link.from), b = getDevice(link.to);
-  const sw = a?.type === "switch" ? a : b?.type === "switch" ? b : null;
-  if (!sw?.config?.portAuth) return null;
-  const host = (a?.type === "switch" ? b : a);
-  if (!host || !["computer", "laptop", "server"].includes(host.type)) return null;
-  const ports = linkedPortsFor(sw.id);
-  const idx = ports.findIndex((p: any) => p?.peer?.id === host.id);   // linkedPortsFor can be sparse (null gaps)
+export type Dot1xPortMode = "auto" | "force-authorized" | "force-unauthorized";
+export interface Dot1xPortInfo { sw: Device; peer: Device; mode: Dot1xPortMode; port: string }
+
+// One end of a wired link as an 802.1X authenticator: `sw`'s port facing `peer`,
+// or null when `sw` isn't a switch with port control. Port control is a
+// property of the SWITCH PORT, whatever is plugged into it — a Kali box, a hub
+// (and everything behind it), an access point or a router faces the same gate
+// a PC does; one that can't (or doesn't) run a supplicant simply never
+// authenticates. Cheap early-out (a switch with no portAuth map pays only a
+// property read) so non-802.1X topologies don't hit the hot path.
+function dot1xPortEnd(link: Link, sw: Device | undefined, peer: Device | undefined): Dot1xPortInfo | null {
+  if (sw?.type !== "switch" || !sw.config?.portAuth || !peer) return null;
+  const idx = linkedPortsFor(sw.id).findIndex((p: any) => p?.link?.id === link.id);   // linkedPortsFor can be sparse (null gaps)
   if (idx < 0) return null;
   const port = `Ethernet${idx + 1}`;
-  return { sw, host, mode: sw.config.portAuth[port] || "force-authorized", port };
+  return { sw, peer, mode: sw.config.portAuth[port] || "force-authorized", port };
 }
 
-// Whether an 802.1X-controlled port currently authorises the host. force-authorized
-// (the default / no 802.1X) always passes; force-unauthorized never; "auto" passes
+// The 802.1X authenticator port on a wired link, or null when neither end is a
+// switch port under port control. (A switch↔switch link reports the `from`
+// end first; dot1xPortAuthorized checks both.)
+export function dot1xLinkInfo(link: Link | null | undefined): Dot1xPortInfo | null {
+  if (!link || link.wireless) return null;
+  const a = getDevice(link.from), b = getDevice(link.to);
+  return dot1xPortEnd(link, a, b) ?? dot1xPortEnd(link, b, a);
+}
+
+// Whether one authenticator end lets data through. force-authorized (the
+// default / no 802.1X) always passes; force-unauthorized never; "auto" passes
 // only after a successful EAP exchange (stored on the link as dot1xAuthorized).
-export function dot1xPortAuthorized(link: any): boolean {
-  const info = dot1xLinkInfo(link);
+function dot1xEndAuthorized(link: Link, info: Dot1xPortInfo | null): boolean {
   if (!info || info.mode === "force-authorized") return true;
   if (info.mode === "force-unauthorized") return false;
   return !!link.dot1xAuthorized;
+}
+
+// Whether every 802.1X-controlled port on this link currently authorises it
+// (both ends of a switch↔switch link may be under port control).
+export function dot1xPortAuthorized(link: Link | null | undefined): boolean {
+  if (!link || link.wireless) return true;
+  const a = getDevice(link.from), b = getDevice(link.to);
+  return dot1xEndAuthorized(link, dot1xPortEnd(link, a, b)) && dot1xEndAuthorized(link, dot1xPortEnd(link, b, a));
 }
 
 // MACsec (802.1AE) state of a link, from each end's per-peer config. "secured" =
@@ -797,7 +811,7 @@ export function routerInterfaceForName(router: any, name: string): any {
 // and they run per routed frame / per convergence, so they don't pay to build
 // (and garbage-collect) a placeholder for every unused port.
 export function routerInterfacesWithNames(router: any, cabledOnly = false): NamedRouterIface[] {
-  const ethernetPorts = clampRouterPortCount(router.config?.ethernetPorts ?? 4);
+  const ethernetPorts = clampRouterPortCount(router.config?.ethernetPorts ?? defaultPortCount("router"));
   const serialPorts = clampRouterPortCount(router.config?.serialPorts ?? 4);
   const configured = normaliseRouterInterfaces(router.config?.interfaces || [], router.id);
   const linked = linkedPortsFor(router.id).filter((port: any) => port).map(port => {   // drop null gaps from sparse port arrays
@@ -931,7 +945,7 @@ export function buildPortList(deviceId: string): PortOption[] {
   const device = getDevice(deviceId);
   if (!device) return [];
 
-  if (device.type === "computer" || device.type === "laptop" || device.type === "kali" || device.type === "server" || device.type === "attacker" || device.type === "ids") {
+  if (hasSingleNic(device.type)) {
     // Hosts (and the single-NIC IDS sensor) have one port — auto-select it
     const linked = linkedPortsFor(deviceId);
     const occupied = linked.length > 0;
@@ -943,10 +957,11 @@ export function buildPortList(deviceId: string): PortOption[] {
     }];
   }
 
-  if (device.type === "switch" || device.type === "hub" || device.type === "access-point" || device.type === "firewall" || device.type === "internet") {
-    // A hub / access point / firewall / internet cloud enumerates ports the same
-    // way (just an ethernetPorts count) — the latter two used to fall through to
-    // an empty list, leaving the picker with a blank column and no way to confirm.
+  if (device.type !== "router" && defaultPortCount(device.type) > 0) {
+    // Every type with an ethernetPorts count (switch, hub, access point, firewall,
+    // internet cloud) enumerates ports the same way — the firewall and cloud used
+    // to fall through to an empty list, leaving the picker with a blank column and
+    // no way to confirm. Routers name ports per media type, below.
     const ifaces = switchInterfacesWithNames(device);
     return ifaces.map((iface: any) => ({
       name: iface.name,
@@ -984,8 +999,8 @@ export function openPortSelectionModal(fromId: string, toId: string): void {
   const { reject, wireless } = classifyLink(fromId, toId);
   if (reject || wireless) { addLink(fromId, toId); return; }
 
-  const showFromPicker = !["computer", "laptop", "kali", "server", "attacker", "ids"].includes(fromDevice.type);
-  const showToPicker = !["computer", "laptop", "kali", "server", "attacker", "ids"].includes(toDevice.type);
+  const showFromPicker = !hasSingleNic(fromDevice.type);
+  const showToPicker = !hasSingleNic(toDevice.type);
 
   // If both are single-port hosts, skip modal entirely
   if (!showFromPicker && !showToPicker) {

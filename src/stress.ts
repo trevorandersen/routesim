@@ -1,5 +1,6 @@
 import type { AppState, Device } from "./types";
 import { mulberry32 } from "./prng";
+import { isHost } from "./device-registry";
 
 export const DEFAULT_STRESS_SEED = 20260706;
 export const DEFAULT_STRESS_STEPS = 250;
@@ -50,9 +51,7 @@ function differentPair(devices: Device[], random: () => number): [Device, Device
 
 function nextCommand(app: AppState, step: number, random: () => number): string {
   const devices = app.devices.filter(device => device.type !== "lan");
-  const hosts = devices.filter(device =>
-    device.type === "computer" || device.type === "laptop" || device.type === "kali" ||
-    device.type === "server" || device.type === "attacker");
+  const hosts = devices.filter(device => isHost(device.type));
   const switches = devices.filter(device => device.type === "switch");
   const visibleLinks = app.links.filter(link => !link.hidden);
   const roll = integer(random, 0, 13);

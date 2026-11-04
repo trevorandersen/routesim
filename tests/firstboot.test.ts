@@ -7,7 +7,8 @@
  */
 import { describe, it, expect, beforeAll, beforeEach, afterEach } from "bun:test";
 import { state } from "../src/state";
-import { startNetworkBoot, unconfiguredBootableHosts, stepOnce } from "../src/engine";
+import { startNetworkBoot, unconfiguredBootableHosts, stepOnce, launchRedTeam } from "../src/engine";
+import { dom } from "../src/dom";
 import { runConsoleScript, runConsoleCommand as exec } from "../src/commands";
 import { registerNoopCallbacks, resetState } from "./helpers";
 
@@ -177,5 +178,54 @@ describe("network boot — the global Auto-DHCP / APIPA toggles", () => {
     runConsoleScript(`add computer PC1 at 0 0\nadd switch SW at 200 0\nlink PC1 SW`);
     runBoot();
     expect(pc("PC1").config.ipv4Address).toMatch(/^169\.254\./);
+  });
+});
+
+// R9: the Red Team actor is a full host, so Play boots it like any other. It was
+// missing from the boot set, so an unconfigured actor never got an address and
+// Play said "every host already has an address" — then launched nothing.
+describe("network boot — the Red Team actor is a host too (R9)", () => {
+  it("Play leases an address to an unconfigured Red Team actor", () => {
+    runConsoleScript(`
+      add attacker RT1 at 0 0
+      add switch SW at 200 0
+      add router R1 at 400 0
+      link SW R1
+      link RT1 SW
+    `);
+    exec("interface R1 SW ip 192.168.1.1");
+    expect(unconfiguredBootableHosts().map(d => d.name)).toEqual(["RT1"]);
+    expect(runBoot()).toBe(true);
+    expect(pc("RT1").config.ipv4Address).toBe("192.168.1.100");
+    expect(pc("RT1").config.ipSource).toBe("dhcp");
+  });
+
+  it("a Kali PC boots the same way", () => {
+    runConsoleScript(`
+      add kali K1 at 0 0
+      add switch SW at 200 0
+      link K1 SW
+    `);
+    expect(runBoot()).toBe(true);
+    expect(pc("K1").config.ipv4Address).toMatch(/^169\.254\./);
+  });
+
+  it("with nothing to boot, Play says why an actor can't launch instead of a false all-clear", () => {
+    runConsoleScript(`add attacker RT1 at 0 0`);   // uncabled, so not bootable
+    state.options.autoDhcp = false;
+    state.options.apipaFallback = false;
+    expect(startNetworkBoot()).toBe(false);
+    expect(launchRedTeam()).toBe(false);
+    expect(dom.modeLabel.textContent).toBe("RT1 has no IP address and no cable — connect it to the network first.");
+  });
+
+  it("an addressed actor with no attacks enabled says so", () => {
+    runConsoleScript(`
+      add attacker RT1 at 0 0
+      ip RT1 10.0.0.66/24
+    `);
+    pc("RT1").config.attacks = [];
+    expect(launchRedTeam()).toBe(false);
+    expect(dom.modeLabel.textContent).toContain("RT1 has no attacks enabled");
   });
 });

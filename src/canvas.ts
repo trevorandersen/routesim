@@ -2,7 +2,7 @@ import type { DeviceType, ActiveTransit } from "./types";
 import { state, colors } from "./state";
 import { dom } from "./dom";
 import { cssColor, prefixOf } from "./utils";
-import { DEVICE_SPECS } from "./device-registry";
+import { DEVICE_SPECS, isHost } from "./device-registry";
 import { getDevice, isVisibleDevice, routerInterfacesWithNames, linkedPortsFor, wifiLinkAuthenticated, macsecState } from "./devices";
 import { isRootBridge } from "./stp";
 import { memoPortModes } from "./normalise";
@@ -75,12 +75,10 @@ export function syncZoomLevel(): void {
   dom.zoomLevel.textContent = `${Math.round(state.scale * 100)}%`;
 }
 
-const HOST_TYPES = new Set(["computer", "laptop", "kali", "server", "attacker"]);
-
 export function linkColorFor(from: any, to: any): string {
   if (from.type === "router" && to.type === "router") return cssColor("--link-router");
   if (from.type === "switch" || to.type === "switch") {
-    if (!HOST_TYPES.has(from.type) && !HOST_TYPES.has(to.type)) return cssColor("--link-switch");
+    if (!isHost(from.type) && !isHost(to.type)) return cssColor("--link-switch");
   }
   return cssColor("--link-host");
 }
@@ -356,7 +354,7 @@ export function drawDevice(device: any): void {
     ctx.fillText(label, device.x, labelY);
     labelY += 17;
   }
-  if (HOST_TYPES.has(device.type) && state.options.showIpAddresses) {
+  if (isHost(device.type) && state.options.showIpAddresses) {
     ctx.font = FONT_SECONDARY;
     if (device.config?.ipv4Address) {
       ctx.fillStyle = cssColor("--label-ip");
@@ -368,14 +366,14 @@ export function drawDevice(device: any): void {
     }
     labelY += 15;
   }
-  if (HOST_TYPES.has(device.type) && state.options.showMacAddresses && device.config?.macAddress) {
+  if (isHost(device.type) && state.options.showMacAddresses && device.config?.macAddress) {
     ctx.fillStyle = cssColor("--label-mac");
     ctx.font = FONT_SMALL;
     ctx.fillText(device.config.macAddress, device.x, labelY);
     labelY += 13;
   }
   // VLAN label for hosts (computers and servers)
-  if (HOST_TYPES.has(device.type) && state.options.showIpAddresses) {
+  if (isHost(device.type) && state.options.showIpAddresses) {
     const vlan = getVlanForDevice(device.id);
     if (vlan > 1) {
       const color = vlanColor(vlan);

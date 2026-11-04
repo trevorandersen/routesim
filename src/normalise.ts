@@ -3,7 +3,7 @@ import type {
   RipConfig, StaticRoute, DeviceConfig, DeviceType, Device, Link, FirewallRule, DnsRecord
 } from "./types";
 import { normaliseMacAddress, isValidMac, isValidIpv4, clampPortCount, clampApPortCount, clampRouterPortCount, clampPrefixLength, normaliseVlanId, normaliseSsid, normaliseWifiPassword, normalisePortNumber } from "./utils";
-import { DEVICE_SPECS, DEVICE_TYPES, DEFAULT_SSID } from "./device-registry";
+import { DEVICE_SPECS, DEVICE_TYPES, DEFAULT_SSID, defaultConfigFor, defaultPortCount } from "./device-registry";
 
 // Each element is coerced to an object before use: imported JSON may carry a
 // null / primitive in a table array, and dereferencing it raw threw a TypeError
@@ -333,16 +333,16 @@ export function normaliseRadiusUsers(raw: unknown): { identity: string; password
 export function normaliseDeviceConfig(device: any): DeviceConfig {
   if (device.type === "hub") {
     // A hub is a dumb layer-1 repeater — just a port count, no tables.
-    return { ethernetPorts: clampPortCount(device.config?.ethernetPorts ?? device.ethernetPorts ?? 4) };
+    return { ethernetPorts: clampPortCount(device.config?.ethernetPorts ?? device.ethernetPorts ?? defaultPortCount("hub")) };
   }
   if (device.type === "internet") {
     // The internet cloud — an L3 transit that routes between the routers cabled
     // to it (each on its own public subnet). It routes by destination, so it
     // keeps no MAC table; only a port count is configurable.
-    return { ethernetPorts: clampPortCount(device.config?.ethernetPorts ?? device.ethernetPorts ?? 8) };
+    return { ethernetPorts: clampPortCount(device.config?.ethernetPorts ?? device.ethernetPorts ?? defaultPortCount("internet")) };
   }
   if (device.type === "switch") {
-    const ethernetPorts = clampPortCount(device.config?.ethernetPorts ?? device.ethernetPorts ?? 8);
+    const ethernetPorts = clampPortCount(device.config?.ethernetPorts ?? device.ethernetPorts ?? defaultPortCount("switch"));
     const managed = Boolean(device.config?.managed ?? device.managed ?? false);
     return {
       managed,
@@ -364,7 +364,7 @@ export function normaliseDeviceConfig(device: any): DeviceConfig {
     };
   }
   if (device.type === "router") {
-    const ethernetPorts = clampRouterPortCount(device.config?.ethernetPorts ?? device.ethernetPorts ?? 4);
+    const ethernetPorts = clampRouterPortCount(device.config?.ethernetPorts ?? device.ethernetPorts ?? defaultPortCount("router"));
     const serialPorts = clampRouterPortCount(device.config?.serialPorts ?? device.serialPorts ?? 4);
     const interfaces = normaliseRouterInterfaces(device.config?.interfaces || device.interfaces || [], device.id);
     const invalidInterface = interfaces.find(entry => entry.ipv4Address && !isValidIpv4(entry.ipv4Address));
@@ -393,7 +393,7 @@ export function normaliseDeviceConfig(device: any): DeviceConfig {
     };
   }
   if (device.type === "firewall") {
-    const ethernetPorts = clampPortCount(device.config?.ethernetPorts ?? device.ethernetPorts ?? 2);
+    const ethernetPorts = clampPortCount(device.config?.ethernetPorts ?? device.ethernetPorts ?? defaultPortCount("firewall"));
     const rawPolicy = device.config?.policy || {};
     return {
       ethernetPorts,
@@ -455,7 +455,7 @@ export function normaliseDeviceConfig(device: any): DeviceConfig {
     // broadcasts (SSID + optional password).
     return {
       managed: false,
-      ethernetPorts: clampApPortCount(device.config?.ethernetPorts ?? device.ethernetPorts ?? 1),
+      ethernetPorts: clampApPortCount(device.config?.ethernetPorts ?? device.ethernetPorts ?? defaultPortCount("access-point")),
       macTable: normaliseMacTable(device.config?.macTable || device.macTable || []),
       ...normaliseWifiFields(device),
     };
@@ -572,7 +572,7 @@ export function ensureConfig(device: Device): DeviceConfig {
 }
 
 export function defaultDeviceConfig(type: DeviceType): DeviceConfig {
-  return DEVICE_SPECS[type]?.defaultConfig() ?? {};
+  return defaultConfigFor(type);
 }
 
 // Translates a topology in place so every device sits at a positive coordinate

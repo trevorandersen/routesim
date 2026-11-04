@@ -22,7 +22,7 @@ Both are real single-NIC hosts (IP/MAC/ARP, reuse `processAtComputer`); the diff
 | Autonomous on Play | no — boots like a PC | yes — `launchRedTeam` |
 | Terminal, console `attack` | yes | yes |
 
-Both are full hosts: single-NIC (the `hostNicTaken` / `addLink` guard, `buildPortList`/`openPortSelectionModal`), a MAC on creation, `hasHostname`, `isHost` (so the inspector renders the shared host static-config fields — and those fields drive the device terminal, which is why the Kali CLI **falls through to the host shell**). `AttackerConfig extends ComputerConfig` adds `attackTarget?`, `attacks?: AttackKind[]` (`"scan" | "sweep" | "arp-spoof"`), `spoofIp?`, and `attackLog?` (runtime, last run's report — **not serialised**). The Kali PC uses the plain `ComputerConfig` shape (no autonomous plan).
+Both are full hosts — `HOST_ROLES` in `device-registry.ts`: single-NIC (the `hostNicTaken` / `addLink` guard, `buildPortList`/`openPortSelectionModal`), a MAC on creation, `hasHostname`, network-bootable, an 802.1X supplicant (`supplicant <node> …`; on a locked port it is blocked like any host until it authenticates), `isHost` (so the inspector renders the shared host static-config fields — and those fields drive the device terminal, which is why the Kali CLI **falls through to the host shell**). `AttackerConfig extends ComputerConfig` adds `attackTarget?`, `attacks?: AttackKind[]` (`"scan" | "sweep" | "arp-spoof"`), `spoofIp?`, and `attackLog?` (runtime, last run's report — **not serialised**). The Kali PC uses the plain `ComputerConfig` shape (no autonomous plan).
 
 ## The attacks (`simulation.ts`)
 
@@ -40,7 +40,7 @@ An attack run is `startSimulation(setup, host.id, "", "attack")` — sim mode `"
 
 `finishSimulation`'s `"attack"` branch builds an **nmap-style report** — a `PORT  STATE  SERVICE` table of the open ports (`SERVICE_NAMES` maps the port to a name) and a `Hosts up:` line for a sweep — writes it to the origin terminal session, and stashes it on `origin.config.attackLog` for the inspector. A run "succeeds" (`SimResult.success`) when it found at least one open port or live host.
 
-`launchRedTeam()` is the autonomous **Play** trigger and is filtered to **`type === "attacker"`** — a Kali PC is never launched this way. When the canvas is idle and a ready actor exists (an IP and ≥1 enabled attack), pressing Play finds the first one, `buildAttackEvents`, and starts the run. Wired after `startNetworkBoot` in the Play handler ([ui.ts](ui.md)); an unconfigured offensive host (including a Kali PC) boots over DHCP like any other host instead.
+`launchRedTeam()` is the autonomous **Play** trigger and is filtered to **`type === "attacker"`** — a Kali PC is never launched this way. When the canvas is idle and a ready actor exists (an IP and ≥1 enabled attack), pressing Play finds the first one, `buildAttackEvents`, and starts the run. Wired after `startNetworkBoot` in the Play handler ([ui.ts](ui.md)); an unconfigured offensive host — the actor itself or a Kali PC — boots over DHCP like any other host instead (both carry the registry's `bootable` role), and the next Play launches the plan. With actors placed but none ready, Play says why (powered off, no IP / no cable, no attacks enabled).
 
 ## Triggers — CLI, console, inspector
 

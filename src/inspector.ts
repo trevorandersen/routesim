@@ -1,6 +1,6 @@
 import type { Link, DeviceType } from "./types";
 import { state, sync, pushUndo, captureUndoOnFocus } from "./state";
-import { DEVICE_SPECS } from "./device-registry";
+import { DEVICE_SPECS, isHost, offersTerminal, defaultPortCount } from "./device-registry";
 import { dom } from "./dom";
 import { escapeHtml, isValidIpv4, isValidMac, normaliseMacAddress, randomMac, parseIpv4Token, prefixOf, networkOf, normaliseSsid, normaliseWifiPassword } from "./utils";
 import { ensureConfig, normaliseVlans, normaliseDnsRecords, normaliseDhcpLeases, normaliseRadiusUsers } from "./normalise";
@@ -1035,8 +1035,7 @@ export function syncPanel(): void {
   } else {
     const neighbors = connectedIds(selected.id).map((id: string) => getDevice(id)).filter(isVisibleDevice);
     const selectedType = DEVICE_SPECS[selected.type]?.label ?? "Device";
-    const isHost = selected.type === "computer" || selected.type === "laptop" || selected.type === "kali" || selected.type === "server" || selected.type === "attacker";
-    const pcConfigFields = isHost ? `
+    const pcConfigFields = isHost(selected.type) ? `
       <div class="field">
         <label class="label-with-badge" for="selectedIpv4">IPv4 address / prefix ${ipSourceBadge(selected.config)}</label>
         <div class="input-with-button">
@@ -1089,7 +1088,7 @@ export function syncPanel(): void {
       </div>
       <div class="field">
         <label for="selectedPorts">Ethernet ports</label>
-        <input id="selectedPorts" type="number" min="4" max="24" step="1" value="${escapeHtml(selected.config?.ethernetPorts || 8)}">
+        <input id="selectedPorts" type="number" min="4" max="24" step="1" value="${escapeHtml(selected.config?.ethernetPorts || defaultPortCount(selected.type))}">
       </div>
       ${selected.config?.managed ? `
       <div class="field">
@@ -1123,7 +1122,7 @@ export function syncPanel(): void {
       <div class="field-row">
         <div class="field">
           <label for="selectedRouterEthernetPorts">Ethernet ports</label>
-          <input id="selectedRouterEthernetPorts" type="number" min="0" max="12" step="1" value="${escapeHtml(selected.config?.ethernetPorts ?? 4)}">
+          <input id="selectedRouterEthernetPorts" type="number" min="0" max="12" step="1" value="${escapeHtml(selected.config?.ethernetPorts ?? defaultPortCount(selected.type))}">
         </div>
         <div class="field">
           <label for="selectedRouterSerialPorts">Serial ports</label>
@@ -1149,7 +1148,7 @@ export function syncPanel(): void {
     const firewallConfigFields = selected.type === "firewall" ? `
       <div class="field">
         <label for="selectedFwPorts">Ethernet ports</label>
-        <input id="selectedFwPorts" type="number" min="2" max="8" step="1" value="${escapeHtml(selected.config?.ethernetPorts ?? 2)}">
+        <input id="selectedFwPorts" type="number" min="2" max="8" step="1" value="${escapeHtml(selected.config?.ethernetPorts ?? defaultPortCount(selected.type))}">
       </div>
       <div class="field">
         <label>Netfilter (iptables FORWARD)</label>
@@ -1163,7 +1162,7 @@ export function syncPanel(): void {
       <div style="height: 10px"></div>
       <div class="field">
         <label for="selectedPorts">Ethernet ports</label>
-        <input id="selectedPorts" type="number" min="4" max="24" step="1" value="${escapeHtml(selected.config?.ethernetPorts || 4)}">
+        <input id="selectedPorts" type="number" min="4" max="24" step="1" value="${escapeHtml(selected.config?.ethernetPorts || defaultPortCount(selected.type))}">
       </div>
       <div class="field">
         <label>Ports</label>
@@ -1192,7 +1191,7 @@ export function syncPanel(): void {
         </button>
         <div style="height: 10px"></div>
       ` : ""}
-      ${(isHost || selected.type === "router" || selected.type === "firewall" || selected.type === "ids" || (selected.type === "switch" && selected.config?.managed)) ? `
+      ${offersTerminal(selected) ? `
         <button class="wide-button" id="openSelectedTerminal">
           <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 17l6 -6l-6 -6"></path><path d="M12 19h8"></path></svg>
           Terminal

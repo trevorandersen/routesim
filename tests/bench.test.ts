@@ -9,7 +9,7 @@
  */
 import { describe, it, expect, beforeAll, beforeEach } from "bun:test";
 import { state } from "../src/state";
-import { getDevice, linkedPortsFor, connectedIds, linkById } from "../src/devices";
+import { getDevice, linkedPortsFor, connectedIds, linkById, linkAuthorizedForData } from "../src/devices";
 import { l2Reachable, getVlanForDevice, buildScanEvents } from "../src/simulation";
 import { runConsoleScript } from "../src/commands";
 import { isTrunkLink } from "../src/canvas";
@@ -262,6 +262,44 @@ describe("bench: linkById", () => {
     results.push(bench("linkById — 50-link topo", () => {
       linkById(id);
     }, { budget: 5 }));
+    expect(results[results.length - 1].passed).toBe(true);
+  });
+
+  it("prints results", () => {
+    if (results.length) printResults(results);
+  });
+});
+
+// ── 2f. The data-path gate (run on every transit) ───────────────────────────
+
+describe("bench: linkAuthorizedForData", () => {
+  const results: BenchResult[] = [];
+  beforeEach(() => resetState());
+
+  it("linkAuthorizedForData — no 802.1X (the common case)", () => {
+    const topo = managedSwitch(24);
+    state.devices = topo.devices as any;
+    state.links = topo.links as any;
+    const link = state.links[state.links.length - 1];
+    results.push(bench("linkAuthorizedForData — open port", () => {
+      linkAuthorizedForData(link);
+    }, { budget: 5 }));
+    expect(results[results.length - 1].passed).toBe(true);
+  });
+
+  it("linkAuthorizedForData — 802.1X port control, 24-port switch", () => {
+    // Worst case: every port under port control and the link on the last one,
+    // so the port-name resolution walks the whole port list.
+    const topo = managedSwitch(24);
+    state.devices = topo.devices as any;
+    state.links = topo.links as any;
+    const sw = state.devices.find(d => d.id === "msw-0")!;
+    sw.config.portAuth = Object.fromEntries(Array.from({ length: 24 }, (_, i) => [`Ethernet${i + 1}`, "auto" as const]));
+    const link = state.links[state.links.length - 1];
+    link.dot1xAuthorized = true;
+    results.push(bench("linkAuthorizedForData — 802.1X 24p", () => {
+      linkAuthorizedForData(link);
+    }, { budget: 25 }));
     expect(results[results.length - 1].passed).toBe(true);
   });
 

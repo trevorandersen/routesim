@@ -2,6 +2,8 @@ import { describe, it, expect } from "bun:test";
 import {
   isValidIpv4, ipv4ToInt, intToIpv4,
   sameSubnet, networkOf, cidrContains, prefixLengthOfCidr, clampPrefixLength, prefixOf,
+  parseIpv4, parseCidr, cachedCidr, cidrHas, cidrOf, cidrText,
+  internetGatewayIp,
   normaliseMacAddress, isValidMac,
   clampPortCount, clampRouterPortCount, clampApPortCount,
   parseIpv4Token, normaliseVlanId,
@@ -91,6 +93,136 @@ describe("subnet prefix maths", () => {
 
   it("intToIpv4 round-trips with ipv4ToInt", () => {
     expect(intToIpv4(ipv4ToInt("203.0.113.7"))).toBe("203.0.113.7");
+  });
+});
+
+// ── Integer CIDR (the routing/RIP/firewall hot path) ──────────────────────────
+
+// The string-based rules the integer helpers replaced, kept verbatim as the
+// reference: the integer path must agree with them on every input.
+function referenceIsValidIpv4(value: string): boolean {
+  const parts = value.split(".");
+  if (parts.length !== 4) return false;
+  return parts.every(part => {
+    if (!/^\d{1,3}$/.test(part)) return false;
+    if (part.length > 1 && part.startsWith("0")) return false;
+    const octet = Number(part);
+    return octet >= 0 && octet <= 255;
+  });
+}
+// A local seeded generator (mulberry32) for the fuzz corpora — deterministic,
+// and it leaves the engine's shared simulation PRNG untouched.
+function seededPick(seed: number): (n: number) => number {
+  let a = seed >>> 0;
+  return (n: number) => {
+    a = (a + 0x6d2b79f5) >>> 0;
+    let t = a;
+    t = Math.imul(t ^ (t >>> 15), t | 1);
+    t ^= t + Math.imul(t ^ (t >>> 7), t | 61);
+    return Math.floor((((t ^ (t >>> 14)) >>> 0) / 4294967296) * n);
+  };
+}
+function referenceCidrContains(cidr: string, ip: string): boolean {
+  const slash = cidr.indexOf("/");
+  const net = slash >= 0 ? cidr.slice(0, slash) : cidr;
+  if (!referenceIsValidIpv4(net) || !referenceIsValidIpv4(ip)) return false;
+  const len = slash >= 0 ? clampPrefixLength(Number(cidr.slice(slash + 1))) : 24;
+  const mask = len <= 0 ? 0 : (~0 << (32 - len)) >>> 0;
+  return (ipv4ToInt(net) & mask) === (ipv4ToInt(ip) & mask);
+}
+
+describe("parseIpv4", () => {
+  it("parses a dotted quad to its unsigned value", () => {
+    expect(parseIpv4("0.0.0.0")).toBe(0);
+    expect(parseIpv4("192.168.1.1")).toBe(3232235777);
+    expect(parseIpv4("255.255.255.255")).toBe(4294967295);   // unsigned, not -1
+  });
+
+  it("returns null for exactly what isValidIpv4 rejects", () => {
+    for (const bad of ["", "abc", "1.2.3", "1.2.3.4.5", "1.2.3.4.", ".1.2.3.4", "1..2.3", "256.0.0.1",
+      "01.2.3.4", "1.2.3.00", "1.2.3.1000", " 1.2.3.4", "1.2.3.4 ", "1.2.3.-4", "1.2.3.4/24", "１.2.3.4"]) {
+      expect(parseIpv4(bad)).toBeNull();
+      expect(isValidIpv4(bad)).toBe(false);
+    }
+    expect(parseIpv4(undefined as unknown as string)).toBeNull();
+  });
+
+  it("agrees with the string rules on a seeded fuzz corpus", () => {
+    const pick = seededPick(1);
+    const alphabet = "0123456789.0123456789./ x-";
+    for (let i = 0; i < 20000; i++) {
+      let s = "";
+      if (pick(2) === 0) {
+        s = [0, 0, 0, 0].map(() => String(pick(4) === 0 ? pick(400) : pick(256))).join(".");
+        if (pick(5) === 0) s = s.replace(".", ".0");
+      } else {
+        for (let k = pick(18); k > 0; k--) s += alphabet[pick(alphabet.length)];
+      }
+      expect(isValidIpv4(s)).toBe(referenceIsValidIpv4(s));
+      expect(parseIpv4(s)).toBe(referenceIsValidIpv4(s) ? ipv4ToInt(s) : null);
+    }
+  });
+});
+
+describe("parseCidr / cidrHas", () => {
+  it("parses network, mask, and prefix — the network already masked", () => {
+    expect(parseCidr("10.1.2.3/16")).toEqual({ net: parseIpv4("10.1.0.0")!, mask: 0xffff0000, prefix: 16 });
+    expect(parseCidr("0.0.0.0/0")).toEqual({ net: 0, mask: 0, prefix: 0 });
+    expect(parseCidr("192.168.1.7/32")).toEqual({ net: parseIpv4("192.168.1.7")!, mask: 0xffffffff, prefix: 32 });
+  });
+
+  it("follows cidrContains's rules: bare IP = /24, bad length = /24, bad address = null", () => {
+    expect(parseCidr("192.168.1.10")!.prefix).toBe(24);
+    expect(parseCidr("10.0.0.0/33")!.prefix).toBe(24);
+    expect(parseCidr("10.0.0.0/abc")!.prefix).toBe(24);
+    expect(parseCidr("bogus")).toBeNull();
+    expect(parseCidr("10.0.0.256/8")).toBeNull();
+    expect(parseCidr("")).toBeNull();
+  });
+
+  it("cidrHas is cidrContains over integers", () => {
+    const c = parseCidr("172.16.0.0/12")!;
+    expect(cidrHas(c, parseIpv4("172.31.255.255")!)).toBe(true);
+    expect(cidrHas(c, parseIpv4("172.32.0.0")!)).toBe(false);
+    expect(cidrHas(parseCidr("0.0.0.0/0")!, parseIpv4("203.0.113.9")!)).toBe(true);
+    expect(cidrHas(parseCidr("255.255.255.0/24")!, parseIpv4("255.255.255.200")!)).toBe(true);   // high-bit network
+  });
+
+  it("cidrContains agrees with the string implementation on a seeded fuzz corpus", () => {
+    const pick = seededPick(2);
+    const octet = () => String(pick(3) === 0 ? pick(300) : pick(3) * 10);
+    const quad = () => [octet(), octet(), octet(), octet()].join(".");
+    const lengths = ["", "/", "/0", "/8", "/16", "/24", "/30", "/32", "/33", "/-1", "/x", "/ 16", "/1e1", "/0x8"];
+    for (let i = 0; i < 20000; i++) {
+      const cidr = quad() + lengths[pick(lengths.length)];
+      const ip = pick(10) === 0 ? "1.2.3" : quad();
+      expect(cidrContains(cidr, ip)).toBe(referenceCidrContains(cidr, ip));
+    }
+  });
+
+  it("cidrOf / cidrText build and print the canonical network (networkOf's format)", () => {
+    expect(cidrText(cidrOf(parseIpv4("192.168.1.6")!, 30))).toBe("192.168.1.4/30");
+    expect(cidrText(cidrOf(parseIpv4("10.9.8.7")!, 8))).toBe(networkOf("10.9.8.7", 8));
+    expect(cidrOf(parseIpv4("10.0.0.1")!, 99).prefix).toBe(24);   // clamped like every prefix
+  });
+
+  it("cachedCidr hands back one shared parse per CIDR text", () => {
+    const a = cachedCidr("10.20.0.0/16");
+    expect(a).toEqual(parseCidr("10.20.0.0/16"));
+    expect(cachedCidr("10.20.0.0/16")).toBe(a);   // same object — no per-lookup allocation
+    expect(cachedCidr("not-a-cidr")).toBeNull();
+    expect(cachedCidr("not-a-cidr")).toBeNull();  // a cached miss stays a miss
+  });
+
+  it("internetGatewayIp validates and converts the router address in one parse", () => {
+    expect(internetGatewayIp("203.0.113.1", 24)).toBe("203.0.113.254");
+    expect(internetGatewayIp("203.0.113.254", 24)).toBe("203.0.113.253");   // never the router itself
+    expect(internetGatewayIp("198.51.100.1", 30)).toBe("198.51.100.2");     // the other usable /30 host
+    expect(internetGatewayIp("255.255.255.1", 24)).toBe("255.255.255.254"); // high-bit addresses stay unsigned
+    expect(internetGatewayIp("10.0.0.1", 31)).toBeNull();                  // no spare host
+    for (const bad of ["", "10.0.0", "10.0.0.256", "10.0.0.01", "10.0.0.1 "]) {
+      expect(internetGatewayIp(bad, 24)).toBeNull();
+    }
   });
 });
 

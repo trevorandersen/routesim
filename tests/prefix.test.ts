@@ -9,6 +9,8 @@ import { buildPingEvents } from "../src/simulation";
 import { buildConfigPayload, parseConfig } from "../src/config";
 import { runConsoleScript, runConsoleCommand as exec } from "../src/commands";
 import { registerNoopCallbacks, resetState } from "./helpers";
+import { routerInterfacesWithNames } from "../src/devices";
+import { parseCidr } from "../src/utils";
 
 beforeAll(() => registerNoopCallbacks());
 
@@ -90,6 +92,56 @@ describe("prefixes — longest-prefix routing", () => {
     for (const ip of ["10.0.0.5", "192.168.9.9", "8.8.8.8"]) {
       expect(routingLookup(r1, ip, table)).toEqual(routingLookup(r1, ip)); // prebuilt === per-call
     }
+  });
+});
+
+describe("prefixes — parsed route entries (integer CIDR)", () => {
+  beforeEach(() => resetState());
+
+  const build = () => {
+    runConsoleScript(`
+      add router R1 at 0 0
+      add switch SW1 at 200 0
+      add switch SW2 at -200 0
+      link R1 SW1
+      link R1 SW2
+    `);
+    exec("interface R1 SW1 ip 10.1.2.1/16");
+    exec("interface R1 SW2 ip 172.16.0.1/30");
+    exec("route R1 192.168.9.0/24 172.16.0.2");
+    return state.devices.find(d => d.name === "R1")!;
+  };
+
+  it("every route carries its network parsed once, matching the text", () => {
+    const table = buildRoutingTable(build());
+    expect(table.map(r => r.network)).toEqual(["10.1.0.0/16", "172.16.0.0/30", "192.168.9.0/24"]);
+    for (const r of table) expect(r.cidr).toEqual(parseCidr(r.network));
+  });
+
+  it("a route whose network isn't a CIDR parses to null and never matches", () => {
+    const r1 = build();
+    r1.config.staticRoutes!.push({ network: "bogus", nextHop: "172.16.0.2" });
+    const table = buildRoutingTable(r1);
+    expect(table.find(r => r.network === "bogus")?.cidr).toBeNull();
+    expect(routingLookup(r1, "8.8.8.8", table)).toBeNull();   // no default — the junk entry matches nothing
+    expect(routingLookup(r1, "192.168.9.9", table)?.nextHopIp).toBe("172.16.0.2");
+  });
+
+  it("an invalid destination or next hop resolves to no route", () => {
+    const r1 = build();
+    expect(routingLookup(r1, "10.1.300.1")).toBeNull();
+    expect(routingLookup(r1, "")).toBeNull();
+    r1.config.staticRoutes = [{ network: "0.0.0.0/0", nextHop: "172.16.0.02" }];
+    expect(routingLookup(r1, "8.8.8.8")).toBeNull();
+  });
+
+  it("routerInterfacesWithNames(router, true) is exactly the cabled subset", () => {
+    const r1 = build();
+    const all = routerInterfacesWithNames(r1);
+    const cabled = routerInterfacesWithNames(r1, true);
+    expect(all.length).toBeGreaterThan(cabled.length);   // free ports are listed only in the full view
+    expect(cabled.map(i => i.name)).toEqual(all.filter(i => i.peer).map(i => i.name));
+    expect(cabled.every(i => i.peer)).toBe(true);
   });
 });
 

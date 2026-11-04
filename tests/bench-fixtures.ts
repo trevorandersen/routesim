@@ -434,7 +434,13 @@ export function stressGrid(n: number = 100) {
 }
 
 // ─── ripStress ──────────────────────────────────────────────────────────────
-// r routers in a ring with cross-links. Pure RIP convergence test.
+// r routers in a ring with cross-links (every 3rd router to the one 3 ahead),
+// each with two stub LANs (a switch per LAN). Pure RIP convergence test: every
+// ring, cross, and LAN subnet is a connected network a `network` statement
+// covers, so each router advertises 2 LANs + its links and learns the rest —
+// and the cross-links give equal-and-better alternative paths to resolve.
+// Both ends of every inter-router link are addressed and RIP-enabled (an
+// exchange needs both), so the cross-links really carry advertisements.
 
 export function ripStress(r: number = 15) {
   const devices: any[] = [];
@@ -470,7 +476,7 @@ export function ripStress(r: number = 15) {
       vlanTag: null,
     });
 
-    // Cross-links: every 3rd router connects to router i+3
+    // Cross-links: every 3rd router connects to router i+3 (near end .1)
     if (i % 3 === 0 && i + 3 < r) {
       const crossTarget = i + 3;
       const crossSubnet = 100 + i;
@@ -486,9 +492,39 @@ export function ripStress(r: number = 15) {
       });
     }
 
-    // 2 "LAN" subnets per router (simulated as networks to advertise)
+    // ...and the far end (.2) of the cross-link from router i-3
+    if (i % 3 === 0 && i >= 3) {
+      rtrInterfaces.push({
+        peerId: `rtr-${i - 3}`,
+        type: "serial",
+        name: "",
+        ipv4Address: `10.0.${100 + i - 3}.2`,
+        macAddress: routerMac(i, 3),
+        arpTable: [],
+        dhcpLeases: [],
+        vlanTag: null,
+      });
+    }
+
+    // 2 stub LANs per router, each a real connected subnet (router .1 facing
+    // a switch), so RIP has networks to advertise beyond the transit links
     const lan1 = `192.168.${i * 2 + 1}.0/24`;
     const lan2 = `192.168.${i * 2 + 2}.0/24`;
+    [i * 2 + 1, i * 2 + 2].forEach((octet, k) => {
+      const swId = `lan-${i}-${k}`;
+      rtrInterfaces.push({
+        peerId: swId,
+        type: "ethernet",
+        name: "",
+        ipv4Address: `192.168.${octet}.1`,
+        macAddress: routerMac(i, 4 + k),
+        arpTable: [],
+        dhcpLeases: [],
+        vlanTag: null,
+      });
+      devices.push(device(swId, "switch", `LAN-${i}-${k}`, { managed: false, ethernetPorts: 8, macTable: [] }));
+      links.push({ id: `link-rtr${i}-${swId}`, from: rtrId, to: swId });
+    });
 
     // All transit subnets this router participates in
     const ripNetworks: string[] = [
@@ -498,7 +534,10 @@ export function ripStress(r: number = 15) {
       lan2,
     ];
     if (i % 3 === 0 && i + 3 < r) {
-      ripNetworks.push(`10.0.${100 + i}.0/24`);
+      ripNetworks.push(`10.0.${100 + i}.0/24`);   // cross-link to i+3
+    }
+    if (i % 3 === 0 && i >= 3) {
+      ripNetworks.push(`10.0.${100 + i - 3}.0/24`);   // cross-link from i-3
     }
 
     devices.push(device(rtrId, "router", `RTR-${i}`, {

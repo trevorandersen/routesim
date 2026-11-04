@@ -2890,21 +2890,36 @@ Full legal text: https://creativecommons.org/publicdomain/zero/1.0/legalcode</pr
     return String(value).replaceAll("&", "&amp;").replaceAll("<", "&lt;").replaceAll(">", "&gt;").replaceAll('"', "&quot;").replaceAll("'", "&#39;");
   }
   function isValidIpv4(value) {
-    const parts = value.split(".");
-    if (parts.length !== 4) return false;
-    return parts.every((part) => {
-      if (!/^\d{1,3}$/.test(part)) return false;
-      if (part.length > 1 && part.startsWith("0")) return false;
-      const octet = Number(part);
-      return octet >= 0 && octet <= 255;
-    });
+    return parseIpv4(value) !== null;
+  }
+  function parseIpv4(value) {
+    if (typeof value !== "string") return null;
+    const len = value.length;
+    let result = 0, octet = 0, digits = 0, parts = 0;
+    for (let i = 0; i <= len; i++) {
+      const c = i < len ? value.charCodeAt(i) : 46;
+      if (c === 46) {
+        if (digits === 0 || ++parts > 4) return null;
+        result = result * 256 + octet;
+        octet = 0;
+        digits = 0;
+      } else if (c >= 48 && c <= 57) {
+        if (digits === 1 && octet === 0) return null;
+        if (++digits > 3) return null;
+        octet = octet * 10 + (c - 48);
+        if (octet > 255) return null;
+      } else {
+        return null;
+      }
+    }
+    return parts === 4 ? result : null;
   }
   function ipv4ToInt(ip) {
     const parts = ip.split(".").map(Number);
     return (parts[0] << 24 | parts[1] << 16 | parts[2] << 8 | parts[3]) >>> 0;
   }
   function intToIpv4(value) {
-    return [value >>> 24 & 255, value >>> 16 & 255, value >>> 8 & 255, value & 255].join(".");
+    return (value >>> 24 & 255) + "." + (value >>> 16 & 255) + "." + (value >>> 8 & 255) + "." + (value & 255);
   }
   var DEFAULT_PREFIX_LENGTH = 24;
   function clampPrefixLength(value, fallback = DEFAULT_PREFIX_LENGTH) {
@@ -2919,15 +2934,17 @@ Full legal text: https://creativecommons.org/publicdomain/zero/1.0/legalcode</pr
     return prefixLength <= 0 ? 0 : ~0 << 32 - prefixLength >>> 0;
   }
   function sameSubnet(a, b, prefixLength) {
-    if (!a || !b || !isValidIpv4(a) || !isValidIpv4(b)) return false;
+    if (!a || !b) return false;
+    const ai = parseIpv4(a), bi = parseIpv4(b);
+    if (ai === null || bi === null) return false;
     const mask = maskOfPrefix(clampPrefixLength(prefixLength));
-    return (ipv4ToInt(a) & mask) === (ipv4ToInt(b) & mask);
+    return (ai & mask) === (bi & mask);
   }
   function internetGatewayIp(routerIp, prefixLength) {
-    if (!isValidIpv4(routerIp)) return null;
+    const ipInt = parseIpv4(routerIp);
+    if (ipInt === null) return null;
     const len = clampPrefixLength(prefixLength);
     if (len >= 31) return null;
-    const ipInt = ipv4ToInt(routerIp);
     const mask = maskOfPrefix(len);
     const network = (ipInt & mask) >>> 0;
     const broadcast = (network | ~mask >>> 0) >>> 0;
@@ -2947,10 +2964,39 @@ Full legal text: https://creativecommons.org/publicdomain/zero/1.0/legalcode</pr
     return clampPrefixLength(Number(cidr.slice(slash + 1)), fallback);
   }
   function cidrContains(cidr, ip) {
-    const slash = String(cidr || "").indexOf("/");
-    const net = slash >= 0 ? cidr.slice(0, slash) : cidr;
-    if (!isValidIpv4(net) || !isValidIpv4(ip)) return false;
-    return sameSubnet(net, ip, prefixLengthOfCidr(cidr));
+    const parsed = cachedCidr(cidr);
+    if (parsed === null) return false;
+    const addr = parseIpv4(ip);
+    return addr !== null && cidrHas(parsed, addr);
+  }
+  function cidrOf(ip, prefixLength) {
+    const prefix = clampPrefixLength(prefixLength);
+    const mask = maskOfPrefix(prefix);
+    return { net: (ip & mask) >>> 0, mask, prefix };
+  }
+  function parseCidr(cidr) {
+    const text = String(cidr || "");
+    const slash = text.indexOf("/");
+    const ip = parseIpv4(slash >= 0 ? text.slice(0, slash) : text);
+    if (ip === null) return null;
+    return cidrOf(ip, slash >= 0 ? clampPrefixLength(Number(text.slice(slash + 1))) : DEFAULT_PREFIX_LENGTH);
+  }
+  var CIDR_CACHE_LIMIT = 4096;
+  var cidrCache = /* @__PURE__ */ new Map();
+  function cachedCidr(cidr) {
+    let parsed = cidrCache.get(cidr);
+    if (parsed === void 0) {
+      parsed = parseCidr(cidr);
+      if (cidrCache.size >= CIDR_CACHE_LIMIT) cidrCache.clear();
+      cidrCache.set(cidr, parsed);
+    }
+    return parsed;
+  }
+  function cidrHas(cidr, ip) {
+    return (ip & cidr.mask) >>> 0 === cidr.net;
+  }
+  function cidrText(cidr) {
+    return `${intToIpv4(cidr.net)}/${cidr.prefix}`;
   }
   function normaliseMacAddress(value) {
     return String(value || "").trim().replaceAll("-", ":").toUpperCase();
@@ -5018,7 +5064,7 @@ Full legal text: https://creativecommons.org/publicdomain/zero/1.0/legalcode</pr
     }
     return iface;
   }
-  function routerInterfacesWithNames(router) {
+  function routerInterfacesWithNames(router, cabledOnly = false) {
     const ethernetPorts = clampRouterPortCount(router.config?.ethernetPorts ?? 4);
     const serialPorts = clampRouterPortCount(router.config?.serialPorts ?? 4);
     const configured = normaliseRouterInterfaces(router.config?.interfaces || [], router.id);
@@ -5080,6 +5126,7 @@ Full legal text: https://creativecommons.org/publicdomain/zero/1.0/legalcode</pr
         });
       }
     }
+    if (cabledOnly) return occupied;
     const emptyConfigFor = (name, type) => configured.find((c) => c.peerId === "" && c.name === name) || { peerId: "", name, type, ipv4Address: "", vlanTag: null };
     const emptyEthernet = [];
     for (let n = 1; n <= ethernetPorts; n++) if (!usedByMedia.ethernet.has(n)) {
@@ -6781,26 +6828,27 @@ Full legal text: https://creativecommons.org/publicdomain/zero/1.0/legalcode</pr
   // src/routing.ts
   function buildRoutingTable(router) {
     const table = [];
-    const ifaces = routerInterfacesWithNames(router);
+    const ifaces = routerInterfacesWithNames(router, true);
     const seen = /* @__PURE__ */ new Set();
     for (const iface of ifaces) {
-      const ip = iface.config?.ipv4Address;
-      if (!ip || !isValidIpv4(ip) || !iface.peer || iface.link?.shutdown) continue;
-      const network = networkOf(ip, prefixOf(iface.config));
+      const addr = parseIpv4(iface.config?.ipv4Address ?? "");
+      if (addr === null || !iface.peer || iface.link?.shutdown) continue;
+      const cidr = cidrOf(addr, prefixOf(iface.config));
+      const network = cidrText(cidr);
       if (seen.has(network)) continue;
       seen.add(network);
-      table.push({ network, nextHop: "", interface: iface.name, type: "C", metric: 0, peerId: iface.peerId, vlanTag: iface.config?.vlanTag ?? null });
+      table.push({ network, cidr, nextHop: "", interface: iface.name, type: "C", metric: 0, peerId: iface.peerId, vlanTag: iface.config?.vlanTag ?? null });
     }
     const statics = normaliseStaticRoutes(router.config?.staticRoutes || []);
     for (const sr of statics) {
       if (seen.has(sr.network)) continue;
       seen.add(sr.network);
-      table.push({ network: sr.network, nextHop: sr.nextHop, type: "S", metric: 1 });
+      table.push({ network: sr.network, cidr: cachedCidr(sr.network), nextHop: sr.nextHop, type: "S", metric: 1 });
     }
     if (!seen.has("0.0.0.0/0")) {
       const def = internetDefaultGateway(ifaces);
       if (def) {
-        table.push({ network: "0.0.0.0/0", nextHop: def.gateway, interface: def.ifaceName, type: "S", metric: 1 });
+        table.push({ network: "0.0.0.0/0", cidr: cachedCidr("0.0.0.0/0"), nextHop: def.gateway, interface: def.ifaceName, type: "S", metric: 1 });
         seen.add("0.0.0.0/0");
       }
     }
@@ -6808,7 +6856,7 @@ Full legal text: https://creativecommons.org/publicdomain/zero/1.0/legalcode</pr
       for (const rr of router.config.rip.learnedRoutes) {
         if (seen.has(rr.network)) continue;
         seen.add(rr.network);
-        table.push({ network: rr.network, nextHop: rr.nextHop, interface: rr.interface, type: "R", metric: rr.metric });
+        table.push({ network: rr.network, cidr: cachedCidr(rr.network), nextHop: rr.nextHop, interface: rr.interface, type: "R", metric: rr.metric });
       }
     }
     table.sort((a, b) => a.metric - b.metric);
@@ -6817,30 +6865,35 @@ Full legal text: https://creativecommons.org/publicdomain/zero/1.0/legalcode</pr
   function internetDefaultGateway(ifaces) {
     for (const iface of ifaces) {
       const ip = iface.config?.ipv4Address;
-      if (!ip || !isValidIpv4(ip) || iface.peer?.type !== "internet" || iface.link?.shutdown) continue;
+      if (!ip || iface.peer?.type !== "internet" || iface.link?.shutdown) continue;
       const gateway = internetGatewayIp(ip, prefixOf(iface.config));
       if (gateway) return { gateway, ifaceName: iface.name };
     }
     return null;
   }
   function ifaceOnSubnet(ifaces, ip) {
-    return ifaces.find(
-      (iface) => iface.ipv4Address && isValidIpv4(iface.ipv4Address) && sameSubnet(iface.ipv4Address, ip, prefixOf(iface))
-    );
+    return ifaces.find((iface) => iface.ipv4Address && sameSubnet(iface.ipv4Address, ip, prefixOf(iface)));
+  }
+  function longestMatch(table, addr, connectedOnly) {
+    let best = null;
+    let bestLen = -1;
+    for (let i = 0; i < table.length; i++) {
+      const r = table[i];
+      const cidr = r.cidr;
+      if (cidr === null || connectedOnly && r.type !== "C" || !cidrHas(cidr, addr)) continue;
+      if (cidr.prefix > bestLen) {
+        best = r;
+        bestLen = cidr.prefix;
+      }
+    }
+    return best;
   }
   function routingLookup(router, dstIp, prebuilt) {
     const table = prebuilt ?? buildRoutingTable(router);
     const ifaces = router.config?.interfaces || [];
-    let route = null;
-    let bestLen = -1;
-    for (const r of table) {
-      if (!cidrContains(r.network, dstIp)) continue;
-      const len = prefixLengthOfCidr(r.network);
-      if (len > bestLen) {
-        route = r;
-        bestLen = len;
-      }
-    }
+    const dst = parseIpv4(dstIp);
+    if (dst === null) return null;
+    const route = longestMatch(table, dst, false);
     if (!route) return null;
     const storedIface = (peerId, vlanTag) => peerId ? ifaces.find((i) => i.peerId === peerId && (i.vlanTag ?? null) === (vlanTag ?? null)) : void 0;
     if (route.type === "C") {
@@ -6848,51 +6901,55 @@ Full legal text: https://creativecommons.org/publicdomain/zero/1.0/legalcode</pr
       return egressIface2 ? { egressIface: egressIface2, nextHopIp: dstIp } : null;
     }
     const nextHop = route.nextHop;
-    if (!nextHop || !isValidIpv4(nextHop)) return null;
-    let via = null;
-    let viaLen = -1;
-    for (const r of table) {
-      if (r.type !== "C" || !cidrContains(r.network, nextHop)) continue;
-      const len = prefixLengthOfCidr(r.network);
-      if (len > viaLen) {
-        via = r;
-        viaLen = len;
-      }
-    }
+    const hop = nextHop ? parseIpv4(nextHop) : null;
+    if (hop === null) return null;
+    const via = longestMatch(table, hop, true);
     const egressIface = (via ? storedIface(via.peerId, via.vlanTag) : void 0) ?? ifaceOnSubnet(ifaces, nextHop);
     return egressIface ? { egressIface, nextHopIp: nextHop } : null;
   }
-  function buildRipAdvertisements(ifaces, ripNetworks, learnedRoutes) {
-    const advertisements = [];
+  function buildRipRouterView(device) {
+    const ifaces = routerInterfacesWithNames(device, true);
+    const networks = (device.config?.rip?.networks || []).map(cachedCidr);
+    const ripIfaces = [];
+    const connectedAds = [];
+    const connectedNets = /* @__PURE__ */ new Set();
     for (const iface of ifaces) {
-      const ip = iface.config?.ipv4Address;
-      if (!ip || !isValidIpv4(ip) || !iface.peer || iface.link?.shutdown) continue;
-      const network = networkOf(ip, prefixOf(iface.config));
-      const isAdvertised = ripNetworks.some((rn) => cidrContains(rn, ip));
-      if (isAdvertised) {
-        advertisements.push({ network, metric: 1, sourceInterface: iface.name });
+      const addr = parseIpv4(iface.config?.ipv4Address ?? "");
+      const ripActive = addr !== null && networks.some((c) => c !== null && cidrHas(c, addr));
+      ripIfaces.push({ iface, ripActive });
+      if (addr === null || !iface.peer) continue;
+      const network = cidrText(cidrOf(addr, prefixOf(iface.config)));
+      connectedNets.add(network);
+      if (ripActive && !iface.link?.shutdown) {
+        connectedAds.push({ network, metric: 1, sourceInterface: iface.name });
       }
     }
+    const def = internetDefaultGateway(ifaces);
+    const defaultAd = def ? { network: "0.0.0.0/0", metric: 1, sourceInterface: def.ifaceName } : null;
+    const learnedByNetwork = /* @__PURE__ */ new Map();
+    for (const r of device.config?.rip?.learnedRoutes || []) {
+      if (!learnedByNetwork.has(r.network)) learnedByNetwork.set(r.network, r);
+    }
+    return { device, ifaces, ripIfaces, connectedAds, defaultAd, connectedNets, isEdge: def !== null, learnedByNetwork };
+  }
+  function buildRipAdvertisements(view, learnedRoutes) {
+    const advertisements = view.connectedAds.slice();
     for (const lr of learnedRoutes) {
       if (lr.metric >= 15) continue;
       advertisements.push({ network: lr.network, metric: lr.metric + 1, sourceInterface: lr.interface || "" });
     }
-    const def = internetDefaultGateway(ifaces);
-    if (def) {
-      advertisements.push({ network: "0.0.0.0/0", metric: 1, sourceInterface: def.ifaceName });
-    }
+    if (view.defaultAd) advertisements.push(view.defaultAd);
     return advertisements;
   }
-  function applyRipUpdates(neighbor, neighborIface, neighborIfaces, advertisements, egressIfaceName, egressIfaceIp) {
+  function applyRipUpdates(neighbor, neighborIface, advertisements, egressIfaceName, egressIfaceIp) {
     let changed = false;
     let exchanged = 0;
-    const neighborRip = neighbor.config.rip;
+    const neighborRip = neighbor.device.config.rip;
     for (const ad of advertisements) {
       if (ad.sourceInterface === egressIfaceName && ad.metric > 1) continue;
       if (ad.metric > 15) continue;
-      if (ad.network === "0.0.0.0/0" && internetDefaultGateway(neighborIfaces)) continue;
-      const existingRoutes = neighborRip.learnedRoutes || [];
-      const existing = existingRoutes.find((r) => r.network === ad.network);
+      if (ad.network === "0.0.0.0/0" && neighbor.isEdge) continue;
+      const existing = neighbor.learnedByNetwork.get(ad.network);
       if (existing) {
         if (ad.metric < existing.metric) {
           existing.metric = ad.metric;
@@ -6902,19 +6959,16 @@ Full legal text: https://creativecommons.org/publicdomain/zero/1.0/legalcode</pr
           exchanged++;
         }
       } else {
-        const neighborConnected = neighborIfaces.some((ni) => {
-          const nip = ni.config?.ipv4Address;
-          if (!nip || !isValidIpv4(nip) || !ni.peer) return false;
-          return networkOf(nip, prefixOf(ni.config)) === ad.network;
-        });
-        if (neighborConnected) continue;
+        if (neighbor.connectedNets.has(ad.network)) continue;
         if (!neighborRip.learnedRoutes) neighborRip.learnedRoutes = [];
-        neighborRip.learnedRoutes.push({
+        const learned = {
           network: ad.network,
           nextHop: egressIfaceIp,
           interface: neighborIface.name,
           metric: ad.metric
-        });
+        };
+        neighborRip.learnedRoutes.push(learned);
+        neighbor.learnedByNetwork.set(ad.network, learned);
         changed = true;
         exchanged++;
       }
@@ -6928,39 +6982,35 @@ Full legal text: https://creativecommons.org/publicdomain/zero/1.0/legalcode</pr
     let totalExchanged = 0;
     let iterations = 0;
     const MAX_ITERATIONS = 15;
-    const ifacesByRouter = /* @__PURE__ */ new Map();
-    const ifacesFor = (router) => {
-      let ifaces = ifacesByRouter.get(router.id);
-      if (!ifaces) {
-        ifaces = routerInterfacesWithNames(router);
-        ifacesByRouter.set(router.id, ifaces);
+    const views = /* @__PURE__ */ new Map();
+    const viewFor = (device) => {
+      let view = views.get(device.id);
+      if (!view) {
+        view = buildRipRouterView(device);
+        views.set(device.id, view);
       }
-      return ifaces;
+      return view;
     };
     for (let iter = 0; iter < MAX_ITERATIONS; iter++) {
       let changed = false;
       iterations = iter + 1;
       for (const router of ripRouters) {
-        const ifaces = ifacesFor(router);
+        const view = viewFor(router);
         const rip = router.config.rip;
-        const ripNetworks = rip.networks || [];
-        const learnedRoutes = rip.learnedRoutes || [];
-        const advertisements = buildRipAdvertisements(ifaces, ripNetworks, learnedRoutes);
+        const advertisements = buildRipAdvertisements(view, rip.learnedRoutes || []);
         const passiveInterfaces = rip.passiveInterfaces || [];
-        const ripActiveOn = (ifc, networks) => !!ifc.config?.ipv4Address && networks.some((rn) => cidrContains(rn, ifc.config.ipv4Address));
-        for (const iface of ifaces) {
-          if (!iface.peer || !iface.config?.ipv4Address || iface.link?.shutdown) continue;
+        for (const { iface, ripActive } of view.ripIfaces) {
+          if (!iface.peer || !ripActive || iface.link?.shutdown) continue;
           if (passiveInterfaces.includes(iface.name)) continue;
-          if (!ripActiveOn(iface, ripNetworks)) continue;
           const neighbor = getDevice(iface.peer.id);
           if (!neighbor || neighbor.type !== "router" || !neighbor.config?.rip?.enabled) continue;
-          const neighborIfaces = ifacesFor(neighbor);
-          const neighborIface = neighborIfaces.find((ni) => ni.peer && ni.peer.id === router.id);
-          if (!neighborIface || !neighborIface.config?.ipv4Address) continue;
-          if (!ripActiveOn(neighborIface, neighbor.config.rip.networks || [])) continue;
+          const neighborView = viewFor(neighbor);
+          const facing = neighborView.ripIfaces.find((ni) => ni.iface.peer && ni.iface.peer.id === router.id);
+          if (!facing || !facing.iface.config?.ipv4Address || !facing.ripActive) continue;
+          const neighborIface = facing.iface;
           const neighborPassive = neighbor.config.rip.passiveInterfaces || [];
           if (neighborPassive.includes(neighborIface.name)) continue;
-          const result = applyRipUpdates(neighbor, neighborIface, neighborIfaces, advertisements, iface.name, iface.config.ipv4Address);
+          const result = applyRipUpdates(neighborView, neighborIface, advertisements, iface.name, iface.config.ipv4Address);
           if (result.changed) changed = true;
           totalExchanged += result.exchanged;
         }
@@ -7354,37 +7404,64 @@ Full legal text: https://creativecommons.org/publicdomain/zero/1.0/legalcode</pr
     if (field === "eth.dst") return [row.frame.dstMac];
     return [row.frame.srcMac, row.frame.dstMac];
   }
+  var numScratch = [0, 0];
   function numValues(row, field) {
-    if (field === "frame.no" || field === "no") return [row.no];
-    if (field === "frame.step" || field === "step") return [row.step];
+    if (field === "frame.no" || field === "no") {
+      numScratch[0] = row.no;
+      return 1;
+    }
+    if (field === "frame.step" || field === "step") {
+      numScratch[0] = row.step;
+      return 1;
+    }
     const p = row.frame.payload;
-    if (field === "ip.ttl") return p.type === "ipv4" ? [p.ttl] : [];
-    if (p.type !== "ipv4" || p.payload.type !== "tcp") return [];
-    if (field === "tcp.srcport") return [p.payload.srcPort];
-    if (field === "tcp.dstport") return [p.payload.dstPort];
-    return [p.payload.srcPort, p.payload.dstPort];
+    if (field === "ip.ttl") {
+      if (p.type !== "ipv4") return 0;
+      numScratch[0] = p.ttl;
+      return 1;
+    }
+    if (p.type !== "ipv4" || p.payload.type !== "tcp") return 0;
+    if (field === "tcp.srcport") {
+      numScratch[0] = p.payload.srcPort;
+      return 1;
+    }
+    if (field === "tcp.dstport") {
+      numScratch[0] = p.payload.dstPort;
+      return 1;
+    }
+    numScratch[0] = p.payload.srcPort;
+    numScratch[1] = p.payload.dstPort;
+    return 2;
   }
   function strValues(row) {
     return [row.fromName, row.toName];
   }
-  function matchNums(cands, cmp, target) {
-    if (cmp === "!=") return cands.length > 0 && cands.every((c) => c !== target);
-    return cands.some((c) => {
+  function matchNums(count, cmp, target) {
+    if (cmp === "!=") {
+      for (let i = 0; i < count; i++) if (numScratch[i] === target) return false;
+      return count > 0;
+    }
+    for (let i = 0; i < count; i++) {
+      const c = numScratch[i];
       switch (cmp) {
         case "==":
-          return c === target;
+          if (c === target) return true;
+          break;
         case "<":
-          return c < target;
+          if (c < target) return true;
+          break;
         case ">":
-          return c > target;
+          if (c > target) return true;
+          break;
         case "<=":
-          return c <= target;
+          if (c <= target) return true;
+          break;
         case ">=":
-          return c >= target;
-        default:
-          return false;
+          if (c >= target) return true;
+          break;
       }
-    });
+    }
+    return false;
   }
   function matchStrs(cands, cmp, target) {
     const t = target.toLowerCase();
@@ -7518,13 +7595,19 @@ Full legal text: https://creativecommons.org/publicdomain/zero/1.0/legalcode</pr
     const device = filter.device;
     const link = filter.link;
     try {
-      const out = rows.filter((row) => {
-        if (protocols.length && !protocols.some((t) => frameMatchesToken(row, t))) return false;
-        if (device && row.fromId !== device && row.toId !== device) return false;
-        if (link && row.linkId !== link) return false;
-        if (exprTest && !exprTest(row)) return false;
-        return true;
-      });
+      const out = [];
+      for (let i = 0; i < rows.length; i++) {
+        const row = rows[i];
+        if (protocols.length) {
+          let hit = false;
+          for (let j = 0; j < protocols.length && !hit; j++) hit = frameMatchesToken(row, protocols[j]);
+          if (!hit) continue;
+        }
+        if (device && row.fromId !== device && row.toId !== device) continue;
+        if (link && row.linkId !== link) continue;
+        if (exprTest && !exprTest(row)) continue;
+        out.push(row);
+      }
       return { rows: out, error: compiled.ok ? null : compiled.error };
     } catch (e) {
       return { rows, error: e instanceof Error ? e.message : "invalid filter" };
@@ -9102,17 +9185,33 @@ Full legal text: https://creativecommons.org/publicdomain/zero/1.0/legalcode</pr
   function icmpTypeName(t) {
     return t === 8 ? "echo-request" : t === 0 ? "echo-reply" : t === 11 ? "time-exceeded" : `type-${t}`;
   }
-  function ipMatchesCidr(ip, pattern) {
-    if (!isValidIpv4(ip)) return false;
+  function parseFirewallAddress(pattern) {
     const slash = pattern.indexOf("/");
-    if (slash < 0) return ip === pattern;
-    const net = pattern.slice(0, slash);
+    if (slash < 0) {
+      const ip = parseIpv4(pattern);
+      return ip === null ? null : cidrOf(ip, 32);
+    }
+    const net = parseIpv4(pattern.slice(0, slash));
     const bits = parseInt(pattern.slice(slash + 1), 10);
-    if (!isValidIpv4(net) || !(bits >= 0 && bits <= 32)) return false;
-    const mask = bits === 0 ? 0 : ~0 << 32 - bits >>> 0;
-    return (ipv4ToInt(ip) & mask) === (ipv4ToInt(net) & mask);
+    if (net === null || !(bits >= 0 && bits <= 32)) return null;
+    return cidrOf(net, bits);
   }
-  function firewallRuleMatches(rule, ipv4, conn = "new") {
+  var firewallAddressCache = /* @__PURE__ */ new Map();
+  function firewallAddress(pattern) {
+    let parsed = firewallAddressCache.get(pattern);
+    if (parsed === void 0) {
+      parsed = parseFirewallAddress(pattern);
+      if (firewallAddressCache.size >= 4096) firewallAddressCache.clear();
+      firewallAddressCache.set(pattern, parsed);
+    }
+    return parsed;
+  }
+  function addressMatches(addr, pattern) {
+    if (addr === null) return false;
+    const cidr = firewallAddress(pattern);
+    return cidr !== null && cidrHas(cidr, addr);
+  }
+  function ruleMatchesParsed(rule, ipv4, srcAddr, dstAddr, conn) {
     if (rule.protocol && rule.protocol !== "all") {
       const proto = ipv4.protocol === 1 ? "icmp" : ipv4.protocol === 6 ? "tcp" : ipv4.protocol === 17 ? "udp" : "other";
       if (rule.protocol !== proto) return false;
@@ -9124,8 +9223,8 @@ Full legal text: https://creativecommons.org/publicdomain/zero/1.0/legalcode</pr
       if (ipv4.payload.type !== "icmp") return false;
       if (icmpTypeName(ipv4.payload.icmpType) !== rule.icmpType) return false;
     }
-    if (rule.src && !ipMatchesCidr(ipv4.srcIp, rule.src)) return false;
-    if (rule.dst && !ipMatchesCidr(ipv4.dstIp, rule.dst)) return false;
+    if (rule.src && !addressMatches(srcAddr, rule.src)) return false;
+    if (rule.dst && !addressMatches(dstAddr, rule.dst)) return false;
     if (rule.states && rule.states.length && !rule.states.includes(conn)) return false;
     return true;
   }
@@ -9172,9 +9271,13 @@ Full legal text: https://creativecommons.org/publicdomain/zero/1.0/legalcode</pr
     return { frame: unreach, toDeviceId: fromDeviceId };
   }
   function evaluateFirewall(device, ipv4, chain = "forward", conn = "new") {
-    const rules = (device.config?.rules || []).filter((r) => (r.chain || "forward") === chain);
-    for (const rule of rules) {
-      if (firewallRuleMatches(rule, ipv4, conn)) return rule.target;
+    const rules = device.config?.rules || [];
+    const srcAddr = parseIpv4(ipv4.srcIp);
+    const dstAddr = parseIpv4(ipv4.dstIp);
+    for (let i = 0; i < rules.length; i++) {
+      const rule = rules[i];
+      if ((rule.chain || "forward") !== chain) continue;
+      if (ruleMatchesParsed(rule, ipv4, srcAddr, dstAddr, conn)) return rule.target;
     }
     return (device.config?.policy || {})[chain] || "accept";
   }

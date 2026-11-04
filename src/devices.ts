@@ -792,7 +792,11 @@ export function routerInterfaceForName(router: any, name: string): any {
   return iface;
 }
 
-export function routerInterfacesWithNames(router: any): NamedRouterIface[] {
+// `cabledOnly` stops after the cabled interfaces, skipping the enumeration of
+// free ports: the routing table and RIP only ever read interfaces with a peer,
+// and they run per routed frame / per convergence, so they don't pay to build
+// (and garbage-collect) a placeholder for every unused port.
+export function routerInterfacesWithNames(router: any, cabledOnly = false): NamedRouterIface[] {
   const ethernetPorts = clampRouterPortCount(router.config?.ethernetPorts ?? 4);
   const serialPorts = clampRouterPortCount(router.config?.serialPorts ?? 4);
   const configured = normaliseRouterInterfaces(router.config?.interfaces || [], router.id);
@@ -860,6 +864,7 @@ export function routerInterfacesWithNames(router: any): NamedRouterIface[] {
       });
     }
   }
+  if (cabledOnly) return occupied;
   // Unconnected ports reuse any saved by-name config (so a pre-assigned IP
   // persists across renders), else a fresh placeholder.
   const emptyConfigFor = (name: string, type: string) =>

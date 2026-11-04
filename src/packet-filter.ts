@@ -177,34 +177,49 @@ function macValues(row: FilterRow, field: string): string[] {
   return [row.frame.srcMac, row.frame.dstMac];
 }
 
-function numValues(row: FilterRow, field: string): number[] {
-  if (field === "frame.no" || field === "no") return [row.no];
-  if (field === "frame.step" || field === "step") return [row.step];
+// Numeric candidates are written into this scratch pair and counted, rather
+// than returned as a fresh array: the sim-log render re-filters the whole
+// (up to 1000-row) capture every animation step, and a throwaway array per row
+// was the bulk of the collector pauses in its p99 tail. Safe to share — a
+// predicate runs synchronously and never re-enters itself.
+const numScratch: [number, number] = [0, 0];
+
+function numValues(row: FilterRow, field: string): number {
+  if (field === "frame.no" || field === "no") { numScratch[0] = row.no; return 1; }
+  if (field === "frame.step" || field === "step") { numScratch[0] = row.step; return 1; }
   const p = row.frame.payload;
-  if (field === "ip.ttl") return p.type === "ipv4" ? [p.ttl] : [];
+  if (field === "ip.ttl") { if (p.type !== "ipv4") return 0; numScratch[0] = p.ttl; return 1; }
   // tcp ports
-  if (p.type !== "ipv4" || p.payload.type !== "tcp") return [];
-  if (field === "tcp.srcport") return [p.payload.srcPort];
-  if (field === "tcp.dstport") return [p.payload.dstPort];
-  return [p.payload.srcPort, p.payload.dstPort];
+  if (p.type !== "ipv4" || p.payload.type !== "tcp") return 0;
+  if (field === "tcp.srcport") { numScratch[0] = p.payload.srcPort; return 1; }
+  if (field === "tcp.dstport") { numScratch[0] = p.payload.dstPort; return 1; }
+  numScratch[0] = p.payload.srcPort;
+  numScratch[1] = p.payload.dstPort;
+  return 2;
 }
 
 function strValues(row: FilterRow): string[] {
   return [row.fromName, row.toName];
 }
 
-function matchNums(cands: number[], cmp: Comparator, target: number): boolean {
-  if (cmp === "!=") return cands.length > 0 && cands.every(c => c !== target);
-  return cands.some(c => {
+// Compare the first `count` numScratch candidates: "!=" needs every side to
+// differ (and at least one side), every other operator any side to match.
+function matchNums(count: number, cmp: Comparator, target: number): boolean {
+  if (cmp === "!=") {
+    for (let i = 0; i < count; i++) if (numScratch[i] === target) return false;
+    return count > 0;
+  }
+  for (let i = 0; i < count; i++) {
+    const c = numScratch[i];
     switch (cmp) {
-      case "==": return c === target;
-      case "<": return c < target;
-      case ">": return c > target;
-      case "<=": return c <= target;
-      case ">=": return c >= target;
-      default: return false;
+      case "==": if (c === target) return true; break;
+      case "<": if (c < target) return true; break;
+      case ">": if (c > target) return true; break;
+      case "<=": if (c <= target) return true; break;
+      case ">=": if (c >= target) return true; break;
     }
-  });
+  }
+  return false;
 }
 
 function matchStrs(cands: string[], cmp: Comparator, target: string): boolean {
@@ -230,7 +245,7 @@ function buildFieldPred(field: string, cmp: Comparator, value: string): Pred {
     // hex/exponent/whitespace forms that Number() would otherwise coerce.
     if (!/^\d+$/.test(value)) fail(`"${field}" expects a whole number, got "${value}"`);
     const target = Number(value);
-    return row => matchNums(numValues(row, field), cmp, target);
+    return row => matchNums(numValues(row, field), cmp, target);   // numValues fills numScratch
   }
   if (IP_FIELDS.has(field)) {
     if (value.includes("/")) {
@@ -358,13 +373,21 @@ export function applyLogFilter(rows: FilterRow[], filter: LogFilter): { rows: Fi
   const device = filter.device;
   const link = filter.link;
   try {
-    const out = rows.filter(row => {
-      if (protocols.length && !protocols.some(t => frameMatchesToken(row, t))) return false;
-      if (device && row.fromId !== device && row.toId !== device) return false;
-      if (link && row.linkId !== link) return false;
-      if (exprTest && !exprTest(row)) return false;
-      return true;
-    });
+    // Plain loops, no per-row closure: this runs over the whole capture on
+    // every sim-log sync, so it keeps the collector out of the render's tail.
+    const out: FilterRow[] = [];
+    for (let i = 0; i < rows.length; i++) {
+      const row = rows[i];
+      if (protocols.length) {
+        let hit = false;
+        for (let j = 0; j < protocols.length && !hit; j++) hit = frameMatchesToken(row, protocols[j]);
+        if (!hit) continue;
+      }
+      if (device && row.fromId !== device && row.toId !== device) continue;
+      if (link && row.linkId !== link) continue;
+      if (exprTest && !exprTest(row)) continue;
+      out.push(row);
+    }
     return { rows: out, error: compiled.ok ? null : compiled.error };
   } catch (e) {
     // Defence in depth: comparators are validated at compile time, so a predicate

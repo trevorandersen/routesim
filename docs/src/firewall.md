@@ -13,6 +13,12 @@ There is no dedicated `firewall.ts`; the device is spread across the standard
   `evaluateFirewall` (first-match-wins over the chain's rules, else the chain
   policy), and `firewallRuleMatches` (the per-rule predicate). Logged as
   `Firewall ACCEPT/DROP/REJECT … (FORWARD[, new|established])` in the sim log.
+  Evaluation is one pass over the rules (no filtered copy per frame) with the
+  frame's src/dst parsed once (`parseIpv4`); each rule's `-s`/`-d` pattern is
+  parsed once to a `Cidr` (exact IP = /32; the length read with `parseInt`, as
+  before; an unparseable pattern never matches) and memoised by its text, so
+  nothing is stored on — or serialised with — the rule. A 50-rule miss fell
+  from ~85 µs to ~1.5 µs p50 (R109).
 - **Connection tracking** — `engine.ts`: `connectionState` classifies a frame as
   `new`/`established`, `trackConnection` records an accepted flow, and
   `rejectResponse` builds the RST / ICMP-unreachable a REJECT sends back. Gated

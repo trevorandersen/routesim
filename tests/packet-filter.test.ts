@@ -183,6 +183,22 @@ describe("compileFilter — expression grammar", () => {
     expect(passes("tcp.port != 80", row(icmpEcho))).toBe(false); // no tcp port → excluded
   });
 
+  // The numeric fields read their candidates into a shared scratch pair (no
+  // per-row array). A one-sided field must never see the other side left over
+  // from an earlier two-sided read, within one expression or across rows.
+  it("numeric candidates never leak between fields or rows", () => {
+    expect(passes("tcp.port == 80 && tcp.srcport != 80", row(tcpSyn))).toBe(true);
+    expect(passes("tcp.port == 5000 && tcp.dstport == 5000", row(tcpSyn))).toBe(false);
+    expect(passes("tcp.port != 443", row(tcpSyn))).toBe(true);      // neither side is 443
+    expect(passes("tcp.port != 5000", row(tcpSyn))).toBe(false);    // the source side is
+    const f = compileFilter("tcp.port == 80 || ip.ttl == 80");
+    if (!f.ok) throw new Error(f.error);
+    expect(f.test(row(tcpSyn))).toBe(true);
+    expect(f.test(row(icmpEcho))).toBe(false);   // ttl 64; the tcp row's port 80 must not linger
+    const rows = [row(tcpSyn, { no: 1 }), row(icmpEcho, { no: 2 }), row(dnsQuery, { no: 3 })];
+    expect(applyLogFilter(rows, { protocols: [], device: "", expr: "tcp.port == 80 || frame.no == 3" }).rows.map(r => r.no)).toEqual([1, 3]);
+  });
+
   it("eth.addr matches the L2 header (case-insensitive)", () => {
     expect(passes("eth.src == AA:AA:AA:AA:AA:01", row(icmpEcho))).toBe(true);
     expect(passes("eth.addr == bb:bb:bb:bb:bb:02", row(icmpEcho))).toBe(true);

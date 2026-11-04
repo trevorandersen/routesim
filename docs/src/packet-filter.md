@@ -100,3 +100,16 @@ the parser and every comparator unit-testable in isolation —
 `tests/packet-filter.test.ts` covers the token classifier, each field, CIDR, the
 boolean precedence, `!=` field-presence, parse errors, and the three-dimension
 combinator. The engine layer is then a thin renderer over the result.
+
+## Allocation-free hot loop
+
+The sim-log render re-filters the whole capture (up to 1000 rows) on every
+animated step, so `applyLogFilter` and the numeric comparators don't allocate
+per row: the dimensions are checked in plain loops (no per-row `filter`/`some`
+closure), and a numeric field writes its one or two candidates into a shared
+scratch pair and returns the count, rather than building a fresh array
+(`numValues`/`matchNums`). Predicates run synchronously and never re-enter, so
+the shared pair is safe; a test pins that a one-sided field never reads a side
+left over from an earlier two-sided read. Cutting that garbage took the
+`applyLogFilter — 1000 rows` bench p99 from ~415–660 µs (a collector-pause
+tail) to ~55–140 µs — see [benchmarking.md](../benchmarking.md).

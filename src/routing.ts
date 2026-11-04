@@ -4,26 +4,34 @@
  * metric; routingLookup resolves a destination to an egress interface;
  * runRipConvergence exchanges advertisements until stable (split horizon,
  * metric 16 = unreachable). Subnet decisions honour per-interface prefixes.
+ *
+ * Both paths are hot (a lookup per routed frame, RIP before every run and up
+ * to 31 times per traceroute), so addresses are parsed to integers once —
+ * each RouteEntry carries its parsed `cidr`, RIP precomputes each interface's
+ * network and RIP-active flag per convergence — and the inner loops compare
+ * integers (utils.ts: parseIpv4/cachedCidr/cidrHas) instead of re-splitting
+ * the same strings per route per frame.
  */
-import type { Device, RouteEntry, RouterInterface, NamedRouterIface } from "./types";
+import type { Device, RouteEntry, RouterInterface, NamedRouterIface, RipRoute } from "./types";
 import { state } from "./state";
 import { getDevice, routerInterfacesWithNames } from "./devices";
 import { normaliseStaticRoutes } from "./normalise";
-import { isValidIpv4, sameSubnet, networkOf, cidrContains, prefixLengthOfCidr, prefixOf, internetGatewayIp } from "./utils";
+import { sameSubnet, prefixOf, internetGatewayIp, parseIpv4, cidrOf, cidrText, cachedCidr, cidrHas } from "./utils";
 
 export function buildRoutingTable(router: Device): RouteEntry[] {
   const table: RouteEntry[] = [];
-  const ifaces = routerInterfacesWithNames(router);
+  const ifaces = routerInterfacesWithNames(router, true);   // only cabled interfaces carry routes
   const seen = new Set<string>();
 
   // 1. Connected routes — interfaces with valid IPs and an active peer
   for (const iface of ifaces) {
-    const ip = iface.config?.ipv4Address;
-    if (!ip || !isValidIpv4(ip) || !iface.peer || iface.link?.shutdown) continue;  // a shut cable carries no routes / RIP
-    const network = networkOf(ip, prefixOf(iface.config));
+    const addr = parseIpv4(iface.config?.ipv4Address ?? "");
+    if (addr === null || !iface.peer || iface.link?.shutdown) continue;  // a shut cable carries no routes / RIP
+    const cidr = cidrOf(addr, prefixOf(iface.config));
+    const network = cidrText(cidr);
     if (seen.has(network)) continue;
     seen.add(network);
-    table.push({ network, nextHop: "", interface: iface.name, type: "C", metric: 0, peerId: iface.peerId, vlanTag: iface.config?.vlanTag ?? null });
+    table.push({ network, cidr, nextHop: "", interface: iface.name, type: "C", metric: 0, peerId: iface.peerId, vlanTag: iface.config?.vlanTag ?? null });
   }
 
   // 2. Static routes
@@ -31,7 +39,7 @@ export function buildRoutingTable(router: Device): RouteEntry[] {
   for (const sr of statics) {
     if (seen.has(sr.network)) continue;
     seen.add(sr.network);
-    table.push({ network: sr.network, nextHop: sr.nextHop, type: "S", metric: 1 });
+    table.push({ network: sr.network, cidr: cachedCidr(sr.network), nextHop: sr.nextHop, type: "S", metric: 1 });
   }
 
   // 3. Implicit internet default — a router cabled to an Internet cloud reaches
@@ -43,7 +51,7 @@ export function buildRoutingTable(router: Device): RouteEntry[] {
   if (!seen.has("0.0.0.0/0")) {
     const def = internetDefaultGateway(ifaces);
     if (def) {
-      table.push({ network: "0.0.0.0/0", nextHop: def.gateway, interface: def.ifaceName, type: "S", metric: 1 });
+      table.push({ network: "0.0.0.0/0", cidr: cachedCidr("0.0.0.0/0"), nextHop: def.gateway, interface: def.ifaceName, type: "S", metric: 1 });
       seen.add("0.0.0.0/0");
     }
   }
@@ -53,7 +61,7 @@ export function buildRoutingTable(router: Device): RouteEntry[] {
     for (const rr of router.config.rip.learnedRoutes) {
       if (seen.has(rr.network)) continue;
       seen.add(rr.network);
-      table.push({ network: rr.network, nextHop: rr.nextHop, interface: rr.interface, type: "R", metric: rr.metric });
+      table.push({ network: rr.network, cidr: cachedCidr(rr.network), nextHop: rr.nextHop, interface: rr.interface, type: "R", metric: rr.metric });
     }
   }
 
@@ -71,8 +79,8 @@ export function buildRoutingTable(router: Device): RouteEntry[] {
 function internetDefaultGateway(ifaces: NamedRouterIface[]): { gateway: string; ifaceName: string } | null {
   for (const iface of ifaces) {
     const ip = iface.config?.ipv4Address;
-    if (!ip || !isValidIpv4(ip) || iface.peer?.type !== "internet" || iface.link?.shutdown) continue;
-    const gateway = internetGatewayIp(ip, prefixOf(iface.config));
+    if (!ip || iface.peer?.type !== "internet" || iface.link?.shutdown) continue;
+    const gateway = internetGatewayIp(ip, prefixOf(iface.config));   // null for an invalid address, too
     if (gateway) return { gateway, ifaceName: iface.name };
   }
   return null;
@@ -81,9 +89,22 @@ function internetDefaultGateway(ifaces: NamedRouterIface[]): { gateway: string; 
 // The interface whose connected network contains the address (per-iface prefix).
 // Takes the FLAT RouterInterface[] (address at the top level), not the named view.
 function ifaceOnSubnet(ifaces: RouterInterface[], ip: string): RouterInterface | undefined {
-  return ifaces.find((iface) =>
-    iface.ipv4Address && isValidIpv4(iface.ipv4Address) && sameSubnet(iface.ipv4Address, ip, prefixOf(iface))
-  );
+  return ifaces.find((iface) => iface.ipv4Address && sameSubnet(iface.ipv4Address, ip, prefixOf(iface)));
+}
+
+// Longest-prefix match of an address integer over the table (optionally only
+// connected routes); ties keep the first — the lower metric, as the table is
+// metric-sorted. Integer compares only: no parsing, no allocation.
+function longestMatch(table: RouteEntry[], addr: number, connectedOnly: boolean): RouteEntry | null {
+  let best: RouteEntry | null = null;
+  let bestLen = -1;
+  for (let i = 0; i < table.length; i++) {
+    const r = table[i];
+    const cidr = r.cidr;
+    if (cidr === null || (connectedOnly && r.type !== "C") || !cidrHas(cidr, addr)) continue;
+    if (cidr.prefix > bestLen) { best = r; bestLen = cidr.prefix; }
+  }
+  return best;
 }
 
 export function routingLookup(router: Device, dstIp: string, prebuilt?: RouteEntry[]): { egressIface: any; nextHopIp: string } | null {
@@ -92,15 +113,11 @@ export function routingLookup(router: Device, dstIp: string, prebuilt?: RouteEnt
   const table = prebuilt ?? buildRoutingTable(router);
   const ifaces: RouterInterface[] = router.config?.interfaces || [];
 
-  // Longest-prefix match wins; ties resolve by metric. Single allocation-free
-  // pass — this runs per routed frame and is benchmarked.
-  let route: RouteEntry | null = null;
-  let bestLen = -1;
-  for (const r of table) {
-    if (!cidrContains(r.network, dstIp)) continue;
-    const len = prefixLengthOfCidr(r.network);
-    if (len > bestLen) { route = r; bestLen = len; } // equal length: keep first (lower metric — table is metric-sorted)
-  }
+  // Longest-prefix match wins; ties resolve by metric. The destination is
+  // parsed once — this runs per routed frame and is benchmarked.
+  const dst = parseIpv4(dstIp);
+  if (dst === null) return null;
+  const route = longestMatch(table, dst, false);
   if (!route) return null;
 
   // The STORED interface object (the engine reads/learns its ARP table), found
@@ -118,16 +135,11 @@ export function routingLookup(router: Device, dstIp: string, prebuilt?: RouteEnt
 
   // Static or RIP — resolve the next hop through the best CONNECTED route that
   // contains it (longest prefix; only live, un-shut interfaces make the table),
-  // then to that route's stored interface. Same single-pass, allocation-free shape.
+  // then to that route's stored interface.
   const nextHop = route.nextHop;
-  if (!nextHop || !isValidIpv4(nextHop)) return null;
-  let via: RouteEntry | null = null;
-  let viaLen = -1;
-  for (const r of table) {
-    if (r.type !== "C" || !cidrContains(r.network, nextHop)) continue;
-    const len = prefixLengthOfCidr(r.network);
-    if (len > viaLen) { via = r; viaLen = len; }
-  }
+  const hop = nextHop ? parseIpv4(nextHop) : null;
+  if (hop === null) return null;
+  const via = longestMatch(table, hop, true);
   const egressIface = (via ? storedIface(via.peerId, via.vlanTag) : undefined) ?? ifaceOnSubnet(ifaces, nextHop);
   return egressIface ? { egressIface, nextHopIp: nextHop } : null;
 }
@@ -140,25 +152,45 @@ interface RipAdvertisement {
   sourceInterface: string;
 }
 
-function buildRipAdvertisements(ifaces: NamedRouterIface[], ripNetworks: string[], learnedRoutes: any[]): RipAdvertisement[] {
-  const advertisements: RipAdvertisement[] = [];
+// One interface's RIP-relevant facts. Addresses, prefixes, cables, and
+// `network` statements don't change while convergence runs (only learned routes
+// do), so these are computed once per convergence rather than re-parsed in the
+// per-iteration, per-neighbour, per-advertisement loops.
+interface RipIface {
+  iface: NamedRouterIface;
+  ripActive: boolean;   // a `network` statement covers the interface's address
+}
 
-  // Connected routes matching RIP networks
+// A router as RIP convergence sees it — built once per convergence, on first
+// touch (as a sender or as a neighbour).
+interface RipRouterView {
+  device: Device;
+  ifaces: NamedRouterIface[];
+  ripIfaces: RipIface[];
+  connectedAds: RipAdvertisement[];   // its own covered, cabled networks (metric 1)
+  defaultAd: RipAdvertisement | null; // the originated default, when cabled to the internet
+  connectedNets: Set<string>;         // networks it is directly connected to — never learned
+  isEdge: boolean;                    // cabled to an internet cloud (never learns a default)
+  learnedByNetwork: Map<string, RipRoute>;   // index over rip.learnedRoutes (first entry per network)
+}
+
+function buildRipRouterView(device: Device): RipRouterView {
+  const ifaces = routerInterfacesWithNames(device, true);   // RIP only speaks on cabled interfaces
+  const networks = (device.config?.rip?.networks || []).map(cachedCidr);
+  const ripIfaces: RipIface[] = [];
+  const connectedAds: RipAdvertisement[] = [];
+  const connectedNets = new Set<string>();
   for (const iface of ifaces) {
-    const ip = iface.config?.ipv4Address;
-    if (!ip || !isValidIpv4(ip) || !iface.peer || iface.link?.shutdown) continue;  // a shut cable carries no routes / RIP
-    const network = networkOf(ip, prefixOf(iface.config));
+    const addr = parseIpv4(iface.config?.ipv4Address ?? "");
     // `network <cidr>` enables RIP for interfaces whose address that cidr covers.
-    const isAdvertised = ripNetworks.some(rn => cidrContains(rn, ip));
-    if (isAdvertised) {
-      advertisements.push({ network, metric: 1, sourceInterface: iface.name });
+    const ripActive = addr !== null && networks.some(c => c !== null && cidrHas(c, addr));
+    ripIfaces.push({ iface, ripActive });
+    if (addr === null || !iface.peer) continue;
+    const network = cidrText(cidrOf(addr, prefixOf(iface.config)));
+    connectedNets.add(network);   // (a shut cable still counts here — as before)
+    if (ripActive && !iface.link?.shutdown) {   // a shut cable carries no routes / RIP
+      connectedAds.push({ network, metric: 1, sourceInterface: iface.name });
     }
-  }
-
-  // Learned routes (re-advertise with metric + 1)
-  for (const lr of learnedRoutes) {
-    if (lr.metric >= 15) continue; // metric 16 = unreachable
-    advertisements.push({ network: lr.network, metric: lr.metric + 1, sourceInterface: lr.interface || "" });
   }
 
   // Originate a default route when cabled to the internet (like Cisco's
@@ -168,21 +200,35 @@ function buildRipAdvertisements(ifaces: NamedRouterIface[], ripNetworks: string[
   // hearsay from another edge. Metric 1 (locally originated), sourced on the
   // internet-facing interface so split-horizon never sends it back to the ISP.
   const def = internetDefaultGateway(ifaces);
-  if (def) {
-    advertisements.push({ network: "0.0.0.0/0", metric: 1, sourceInterface: def.ifaceName });
-  }
+  const defaultAd = def ? { network: "0.0.0.0/0", metric: 1, sourceInterface: def.ifaceName } : null;
 
+  const learnedByNetwork = new Map<string, RipRoute>();
+  for (const r of device.config?.rip?.learnedRoutes || []) {
+    if (!learnedByNetwork.has(r.network)) learnedByNetwork.set(r.network, r);
+  }
+  return { device, ifaces, ripIfaces, connectedAds, defaultAd, connectedNets, isEdge: def !== null, learnedByNetwork };
+}
+
+// This round's advertisements: connected networks, then learned routes
+// (re-advertised at metric + 1), then the originated default.
+function buildRipAdvertisements(view: RipRouterView, learnedRoutes: RipRoute[]): RipAdvertisement[] {
+  const advertisements: RipAdvertisement[] = view.connectedAds.slice();
+  for (const lr of learnedRoutes) {
+    if (lr.metric >= 15) continue; // metric 16 = unreachable
+    advertisements.push({ network: lr.network, metric: lr.metric + 1, sourceInterface: lr.interface || "" });
+  }
+  if (view.defaultAd) advertisements.push(view.defaultAd);
   return advertisements;
 }
 
 function applyRipUpdates(
-  neighbor: Device, neighborIface: NamedRouterIface, neighborIfaces: NamedRouterIface[],
+  neighbor: RipRouterView, neighborIface: NamedRouterIface,
   advertisements: RipAdvertisement[], egressIfaceName: string, egressIfaceIp: string
 ): { changed: boolean; exchanged: number } {
   let changed = false;
   let exchanged = 0;
   // Caller only invokes this for RIP-enabled neighbors, so rip is present.
-  const neighborRip = neighbor.config.rip!;
+  const neighborRip = neighbor.device.config.rip!;
 
   for (const ad of advertisements) {
     // Split horizon: don't re-advertise a route back toward the interface it was learned from
@@ -193,11 +239,10 @@ function applyRipUpdates(
     // one toward the cloud (the default-route analogue of the connected-network
     // skip below). Keeps dual-edge topologies symmetric: each edge originates,
     // neither depends on the other's word for a way out.
-    if (ad.network === "0.0.0.0/0" && internetDefaultGateway(neighborIfaces)) continue;
+    if (ad.network === "0.0.0.0/0" && neighbor.isEdge) continue;
 
     // Check if neighbor already knows this route with equal or better metric
-    const existingRoutes: any[] = neighborRip.learnedRoutes || [];
-    const existing = existingRoutes.find((r: any) => r.network === ad.network);
+    const existing = neighbor.learnedByNetwork.get(ad.network);
 
     if (existing) {
       if (ad.metric < existing.metric) {
@@ -209,20 +254,17 @@ function applyRipUpdates(
       }
     } else {
       // Don't learn a route for a network this router is directly connected to
-      const neighborConnected = neighborIfaces.some((ni: any) => {
-        const nip = ni.config?.ipv4Address;
-        if (!nip || !isValidIpv4(nip) || !ni.peer) return false;
-        return networkOf(nip, prefixOf(ni.config)) === ad.network;
-      });
-      if (neighborConnected) continue;
+      if (neighbor.connectedNets.has(ad.network)) continue;
 
       if (!neighborRip.learnedRoutes) neighborRip.learnedRoutes = [];
-      neighborRip.learnedRoutes.push({
+      const learned: RipRoute = {
         network: ad.network,
         nextHop: egressIfaceIp,
         interface: neighborIface.name,
         metric: ad.metric
-      });
+      };
+      neighborRip.learnedRoutes.push(learned);
+      neighbor.learnedByNetwork.set(ad.network, learned);
       changed = true;
       exchanged++;
     }
@@ -245,17 +287,17 @@ export function runRipConvergence(): { iterations: number; routesExchanged: numb
   let iterations = 0;
   const MAX_ITERATIONS = 15;
 
-  // Interface lists (name/peer/ipv4) are stable across convergence — only
-  // learnedRoutes change, which routerInterfacesWithNames does not read.
-  // Memoise per router to avoid re-normalising every iteration.
-  const ifacesByRouter = new Map<string, any[]>();
-  const ifacesFor = (router: any): any[] => {
-    let ifaces = ifacesByRouter.get(router.id);
-    if (!ifaces) {
-      ifaces = routerInterfacesWithNames(router);
-      ifacesByRouter.set(router.id, ifaces);
+  // Interface lists, their parsed networks, and RIP-active flags are stable
+  // across convergence — only learnedRoutes change, which none of them read.
+  // Built once per router (on first touch) instead of per iteration.
+  const views = new Map<string, RipRouterView>();
+  const viewFor = (device: Device): RipRouterView => {
+    let view = views.get(device.id);
+    if (!view) {
+      view = buildRipRouterView(device);
+      views.set(device.id, view);
     }
-    return ifaces;
+    return view;
   };
 
   for (let iter = 0; iter < MAX_ITERATIONS; iter++) {
@@ -263,11 +305,9 @@ export function runRipConvergence(): { iterations: number; routesExchanged: numb
     iterations = iter + 1;
 
     for (const router of ripRouters) {
-      const ifaces = ifacesFor(router);
+      const view = viewFor(router);
       const rip = router.config.rip!;  // ripRouters filter guarantees rip.enabled
-      const ripNetworks: string[] = rip.networks || [];
-      const learnedRoutes = rip.learnedRoutes || [];
-      const advertisements = buildRipAdvertisements(ifaces, ripNetworks, learnedRoutes);
+      const advertisements = buildRipAdvertisements(view, rip.learnedRoutes || []);
 
       // Send advertisements to each RIP-enabled neighbor
       const passiveInterfaces: string[] = rip.passiveInterfaces || [];
@@ -277,25 +317,22 @@ export function runRipConvergence(): { iterations: number; routesExchanged: numb
       // active for an exchange. Before this, `networks` shaped only what was
       // advertised, so a router with an EMPTY network list still learned routes
       // and a transit interface left out of RIP still carried them.
-      const ripActiveOn = (ifc: NamedRouterIface, networks: string[]) =>
-        !!ifc.config?.ipv4Address && networks.some(rn => cidrContains(rn, ifc.config!.ipv4Address!));
-      for (const iface of ifaces) {
-        if (!iface.peer || !iface.config?.ipv4Address || iface.link?.shutdown) continue;
+      for (const { iface, ripActive } of view.ripIfaces) {
+        if (!iface.peer || !ripActive || iface.link?.shutdown) continue;
         if (passiveInterfaces.includes(iface.name)) continue;
-        if (!ripActiveOn(iface, ripNetworks)) continue;
 
         const neighbor = getDevice(iface.peer.id);
         if (!neighbor || neighbor.type !== "router" || !neighbor.config?.rip?.enabled) continue;
 
-        const neighborIfaces = ifacesFor(neighbor);
-        const neighborIface = neighborIfaces.find((ni: any) => ni.peer && ni.peer.id === router.id);
-        if (!neighborIface || !neighborIface.config?.ipv4Address) continue;
-        if (!ripActiveOn(neighborIface, neighbor.config.rip.networks || [])) continue;
+        const neighborView = viewFor(neighbor);
+        const facing = neighborView.ripIfaces.find((ni) => ni.iface.peer && ni.iface.peer.id === router.id);
+        if (!facing || !facing.iface.config?.ipv4Address || !facing.ripActive) continue;
+        const neighborIface = facing.iface;
 
         const neighborPassive: string[] = neighbor.config.rip.passiveInterfaces || [];
         if (neighborPassive.includes(neighborIface.name)) continue;
 
-        const result = applyRipUpdates(neighbor, neighborIface, neighborIfaces, advertisements, iface.name, iface.config.ipv4Address);
+        const result = applyRipUpdates(neighborView, neighborIface, advertisements, iface.name, iface.config.ipv4Address!);
         if (result.changed) changed = true;
         totalExchanged += result.exchanged;
       }

@@ -1,3 +1,5 @@
+import type { Cidr } from "./types";
+
 export function escapeHtml(value: any): string {
   return String(value)
     .replaceAll("&", "&amp;")
@@ -8,14 +10,35 @@ export function escapeHtml(value: any): string {
 }
 
 export function isValidIpv4(value: string): boolean {
-  const parts = value.split(".");
-  if (parts.length !== 4) return false;
-  return parts.every(part => {
-    if (!/^\d{1,3}$/.test(part)) return false;
-    if (part.length > 1 && part.startsWith("0")) return false;
-    const octet = Number(part);
-    return octet >= 0 && octet <= 255;
-  });
+  return parseIpv4(value) !== null;
+}
+
+// Parse a dotted quad to its unsigned 32-bit value in one pass, or null when it
+// isn't a valid address. The rules are exactly isValidIpv4's (which is defined
+// by this): four 1–3 digit decimal octets, each ≤ 255, no leading zeros
+// ("01.2.3.4" is rejected — some stacks read a leading zero as octal). No regex,
+// no split, no allocation: the routing, RIP, and firewall hot paths parse each
+// address once with this and then compare integers.
+export function parseIpv4(value: string): number | null {
+  if (typeof value !== "string") return null;
+  const len = value.length;
+  let result = 0, octet = 0, digits = 0, parts = 0;
+  for (let i = 0; i <= len; i++) {
+    const c = i < len ? value.charCodeAt(i) : 46;   // a virtual trailing "." closes the last octet
+    if (c === 46) {                                  // "."
+      if (digits === 0 || ++parts > 4) return null;
+      result = result * 256 + octet;                 // stays a non-negative double < 2^32
+      octet = 0; digits = 0;
+    } else if (c >= 48 && c <= 57) {                 // "0"–"9"
+      if (digits === 1 && octet === 0) return null;  // leading zero
+      if (++digits > 3) return null;
+      octet = octet * 10 + (c - 48);
+      if (octet > 255) return null;
+    } else {
+      return null;
+    }
+  }
+  return parts === 4 ? result : null;
 }
 
 export function ipv4ToInt(ip: string): number {
@@ -24,7 +47,9 @@ export function ipv4ToInt(ip: string): number {
 }
 
 export function intToIpv4(value: number): string {
-  return [(value >>> 24) & 255, (value >>> 16) & 255, (value >>> 8) & 255, value & 255].join(".");
+  // Concatenation, not [..].join(".") — the routing table formats every
+  // connected network with this, so it avoids a throwaway array per call.
+  return ((value >>> 24) & 255) + "." + ((value >>> 16) & 255) + "." + ((value >>> 8) & 255) + "." + (value & 255);
 }
 
 // ─── Subnet prefix maths ──────────────────────────────────────────────────────
@@ -48,9 +73,11 @@ export function maskOfPrefix(prefixLength: number): number {
 }
 
 export function sameSubnet(a: string, b: string, prefixLength: number): boolean {
-  if (!a || !b || !isValidIpv4(a) || !isValidIpv4(b)) return false;
+  if (!a || !b) return false;
+  const ai = parseIpv4(a), bi = parseIpv4(b);
+  if (ai === null || bi === null) return false;
   const mask = maskOfPrefix(clampPrefixLength(prefixLength));
-  return (ipv4ToInt(a) & mask) === (ipv4ToInt(b) & mask);
+  return (ai & mask) === (bi & mask);
 }
 
 // The address the Internet cloud presents as the gateway on a router's WAN
@@ -59,10 +86,10 @@ export function sameSubnet(a: string, b: string, prefixLength: number): boolean 
 // reaches the rest of the world by default-routing to this. Returns null for a
 // subnet with no spare host (a /31 point-to-point or /32 host route).
 export function internetGatewayIp(routerIp: string, prefixLength: number): string | null {
-  if (!isValidIpv4(routerIp)) return null;
+  const ipInt = parseIpv4(routerIp);   // validates and converts in one pass
+  if (ipInt === null) return null;
   const len = clampPrefixLength(prefixLength);
   if (len >= 31) return null;
-  const ipInt = ipv4ToInt(routerIp);
   const mask = maskOfPrefix(len);
   const network = (ipInt & mask) >>> 0;
   const broadcast = (network | (~mask >>> 0)) >>> 0;
@@ -88,10 +115,64 @@ export function prefixLengthOfCidr(cidr: string, fallback = DEFAULT_PREFIX_LENGT
 
 // Does the CIDR (or bare-IP-as-/24) contain the address?
 export function cidrContains(cidr: string, ip: string): boolean {
-  const slash = String(cidr || "").indexOf("/");
-  const net = slash >= 0 ? cidr.slice(0, slash) : cidr;
-  if (!isValidIpv4(net) || !isValidIpv4(ip)) return false;
-  return sameSubnet(net, ip, prefixLengthOfCidr(cidr));
+  const parsed = cachedCidr(cidr);
+  if (parsed === null) return false;
+  const addr = parseIpv4(ip);
+  return addr !== null && cidrHas(parsed, addr);
+}
+
+// ─── Integer CIDR (hot path) ──────────────────────────────────────────────────
+//
+// A CIDR parsed once into integers (`Cidr` in types.ts: the masked network,
+// the mask, and the prefix length). Routing tables, RIP convergence, and
+// firewall rules hold these so a per-frame decision is an AND and a compare
+// rather than a re-validation and re-split of the same strings. Treat a Cidr as
+// immutable — cachedCidr hands the same object to every caller.
+
+// Build a Cidr from an address integer and a prefix length.
+export function cidrOf(ip: number, prefixLength: number): Cidr {
+  const prefix = clampPrefixLength(prefixLength);
+  const mask = maskOfPrefix(prefix);
+  return { net: (ip & mask) >>> 0, mask, prefix };
+}
+
+// Parse "a.b.c.d/len" (or a bare address, read as /24 — cidrContains's rule) to
+// a Cidr, or null if the address part is invalid. An unparseable length falls
+// back to /24 exactly as prefixLengthOfCidr does, so the integer path and the
+// string path agree on every input.
+export function parseCidr(cidr: string): Cidr | null {
+  const text = String(cidr || "");
+  const slash = text.indexOf("/");
+  const ip = parseIpv4(slash >= 0 ? text.slice(0, slash) : text);
+  if (ip === null) return null;
+  return cidrOf(ip, slash >= 0 ? clampPrefixLength(Number(text.slice(slash + 1))) : DEFAULT_PREFIX_LENGTH);
+}
+
+// Memoised parseCidr, keyed by the CIDR text. Route networks and RIP `network`
+// statements are a small, stable set of strings, so after the first frame every
+// lookup is a Map hit with no allocation. Keyed by value (not by the route or
+// rule object), so an edited config can never read a stale parse. Bounded: the
+// cache is simply dropped if a pathological config ever fills it.
+const CIDR_CACHE_LIMIT = 4096;
+const cidrCache = new Map<string, Cidr | null>();
+export function cachedCidr(cidr: string): Cidr | null {
+  let parsed = cidrCache.get(cidr);
+  if (parsed === undefined) {
+    parsed = parseCidr(cidr);
+    if (cidrCache.size >= CIDR_CACHE_LIMIT) cidrCache.clear();
+    cidrCache.set(cidr, parsed);
+  }
+  return parsed;
+}
+
+// Does the parsed CIDR contain the address integer?
+export function cidrHas(cidr: Cidr, ip: number): boolean {
+  return ((ip & cidr.mask) >>> 0) === cidr.net;
+}
+
+// The canonical "network/len" text of a Cidr (networkOf's output format).
+export function cidrText(cidr: Cidr): string {
+  return `${intToIpv4(cidr.net)}/${cidr.prefix}`;
 }
 
 export function normaliseMacAddress(value: string): string {

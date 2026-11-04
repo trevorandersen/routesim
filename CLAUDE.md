@@ -53,7 +53,7 @@ Test infrastructure:
 | `tests/preload.ts` | DOM mocking (runs before every test via bunfig.toml) |
 | `tests/helpers.ts` | `registerNoopCallbacks()`, `resetState()` |
 | `tests/fixtures.ts` | `basicTopology()`, `routedTopology()`, `vlanTopology()`, `trunkTopology()` |
-| `tests/bench-harness.ts` | Benchmark timing, p99 budgets, results formatting |
+| `tests/bench-harness.ts` | Benchmark timing (sub-µs batching, a GC before each pass, best-of-3 re-measure of an over-budget pass), p99 budgets, results formatting |
 | `tests/bench-fixtures.ts` | Scalable topology generators for benchmarks |
 
 **Benchmark new additions.** Performance is a project goal — any new hot-path code (engine handlers, lookups, routing, convergence) should get a matching `bench:` case in `tests/bench.test.ts` with a realistic p99 budget. Run `bun test tests/bench.test.ts` before and after a change to confirm no regression.

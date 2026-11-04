@@ -1,9 +1,9 @@
-import type { EthernetFrame, ArpPayload, Ipv4Payload, DhcpPayload, TcpPayload, DnsPayload, Dot11Payload, Dot1xPayload, BpduPayload, NatEntry, SimEvent, SimLogEntry, ActiveTransit, FrameHistoryEntry, RouteEntry, RouterInterface, Device, DeviceType, FirewallRule, FirewallTarget, ConnState, Link } from "./types";
+import type { EthernetFrame, ArpPayload, Ipv4Payload, DhcpPayload, TcpPayload, DnsPayload, Dot11Payload, Dot1xPayload, BpduPayload, NatEntry, SimEvent, SimLogEntry, ActiveTransit, FrameHistoryEntry, RouteEntry, RouterInterface, Device, DeviceType, FirewallRule, FirewallTarget, ConnState, Link, Cidr } from "./types";
 import { state, pushUndo, sync } from "./state";
 import { dom } from "./dom";
 import { getDevice, linkedPortsFor, routerInterfacesWithNames, linkName, linkById, linksFor, linkAuthorizedForData, macsecState } from "./devices";
 import { normalisePortVlans, normalisePortModes, normaliseTrunkAllowedVlans, normaliseArpTable, normaliseMacTable, normaliseDhcpLeases, normaliseStaticRoutes, ensureConfig } from "./normalise";
-import { sameSubnet, prefixOf, isValidIpv4, escapeHtml, ipv4ToInt, intToIpv4, normaliseMacAddress, deriveMac, internetGatewayIp } from "./utils";
+import { sameSubnet, prefixOf, isValidIpv4, escapeHtml, ipv4ToInt, intToIpv4, normaliseMacAddress, deriveMac, internetGatewayIp, parseIpv4, cidrOf, cidrHas } from "./utils";
 import { simRandomInt } from "./prng";
 import { createArpRequest, createArpReply, createIcmpEchoRequest, createIcmpEchoReply, createIcmpTimeExceeded, createIcmpDestUnreachable, icmpOriginalOf, createDhcpOffer, createDhcpRequest, createDhcpAck, createTcpSegment, createHttpRequest, createHttpResponse, createDnsResponse, createDot11Frame, createDot1xFrame, createBpduFrame, BROADCAST_MAC, frameLabel, packetColumns, toneGlyph } from "./frame";
 import { terminalLine, terminalLineFor, sessionFor, syncTerminal, openDock, syncSimLogBadge } from "./terminal";
@@ -2007,19 +2007,50 @@ function icmpTypeName(t: number): string {
   return t === 8 ? "echo-request" : t === 0 ? "echo-reply" : t === 11 ? "time-exceeded" : `type-${t}`;
 }
 
-// Match an IPv4 address against an exact IP or a CIDR (e.g. "192.168.1.0/24").
-function ipMatchesCidr(ip: string, pattern: string): boolean {
-  if (!isValidIpv4(ip)) return false;
+// A rule's -s/-d pattern — an exact IP (matched as a /32) or a CIDR (e.g.
+// "192.168.1.0/24") — parsed to integers; null when unparseable, which never
+// matches. The length is read with parseInt, as iptables' own parser accepts.
+function parseFirewallAddress(pattern: string): Cidr | null {
   const slash = pattern.indexOf("/");
-  if (slash < 0) return ip === pattern;
-  const net = pattern.slice(0, slash);
+  if (slash < 0) {
+    const ip = parseIpv4(pattern);
+    return ip === null ? null : cidrOf(ip, 32);
+  }
+  const net = parseIpv4(pattern.slice(0, slash));
   const bits = parseInt(pattern.slice(slash + 1), 10);
-  if (!isValidIpv4(net) || !(bits >= 0 && bits <= 32)) return false;
-  const mask = bits === 0 ? 0 : (~0 << (32 - bits)) >>> 0;
-  return (ipv4ToInt(ip) & mask) === (ipv4ToInt(net) & mask);
+  if (net === null || !(bits >= 0 && bits <= 32)) return null;
+  return cidrOf(net, bits);
+}
+
+// Rule patterns parsed once, keyed by the pattern text (so an edited rule can
+// never read a stale parse, and nothing extra is stored on — or serialised
+// with — the rule). A rule scan per frame is then integer compares. Bounded:
+// dropped wholesale if a pathological ruleset ever fills it.
+const firewallAddressCache = new Map<string, Cidr | null>();
+function firewallAddress(pattern: string): Cidr | null {
+  let parsed = firewallAddressCache.get(pattern);
+  if (parsed === undefined) {
+    parsed = parseFirewallAddress(pattern);
+    if (firewallAddressCache.size >= 4096) firewallAddressCache.clear();
+    firewallAddressCache.set(pattern, parsed);
+  }
+  return parsed;
+}
+
+// Does a parsed frame address (null = not a valid IPv4) fall in a rule pattern?
+function addressMatches(addr: number | null, pattern: string): boolean {
+  if (addr === null) return false;
+  const cidr = firewallAddress(pattern);
+  return cidr !== null && cidrHas(cidr, addr);
 }
 
 export function firewallRuleMatches(rule: FirewallRule, ipv4: Ipv4Payload, conn: ConnState = "new"): boolean {
+  return ruleMatchesParsed(rule, ipv4, parseIpv4(ipv4.srcIp), parseIpv4(ipv4.dstIp), conn);
+}
+
+// firewallRuleMatches with the frame's addresses already parsed — evaluateFirewall
+// parses them once per frame, not once per rule.
+function ruleMatchesParsed(rule: FirewallRule, ipv4: Ipv4Payload, srcAddr: number | null, dstAddr: number | null, conn: ConnState): boolean {
   if (rule.protocol && rule.protocol !== "all") {
     const proto = ipv4.protocol === 1 ? "icmp" : ipv4.protocol === 6 ? "tcp" : ipv4.protocol === 17 ? "udp" : "other";
     if (rule.protocol !== proto) return false;
@@ -2031,8 +2062,8 @@ export function firewallRuleMatches(rule: FirewallRule, ipv4: Ipv4Payload, conn:
     if (ipv4.payload.type !== "icmp") return false;
     if (icmpTypeName(ipv4.payload.icmpType) !== rule.icmpType) return false;
   }
-  if (rule.src && !ipMatchesCidr(ipv4.srcIp, rule.src)) return false;
-  if (rule.dst && !ipMatchesCidr(ipv4.dstIp, rule.dst)) return false;
+  if (rule.src && !addressMatches(srcAddr, rule.src)) return false;
+  if (rule.dst && !addressMatches(dstAddr, rule.dst)) return false;
   // -m state --state / -m conntrack --ctstate: the frame's connection state must
   // be one the rule lists. ("related"/"invalid" never match — never assigned.)
   if (rule.states && rule.states.length && !rule.states.includes(conn)) return false;
@@ -2109,9 +2140,15 @@ function rejectResponse(frame: EthernetFrame, ipv4: Ipv4Payload, srcMac: string,
 
 // First-match-wins over the chain's rules, else the chain's default policy.
 export function evaluateFirewall(device: Device, ipv4: Ipv4Payload, chain = "forward", conn: ConnState = "new"): FirewallTarget {
-  const rules = (device.config?.rules || []).filter(r => (r.chain || "forward") === chain);
-  for (const rule of rules) {
-    if (firewallRuleMatches(rule, ipv4, conn)) return rule.target;
+  // First match wins, in rule order, within the chain. One pass, no filtered
+  // copy, and the frame's addresses parsed once — this runs per filtered frame.
+  const rules = device.config?.rules || [];
+  const srcAddr = parseIpv4(ipv4.srcIp);
+  const dstAddr = parseIpv4(ipv4.dstIp);
+  for (let i = 0; i < rules.length; i++) {
+    const rule = rules[i];
+    if ((rule.chain || "forward") !== chain) continue;
+    if (ruleMatchesParsed(rule, ipv4, srcAddr, dstAddr, conn)) return rule.target;
   }
   return (device.config?.policy || {})[chain] || "accept";
 }

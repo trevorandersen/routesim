@@ -33,6 +33,29 @@ beforeAll(() => {
   registerNoopCallbacks();
 });
 
+// ── 0. The harness itself ───────────────────────────────────────────────────
+
+describe("bench harness", () => {
+  it("batches a sub-µs function so the clock's overhead doesn't swamp it", () => {
+    let x = 0;
+    const r = bench("harness — trivial", () => { x++; }, { budget: 1, warmup: 10, minTime: 20 });
+    expect(r.batch).toBeGreaterThan(1);
+    expect(r.ops).toBeGreaterThan(r.batch);   // ops counts every call, not every sample
+    expect(x).toBeGreaterThan(r.ops);         // (warmup + calibration ran too)
+  });
+
+  it("re-measures an over-budget pass and reports how many passes it took", () => {
+    const r = bench("harness — always slow", () => { const t = performance.now(); while (performance.now() - t < 0.02) { /* spin 20 µs */ } },
+      { budget: 1, warmup: 2, minTime: 5, minIters: 10, attempts: 3 });
+    expect(r.passed).toBe(false);
+    expect(r.attempts).toBe(3);
+    expect(r.batch).toBe(1);
+    const ok = bench("harness — fast enough", () => {}, { budget: 1000, warmup: 2, minTime: 5 });
+    expect(ok.passed).toBe(true);
+    expect(ok.attempts).toBe(1);
+  });
+});
+
 // ── 1. Device Lookup ────────────────────────────────────────────────────────
 
 describe("bench: getDevice", () => {
@@ -486,7 +509,7 @@ describe("bench: routing", () => {
     const router = state.devices.find(d => d.id === "rtr-0")!;
     results.push(bench("buildRoutingTable — 4 ifaces", () => {
       buildRoutingTable(router);
-    }, { budget: 20 }));
+    }, { budget: 40 }));   // re-baselined: a GC tail from per-call interface normalisation — see docs/benchmarking.md
     expect(results[results.length - 1].passed).toBe(true);
   });
 
@@ -650,6 +673,26 @@ describe("bench: RIP convergence", () => {
 
   beforeEach(() => resetState());
 
+  it("the ripStress fixture converges every router to a full table (cross-links and LANs included)", () => {
+    // Guards R112: the cross-links were once addressed on one end only, so the
+    // bench measured a plain ring, and the "LAN" networks were never connected,
+    // so nothing advertised them.
+    for (const n of [5, 10, 15]) {
+      resetState();
+      const topo = ripStress(n);
+      state.devices = topo.devices as any;
+      state.links = topo.links as any;
+      runRipConvergence();
+      const crosses = Array.from({ length: n }, (_, i) => i).filter(i => i % 3 === 0 && i + 3 < n).length;
+      const routers = state.devices.filter(d => d.type === "router");
+      for (const r of routers) expect(buildRoutingTable(r).length).toBe(n + crosses + 2 * n);
+      // Router 3 hears router 0's LANs over the direct cross-link (1 hop), not round the ring.
+      const viaCross = state.devices.find(d => d.id === "rtr-3")!.config.rip!.learnedRoutes.find(r => r.network === "192.168.1.0/24");
+      expect(viaCross?.metric).toBe(1);
+      expect(viaCross?.nextHop).toBe("10.0.100.1");
+    }
+  });
+
   it("runRipConvergence — 5 routers", () => {
     const topo = ripStress(5);
     state.devices = topo.devices as any;
@@ -660,7 +703,7 @@ describe("bench: RIP convergence", () => {
         if (d.config?.rip) d.config.rip.learnedRoutes = [];
       }
       runRipConvergence();
-    }, { budget: 500, warmup: 20, minTime: 1000 }));
+    }, { budget: 1000, warmup: 20, minTime: 1000 }));   // re-baselined with the R112 fixture fix — see docs/benchmarking.md
     expect(results[results.length - 1].passed).toBe(true);
   });
 
@@ -796,7 +839,7 @@ describe("bench: packet-list display filter", () => {
     const filter = { protocols: ["icmp", "dns", "tcp"], device: "", expr: "icmp || dns || tcp.port == 80" };
     results.push(bench("applyLogFilter — 1000 rows", () => {
       applyLogFilter(rows, filter);
-    }, { budget: 600, warmup: 20, minTime: 1000 }));
+    }, { budget: 300, warmup: 20, minTime: 1000 }));   // tightened once the hot loop stopped allocating — see docs/benchmarking.md
     expect(results[results.length - 1].passed).toBe(true);
   });
 

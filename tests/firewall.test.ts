@@ -54,6 +54,43 @@ describe("firewall — evaluate (first match wins, else policy)", () => {
   });
 });
 
+describe("firewall — address patterns (parsed once, matched as integers)", () => {
+  const rule = (src: string): any => ({ chain: "forward", target: "drop", src });
+
+  it("an exact IP matches only itself; a CIDR its whole network", () => {
+    expect(firewallRuleMatches(rule("10.0.0.1"), icmpV4("10.0.0.1", "2.2.2.2"))).toBe(true);
+    expect(firewallRuleMatches(rule("10.0.0.1"), icmpV4("10.0.0.2", "2.2.2.2"))).toBe(false);   // not a /24
+    expect(firewallRuleMatches(rule("0.0.0.0/0"), icmpV4("203.0.113.9", "2.2.2.2"))).toBe(true);
+    expect(firewallRuleMatches(rule("255.255.255.0/24"), icmpV4("255.255.255.200", "2.2.2.2"))).toBe(true);
+  });
+
+  it("reads the length as iptables does, and never matches an unparseable pattern", () => {
+    expect(firewallRuleMatches(rule("10.0.0.0/8abc"), icmpV4("10.9.9.9", "2.2.2.2"))).toBe(true);   // parseInt reads 8
+    for (const bad of ["10.0.0.0/33", "10.0.0.0/", "10.0.0.0/-1", "10.0.0.256/8", "010.0.0.1", "bogus"]) {
+      expect(firewallRuleMatches(rule(bad), icmpV4("10.0.0.1", "2.2.2.2"))).toBe(false);
+    }
+  });
+
+  it("a frame with an invalid address matches no address rule", () => {
+    expect(firewallRuleMatches(rule("0.0.0.0/0"), icmpV4("1.2.3", "2.2.2.2"))).toBe(false);
+    expect(firewallRuleMatches({ chain: "forward", target: "drop", dst: "0.0.0.0/0" }, icmpV4("1.1.1.1", ""))).toBe(false);
+  });
+
+  it("evaluates only the asked-for chain, in rule order, without touching the rules", () => {
+    const fw: any = { config: { rules: [
+      { chain: "input", target: "accept", src: "10.0.0.0/8" },
+      { chain: "forward", target: "reject", src: "10.1.0.0/16" },
+      { chain: "forward", target: "accept", src: "10.0.0.0/8" },
+    ], policy: { forward: "drop", input: "drop" } } };
+    const before = JSON.stringify(fw.config);
+    expect(evaluateFirewall(fw, icmpV4("10.1.2.3", "2.2.2.2"), "forward")).toBe("reject");
+    expect(evaluateFirewall(fw, icmpV4("10.2.2.3", "2.2.2.2"), "forward")).toBe("accept");
+    expect(evaluateFirewall(fw, icmpV4("10.1.2.3", "2.2.2.2"), "input")).toBe("accept");
+    expect(evaluateFirewall(fw, icmpV4("192.0.2.1", "2.2.2.2"), "input")).toBe("drop");
+    expect(JSON.stringify(fw.config)).toBe(before);   // no parse cached on (and serialised with) the rule
+  });
+});
+
 describe("firewall — iptables CLI", () => {
   beforeEach(() => resetState());
   function loadFw() {

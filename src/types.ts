@@ -144,8 +144,19 @@ export interface NamedRouterIface {
   link?: Link | null;   // the cable to the peer (so routing/RIP can honour link.shutdown)
 }
 
+// An IPv4 CIDR parsed to integers (utils.ts: parseCidr/cachedCidr/cidrHas) —
+// what the routing, RIP, and firewall hot paths compare instead of strings.
+export interface Cidr {
+  readonly net: number;      // network address, already masked (unsigned 32-bit)
+  readonly mask: number;     // netmask (unsigned 32-bit), e.g. 0xffffff00 for /24
+  readonly prefix: number;   // prefix length 0–32
+}
+
 export interface RouteEntry {
   network: string;       // "192.168.1.0/24"
+  // `network` parsed once when the table is built (null if it isn't a valid
+  // CIDR — such a route never matches), so a lookup compares integers.
+  cidr: Cidr | null;
   nextHop: string;       // next-hop IP, or "" for connected
   interface?: string;    // egress interface name (for display)
   // Stable identity of a connected route's interface (derived names shift as

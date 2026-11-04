@@ -10,10 +10,10 @@
 import { describe, it, expect, beforeAll, beforeEach } from "bun:test";
 import { state, flushLearnedMacs } from "../src/state";
 import { getDevice, linkedPortsFor, connectedIds, linkById, linkAuthorizedForData } from "../src/devices";
-import { l2Reachable, getVlanForDevice, buildScanEvents } from "../src/simulation";
+import { l2Reachable, getVlanForDevice, buildScanEvents, buildPingEvents, type PingSetup } from "../src/simulation";
 import { runConsoleScript } from "../src/commands";
 import { isTrunkLink } from "../src/canvas";
-import { processAtSwitch, processAtRouter, processAtServer, processAtInternet, buildRoutingTable, routingLookup, runRipConvergence, runStpConvergence, evaluateFirewall, connectionState } from "../src/engine";
+import { processAtSwitch, processAtRouter, processAtServer, processAtInternet, buildRoutingTable, routingLookup, runRipConvergence, runStpConvergence, evaluateFirewall, connectionState, runSimulationHeadless } from "../src/engine";
 import { createArpRequest, createArpReply, createIcmpEchoRequest, createIcmpEchoReply, createTcpSegment, createDnsResponse, createDhcpDiscover, packetColumns, BROADCAST_MAC } from "../src/frame";
 import { runIdsRules } from "../src/snort";
 import { applyLogFilter, type FilterRow } from "../src/packet-filter";
@@ -898,6 +898,62 @@ describe("bench: packet-list display filter", () => {
     results.push(bench("applyLogFilter — 1000 rows", () => {
       applyLogFilter(rows, filter);
     }, { budget: 300, warmup: 20, minTime: 1000 }));   // tightened once the hot loop stopped allocating — see docs/benchmarking.md
+    expect(results[results.length - 1].passed).toBe(true);
+  });
+
+  it("prints results", () => { if (results.length) printResults(results); });
+});
+
+describe("bench: broadcast-storm detection", () => {
+  const results: BenchResult[] = [];
+  beforeEach(() => resetState());
+
+  // loopedBack keys every frame a run puts on a wire (lineage, wire, direction,
+  // TTL) — per-transit work on both paths. A cold-ARP ping across a 20-host LAN
+  // floods the ARP Request to every port, so the trace sees every copy.
+  it("headless ping, cold ARP — 20-host LAN", () => {
+    runConsoleScript("add switch SW at 0 0");
+    state.devices.find(d => d.name === "SW")!.config.ethernetPorts = 24;
+    runConsoleScript(Array.from({ length: 20 }, (_, i) =>
+      `add computer PC${i + 1} at ${i * 100} 200\nlink PC${i + 1} SW\nip PC${i + 1} 10.0.0.${i + 1}/24`).join("\n"));
+    const pc1 = state.devices.find(d => d.name === "PC1")!;
+    results.push(bench("headless ping, cold ARP — 20 hosts", () => {
+      for (const d of state.devices) { d.config.arpTable = []; d.config.macTable = []; }
+      runSimulationHeadless(buildPingEvents(pc1, "10.0.0.20") as PingSetup, pc1.id, "10.0.0.20");
+    }, { budget: 3000, warmup: 10, minTime: 1000 }));
+    expect(state.simulation.pingSuccess).toBe(true);
+    expect(results[results.length - 1].passed).toBe(true);
+  });
+
+  // The storm verdict on a looped triangle with STP off: caught by evidence a
+  // handful of steps in (it used to spin to a 10000-step cap first).
+  it("headless storm verdict — STP-off triangle", () => {
+    runConsoleScript(`
+      add computer PC1 at 0 0
+      add computer PC2 at 400 0
+      add switch SW1 at 100 0
+      add switch SW2 at 300 0
+      add switch SW3 at 200 200
+      managed SW1 on
+      managed SW2 on
+      managed SW3 on
+      ip PC1 10.0.0.1/24
+      ip PC2 10.0.0.2/24
+      link PC1 SW1
+      link PC2 SW2
+      link SW1 SW2
+      link SW2 SW3
+      link SW3 SW1
+      stp SW1 off
+      stp SW2 off
+      stp SW3 off
+    `);
+    const pc1 = state.devices.find(d => d.name === "PC1")!;
+    results.push(bench("headless storm verdict — triangle", () => {
+      for (const d of state.devices) { d.config.arpTable = []; d.config.macTable = []; }
+      runSimulationHeadless(buildPingEvents(pc1, "10.0.0.2") as PingSetup, pc1.id, "10.0.0.2");
+    }, { budget: 500, warmup: 10, minTime: 1000 }));
+    expect(state.simulation.stormDetected).toBe(true);
     expect(results[results.length - 1].passed).toBe(true);
   });
 

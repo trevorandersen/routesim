@@ -144,7 +144,9 @@ export const state: AppState = {
     scanClosed: [],
     sweepLive: [],
     conntrack: {},
-    dnatSessions: {}
+    dnatSessions: {},
+    loopTrace: new Set(),
+    wireSteps: 0
   },
   portSelection: null
 };

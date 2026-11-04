@@ -325,7 +325,7 @@ sequenceDiagram
 
 Every outgoing frame passes through **`admitOnLink`**, the single admission point. It applies the data-plane gates (a spanning-tree-blocked link, unauthorised 802.1X port, unassociated WiFi, unkeyed MACsec) and per-link loss. Control frames such as BPDUs and EAPOL are exempt from the gates.
 
-**Animate.** The animated path creates an `ActiveTransit` per admitted frame and moves it along the link each animation frame; the link's `latency` scales its crossing time. On arrival `deliverCompletedTransits` records a capture row (the Wireshark-style packet list) and queues the arrive event. Silent frames, such as hidden BPDUs, are processed without drawing. Broadcast storms are capped and reported.
+**Animate.** The animated path creates an `ActiveTransit` per admitted frame and moves it along the link each animation frame; the link's `latency` scales its crossing time. On arrival `deliverCompletedTransits` records a capture row (the Wireshark-style packet list) and queues the arrive event. Silent frames, such as hidden BPDUs, are processed without drawing. Broadcast storms are detected by evidence — a frame coming back round a switching loop — at the same step on the animated and headless paths, and reported.
 
 **Headless.** `runSimulationHeadless` runs the same handlers but drains the queue synchronously with no animation, no capture and no loss. It returns a `SimResult`. It backs the console's `run` verb, scenario checks, `traceroute`, `window.routesim`, and most tests.
 

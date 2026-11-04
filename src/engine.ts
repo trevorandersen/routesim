@@ -13,7 +13,7 @@ import { routingLookup, runRipConvergence, buildRoutingTable } from "./routing";
 import { runStpConvergence, isStpParticipant } from "./stp";
 import { runIdsRules } from "./snort";
 import { applyLogFilter, presentTokens, isFilterActive, PROTOCOL_CHIPS } from "./packet-filter";
-import { isBootable, isDot1xSupplicant } from "./device-registry";
+import { isBootable, isDot1xSupplicant, isHost } from "./device-registry";
 import type { FilterRow } from "./packet-filter";
 import type { LogFilter, CaptureEntry } from "./types";
 
@@ -189,6 +189,8 @@ function resetRunState(setup: PingSetup, originDeviceId: string, targetIp: strin
   sim.conntrack = {};   // connection tracking starts empty each run
   sim.dnatSessions = {};
   sim.lossNoted = new Set();
+  sim.loopTrace = new Set();
+  sim.wireSteps = 0;
   // Each run reports only its own detections/findings — clear IDS alert logs and
   // attacker findings (like sim.log / sim.capture) so they don't accumulate.
   for (const d of state.devices) {
@@ -381,19 +383,15 @@ function drainHeadless(mode: SimMode): SimResult {
   const sim = state.simulation;
   // Drain the event queue, completing each batch of transits instantly. processNextStep
   // recurses internally while status === "running" and events have no transits, and calls
-  // finishSimulation() once fully drained. The guard caps pathological loops (an L2 loop
-  // with no spanning tree storms — broadcasts multiply without bound).
-  const MAX_STEPS = 10000;
-  let guard = 0;
+  // finishSimulation() once fully drained. A broadcast storm can't spin this forever:
+  // processNextStep's loop detection (and its STORM_BACKSTOP_STEPS backstop) finishes
+  // the run — the same checks, at the same step, as the animated path.
   processNextStep();
-  while (sim.transits.length > 0 && sim.status === "running" && guard++ < MAX_STEPS) {
+  while (sim.transits.length > 0 && sim.status === "running") {
     for (const t of sim.transits) t.progress = 1;
     deliverCompletedTransits();
     processNextStep();
   }
-  // Hit the cap with frames still in flight: a broadcast storm (a switching loop
-  // with STP off or unable to break it). Surface it rather than failing silently.
-  if (guard >= MAX_STEPS && (sim.transits.length > 0 || sim.events.length > 0)) sim.stormDetected = true;
   // `sim.status` is mutated inside processNextStep/finishSimulation; the cast
   // stops TS from over-narrowing it to the literal assigned above.
   if ((sim.status as string) !== "done") finishSimulation();
@@ -599,11 +597,13 @@ export function runTraceroute(source: Device, targetText: string, maxHops = 30):
 
 let animFrameId: number | null = null;
 
-// Animated-path broadcast-storm bounds: a switching loop with no spanning tree
-// loops frames forever. Past either cap we declare a storm and stop. (Both are
-// far above any legitimate single run; the headless path caps via MAX_STEPS.)
-const STORM_STEP_CAP = 200;
-const STORM_TRANSIT_CAP = 250;
+// Broadcast-storm backstop, shared by both paths: a run still putting frames on
+// the wire after this many steps is stopped and reported as a storm. Storms are
+// normally caught far sooner, by evidence (loopedBack: a frame coming back round
+// a switching loop); this only bounds a loop that evidence somehow misses. It
+// counts steps that sent frames — not every event, so the hosts that ignore a
+// flooded broadcast don't count, and a large loop-free run never comes near it.
+const STORM_BACKSTOP_STEPS = 10000;
 
 // Service names for the Red Team scan report (nmap-style PORT/SERVICE column).
 const SERVICE_NAMES: Record<number, string> = {
@@ -736,16 +736,6 @@ function processNextStep(): void {
   const event = sim.events.shift()!;
   sim.stepIndex++;
 
-  // Broadcast-storm guard for the animated path (the headless path caps via
-  // MAX_STEPS). A switching loop with no spanning tree multiplies frames without
-  // bound — frames keep looping every step and never drain. Past the cap, call
-  // it: stop and surface a storm rather than animating forever.
-  if (!sim.headless && (sim.stepIndex > STORM_STEP_CAP || sim.transits.length > STORM_TRANSIT_CAP)) {
-    sim.stormDetected = true;
-    finishSimulation();
-    return;
-  }
-
   const device = getDevice(event.deviceId);
   if (!device) {
     // The target was deleted mid-run. Drop the frame but still settle: if this
@@ -787,6 +777,10 @@ function processNextStep(): void {
     // only control frames (dot11 / dot1x / BPDU) — never data. BPDUs in
     // particular must cross a blocked port so the tree stays converged.
     if (!admitOnLink(device, link, out.frame)) continue;
+    if (loopedBack(device, link, out)) {
+      sim.stormDetected = true;
+      break;
+    }
     sim.transits.push({
       frame: out.frame,
       linkId: link.id,
@@ -799,6 +793,18 @@ function processNextStep(): void {
     });
   }
 
+  // A broadcast storm ends the run on both paths at this same step: a frame
+  // came back round a loop (above), or — the backstop — frames are still being
+  // sent after STORM_BACKSTOP_STEPS steps.
+  if (!sim.stormDetected && sim.transits.length > 0 && ++sim.wireSteps > STORM_BACKSTOP_STEPS) {
+    logStep(device, "sim-drop", `Frames still circulating after ${STORM_BACKSTOP_STEPS} forwarding steps — stopping the run as a broadcast storm`);
+    sim.stormDetected = true;
+  }
+  if (sim.stormDetected) {
+    finishSimulation();
+    return;
+  }
+
   // Headless runs never touch the DOM — skip per-step rendering (faster, and it
   // keeps probes like traceroute from flashing the canvas / sim-log panel).
   if (!sim.headless) {
@@ -807,6 +813,40 @@ function processNextStep(): void {
   }
 
   settleStep();
+}
+
+// A frame's lineage: the id it was created with. Forwarding copies a frame
+// under a suffixed id (`-<port>` per flood copy, `-routed`, `-fw0`, `-span`…),
+// so every copy of it descends from that root.
+function frameLineage(id: string): string {
+  if (!id.startsWith("frame-")) return id;
+  const cut = id.indexOf("-", 6);
+  return cut < 0 ? id : id.slice(0, cut);
+}
+
+// Broadcast-storm evidence: the same frame lineage crossing the same wire in
+// the same direction a second time. In a loop-free network each lineage crosses
+// each wire at most once per direction (a switch never floods back out the port
+// a frame came in on), however many hosts a broadcast reaches. An L2 loop brings
+// a copy back round unchanged, and with no TTL at layer 2 it will circulate —
+// and multiply — forever. The IPv4 TTL is part of the key, so an IP routing loop
+// (each lap one hop older, ended by TTL expiry) is never mistaken for one.
+// Called for every frame put on a wire by both paths, so the animated and
+// headless runs reach the same verdict at the same step. A host never forwards
+// (whatever it sends is a new frame, a lineage of its own), so it is skipped.
+function loopedBack(device: Device, link: Link, out: OutgoingFrame): boolean {
+  if (isHost(device.type)) return false;
+  const trace = state.simulation.loopTrace;
+  const frame = out.frame;
+  const ttl = frame.payload.type === "ipv4" ? (frame.payload as Ipv4Payload).ttl : "";
+  const key = `${frameLineage(frame.id)}|${link.id}|${device.id}|${ttl}`;
+  if (!trace.has(key)) {
+    trace.add(key);
+    return false;
+  }
+  const peer = getDevice(out.toDeviceId);
+  logStep(device, "sim-drop", `${frameLabel(frame)} came back round to cross ${linkName(link)} (${device.name} → ${peer?.name ?? "?"}) again — a switching loop: nothing blocks the redundant link, so its copies will circulate forever`);
+  return true;
 }
 
 // After a step: with no transits but events left, process the next event now
@@ -2889,7 +2929,7 @@ export function linkLatencyFactor(link: any): number {
 
 // The one-line storm diagnosis: the sim-log entry, the headless SimResult's
 // diagnosis, and what `run`/`traceroute` print when a probe storms.
-export const STORM_DIAGNOSIS = "Broadcast storm — frames looped past the safety cap: an L2 loop with no spanning tree to break it (enable STP on the switches, or remove the redundant link)";
+export const STORM_DIAGNOSIS = "Broadcast storm — frames are circulating endlessly: an L2 loop with no spanning tree to break it (enable STP on the switches, or remove the redundant link)";
 
 // Why an ARP for `ip` was dropped on the way this run, if a recorded drop
 // explains it. A drop on the way INTO the device owning `ip` certainly

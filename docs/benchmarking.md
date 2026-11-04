@@ -57,6 +57,7 @@ The budget is still a **p99** — the gate didn't move to p50.
 | `bench: routingLookup` | Per-frame route resolution — building the table per call vs reusing a prebuilt table (the ARP-flush path) |
 | `bench: RIP convergence` | `runRipConvergence` at 5/10/15 routers on `ripStress` (ring + cross-links + two stub LANs per router), plus a check that the fixture converges every router to its full table |
 | `bench: STP convergence` | `runStpConvergence` at 10/30 managed switches (a ring with chords — many L2 loops to resolve), and `flushLearnedMacs` over that 30-switch domain with 20 learnt entries per bridge — the `linksChanged` MAC flush every cable add/remove/shut runs |
+| `bench: broadcast-storm detection` | The per-transit loop trace (`loopedBack`) inside a whole headless run — a cold-ARP ping across a 20-host LAN (the ARP flood puts a copy on every port) — and the storm verdict on an STP-off triangle, caught by evidence a handful of steps in (it used to spin 10000 drain iterations: p50 ≈ 56 ms before, ≈ 25 µs after) |
 
 ## Integer CIDR pass (R62/R63/R109/R112)
 

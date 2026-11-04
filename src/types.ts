@@ -743,7 +743,7 @@ export interface SimulationState {
   dhcpAssignedGateway: string | null;
   wifiAssociated: boolean;           // the 802.11 association handshake completed (mode "associate")
   dot1xAuthorized: boolean;          // the 802.1X EAP exchange authorised the port (mode "dot1x")
-  stormDetected: boolean;            // a switching loop multiplied frames past the safety cap (no spanning tree)
+  stormDetected: boolean;            // a frame came back round a switching loop (no spanning tree), or the run hit the storm backstop
   // The run's post-mortem (finishSimulation): plain-language reasons the origin's
   // flow failed that no single step could state — an ARP nobody answered (its
   // queued frames never sent), a broadcast storm. Empty when the run met its
@@ -771,6 +771,12 @@ export interface SimulationState {
   // animated-only (checks stay deterministic), and the divergence is surfaced
   // once per link in the events log rather than silently skipped.
   lossNoted?: Set<string>;
+  // Broadcast-storm evidence, reset each run: every (frame lineage, wire,
+  // direction, IPv4 TTL) a frame has crossed. Seeing one again means a copy came
+  // back round an L2 loop — the storm verdict, identical on both paths.
+  loopTrace: Set<string>;
+  // Steps this run that put frames on the wire — the storm backstop counts these.
+  wireSteps: number;
 }
 
 export interface PortOption {

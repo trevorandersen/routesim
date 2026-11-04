@@ -3993,7 +3993,9 @@ Full legal text: https://creativecommons.org/publicdomain/zero/1.0/legalcode</pr
       scanClosed: [],
       sweepLive: [],
       conntrack: {},
-      dnatSessions: {}
+      dnatSessions: {},
+      loopTrace: /* @__PURE__ */ new Set(),
+      wireSteps: 0
     },
     portSelection: null
   };
@@ -7908,6 +7910,8 @@ Full legal text: https://creativecommons.org/publicdomain/zero/1.0/legalcode</pr
     sim.conntrack = {};
     sim.dnatSessions = {};
     sim.lossNoted = /* @__PURE__ */ new Set();
+    sim.loopTrace = /* @__PURE__ */ new Set();
+    sim.wireSteps = 0;
     for (const d of state.devices) {
       if (d.type === "ids" && d.config) d.config.alerts = [];
       if ((d.type === "attacker" || d.type === "kali") && d.config) d.config.attackLog = [];
@@ -8057,15 +8061,12 @@ Full legal text: https://creativecommons.org/publicdomain/zero/1.0/legalcode</pr
   }
   function drainHeadless(mode) {
     const sim = state.simulation;
-    const MAX_STEPS = 1e4;
-    let guard = 0;
     processNextStep();
-    while (sim.transits.length > 0 && sim.status === "running" && guard++ < MAX_STEPS) {
+    while (sim.transits.length > 0 && sim.status === "running") {
       for (const t of sim.transits) t.progress = 1;
       deliverCompletedTransits();
       processNextStep();
     }
-    if (guard >= MAX_STEPS && (sim.transits.length > 0 || sim.events.length > 0)) sim.stormDetected = true;
     if (sim.status !== "done") finishSimulation();
     return {
       success: runSucceeded(mode),
@@ -8201,8 +8202,7 @@ Full legal text: https://creativecommons.org/publicdomain/zero/1.0/legalcode</pr
     return reached ? { targetIp, hops, reached } : { targetIp, hops, reached, diagnosis };
   }
   var animFrameId = null;
-  var STORM_STEP_CAP = 200;
-  var STORM_TRANSIT_CAP = 250;
+  var STORM_BACKSTOP_STEPS = 1e4;
   var SERVICE_NAMES = {
     21: "ftp",
     22: "ssh",
@@ -8310,11 +8310,6 @@ Full legal text: https://creativecommons.org/publicdomain/zero/1.0/legalcode</pr
     }
     const event = sim.events.shift();
     sim.stepIndex++;
-    if (!sim.headless && (sim.stepIndex > STORM_STEP_CAP || sim.transits.length > STORM_TRANSIT_CAP)) {
-      sim.stormDetected = true;
-      finishSimulation();
-      return;
-    }
     const device = getDevice(event.deviceId);
     if (!device) {
       const sender = event.fromDeviceId ? getDevice(event.fromDeviceId) : null;
@@ -8341,6 +8336,10 @@ Full legal text: https://creativecommons.org/publicdomain/zero/1.0/legalcode</pr
         continue;
       }
       if (!admitOnLink(device, link, out.frame)) continue;
+      if (loopedBack(device, link, out)) {
+        sim.stormDetected = true;
+        break;
+      }
       sim.transits.push({
         frame: out.frame,
         linkId: link.id,
@@ -8352,11 +8351,38 @@ Full legal text: https://creativecommons.org/publicdomain/zero/1.0/legalcode</pr
         silent: isSilentFrame(out.frame)
       });
     }
+    if (!sim.stormDetected && sim.transits.length > 0 && ++sim.wireSteps > STORM_BACKSTOP_STEPS) {
+      logStep(device, "sim-drop", `Frames still circulating after ${STORM_BACKSTOP_STEPS} forwarding steps \u2014 stopping the run as a broadcast storm`);
+      sim.stormDetected = true;
+    }
+    if (sim.stormDetected) {
+      finishSimulation();
+      return;
+    }
     if (!sim.headless) {
       syncSimLog();
       sync().render();
     }
     settleStep();
+  }
+  function frameLineage(id) {
+    if (!id.startsWith("frame-")) return id;
+    const cut = id.indexOf("-", 6);
+    return cut < 0 ? id : id.slice(0, cut);
+  }
+  function loopedBack(device, link, out) {
+    if (isHost(device.type)) return false;
+    const trace = state.simulation.loopTrace;
+    const frame = out.frame;
+    const ttl = frame.payload.type === "ipv4" ? frame.payload.ttl : "";
+    const key = `${frameLineage(frame.id)}|${link.id}|${device.id}|${ttl}`;
+    if (!trace.has(key)) {
+      trace.add(key);
+      return false;
+    }
+    const peer = getDevice(out.toDeviceId);
+    logStep(device, "sim-drop", `${frameLabel(frame)} came back round to cross ${linkName(link)} (${device.name} \u2192 ${peer?.name ?? "?"}) again \u2014 a switching loop: nothing blocks the redundant link, so its copies will circulate forever`);
+    return true;
   }
   function settleStep() {
     const sim = state.simulation;
@@ -10000,7 +10026,7 @@ Full legal text: https://creativecommons.org/publicdomain/zero/1.0/legalcode</pr
     if (!(ms > 0)) return 1;
     return Math.min(20, Math.max(0.25, ms / 10));
   }
-  var STORM_DIAGNOSIS = "Broadcast storm \u2014 frames looped past the safety cap: an L2 loop with no spanning tree to break it (enable STP on the switches, or remove the redundant link)";
+  var STORM_DIAGNOSIS = "Broadcast storm \u2014 frames are circulating endlessly: an L2 loop with no spanning tree to break it (enable STP on the switches, or remove the redundant link)";
   function arpDropReason(ip) {
     const notes = state.simulation.arpDrops[ip];
     if (!notes?.length) return null;

@@ -154,7 +154,7 @@ sync().render();
 - **WiFi** — a WiFi-only **laptop** that associates to an **access point** (a transparent L2 bridge) over a matching **SSID** (with an optional password); the wireless link is drawn dotted, and ARP/DHCP/IP work through the AP onto the wired LAN. `associate <laptop>` animates the real **802.11 join** — probe / authentication / association, plus the WPA2 4-way (EAPOL) key handshake on a secured network. A **wrong password** still associates but fails the key handshake (the AP deauthenticates), leaving the link unauthenticated and carrying no data until the password is fixed
 - **URL settings** — share a pre-configured link, e.g. `?theme=dark&names=0&autodhcp=on&silentarp=1&speed=400` (see [docs/scripting.md](docs/scripting.md#url-settings))
 - **Dark/light theme** — toggle via toolbar, implemented with CSS custom properties
-- **LAN grouping** — collapse multiple devices into a LAN cloud
+- **LAN grouping** — collapse multiple devices into a LAN cloud (a view only: routing, forwarding and pings across it behave exactly as when expanded)
 
 ## Licence
 

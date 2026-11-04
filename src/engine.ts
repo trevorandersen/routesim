@@ -1,7 +1,7 @@
 import type { EthernetFrame, ArpPayload, Ipv4Payload, DhcpPayload, TcpPayload, DnsPayload, Dot11Payload, Dot1xPayload, BpduPayload, NatEntry, SimEvent, SimLogEntry, ActiveTransit, FrameHistoryEntry, RouteEntry, RouterInterface, Device, DeviceType, FirewallRule, FirewallTarget, ConnState, Link, Cidr, SimMode, ArpEntry } from "./types";
 import { state, pushUndo, sync } from "./state";
 import { dom } from "./dom";
-import { getDevice, linkedPortsFor, routerInterfacesWithNames, linkName, linkById, linksFor, linkDataBlockReason, macsecState, macsOwnedBy, liveMacsOf } from "./devices";
+import { getDevice, linkedPortsFor, routerInterfacesWithNames, linkName, linkById, linksFor, linkDataBlockReason, macsecState, macsOwnedBy, liveMacsOf, isPhysicalLink } from "./devices";
 import { normalisePortVlans, normalisePortModes, normaliseTrunkAllowedVlans, normaliseArpTable, normaliseMacTable, normaliseDhcpLeases, normaliseStaticRoutes, ensureConfig } from "./normalise";
 import { sameSubnet, prefixOf, isValidIpv4, escapeHtml, ipv4ToInt, intToIpv4, normaliseMacAddress, deriveMac, internetGatewayIp, parseIpv4, cidrOf, cidrHas } from "./utils";
 import { simRandomInt } from "./prng";
@@ -438,7 +438,7 @@ let bootUndoPending = false;
 function hostNeedsBoot(device: Device | undefined): boolean {
   return !!device && isBootable(device.type)
     && !device.poweredOff && !device.config?.ipv4Address
-    && state.links.some(l => !l.hidden && !l.shutdown && (l.from === device.id || l.to === device.id));
+    && state.links.some(l => isPhysicalLink(l) && !l.shutdown && (l.from === device.id || l.to === device.id));
 }
 
 export function unconfiguredBootableHosts(): Device[] {
@@ -474,7 +474,7 @@ export function launchRedTeam(): boolean {
 function redTeamNotReadyReason(actor: Device): string | null {
   if (actor.poweredOff) return `${actor.name} is powered off — power it on to launch its attacks.`;
   if (!actor.config?.ipv4Address) {
-    const cabled = state.links.some(l => !l.hidden && !l.shutdown && (l.from === actor.id || l.to === actor.id));
+    const cabled = state.links.some(l => isPhysicalLink(l) && !l.shutdown && (l.from === actor.id || l.to === actor.id));
     return cabled
       ? `${actor.name} has no IP address — set a static IP, or turn on Auto-DHCP / APIPA fallback (Settings) so Play boots it.`
       : `${actor.name} has no IP address and no cable — connect it to the network first.`;
@@ -947,7 +947,7 @@ const PAE_GROUP_MAC = "01:80:C2:00:00:03"; // the real 802.1X PAE group address
 // the back-end adjacent; real RADIUS would route over IP).
 function radiusServerFor(sw: Device): Device | null {
   for (const link of linksFor(sw.id)) {
-    if (link.hidden || link.shutdown) continue;
+    if (!isPhysicalLink(link) || link.shutdown) continue;
     const peer = getDevice(link.from === sw.id ? link.to : link.from);
     if (peer?.type === "server" && (peer.config as any)?.radius?.users?.length) return peer;
   }
@@ -960,7 +960,7 @@ function radiusServerFor(sw: Device): Device | null {
 function supplicantByMac(sw: Device, mac: string | undefined): { host: Device; link: any } | null {
   if (!mac) return null;
   for (const link of linksFor(sw.id)) {
-    if (link.hidden || link.shutdown || link.wireless) continue;
+    if (!isPhysicalLink(link) || link.shutdown || link.wireless) continue;
     const host = getDevice(link.from === sw.id ? link.to : link.from);
     if (host && host.config?.macAddress === mac) return { host, link };
   }
@@ -970,7 +970,7 @@ function supplicantByMac(sw: Device, mac: string | undefined): { host: Device; l
 // Fallback: the supplicant host on one of this switch's ports presenting a given identity.
 function supplicantByIdentity(sw: Device, identity: string): { host: Device; link: any } | null {
   for (const link of linksFor(sw.id)) {
-    if (link.hidden || link.shutdown || link.wireless) continue;
+    if (!isPhysicalLink(link) || link.shutdown || link.wireless) continue;
     const host = getDevice(link.from === sw.id ? link.to : link.from);
     if (host && isDot1xSupplicant(host.type) && host.config?.dot1x?.identity === identity) {
       return { host, link };
@@ -1382,8 +1382,7 @@ function allocateServerDhcpIp(device: Device): string | null {
   const used = new Set<string>();
   if (config.ipv4Address) used.add(config.ipv4Address);
   for (const lease of normaliseDhcpLeases(config.dhcpLeases || [])) used.add(lease.ipv4Address);
-  for (const d of state.devices) {
-    if (d.hidden) continue;
+  for (const d of state.devices) {   // a host collapsed into a LAN still holds its address
     const ip = d.config?.ipv4Address;
     if (ip && isValidIpv4(ip)) used.add(ip);
   }
@@ -2561,9 +2560,9 @@ export function allocateDhcpIp(iface: any, router: Device): string | null {
   for (const lease of normaliseDhcpLeases(iface.dhcpLeases || [])) {
     usedIps.add(lease.ipv4Address);
   }
-  // Static IPs of all devices in this subnet
+  // Static IPs of all devices in this subnet (a host collapsed into a LAN
+  // still holds its address)
   for (const d of state.devices) {
-    if (d.hidden) continue;
     const ip = d.config?.ipv4Address;
     if (ip && isValidIpv4(ip) && sameSubnet(ip, iface.ipv4Address, ifPrefix)) {
       usedIps.add(ip);
@@ -2964,9 +2963,10 @@ function populateDeviceFilter(filter: LogFilter): void {
 }
 
 function findLinkBetween(a: string, b: string): any | null {
-  // Use the by-endpoint adjacency index instead of scanning every link.
+  // Use the by-endpoint adjacency index instead of scanning every link. Frames
+  // cross the real cable even when a collapsed LAN hides it, never a proxy link.
   return linksFor(a).find(link =>
-    !link.hidden && ((link.from === a && link.to === b) || (link.from === b && link.to === a))
+    isPhysicalLink(link) && ((link.from === a && link.to === b) || (link.from === b && link.to === a))
   ) || null;
 }
 

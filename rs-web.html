@@ -4847,7 +4847,7 @@ Full legal text: https://creativecommons.org/publicdomain/zero/1.0/legalcode</pr
     if (!device) return 1;
     const occupied = /* @__PURE__ */ new Set();
     for (const link of state.links) {
-      if (link.hidden) continue;
+      if (!isPhysicalLink(link)) continue;
       if (link.from === deviceId && link.fromPort) occupied.add(link.fromPort);
       if (link.to === deviceId && link.toPort) occupied.add(link.toPort);
     }
@@ -4856,7 +4856,7 @@ Full legal text: https://creativecommons.org/publicdomain/zero/1.0/legalcode</pr
     return port;
   }
   function portTaken(deviceId, port) {
-    return state.links.some((l) => !l.hidden && (l.from === deviceId && l.fromPort === port || l.to === deviceId && l.toPort === port));
+    return state.links.some((l) => isPhysicalLink(l) && (l.from === deviceId && l.fromPort === port || l.to === deviceId && l.toPort === port));
   }
   function resolvePort(deviceId, requested) {
     if (requested != null && Number.isInteger(requested) && requested >= 1 && requested <= MAX_PHYSICAL_PORT && !portTaken(deviceId, requested)) {
@@ -5060,11 +5060,14 @@ Full legal text: https://creativecommons.org/publicdomain/zero/1.0/legalcode</pr
   function connectedIds(id) {
     return linksFor(id).filter((link) => !link.hidden).map((link) => link.from === id ? link.to : link.from);
   }
+  function isPhysicalLink(link) {
+    return !link.proxy;
+  }
   function physicalPeerIds(id) {
-    return linksFor(id).filter((link) => !link.proxy).map((link) => link.from === id ? link.to : link.from);
+    return linksFor(id).filter(isPhysicalLink).map((link) => link.from === id ? link.to : link.from);
   }
   function linkedPortsFor(id) {
-    const entries = linksFor(id).filter((link) => !link.hidden).map((link) => {
+    const entries = linksFor(id).filter(isPhysicalLink).map((link) => {
       const isFrom = link.from === id;
       const raw = isFrom ? link.fromPort : link.toPort;
       const portNum = Number.isInteger(raw) && raw >= 1 && raw <= MAX_PHYSICAL_PORT ? raw : 0;
@@ -5073,7 +5076,7 @@ Full legal text: https://creativecommons.org/publicdomain/zero/1.0/legalcode</pr
         peer: getDevice(isFrom ? link.to : link.from),
         portNum
       };
-    }).filter((port) => isVisibleDevice(port.peer));
+    }).filter((port) => !!port.peer);
     const hasExplicit = entries.some((e) => e.portNum > 0);
     if (!hasExplicit) {
       return entries.map(({ link, peer }) => ({ link, peer }));
@@ -5203,7 +5206,7 @@ Full legal text: https://creativecommons.org/publicdomain/zero/1.0/legalcode</pr
     state.configuringId = null;
     state.linkStartId = null;
     sync().syncPanel();
-    linksChanged();
+    sync().render();
     dom.modeLabel.textContent = `Collapsed ${members.length} devices into ${lan.name}.`;
   }
   function expandLan(lan) {
@@ -5234,7 +5237,7 @@ Full legal text: https://creativecommons.org/publicdomain/zero/1.0/legalcode</pr
     state.configuringId = null;
     state.linkStartId = null;
     sync().syncPanel();
-    linksChanged();
+    sync().render();
     dom.modeLabel.textContent = `Expanded ${lan.name}.`;
   }
   function routerInterfaceFor(router, peerId, vlanTag) {
@@ -5537,7 +5540,7 @@ Full legal text: https://creativecommons.org/publicdomain/zero/1.0/legalcode</pr
   // src/stp.ts
   var DEFAULT_BRIDGE_PRIORITY = 32768;
   function isStpParticipant(device) {
-    if (device.type !== "switch" || device.hidden || device.poweredOff) return false;
+    if (device.type !== "switch" || device.poweredOff) return false;
     if (!device.config?.managed) return false;
     const stp = device.config.stp;
     return stp ? stp.enabled !== false : true;
@@ -5584,7 +5587,7 @@ Full legal text: https://creativecommons.org/publicdomain/zero/1.0/legalcode</pr
     }
     const edges = [];
     for (const link of state.links) {
-      if (link.hidden || link.shutdown || link.wireless) continue;
+      if (!isPhysicalLink(link) || link.shutdown || link.wireless) continue;
       if (!bridges.has(link.from) || !bridges.has(link.to)) continue;
       const aPort = portForLink(link.from, link.id);
       const bPort = portForLink(link.to, link.id);
@@ -6093,7 +6096,7 @@ Full legal text: https://creativecommons.org/publicdomain/zero/1.0/legalcode</pr
   // src/simulation.ts
   function getVlanForDevice(deviceId) {
     for (const link of linksFor(deviceId)) {
-      if (link.hidden) continue;
+      if (!isPhysicalLink(link)) continue;
       const isFrom = link.from === deviceId;
       const switchId = isFrom ? link.to : link.from;
       const sw = getDevice(switchId);
@@ -6337,7 +6340,7 @@ Full legal text: https://creativecommons.org/publicdomain/zero/1.0/legalcode</pr
   }
   function associatedAp(laptop) {
     for (const link of state.links) {
-      if (!link.wireless || link.hidden || link.shutdown) continue;
+      if (!link.wireless || !isPhysicalLink(link) || link.shutdown) continue;
       if (link.from !== laptop.id && link.to !== laptop.id) continue;
       const ap = getDevice(link.from === laptop.id ? link.to : link.from);
       if (ap && ap.type === "access-point" && !ap.poweredOff) return { ap, linkId: link.id };
@@ -6366,7 +6369,7 @@ Full legal text: https://creativecommons.org/publicdomain/zero/1.0/legalcode</pr
     if (!srcMac) return `${host.name}: eth0 has no MAC address.`;
     if (!host.config?.dot1x?.identity) return `${host.name} has no 802.1X identity \u2014 set one with "supplicant ${host.name} <identity> <password>".`;
     for (const link of linksFor(host.id)) {
-      if (link.hidden || link.shutdown) continue;
+      if (!isPhysicalLink(link) || link.shutdown) continue;
       const info = dot1xLinkInfo(link);
       if (info && info.peer.id === host.id) {
         const start = createDot1xFrame(srcMac, "01:80:C2:00:00:03", "eapol-start", host.config.dot1x.identity);
@@ -6502,14 +6505,14 @@ Full legal text: https://creativecommons.org/publicdomain/zero/1.0/legalcode</pr
   function findFirstHop(source) {
     let blocked = null;
     for (const link of linksFor(source.id)) {
-      if (link.hidden) continue;
+      if (!isPhysicalLink(link)) continue;
       const reason = linkDataBlockReason(link);
       if (reason) {
         blocked ??= reason;
         continue;
       }
       const peer = getDevice(link.from === source.id ? link.to : link.from);
-      if (!peer || peer.hidden) continue;
+      if (!peer) continue;
       if (peer.poweredOff) {
         blocked ??= `${peer.name}, at the other end of ${linkName(link)}, is powered off`;
         continue;
@@ -6945,15 +6948,27 @@ Full legal text: https://creativecommons.org/publicdomain/zero/1.0/legalcode</pr
     state.devices.forEach(drawDevice);
     ctx.restore();
   }
+  function drawnDevice(device) {
+    for (let hops = 0; device?.hidden && device.collapsedBy && hops < 8; hops++) {
+      device = getDevice(device.collapsedBy);
+    }
+    return device;
+  }
+  function transitEndpoints(transit) {
+    const from = drawnDevice(getDevice(transit.fromDeviceId));
+    const to = drawnDevice(getDevice(transit.toDeviceId));
+    if (!isVisibleDevice(from) || !isVisibleDevice(to) || from === to) return null;
+    return { from, to };
+  }
   function findTransitAt(world) {
     const transits = state.simulation.transits;
     if (!transits || transits.length === 0) return null;
     const HIT = 14;
     for (let i = transits.length - 1; i >= 0; i--) {
       const transit = transits[i];
-      const fromDevice = getDevice(transit.fromDeviceId);
-      const toDevice = getDevice(transit.toDeviceId);
-      if (!fromDevice || !toDevice) continue;
+      const ends = transitEndpoints(transit);
+      if (!ends) continue;
+      const { from: fromDevice, to: toDevice } = ends;
       const x = fromDevice.x + (toDevice.x - fromDevice.x) * transit.progress;
       const y = fromDevice.y + (toDevice.y - fromDevice.y) * transit.progress;
       if (Math.hypot(world.x - x, world.y - y) <= HIT) return transit;
@@ -6965,9 +6980,9 @@ Full legal text: https://creativecommons.org/publicdomain/zero/1.0/legalcode</pr
     if (!transits || transits.length === 0) return;
     for (const transit of transits) {
       if (transit.silent) continue;
-      const fromDevice = getDevice(transit.fromDeviceId);
-      const toDevice = getDevice(transit.toDeviceId);
-      if (!fromDevice || !toDevice) continue;
+      const ends = transitEndpoints(transit);
+      if (!ends) continue;
+      const { from: fromDevice, to: toDevice } = ends;
       const t = transit.progress;
       const x = fromDevice.x + (toDevice.x - fromDevice.x) * t;
       const y = fromDevice.y + (toDevice.y - fromDevice.y) * t;
@@ -8129,7 +8144,7 @@ Full legal text: https://creativecommons.org/publicdomain/zero/1.0/legalcode</pr
   var bootRunActive = false;
   var bootUndoPending = false;
   function hostNeedsBoot(device) {
-    return !!device && isBootable(device.type) && !device.poweredOff && !device.config?.ipv4Address && state.links.some((l) => !l.hidden && !l.shutdown && (l.from === device.id || l.to === device.id));
+    return !!device && isBootable(device.type) && !device.poweredOff && !device.config?.ipv4Address && state.links.some((l) => isPhysicalLink(l) && !l.shutdown && (l.from === device.id || l.to === device.id));
   }
   function unconfiguredBootableHosts() {
     return state.devices.filter(hostNeedsBoot);
@@ -8155,7 +8170,7 @@ Full legal text: https://creativecommons.org/publicdomain/zero/1.0/legalcode</pr
   function redTeamNotReadyReason(actor) {
     if (actor.poweredOff) return `${actor.name} is powered off \u2014 power it on to launch its attacks.`;
     if (!actor.config?.ipv4Address) {
-      const cabled = state.links.some((l) => !l.hidden && !l.shutdown && (l.from === actor.id || l.to === actor.id));
+      const cabled = state.links.some((l) => isPhysicalLink(l) && !l.shutdown && (l.from === actor.id || l.to === actor.id));
       return cabled ? `${actor.name} has no IP address \u2014 set a static IP, or turn on Auto-DHCP / APIPA fallback (Settings) so Play boots it.` : `${actor.name} has no IP address and no cable \u2014 connect it to the network first.`;
     }
     if (!actor.config.attacks?.length) return `${actor.name} has no attacks enabled \u2014 pick a scan, sweep or ARP spoof in its inspector.`;
@@ -8514,7 +8529,7 @@ Full legal text: https://creativecommons.org/publicdomain/zero/1.0/legalcode</pr
   var PAE_GROUP_MAC = "01:80:C2:00:00:03";
   function radiusServerFor(sw) {
     for (const link of linksFor(sw.id)) {
-      if (link.hidden || link.shutdown) continue;
+      if (!isPhysicalLink(link) || link.shutdown) continue;
       const peer = getDevice(link.from === sw.id ? link.to : link.from);
       if (peer?.type === "server" && peer.config?.radius?.users?.length) return peer;
     }
@@ -8523,7 +8538,7 @@ Full legal text: https://creativecommons.org/publicdomain/zero/1.0/legalcode</pr
   function supplicantByMac(sw, mac) {
     if (!mac) return null;
     for (const link of linksFor(sw.id)) {
-      if (link.hidden || link.shutdown || link.wireless) continue;
+      if (!isPhysicalLink(link) || link.shutdown || link.wireless) continue;
       const host = getDevice(link.from === sw.id ? link.to : link.from);
       if (host && host.config?.macAddress === mac) return { host, link };
     }
@@ -8531,7 +8546,7 @@ Full legal text: https://creativecommons.org/publicdomain/zero/1.0/legalcode</pr
   }
   function supplicantByIdentity(sw, identity) {
     for (const link of linksFor(sw.id)) {
-      if (link.hidden || link.shutdown || link.wireless) continue;
+      if (!isPhysicalLink(link) || link.shutdown || link.wireless) continue;
       const host = getDevice(link.from === sw.id ? link.to : link.from);
       if (host && isDot1xSupplicant(host.type) && host.config?.dot1x?.identity === identity) {
         return { host, link };
@@ -8904,7 +8919,6 @@ Full legal text: https://creativecommons.org/publicdomain/zero/1.0/legalcode</pr
     if (config.ipv4Address) used.add(config.ipv4Address);
     for (const lease of normaliseDhcpLeases(config.dhcpLeases || [])) used.add(lease.ipv4Address);
     for (const d of state.devices) {
-      if (d.hidden) continue;
       const ip = d.config?.ipv4Address;
       if (ip && isValidIpv4(ip)) used.add(ip);
     }
@@ -9765,7 +9779,6 @@ Full legal text: https://creativecommons.org/publicdomain/zero/1.0/legalcode</pr
       usedIps.add(lease.ipv4Address);
     }
     for (const d of state.devices) {
-      if (d.hidden) continue;
       const ip = d.config?.ipv4Address;
       if (ip && isValidIpv4(ip) && sameSubnet(ip, iface.ipv4Address, ifPrefix)) {
         usedIps.add(ip);
@@ -10084,7 +10097,7 @@ Full legal text: https://creativecommons.org/publicdomain/zero/1.0/legalcode</pr
   }
   function findLinkBetween(a, b) {
     return linksFor(a).find(
-      (link) => !link.hidden && (link.from === a && link.to === b || link.from === b && link.to === a)
+      (link) => isPhysicalLink(link) && (link.from === a && link.to === b || link.from === b && link.to === a)
     ) || null;
   }
   function linkLatencyFactor(link) {
@@ -15035,7 +15048,7 @@ Snort successfully validated the configuration${bad ? " (with errors)" : "."}`);
     return state.devices.find((d) => d.name.toLowerCase() === lower);
   }
   function linkExists(aId, bId) {
-    return state.links.some((l) => !l.hidden && (l.from === aId && l.to === bId || l.from === bId && l.to === aId));
+    return state.links.some((l) => isPhysicalLink(l) && (l.from === aId && l.to === bId || l.from === bId && l.to === aId));
   }
   var CHECK_PURPOSE = "the scenario Check";
   function evaluate(check) {
@@ -16586,7 +16599,7 @@ Snort successfully validated the configuration${bad ? " (with errors)" : "."}`);
     if (typeof a === "string") return err(a);
     const b = resolveDevice(args[1]);
     if (typeof b === "string") return err(b);
-    const link = state.links.find((l) => !l.hidden && (l.from === a.id && l.to === b.id || l.from === b.id && l.to === a.id));
+    const link = state.links.find((l) => isPhysicalLink(l) && (l.from === a.id && l.to === b.id || l.from === b.id && l.to === a.id));
     if (!link) return err(`No link between ${a.name} and ${b.name}.`);
     const attr = (args[2] || "").toLowerCase();
     const value = args.slice(3).join(" ");
@@ -16616,7 +16629,7 @@ Snort successfully validated the configuration${bad ? " (with errors)" : "."}`);
     if (typeof a === "string") return err(a);
     const b = resolveDevice(args[1]);
     if (typeof b === "string") return err(b);
-    const link = state.links.find((l) => !l.hidden && (l.from === a.id && l.to === b.id || l.from === b.id && l.to === a.id));
+    const link = state.links.find((l) => isPhysicalLink(l) && (l.from === a.id && l.to === b.id || l.from === b.id && l.to === a.id));
     if (!link) return err(`No link between ${a.name} and ${b.name}.`);
     pushUndo();
     if (down) link.shutdown = true;

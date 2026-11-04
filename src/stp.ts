@@ -17,7 +17,7 @@
  */
 import type { Device, StpRole, StpState, StpPortInfo } from "./types";
 import { state } from "./state";
-import { linkedPortsFor } from "./devices";
+import { linkedPortsFor, isPhysicalLink } from "./devices";
 import { deriveMac } from "./utils";
 
 export const DEFAULT_BRIDGE_PRIORITY = 32768;
@@ -25,7 +25,7 @@ export const DEFAULT_BRIDGE_PRIORITY = 32768;
 // Whether a managed switch runs spanning tree. Default on for managed switches
 // (as real switches are) — only an explicit `enabled: false` opts out.
 export function isStpParticipant(device: Device): boolean {
-  if (device.type !== "switch" || device.hidden || device.poweredOff) return false;
+  if (device.type !== "switch" || device.poweredOff) return false;   // a switch collapsed into a LAN still bridges
   if (!device.config?.managed) return false;
   const stp = device.config.stp;
   return stp ? stp.enabled !== false : true;
@@ -105,10 +105,11 @@ export function runStpConvergence(): { participants: number; roots: number; bloc
     portsOut.set(dev.id, {});
   }
 
-  // 3. Edges between two participants (direct wired links, not shut/hidden).
+  // 3. Edges between two participants (direct wired links, not shut; a cable a
+  // collapsed LAN hides is still one).
   const edges: StpEdge[] = [];
   for (const link of state.links) {
-    if (link.hidden || link.shutdown || link.wireless) continue;
+    if (!isPhysicalLink(link) || link.shutdown || link.wireless) continue;
     if (!bridges.has(link.from) || !bridges.has(link.to)) continue;
     const aPort = portForLink(link.from, link.id);
     const bPort = portForLink(link.to, link.id);

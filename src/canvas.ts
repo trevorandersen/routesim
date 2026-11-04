@@ -1,4 +1,4 @@
-import type { DeviceType, ActiveTransit } from "./types";
+import type { Device, DeviceType, ActiveTransit } from "./types";
 import { state, colors } from "./state";
 import { dom } from "./dom";
 import { cssColor, prefixOf } from "./utils";
@@ -490,6 +490,26 @@ export function render(): void {
 }
 
 // Hit-test a world point against the transit dots (click-a-packet inspector).
+// Where a device is DRAWN: itself, or — when a collapsed LAN hides it — the LAN
+// cloud standing in for it (followed outward through nested collapses). A frame
+// crossing a hidden cable still runs (collapse is presentation, review R4), so
+// its dot is drawn against what's on the canvas: along the LAN ↔ router proxy
+// line, and not at all while it stays inside the cloud.
+function drawnDevice(device: Device | undefined): Device | undefined {
+  for (let hops = 0; device?.hidden && device.collapsedBy && hops < 8; hops++) {
+    device = getDevice(device.collapsedBy);
+  }
+  return device;
+}
+
+// A transit's drawn endpoints, or null when there is no visible segment to draw.
+function transitEndpoints(transit: ActiveTransit): { from: Device; to: Device } | null {
+  const from = drawnDevice(getDevice(transit.fromDeviceId));
+  const to = drawnDevice(getDevice(transit.toDeviceId));
+  if (!isVisibleDevice(from) || !isVisibleDevice(to) || from === to) return null;
+  return { from, to };
+}
+
 export function findTransitAt(world: { x: number; y: number }): ActiveTransit | null {
   const transits = state.simulation.transits;
   if (!transits || transits.length === 0) return null;
@@ -498,9 +518,9 @@ export function findTransitAt(world: { x: number; y: number }): ActiveTransit | 
   const HIT = 14;
   for (let i = transits.length - 1; i >= 0; i--) {
     const transit = transits[i];
-    const fromDevice = getDevice(transit.fromDeviceId);
-    const toDevice = getDevice(transit.toDeviceId);
-    if (!fromDevice || !toDevice) continue;
+    const ends = transitEndpoints(transit);
+    if (!ends) continue;
+    const { from: fromDevice, to: toDevice } = ends;
     const x = fromDevice.x + (toDevice.x - fromDevice.x) * transit.progress;
     const y = fromDevice.y + (toDevice.y - fromDevice.y) * transit.progress;
     if (Math.hypot(world.x - x, world.y - y) <= HIT) return transit;
@@ -514,9 +534,9 @@ function drawFrameTransits(): void {
 
   for (const transit of transits) {
     if (transit.silent) continue; // resolved silently — delivered without a visible dot
-    const fromDevice = getDevice(transit.fromDeviceId);
-    const toDevice = getDevice(transit.toDeviceId);
-    if (!fromDevice || !toDevice) continue;
+    const ends = transitEndpoints(transit);
+    if (!ends) continue;
+    const { from: fromDevice, to: toDevice } = ends;
 
     const t = transit.progress;
     const x = fromDevice.x + (toDevice.x - fromDevice.x) * t;

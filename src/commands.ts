@@ -12,7 +12,7 @@ import { USER_ADDABLE_TYPES, isHost, isDot1xSupplicant, defaultPortCount } from 
 import { dom } from "./dom";
 import {
   addDevice, addLink, deleteLink, linkBlockReason, deleteSelection, clearNetwork, collapseLan, expandLan,
-  getDevice, moveDevice, linkName, routerInterfacesWithNames } from "./devices";
+  getDevice, moveDevice, linkName, routerInterfacesWithNames, isPhysicalLink } from "./devices";
 import {
   startSimulation, stopSimulation, pauseSimulation, resumeSimulation, stepOnce, animatedRunBlockReason, takePreemptionNote,
   runSimulationHeadless, runTraceroute, STORM_DIAGNOSIS,
@@ -142,7 +142,7 @@ function cmdLinkSet(args: string[]): CommandResult {
   if (typeof a === "string") return err(a);
   const b = resolveDevice(args[1]);
   if (typeof b === "string") return err(b);
-  const link = state.links.find(l => !l.hidden &&
+  const link = state.links.find(l => isPhysicalLink(l) &&
     ((l.from === a.id && l.to === b.id) || (l.from === b.id && l.to === a.id)));
   if (!link) return err(`No link between ${a.name} and ${b.name}.`);
   const attr = (args[2] || "").toLowerCase();
@@ -172,7 +172,7 @@ function cmdLinkState(args: string[], down: boolean): CommandResult {
   if (typeof a === "string") return err(a);
   const b = resolveDevice(args[1]);
   if (typeof b === "string") return err(b);
-  const link = state.links.find(l => !l.hidden &&
+  const link = state.links.find(l => isPhysicalLink(l) &&
     ((l.from === a.id && l.to === b.id) || (l.from === b.id && l.to === a.id)));
   if (!link) return err(`No link between ${a.name} and ${b.name}.`);
   pushUndo();

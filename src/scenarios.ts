@@ -6,7 +6,7 @@
  */
 import type { Device } from "./types";
 import { state, sync } from "./state";
-import { getDevice } from "./devices";
+import { getDevice, isPhysicalLink } from "./devices";
 import { applyConfig } from "./config";
 import { normaliseConfig, shiftToPositive } from "./normalise";
 import { buildPingEvents, buildDhcpEvents, buildConnectEvents, buildResolveEvents, buildHttpEvents, buildScanEvents } from "./simulation";
@@ -137,7 +137,7 @@ function resolve(ref: string): Device | undefined {
 
 function linkExists(aId: string, bId: string): boolean {
   return state.links.some(l =>
-    !l.hidden && ((l.from === aId && l.to === bId) || (l.from === bId && l.to === aId)));
+    isPhysicalLink(l) && ((l.from === aId && l.to === bId) || (l.from === bId && l.to === aId)));
 }
 
 // Names a Check in the note left if it stops an animated run (engine beginRun).

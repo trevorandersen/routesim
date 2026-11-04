@@ -5,7 +5,7 @@ The L2 counterpart to [`routing.ts`](engine.md)'s RIP convergence. `runStpConver
 ## When it runs
 
 - **Before every simulation** — called in `startSimulation` and `runSimulationHeadless` ([engine.ts](engine.md)) right after `runRipConvergence`, so loops are already broken (blocked ports) before the first hop.
-- **On topology / STP-config change** — via the `recomputeStp` callback (registered in [app.ts](app.md) as `runStpConvergence()` + `render()`), so a loaded looped topology, a freshly drawn redundant cable, a shut link, an undo, or an `stp on/off` shows its blocked port live without waiting for a run. Wired at: `applyConfigWithoutUndo` ([config.ts](config.md)), the `stp`/`managed` mutators, and every link change through the `linksChanged` hook ([state.ts](state.md) — which also flushes learnt MAC tables): `addLink`/`deleteLink`/`deleteSelection`/`toggleLinkShutdown`/`collapseLan`/`expandLan` ([devices.ts](devices.md)), the `shut`/`noshut` commands and the link inspector toggle (which previously skipped the recompute), and `restoreSnapshot`.
+- **On topology / STP-config change** — via the `recomputeStp` callback (registered in [app.ts](app.md) as `runStpConvergence()` + `render()`), so a loaded looped topology, a freshly drawn redundant cable, a shut link, an undo, or an `stp on/off` shows its blocked port live without waiting for a run. Wired at: `applyConfigWithoutUndo` ([config.ts](config.md)), the `stp`/`managed` mutators, and every link change through the `linksChanged` hook ([state.ts](state.md) — which also flushes learnt MAC tables): `addLink`/`deleteLink`/`deleteSelection`/`toggleLinkShutdown` ([devices.ts](devices.md); LAN collapse/expand change no cabling, so they don't reconverge), the `shut`/`noshut` commands and the link inspector toggle (which previously skipped the recompute), and `restoreSnapshot`.
 
 ## The algorithm
 
@@ -14,7 +14,7 @@ Deterministic, instant (no listening/learning timers — a teaching simplificati
 1. **Reset** all `link.stpBlocked` and the derived fields on every managed switch's `config.stp`.
 2. **Participants** = managed switches with STP enabled (default on; only an explicit `stp.enabled === false` opts out — `isStpParticipant`).
 3. **Bridge id** = priority (default 32768) joined to the switch's base MAC (`config.macAddress`, else `deriveMac(id)`). Lower wins (`cmpBridge`: priority, then MAC).
-4. **Edges** = direct wired links between two participants (skipping hidden/shut/wireless). A port to a *non-participant* (host/router/hub/AP) is an **edge port** — designated, forwarding.
+4. **Edges** = direct wired links between two participants (`isPhysicalLink` — a cable a collapsed LAN hides still counts, and a switch collapsed into a LAN still participates; skipping shut/wireless). A port to a *non-participant* (host/router/hub/AP) is an **edge port** — designated, forwarding.
 5. **Per connected component**: the lowest-id bridge is the **root**; a BFS over the component's edges gives every bridge's hop **cost** to the root.
 6. **Root port** (each non-root bridge): the incident edge toward a strictly-closer neighbour, tie-broken by (neighbour bridge id, neighbour port number, own port number) — the 802.1D ordering.
 7. **Per edge**: the **designated** end is the one with the lower (cost, bridge id); it forwards. The other end is either that bridge's **root** port (forwarding) or an **alternate** (blocking) — and an alternate sets `link.stpBlocked = true`. That's the cut that breaks the loop.

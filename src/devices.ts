@@ -379,7 +379,7 @@ export function nextAvailablePort(deviceId: string): number {
   if (!device) return 1;
   const occupied = new Set<number>();
   for (const link of state.links) {
-    if (link.hidden) continue;
+    if (!isPhysicalLink(link)) continue;   // a cable a collapsed LAN hides still fills its port
     if (link.from === deviceId && link.fromPort) occupied.add(link.fromPort);
     if (link.to === deviceId && link.toPort) occupied.add(link.toPort);
   }
@@ -389,7 +389,7 @@ export function nextAvailablePort(deviceId: string): number {
 }
 
 function portTaken(deviceId: string, port: number): boolean {
-  return state.links.some(l => !l.hidden &&
+  return state.links.some(l => isPhysicalLink(l) &&
     ((l.from === deviceId && l.fromPort === port) || (l.to === deviceId && l.toPort === port)));
 }
 
@@ -679,19 +679,33 @@ export function connectedIds(id: string): string[] {
     .map(link => link.from === id ? link.to : link.from);
 }
 
+// Whether a link is a real cable: every link except a collapsed LAN's proxy
+// links (LAN cloud ↔ router, drawn in place of the hidden cables). Collapse is
+// presentation — `hidden` says "not drawn", never "unplugged" — so everything
+// that simulates, routes, numbers ports or checks cabling asks this rather than
+// `!link.hidden`. Drawing and hit-testing still filter `hidden` (review R4).
+export function isPhysicalLink(link: Link): boolean {
+  return !link.proxy;
+}
+
 // Peers over PHYSICAL cables — including those a collapsed LAN has hidden, and
 // excluding the LAN's proxy links. Collapse is presentation; persistence must
 // ask "is this cable real?", not "is it drawn?" — otherwise saving while a LAN
 // is collapsed dropped every router interface facing it.
 export function physicalPeerIds(id: string): string[] {
   return linksFor(id)
-    .filter(link => !link.proxy)
+    .filter(isPhysicalLink)
     .map(link => link.from === id ? link.to : link.from);
 }
 
+// A device's ports over its PHYSICAL cables (isPhysicalLink): what the engine
+// forwards over, what interfaces and switch ports are named from, and what STP
+// and 802.1X key on. Collapsing a LAN must not unplug the router's cable to it
+// — that dropped the interface's address and connected route, renumbered the
+// ports, and failed a ping across it with a false "No route" (review R4).
 export function linkedPortsFor(id: string): any[] {
   const entries = linksFor(id)
-    .filter(link => !link.hidden)
+    .filter(isPhysicalLink)
     .map(link => {
       const isFrom = link.from === id;
       const raw = isFrom ? link.fromPort : link.toPort;
@@ -704,7 +718,7 @@ export function linkedPortsFor(id: string): any[] {
         portNum
       };
     })
-    .filter(port => isVisibleDevice(port.peer));
+    .filter(port => !!port.peer);
 
   // If any entry has an explicit port number, place entries at those indices
   const hasExplicit = entries.some(e => e.portNum > 0);
@@ -850,9 +864,10 @@ export function collapseLan(anchor: any): void {
   state.configuringId = null;
   state.linkStartId = null;
   sync().syncPanel();
-  // Hidden member cables drop out of every outside peer's port numbering — the
-  // learnt MACs and the spanning tree are recomputed (also re-renders).
-  linksChanged();
+  // Collapse is presentation: the member cables are hidden, not unplugged, so
+  // no port renumbers and nothing learnt from the cabling goes stale — there is
+  // nothing to flush or reconverge, only the canvas to redraw.
+  sync().render();
   dom.modeLabel.textContent = `Collapsed ${members.length} devices into ${lan.name}.`;
 }
 
@@ -884,7 +899,7 @@ export function expandLan(lan: any): void {
   state.configuringId = null;
   state.linkStartId = null;
   sync().syncPanel();
-  linksChanged();   // the member cables are back in the port numbering (also re-renders)
+  sync().render();   // presentation only, like collapse — the cabling never changed
   dom.modeLabel.textContent = `Expanded ${lan.name}.`;
 }
 

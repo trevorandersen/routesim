@@ -22,7 +22,7 @@ interface Scenario {
 }
 
 type ScenarioCheck =
-  | { kind: "link";      a: string; b: string; label: string }              // a non-hidden link exists between a and b
+  | { kind: "link";      a: string; b: string; label: string }              // a real cable exists between a and b (a collapsed LAN's hidden cables count; its proxy links don't)
   | { kind: "config";    device: string; field: string; equals: unknown; label: string }  // device.config[field] === equals
   | { kind: "ping";      from: string; to: string; label: string }          // a ping from→to succeeds (headless)
   | { kind: "ping-fail"; from: string; to: string; label: string }          // isolation: the ping must NOT succeed

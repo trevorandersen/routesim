@@ -1,6 +1,6 @@
 import type { SimEvent, EthernetFrame, Device } from "./types";
 import { state } from "./state";
-import { getDevice, linkedPortsFor, linksFor, linkAuthorizedForData, linkDataBlockReason, linkName, dot1xLinkInfo } from "./devices";
+import { getDevice, linkedPortsFor, linksFor, linkAuthorizedForData, linkDataBlockReason, linkName, dot1xLinkInfo, isPhysicalLink } from "./devices";
 import { runStpConvergence, isStpParticipant } from "./stp";
 import { normalisePortVlans, normalisePortModes, normaliseTrunkAllowedVlans, memoPortVlans } from "./normalise";
 import { isValidIpv4, sameSubnet, prefixOf, deriveMac, networkOf, prefixLengthOfCidr, ipv4ToInt, intToIpv4 } from "./utils";
@@ -48,7 +48,7 @@ export function l2Reachable(fromId: string, toId: string, vlanId: number | null)
     const curr = getDevice(id);
     const leavingManaged = !!curr && curr.type === "switch" && !!curr.config?.managed && vlanId != null;
     for (const link of linksFor(id)) {
-      if (link.hidden || link.shutdown) continue; // a shut link breaks the path
+      if (!isPhysicalLink(link) || link.shutdown) continue; // a shut link breaks the path
       if (!linkAuthorizedForData(link)) continue;  // unauthenticated WiFi / unauthorized 802.1X port: no data
       const isFrom = link.from === id;
       const nextId = isFrom ? link.to : link.from;
@@ -63,7 +63,7 @@ export function l2Reachable(fromId: string, toId: string, vlanId: number | null)
         if (egress && !portCarries(curr!, egress, vlanId!)) continue;
       }
       const next = getDevice(nextId);
-      if (!next || next.hidden || next.poweredOff) continue;
+      if (!next || next.poweredOff) continue;
       if ((next.type === "router" || next.type === "internet") && nextId !== toId) continue;  // the internet cloud is an L3 boundary, not an L2 bridge
       // ENTERING a managed switch: its ingress port (toward where we came
       // from) must carry the VLAN.
@@ -81,7 +81,7 @@ export function l2Reachable(fromId: string, toId: string, vlanId: number | null)
 
 export function getVlanForDevice(deviceId: string): number {
   for (const link of linksFor(deviceId)) {
-    if (link.hidden) continue;
+    if (!isPhysicalLink(link)) continue;
     const isFrom = link.from === deviceId;
     const switchId = isFrom ? link.to : link.from;
     const sw = getDevice(switchId);
@@ -406,7 +406,7 @@ export function buildDhcpEvents(source: any): PingSetup | string {
 // The access point a laptop is associated with (its wireless link peer), or null.
 export function associatedAp(laptop: any): { ap: any; linkId: string } | null {
   for (const link of state.links) {
-    if (!link.wireless || link.hidden || link.shutdown) continue;
+    if (!link.wireless || !isPhysicalLink(link) || link.shutdown) continue;
     if (link.from !== laptop.id && link.to !== laptop.id) continue;
     const ap = getDevice(link.from === laptop.id ? link.to : link.from);
     if (ap && ap.type === "access-point" && !ap.poweredOff) return { ap, linkId: link.id };
@@ -441,7 +441,7 @@ export function buildDot1xEvents(host: any): PingSetup | string {
   if (!srcMac) return `${host.name}: eth0 has no MAC address.`;
   if (!host.config?.dot1x?.identity) return `${host.name} has no 802.1X identity — set one with "supplicant ${host.name} <identity> <password>".`;
   for (const link of linksFor(host.id)) {
-    if (link.hidden || link.shutdown) continue;
+    if (!isPhysicalLink(link) || link.shutdown) continue;
     const info = dot1xLinkInfo(link);
     if (info && info.peer.id === host.id) {
       const start = createDot1xFrame(srcMac, "01:80:C2:00:00:03", "eapol-start", host.config.dot1x.identity);
@@ -616,11 +616,11 @@ type FirstHop = { peerId: string; linkId: string } | { blocked: string };
 function findFirstHop(source: Device): FirstHop {
   let blocked: string | null = null;
   for (const link of linksFor(source.id)) {
-    if (link.hidden) continue;
+    if (!isPhysicalLink(link)) continue;   // a collapsed LAN hides the cable, it doesn't unplug it
     const reason = linkDataBlockReason(link);
     if (reason) { blocked ??= reason; continue; }
     const peer = getDevice(link.from === source.id ? link.to : link.from);
-    if (!peer || peer.hidden) continue;
+    if (!peer) continue;
     if (peer.poweredOff) { blocked ??= `${peer.name}, at the other end of ${linkName(link)}, is powered off`; continue; }
     return { peerId: peer.id, linkId: link.id };
   }

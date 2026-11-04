@@ -21,7 +21,7 @@ routesim.urlSettings()                          // what the current URL query st
 routesim.settingsQuery()                        // a shareable query string built from the live settings
 ```
 
-`CommandResult` is `{ ok: boolean, output: string[], data?: unknown }`. For `run ping`/`run dhcp`, `data` is the `SimResult` (`{ success, ttl, assignedIp, assignedGateway, log, steps }`) and `ok` reflects reachability.
+`CommandResult` is `{ ok: boolean, output: string[], data?: unknown }`. For `run ping`/`run dhcp`, `data` is the `SimResult` (`{ success, ttl, assignedIp, assignedGateway, storm, diagnosis, log, steps }`) and `ok` reflects reachability. A failed `run` appends the run's post-mortem (`diagnosis`) to `output` — a broadcast storm, or an ARP nobody answered (naming the gateway when it is the cause) — and `run ping` notes an ICMP error it got back (`unreachable (Time to live exceeded from 10.0.0.1)`).
 
 ## URL settings
 

@@ -7,7 +7,7 @@ import { state, sync, pushUndo } from "../state";
 import { isValidIpv4, isValidMac, normaliseMacAddress, parseIpv4Token, prefixOf, clampPrefixLength } from "../utils";
 import { normaliseArpTable, ensureConfig } from "../normalise";
 import { buildPingEvents, buildDhcpEvents, buildConnectEvents, buildResolveEvents, buildHttpEvents, parseHttpTarget, findPingTarget, hostnameToIp } from "../simulation";
-import { startSimulation, runTraceroute, animatedRunBlockReason } from "../engine";
+import { startSimulation, runTraceroute, animatedRunBlockReason, STORM_DIAGNOSIS } from "../engine";
 import { applyHostname } from "../devices";
 import { terminalLine } from "./core";
 
@@ -300,8 +300,9 @@ export function runHostTerminalCommand(host: Device, command: string): void {
       for (const hop of result.hops) {
         lines.push(` ${String(hop.ttl).padStart(2)}  ${hop.ip || "* (no response)"}`);
       }
-      if (!result.reached) lines.push("(destination not reached within 30 hops)");
-      terminalLine("", lines.join("\n"));
+      if (result.storm) lines.push(STORM_DIAGNOSIS);
+      else if (!result.reached) lines.push("(destination not reached within 30 hops)", ...(result.diagnosis ?? []));
+      terminalLine(result.storm ? "error" : "", lines.join("\n"));
     }
     return;
   }

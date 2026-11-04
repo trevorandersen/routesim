@@ -15,8 +15,9 @@ import {
   getDevice, moveDevice, linkName, routerInterfacesWithNames } from "./devices";
 import {
   startSimulation, stopSimulation, pauseSimulation, resumeSimulation, stepOnce, animatedRunBlockReason, takePreemptionNote,
-  runSimulationHeadless, runTraceroute,
+  runSimulationHeadless, runTraceroute, STORM_DIAGNOSIS,
 } from "./engine";
+import type { SimResult } from "./engine";
 import { buildPingEvents, buildDhcpEvents, buildConnectEvents, buildResolveEvents, buildHttpEvents, parseHttpTarget, buildAssociationEvents, buildDot1xEvents, buildStpEvents, buildScanEvents, buildSweepEvents, buildArpSpoofEvents, buildAttackEvents, associatedAp, findPingTarget } from "./simulation";
 import { DEFAULT_BRIDGE_PRIORITY } from "./stp";
 import {
@@ -711,6 +712,20 @@ function cmdStp(args: string[]): CommandResult {
   return err("Usage: stp [<switch> on|off | <switch> priority <n>]   (no args animates the BPDU exchange)");
 }
 
+// A `run` result line followed, when the run failed, by the engine's
+// post-mortem (a broadcast storm, an ARP nobody answered) — so the console says
+// WHY, not just "unreachable".
+function runOutput(r: SimResult, line: string): CommandResult {
+  return { ok: r.success, data: r, output: [line, ...(r.success ? [] : r.diagnosis)] };
+}
+
+// Which ICMP error, if any, a failed ping got back (Linux ping's wording).
+function pingErrorNote(r: SimResult): string {
+  if (r.timeExceeded && r.responderIp) return ` (Time to live exceeded from ${r.responderIp})`;
+  if (r.unreachableFrom) return ` (Destination Port Unreachable from ${r.unreachableFrom})`;
+  return "";
+}
+
 function cmdRun(args: string[]): CommandResult {
   const mode = (args[0] || "").toLowerCase();
   // Names this run in the note left if it stops an animated run (engine beginRun).
@@ -729,8 +744,7 @@ function cmdRun(args: string[]): CommandResult {
     const setup = buildDot1xEvents(host);
     if (typeof setup === "string") return err(setup);
     const r = runSimulationHeadless(setup, host.id, "", "dot1x", null, purpose);
-    return { ok: r.success, data: r,
-      output: [r.success ? `dot1x: ${host.name} authenticated — port authorised (${r.steps} frames)` : `dot1x: authentication failed`] };
+    return runOutput(r, r.success ? `dot1x: ${host.name} authenticated — port authorised (${r.steps} frames)` : `dot1x: authentication failed`);
   }
   if (mode === "associate") {
     const laptop = resolveDevice(args[1]);
@@ -738,8 +752,7 @@ function cmdRun(args: string[]): CommandResult {
     const setup = buildAssociationEvents(laptop);
     if (typeof setup === "string") return err(setup);
     const r = runSimulationHeadless(setup, laptop.id, "", "associate", null, purpose);
-    return { ok: r.success, data: r,
-      output: [r.success ? `associate: ${laptop.name} joined the WiFi (${r.steps} frames)` : "associate: handshake did not complete"] };
+    return runOutput(r, r.success ? `associate: ${laptop.name} joined the WiFi (${r.steps} frames)` : "associate: handshake did not complete");
   }
   if (mode === "ping") {
     const src = resolveDevice(args[1]);
@@ -749,8 +762,7 @@ function cmdRun(args: string[]): CommandResult {
     const setup = buildPingEvents(src, dst);
     if (typeof setup === "string") return err(setup);
     const r = runSimulationHeadless(setup, src.id, targetIpFor(dst), "ping", null, purpose);
-    return { ok: r.success, data: r,
-      output: [`ping ${dst}: ${r.success ? `reachable (ttl=${r.ttl})` : "unreachable"} — ${r.steps} steps`] };
+    return runOutput(r, `ping ${dst}: ${r.success ? `reachable (ttl=${r.ttl})` : `unreachable${pingErrorNote(r)}`} — ${r.steps} steps`);
   }
   if (mode === "connect" || mode === "tcp") {
     const src = resolveDevice(args[1]);
@@ -761,8 +773,7 @@ function cmdRun(args: string[]): CommandResult {
     const setup = buildConnectEvents(src, dst, port);
     if (typeof setup === "string") return err(setup);
     const r = runSimulationHeadless(setup, src.id, targetIpFor(dst), "tcp", port, purpose);
-    return { ok: r.success, data: r,
-      output: [`connect ${dst}:${port}: ${r.success ? "open (handshake completed)" : r.refused ? "refused (RST)" : "timed out"} — ${r.steps} steps`] };
+    return runOutput(r, `connect ${dst}:${port}: ${r.success ? "open (handshake completed)" : r.refused ? "refused (RST)" : "timed out"} — ${r.steps} steps`);
   }
   if (mode === "http") {
     const src = resolveDevice(args[1]);
@@ -774,8 +785,7 @@ function cmdRun(args: string[]): CommandResult {
     const setup = buildHttpEvents(src, host, port, path);
     if (typeof setup === "string") return err(setup);
     const r = runSimulationHeadless(setup, src.id, targetIpFor(host), "http", port, purpose);
-    return { ok: r.success, data: r,
-      output: [`http http://${host}:${port}${path}: ${r.httpStatus != null ? `${r.httpStatus}` : r.refused ? "refused" : "no response"} — ${r.steps} steps`] };
+    return runOutput(r, `http http://${host}:${port}${path}: ${r.httpStatus != null ? `${r.httpStatus}` : r.refused ? "refused" : "no response"} — ${r.steps} steps`);
   }
   if (mode === "dhcp") {
     const host = resolveDevice(args[1]);
@@ -783,8 +793,7 @@ function cmdRun(args: string[]): CommandResult {
     const setup = buildDhcpEvents(host);
     if (typeof setup === "string") return err(setup);
     const r = runSimulationHeadless(setup, host.id, "", "dhcp", null, purpose);
-    return { ok: r.success, data: r,
-      output: [r.success ? `dhcp: assigned ${r.assignedIp} (gw ${r.assignedGateway})` : "dhcp: no response"] };
+    return runOutput(r, r.success ? `dhcp: assigned ${r.assignedIp} (gw ${r.assignedGateway})` : "dhcp: no response");
   }
   if (mode === "resolve" || mode === "dns") {
     const src = resolveDevice(args[1]);
@@ -794,8 +803,7 @@ function cmdRun(args: string[]): CommandResult {
     const setup = buildResolveEvents(src, name, null, null);
     if (typeof setup === "string") return err(setup);
     const r = runSimulationHeadless(setup, src.id, name, "dns", null, purpose);
-    return { ok: r.success, data: r,
-      output: [`resolve ${name}: ${r.resolvedIp || "no answer"} — ${r.steps} steps`] };
+    return runOutput(r, `resolve ${name}: ${r.resolvedIp || "no answer"} — ${r.steps} steps`);
   }
   return err(`run: expected "ping <src> <dst>", "connect <src> <dst> <port>", "resolve <src> <name>", or "dhcp <host>".`);
 }
@@ -809,7 +817,8 @@ function cmdTraceroute(args: string[]): CommandResult {
   if (typeof result === "string") return err(result);
   const lines = [`traceroute to ${result.targetIp}, 30 hops max`];
   for (const hop of result.hops) lines.push(` ${hop.ttl}  ${hop.ip || "* (no response)"}`);
-  if (!result.reached) lines.push("(destination not reached within 30 hops)");
+  if (result.storm) lines.push(STORM_DIAGNOSIS);
+  else if (!result.reached) lines.push("(destination not reached within 30 hops)", ...(result.diagnosis ?? []));
   return { ok: result.reached, data: result, output: lines };
 }
 

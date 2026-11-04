@@ -3967,6 +3967,7 @@ Full legal text: https://creativecommons.org/publicdomain/zero/1.0/legalcode</pr
       pingTtl: 64,
       pingResponderIp: null,
       pingTimeExceeded: false,
+      pingUnreachableFrom: null,
       tcpSuccess: false,
       tcpRefused: false,
       tcpTargetPort: null,
@@ -3986,6 +3987,8 @@ Full legal text: https://creativecommons.org/publicdomain/zero/1.0/legalcode</pr
       wifiAssociated: false,
       dot1xAuthorized: false,
       stormDetected: false,
+      diagnosis: [],
+      arpDrops: {},
       scanOpen: [],
       scanClosed: [],
       sweepLive: [],
@@ -4530,6 +4533,47 @@ Full legal text: https://creativecommons.org/publicdomain/zero/1.0/legalcode</pr
     settingsClose: document.getElementById("settingsClose")
   };
 
+  // src/tokenize.ts
+  function tokenizeCommand(line) {
+    const args = [];
+    const ends = [];
+    const src = line || "";
+    let i = 0;
+    while (i < src.length) {
+      while (i < src.length && /\s/.test(src[i])) i++;
+      if (i >= src.length) break;
+      let token = "";
+      let quote = null;
+      for (; i < src.length; i++) {
+        const ch = src[i];
+        if (quote) {
+          if (ch === "\\" && quote === '"' && (src[i + 1] === '"' || src[i + 1] === "\\")) {
+            token += src[++i];
+          } else if (ch === quote) {
+            quote = null;
+          } else {
+            token += ch;
+          }
+        } else if (ch === '"' || ch === "'") {
+          quote = ch;
+        } else if (/\s/.test(ch)) {
+          break;
+        } else {
+          token += ch;
+        }
+      }
+      if (quote) return { args: [], ends: [], error: `Unterminated ${quote === '"' ? "double" : "single"} quote.` };
+      args.push(token);
+      ends.push(i);
+    }
+    return { args, ends };
+  }
+  function quoteArg(value) {
+    const s = String(value ?? "");
+    if (s !== "" && !/[\s"'\\]/.test(s)) return s;
+    return `"${s.replace(/\\/g, "\\\\").replace(/"/g, '\\"')}"`;
+  }
+
   // src/devices.ts
   function applyHostname(device, name) {
     const next = String(name || "").trim();
@@ -4656,10 +4700,13 @@ Full legal text: https://creativecommons.org/publicdomain/zero/1.0/legalcode</pr
     if (info.mode === "force-unauthorized") return false;
     return !!link.dot1xAuthorized;
   }
-  function dot1xPortAuthorized(link) {
-    if (!link || link.wireless) return true;
+  function dot1xBlockingEnd(link) {
+    if (!link || link.wireless) return null;
     const a = getDevice(link.from), b = getDevice(link.to);
-    return dot1xEndAuthorized(link, dot1xPortEnd(link, a, b)) && dot1xEndAuthorized(link, dot1xPortEnd(link, b, a));
+    const aEnd = dot1xPortEnd(link, a, b);
+    if (!dot1xEndAuthorized(link, aEnd)) return aEnd;
+    const bEnd = dot1xPortEnd(link, b, a);
+    return dot1xEndAuthorized(link, bEnd) ? null : bEnd;
   }
   function macsecState(link) {
     const a = getDevice(link?.from), b = getDevice(link?.to);
@@ -4677,12 +4724,34 @@ Full legal text: https://creativecommons.org/publicdomain/zero/1.0/legalcode</pr
     const cfg = aCfg || bCfg;
     return cfg.mode === "must" ? "failed" : "open";
   }
-  function linkAuthorizedForData(link) {
-    if (link?.stpBlocked) return false;
-    if (link?.wireless && !wifiLinkAuthenticated(link)) return false;
-    if (!dot1xPortAuthorized(link)) return false;
-    if (macsecState(link) === "failed") return false;
-    return true;
+  function macsecFailureDetail(link) {
+    const a = getDevice(link.from), b = getDevice(link.to);
+    const aCfg = a?.config?.macsec?.[link.to];
+    const bCfg = b?.config?.macsec?.[link.from];
+    if (aCfg && bCfg) {
+      if (aCfg.derive && bCfg.derive) return "it keys from 802.1X and the port has not authenticated yet";
+      if (aCfg.derive || bCfg.derive) return "one end derives its key from 802.1X, the other uses a static key";
+      return "the two ends' pre-shared keys do not match";
+    }
+    const [strict, bare] = aCfg ? [a, b] : [b, a];
+    return `${strict?.name ?? "one end"} requires MACsec but ${bare?.name ?? "its peer"} has none configured`;
+  }
+  function dot1xNextStep(peer) {
+    const name = quoteArg(peer.name);
+    return peer.config?.dot1x?.identity ? `run dot1x ${name} first` : `give it an identity with supplicant ${name} <identity> <password>, then run dot1x ${name}`;
+  }
+  function linkDataBlockReason(link) {
+    if (!link) return null;
+    if (link.shutdown) return `${linkName(link)} is administratively down, so it carries no traffic`;
+    if (link.stpBlocked) return `${linkName(link)} is blocked by spanning tree \u2014 an alternate port, cut to break a switching loop`;
+    if (link.wireless && !wifiLinkAuthenticated(link))
+      return `${linkName(link)} never authenticated \u2014 the laptop's WiFi password does not match the access point's`;
+    const port = dot1xBlockingEnd(link);
+    if (port) {
+      return port.mode === "force-unauthorized" ? `${port.sw.name} ${port.port} is 802.1X force-unauthorized, so it never carries data` : isDot1xSupplicant(port.peer.type) ? `${port.sw.name} ${port.port} is under 802.1X control and ${port.peer.name} has not authenticated \u2014 ${dot1xNextStep(port.peer)}` : `${port.sw.name} ${port.port} is under 802.1X control and ${port.peer.name} cannot authenticate (it is not an 802.1X supplicant)`;
+    }
+    if (macsecState(link) === "failed") return `${linkName(link)} failed MACsec \u2014 ${macsecFailureDetail(link)}`;
+    return null;
   }
   function linkBlockReason(fromId, toId) {
     if (fromId === toId) return "Cannot link a device to itself.";
@@ -5998,7 +6067,7 @@ Full legal text: https://creativecommons.org/publicdomain/zero/1.0/legalcode</pr
     const vlanTag = null;
     const pendingArp = {};
     const firstHop = findFirstHop(source);
-    if (!firstHop) return `ping: connect: Network is unreachable (no link)`;
+    if ("blocked" in firstHop) return `ping: connect: Network is unreachable (${firstHop.blocked})`;
     if (sameSubnet(srcIp, dstIp, prefixOf(source.config))) {
       const arpEntry = (source.config.arpTable || []).find((e) => e.ipv4Address === dstIp);
       let initialFrame2;
@@ -6067,7 +6136,7 @@ Full legal text: https://creativecommons.org/publicdomain/zero/1.0/legalcode</pr
     }
     const pendingArp = {};
     const firstHop = findFirstHop(source);
-    if (!firstHop) return `nc: Network is unreachable (no link)`;
+    if ("blocked" in firstHop) return `nc: Network is unreachable (${firstHop.blocked})`;
     const syn = (dstMac) => createTcpSegment(srcMac, dstMac, srcIp, dstIp, srcPort, port, "syn");
     let initialFrame;
     if (sameSubnet(srcIp, dstIp, prefixOf(source.config))) {
@@ -6135,7 +6204,7 @@ Full legal text: https://creativecommons.org/publicdomain/zero/1.0/legalcode</pr
     const srcIp = source.config.ipv4Address;
     const srcMac = source.config.macAddress;
     const firstHop = findFirstHop(source);
-    if (!firstHop) return `;; connection timed out; no servers could be reached (no link)`;
+    if ("blocked" in firstHop) return `;; connection timed out; no servers could be reached (${firstHop.blocked})`;
     let nextHopIp = dnsIp;
     if (!sameSubnet(srcIp, dnsIp, prefixOf(source.config))) {
       if (!source.config?.gatewayIpv4Address) return `;; no route to nameserver ${dnsIp} (no default gateway)`;
@@ -6169,7 +6238,7 @@ Full legal text: https://creativecommons.org/publicdomain/zero/1.0/legalcode</pr
     seedSimRng();
     if (!source.config?.macAddress) return `${source.name}: eth0 has no MAC address.`;
     const firstHop = findFirstHop(source);
-    if (!firstHop) return `dhcp: Network is unreachable (no link)`;
+    if ("blocked" in firstHop) return `dhcp: Network is unreachable (${firstHop.blocked})`;
     const srcMac = source.config.macAddress;
     const transactionId = `dhcp-${simRandomInt(4096, 1048576).toString(16)}`;
     const discover = createDhcpDiscover(srcMac, transactionId);
@@ -6267,7 +6336,7 @@ Full legal text: https://creativecommons.org/publicdomain/zero/1.0/legalcode</pr
     const dstIp = attackTargetIp(targetText);
     if (!dstIp) return `nmap: cannot resolve ${targetText}`;
     const firstHop = findFirstHop(attacker);
-    if (!firstHop) return `nmap: network is unreachable (no link)`;
+    if ("blocked" in firstHop) return `nmap: network is unreachable (${firstHop.blocked})`;
     const hop = attackNextHop(attacker, dstIp);
     if (!hop) return `nmap: no route to ${dstIp}`;
     const srcPort = simRandomInt(4e4, 6e4);
@@ -6286,7 +6355,7 @@ Full legal text: https://creativecommons.org/publicdomain/zero/1.0/legalcode</pr
     const cfg = attacker.config;
     if (!cfg?.ipv4Address || !cfg?.macAddress) return `${attacker.name}: eth0 has no address.`;
     const firstHop = findFirstHop(attacker);
-    if (!firstHop) return `nmap: network is unreachable (no link)`;
+    if ("blocked" in firstHop) return `nmap: network is unreachable (${firstHop.blocked})`;
     const t = String(subnetText || "").trim();
     const base = t && (t.includes("/") || isValidIpv4(t)) ? t : `${cfg.ipv4Address}/${prefixOf(cfg)}`;
     const cidr = base.includes("/") ? base : `${base}/${prefixOf(cfg)}`;
@@ -6322,7 +6391,7 @@ Full legal text: https://creativecommons.org/publicdomain/zero/1.0/legalcode</pr
     const spoofIp = String(spoofText || cfg.spoofIp || cfg.gatewayIpv4Address || "").trim();
     if (!isValidIpv4(spoofIp)) return `arpspoof: no valid IP to impersonate (set a gateway, or "arp-spoof <ip>").`;
     const firstHop = findFirstHop(attacker);
-    if (!firstHop) return `arpspoof: network is unreachable (no link)`;
+    if ("blocked" in firstHop) return `arpspoof: network is unreachable (${firstHop.blocked})`;
     const gratuitous = createArpReply(cfg.macAddress, spoofIp, BROADCAST_MAC, spoofIp);
     return { events: [{ type: "frame_arrive", frame: gratuitous, deviceId: firstHop.peerId, fromDeviceId: attacker.id, linkId: firstHop.linkId }], pendingArp: {} };
   }
@@ -6349,15 +6418,23 @@ Full legal text: https://creativecommons.org/publicdomain/zero/1.0/legalcode</pr
     return { events, pendingArp };
   }
   function findFirstHop(source) {
+    let blocked = null;
     for (const link of linksFor(source.id)) {
-      if (link.hidden || link.shutdown) continue;
-      if (!linkAuthorizedForData(link)) continue;
-      const isFrom = link.from === source.id;
-      const peerId = isFrom ? link.to : link.from;
-      const peer = getDevice(peerId);
-      if (peer && !peer.hidden && !peer.poweredOff) return { peerId: peer.id, linkId: link.id };
+      if (link.hidden) continue;
+      const reason = linkDataBlockReason(link);
+      if (reason) {
+        blocked ??= reason;
+        continue;
+      }
+      const peer = getDevice(link.from === source.id ? link.to : link.from);
+      if (!peer || peer.hidden) continue;
+      if (peer.poweredOff) {
+        blocked ??= `${peer.name}, at the other end of ${linkName(link)}, is powered off`;
+        continue;
+      }
+      return { peerId: peer.id, linkId: link.id };
     }
-    return null;
+    return { blocked: blocked ?? "no link" };
   }
 
   // src/canvas.ts
@@ -7763,6 +7840,7 @@ Full legal text: https://creativecommons.org/publicdomain/zero/1.0/legalcode</pr
     sim.pingTtl = 64;
     sim.pingResponderIp = null;
     sim.pingTimeExceeded = false;
+    sim.pingUnreachableFrom = null;
     sim.tcpSuccess = false;
     sim.tcpRefused = false;
     sim.tcpTargetPort = setup.dns?.port ?? targetPort;
@@ -7781,6 +7859,8 @@ Full legal text: https://creativecommons.org/publicdomain/zero/1.0/legalcode</pr
     sim.wifiAssociated = false;
     sim.dot1xAuthorized = false;
     sim.stormDetected = false;
+    sim.diagnosis = [];
+    sim.arpDrops = {};
     sim.scanOpen = [];
     sim.scanClosed = [];
     sim.sweepLive = [];
@@ -7952,10 +8032,13 @@ Full legal text: https://creativecommons.org/publicdomain/zero/1.0/legalcode</pr
       ttl: sim.pingTtl,
       responderIp: sim.pingResponderIp,
       timeExceeded: sim.pingTimeExceeded,
+      unreachableFrom: sim.pingUnreachableFrom,
       resolvedIp: sim.dnsResolvedIp,
       httpStatus: sim.httpStatus,
       assignedIp: sim.dhcpAssignedIp,
       assignedGateway: sim.dhcpAssignedGateway,
+      storm: sim.stormDetected,
+      diagnosis: sim.diagnosis,
       log: sim.log,
       steps: sim.stepIndex
     };
@@ -8055,21 +8138,26 @@ Full legal text: https://creativecommons.org/publicdomain/zero/1.0/legalcode</pr
       targetIp = res.resolvedIp;
     }
     const warm = buildPingEvents(source, targetIp);
-    if (typeof warm !== "string") runSimulationHeadless(warm, source.id, targetIp, "ping", null, purpose);
     const hops = [];
+    if (typeof warm !== "string" && runSimulationHeadless(warm, source.id, targetIp, "ping", null, purpose).storm) {
+      return { targetIp, hops, reached: false, storm: true };
+    }
     let reached = false;
+    let diagnosis = [];
     for (let ttl = 1; ttl <= maxHops; ttl++) {
       const setup = buildPingEvents(source, targetIp, { ttl });
       if (typeof setup === "string") return setup;
       const res = runSimulationHeadless(setup, source.id, targetIp, "ping", null, purpose);
+      if (res.storm) return { targetIp, hops, reached: false, storm: true };
       if (res.success) {
         hops.push({ ttl, ip: res.responderIp || targetIp, reached: true });
         reached = true;
         break;
       }
       hops.push({ ttl, ip: res.responderIp || null, reached: false });
+      diagnosis = res.diagnosis;
     }
-    return { targetIp, hops, reached };
+    return reached ? { targetIp, hops, reached } : { targetIp, hops, reached, diagnosis };
   }
   var animFrameId = null;
   var STORM_STEP_CAP = 200;
@@ -8193,13 +8281,22 @@ Full legal text: https://creativecommons.org/publicdomain/zero/1.0/legalcode</pr
       settleStep();
       return;
     }
-    const outgoing = PROCESSORS[device.type]?.(device, event.frame, event.fromDeviceId) ?? [];
+    let outgoing;
+    if (device.poweredOff) {
+      logStep(device, "sim-drop", `${device.name} is powered off \u2014 ${frameLabel(event.frame)} dropped`);
+      noteArpDrop(event.frame, device, `${device.name} is powered off`);
+      outgoing = [];
+    } else {
+      outgoing = PROCESSORS[device.type]?.(device, event.frame, event.fromDeviceId) ?? [];
+    }
     const now = performance.now();
     for (const out of outgoing) {
       const link = findLinkBetween(event.deviceId, out.toDeviceId);
       if (!link) continue;
       if (link.shutdown) {
-        logStep(device, "sim-drop", `${linkName(link)} is administratively down \u2014 frame dropped`);
+        const reason = linkDataBlockReason(link);
+        logStep(device, "sim-drop", `${reason} \u2014 ${frameLabel(out.frame)} dropped`);
+        noteArpDrop(out.frame, getDevice(out.toDeviceId), reason);
         continue;
       }
       if (!admitOnLink(device, link, out.frame)) continue;
@@ -8461,6 +8558,7 @@ Full legal text: https://creativecommons.org/publicdomain/zero/1.0/legalcode</pr
           }
         } else if (ipv4.payload.icmpType === 3) {
           if (device.id === sim.originDeviceId) {
+            sim.pingUnreachableFrom = ipv4.srcIp;
             logStep(device, "sim-icmp", `Received ICMP Destination Unreachable from ${ipv4.srcIp}`);
           }
         }
@@ -9095,17 +9193,32 @@ Full legal text: https://creativecommons.org/publicdomain/zero/1.0/legalcode</pr
     }
     return outgoing;
   }
+  function linkPeer(device, link) {
+    return getDevice(link.from === device.id ? link.to : link.from);
+  }
+  function ownsIp(device, ip) {
+    const cfg = device.config;
+    return cfg?.ipv4Address === ip || !!cfg?.interfaces?.some((iface) => iface.ipv4Address === ip);
+  }
+  function noteArpDrop(frame, headedTo, reason) {
+    const arp = frame.payload;
+    if (arp.type !== "arp") return;
+    const ip = arp.operation === "request" ? arp.targetIp : arp.senderIp;
+    (state.simulation.arpDrops[ip] ||= []).push({ reason, atOwner: !!headedTo && ownsIp(headedTo, ip) });
+  }
   function admitOnLink(device, link, frame) {
     const sim = state.simulation;
     const ptype = frame.payload.type;
     const ctrl = ptype === "dot11" || ptype === "dot1x" || ptype === "bpdu";
-    if (!ctrl && !linkAuthorizedForData(link)) {
-      const reason = link.stpBlocked ? "is spanning-tree blocked" : "is not authenticated";
-      logStep(device, "sim-drop", `${linkName(link)} ${reason} \u2014 frame dropped`);
+    const blocked = ctrl ? null : linkDataBlockReason(link);
+    if (blocked) {
+      logStep(device, "sim-drop", `${blocked} \u2014 ${frameLabel(frame)} dropped`);
+      if (!link.stpBlocked) noteArpDrop(frame, linkPeer(device, link), blocked);
       return false;
     }
     if (!sim.headless && Number(link.loss) > 0 && Math.random() * 100 < Number(link.loss)) {
       logStep(device, "sim-drop", `${linkName(link)} dropped ${frameLabel(frame)} (${link.loss}% loss)`);
+      noteArpDrop(frame, linkPeer(device, link), `${linkName(link)} lost it (${link.loss}% loss on that link \u2014 try the run again)`);
       return false;
     }
     if (sim.headless && Number(link.loss) > 0 && !(sim.lossNoted ||= /* @__PURE__ */ new Set()).has(link.id)) {
@@ -9266,7 +9379,8 @@ Full legal text: https://creativecommons.org/publicdomain/zero/1.0/legalcode</pr
         return outgoing;
       }
       if (inStateful) trackConnection(device, ipv4);
-      if (ipv4.payload.type === "icmp" && ipv4.payload.icmpType === 8) {
+      const inner = ipv4.payload;
+      if (inner.type === "icmp" && inner.icmpType === 8) {
         logStep(device, "sim-icmp", `Received ICMP Echo Request for self (${ipv4.dstIp}) \u2014 sending Reply`);
         const reply = createIcmpEchoReply(
           ingressIface.macAddress,
@@ -9275,9 +9389,15 @@ Full legal text: https://creativecommons.org/publicdomain/zero/1.0/legalcode</pr
           ipv4.srcIp,
           64,
           ingressIface.vlanTag ?? null,
-          ipv4.payload.sequence
+          inner.sequence
         );
         outgoing.push({ frame: reply, toDeviceId: fromDeviceId });
+      } else if (inner.type === "tcp" && inner.flags === "syn" || inner.type === "dns" && inner.op === "query") {
+        logStep(device, "sim-drop", inner.type === "tcp" ? `TCP SYN to ${ipv4.dstIp}:${inner.dstPort} \u2014 no service listens on this port of the router, sending RST` : `DNS query to ${ipv4.dstIp} \u2014 the router runs no DNS service (UDP/53 closed), sending ICMP Port Unreachable`);
+        const resp = rejectResponse(frame, ipv4, ingressIface.macAddress, selfIface.ipv4Address, ingressIface.vlanTag ?? null, fromDeviceId);
+        if (resp) outgoing.push(resp);
+      } else {
+        logStep(device, "sim-drop", `${frameLabel(frame)} addressed to the router itself (${ipv4.dstIp}) \u2014 nothing on the router handles it, dropped`);
       }
       return outgoing;
     }
@@ -9834,10 +9954,81 @@ Full legal text: https://creativecommons.org/publicdomain/zero/1.0/legalcode</pr
     if (!(ms > 0)) return 1;
     return Math.min(20, Math.max(0.25, ms / 10));
   }
+  var STORM_DIAGNOSIS = "Broadcast storm \u2014 frames looped past the safety cap: an L2 loop with no spanning tree to break it (enable STP on the switches, or remove the redundant link)";
+  function arpDropReason(ip) {
+    const notes = state.simulation.arpDrops[ip];
+    if (!notes?.length) return null;
+    let relevant = notes.filter((n) => n.atOwner);
+    if (!relevant.length && state.devices.some((d) => ownsIp(d, ip))) relevant = notes;
+    if (!relevant.length) return null;
+    return [...new Set(relevant.map((n) => n.reason))].slice(0, 2).join("; ");
+  }
+  function explainUnansweredArp(device, ip, frames) {
+    const counts = /* @__PURE__ */ new Map();
+    for (const f of frames) {
+      const label = frameLabel(f);
+      counts.set(label, (counts.get(label) ?? 0) + 1);
+    }
+    const queued = [...counts].map(([label, n]) => `${n} queued ${label}`).join(", ");
+    const head = `ARP for ${ip} got no reply \u2014 ${queued} never sent`;
+    const isRouter = device.type === "router";
+    const isGateway = !isRouter && ip === device.config?.gatewayIpv4Address;
+    const dropped = arpDropReason(ip);
+    if (dropped) {
+      const who = isRouter ? `next hop ${ip}` : isGateway ? `${ip} (this host's default gateway)` : ip;
+      return `${head}: the ARP for ${who} was dropped on the way \u2014 ${dropped}`;
+    }
+    if (isRouter) return `${head}: next hop ${ip} did not answer \u2014 is it powered on, cabled, and addressed on that subnet?`;
+    if (isGateway)
+      return `${head}: ${ip} is this host's default gateway and no device answered for it \u2014 is the gateway address right, and is the router interface up on this subnet?`;
+    return `${head}: no device on this subnet answered for ${ip} \u2014 is the address right, and is that host cabled and powered on?`;
+  }
+  function runPostMortem(succeeded) {
+    const sim = state.simulation;
+    const origin = sim.originDeviceId ? getDevice(sim.originDeviceId) : void 0;
+    if (sim.stormDetected) {
+      if (origin) logStep(origin, "sim-drop", STORM_DIAGNOSIS);
+      return [STORM_DIAGNOSIS];
+    }
+    const byDevice = /* @__PURE__ */ new Map();
+    for (const key in sim.pendingArp) {
+      const frames = sim.pendingArp[key];
+      if (!frames?.length) continue;
+      const cut = key.lastIndexOf(":");
+      const id = key.slice(0, cut);
+      const list = byDevice.get(id) ?? [];
+      list.push({ ip: key.slice(cut + 1), frames });
+      byDevice.set(id, list);
+    }
+    const lines = [];
+    for (const [id, entries] of byDevice) {
+      const device = getDevice(id);
+      if (!device) continue;
+      const reasons = [];
+      if (entries.length > 3) {
+        const gw = device.config?.gatewayIpv4Address;
+        for (const e of entries) if (e.ip === gw) reasons.push(explainUnansweredArp(device, e.ip, e.frames));
+        const rest = entries.filter((e) => e.ip !== gw);
+        const shown = rest.slice(0, 4).map((e) => e.ip).join(", ") + (rest.length > 4 ? ", \u2026" : "");
+        const queued = rest.reduce((n, e) => n + e.frames.length, 0);
+        reasons.push(`ARP got no reply from ${rest.length} addresses (${shown}) \u2014 ${queued} queued frames never sent: no device on this subnet answered for them`);
+      } else {
+        for (const e of entries) reasons.push(explainUnansweredArp(device, e.ip, e.frames));
+      }
+      for (const reason of reasons) {
+        logStep(device, succeeded ? "sim-arp" : "sim-drop", reason);
+        lines.push(id === sim.originDeviceId ? reason : `${device.name}: ${reason}`);
+      }
+    }
+    return succeeded ? [] : lines;
+  }
   function finishSimulation() {
     const sim = state.simulation;
     const originSession = sessionFor(sim.originDeviceId);
     const out = (kind, text) => originSession ? terminalLineFor(originSession, kind, text) : terminalLine(kind, text);
+    const originArpUnanswered = Object.keys(sim.pendingArp).some((k) => sim.pendingArp[k].length > 0 && k.startsWith(`${sim.originDeviceId}:`));
+    const succeeded = runSucceeded(sim.mode);
+    sim.diagnosis = runPostMortem(succeeded);
     if (sim.stormDetected) {
       if (!sim.headless) {
         out("error", "Broadcast storm: frames are looping endlessly \u2014 there's an L2 loop with no spanning tree to break it.\nEnable STP on the switches (it's on by default for managed switches), or remove the redundant link.");
@@ -9890,6 +10081,8 @@ Name:	${sim.dnsName}
 Address: ${sim.dnsResolvedIp}`);
         } else if (sim.log.some((e) => e.kind === "sim-drop" && e.action.includes("NXDOMAIN"))) {
           out("error", `** server can't find ${sim.dnsName}: NXDOMAIN`);
+        } else if (sim.pingUnreachableFrom) {
+          out("error", `;; communications error to ${server}#53: connection refused`);
         } else {
           out("error", `;; connection timed out; no servers could be reached`);
         }
@@ -9942,12 +10135,23 @@ ${sim.httpServerTitle || ""}`);
 --- ${name} ping statistics ---
 1 packets transmitted, 1 received, 0% packet loss`);
         } else {
+          const origin = getDevice(sim.originDeviceId);
+          const errors = [];
+          if (sim.pingTimeExceeded && sim.pingResponderIp) errors.push(`From ${sim.pingResponderIp} icmp_seq=1 Time to live exceeded`);
+          if (sim.pingUnreachableFrom) errors.push(`From ${sim.pingUnreachableFrom} icmp_seq=1 Destination Port Unreachable`);
+          if (originArpUnanswered) errors.push(`From ${origin?.config?.ipv4Address || "?"} icmp_seq=1 Destination Host Unreachable`);
+          const body = errors.length ? errors.join("\n") + "\n" : "";
+          const tally = errors.length ? `, +${errors.length} error${errors.length > 1 ? "s" : ""}` : "";
           out("", `PING ${name}
-
+${body}
 --- ${name} ping statistics ---
-1 packets transmitted, 0 received, 100% packet loss`);
+1 packets transmitted, 0 received${tally}, 100% packet loss`);
         }
       }
+    }
+    const flowMode = sim.mode === "ping" || sim.mode === "tcp" || sim.mode === "http" || sim.mode === "dns";
+    if (!sim.headless && flowMode && !succeeded && !sim.stormDetected && sim.diagnosis.length) {
+      out("error", sim.diagnosis.join("\n"));
     }
     sim.events = [];
     sim.transits = [];
@@ -10227,8 +10431,9 @@ ${sim.httpServerTitle || ""}`);
         for (const hop of result.hops) {
           lines.push(` ${String(hop.ttl).padStart(2)}  ${hop.ip || "* (no response)"}`);
         }
-        if (!result.reached) lines.push("(destination not reached within 30 hops)");
-        terminalLine("", lines.join("\n"));
+        if (result.storm) lines.push(STORM_DIAGNOSIS);
+        else if (!result.reached) lines.push("(destination not reached within 30 hops)", ...result.diagnosis ?? []);
+        terminalLine(result.storm ? "error" : "", lines.join("\n"));
       }
       return;
     }
@@ -15929,47 +16134,6 @@ Snort successfully validated the configuration${bad ? " (with errors)" : "."}`);
     return params.toString();
   }
 
-  // src/tokenize.ts
-  function tokenizeCommand(line) {
-    const args = [];
-    const ends = [];
-    const src = line || "";
-    let i = 0;
-    while (i < src.length) {
-      while (i < src.length && /\s/.test(src[i])) i++;
-      if (i >= src.length) break;
-      let token = "";
-      let quote = null;
-      for (; i < src.length; i++) {
-        const ch = src[i];
-        if (quote) {
-          if (ch === "\\" && quote === '"' && (src[i + 1] === '"' || src[i + 1] === "\\")) {
-            token += src[++i];
-          } else if (ch === quote) {
-            quote = null;
-          } else {
-            token += ch;
-          }
-        } else if (ch === '"' || ch === "'") {
-          quote = ch;
-        } else if (/\s/.test(ch)) {
-          break;
-        } else {
-          token += ch;
-        }
-      }
-      if (quote) return { args: [], ends: [], error: `Unterminated ${quote === '"' ? "double" : "single"} quote.` };
-      args.push(token);
-      ends.push(i);
-    }
-    return { args, ends };
-  }
-  function quoteArg(value) {
-    const s = String(value ?? "");
-    if (s !== "" && !/[\s"'\\]/.test(s)) return s;
-    return `"${s.replace(/\\/g, "\\\\").replace(/"/g, '\\"')}"`;
-  }
-
   // src/diagnostics.ts
   function diagnoseState(app) {
     const issues = [];
@@ -16736,6 +16900,14 @@ Snort successfully validated the configuration${bad ? " (with errors)" : "."}`);
     }
     return err("Usage: stp [<switch> on|off | <switch> priority <n>]   (no args animates the BPDU exchange)");
   }
+  function runOutput(r, line) {
+    return { ok: r.success, data: r, output: [line, ...r.success ? [] : r.diagnosis] };
+  }
+  function pingErrorNote(r) {
+    if (r.timeExceeded && r.responderIp) return ` (Time to live exceeded from ${r.responderIp})`;
+    if (r.unreachableFrom) return ` (Destination Port Unreachable from ${r.unreachableFrom})`;
+    return "";
+  }
   function cmdRun(args) {
     const mode = (args[0] || "").toLowerCase();
     const purpose = `the console's \`run ${mode}\``;
@@ -16756,11 +16928,7 @@ Snort successfully validated the configuration${bad ? " (with errors)" : "."}`);
       const setup = buildDot1xEvents(host);
       if (typeof setup === "string") return err(setup);
       const r = runSimulationHeadless(setup, host.id, "", "dot1x", null, purpose);
-      return {
-        ok: r.success,
-        data: r,
-        output: [r.success ? `dot1x: ${host.name} authenticated \u2014 port authorised (${r.steps} frames)` : `dot1x: authentication failed`]
-      };
+      return runOutput(r, r.success ? `dot1x: ${host.name} authenticated \u2014 port authorised (${r.steps} frames)` : `dot1x: authentication failed`);
     }
     if (mode === "associate") {
       const laptop = resolveDevice(args[1]);
@@ -16768,11 +16936,7 @@ Snort successfully validated the configuration${bad ? " (with errors)" : "."}`);
       const setup = buildAssociationEvents(laptop);
       if (typeof setup === "string") return err(setup);
       const r = runSimulationHeadless(setup, laptop.id, "", "associate", null, purpose);
-      return {
-        ok: r.success,
-        data: r,
-        output: [r.success ? `associate: ${laptop.name} joined the WiFi (${r.steps} frames)` : "associate: handshake did not complete"]
-      };
+      return runOutput(r, r.success ? `associate: ${laptop.name} joined the WiFi (${r.steps} frames)` : "associate: handshake did not complete");
     }
     if (mode === "ping") {
       const src = resolveDevice(args[1]);
@@ -16782,11 +16946,7 @@ Snort successfully validated the configuration${bad ? " (with errors)" : "."}`);
       const setup = buildPingEvents(src, dst);
       if (typeof setup === "string") return err(setup);
       const r = runSimulationHeadless(setup, src.id, targetIpFor(dst), "ping", null, purpose);
-      return {
-        ok: r.success,
-        data: r,
-        output: [`ping ${dst}: ${r.success ? `reachable (ttl=${r.ttl})` : "unreachable"} \u2014 ${r.steps} steps`]
-      };
+      return runOutput(r, `ping ${dst}: ${r.success ? `reachable (ttl=${r.ttl})` : `unreachable${pingErrorNote(r)}`} \u2014 ${r.steps} steps`);
     }
     if (mode === "connect" || mode === "tcp") {
       const src = resolveDevice(args[1]);
@@ -16797,11 +16957,7 @@ Snort successfully validated the configuration${bad ? " (with errors)" : "."}`);
       const setup = buildConnectEvents(src, dst, port);
       if (typeof setup === "string") return err(setup);
       const r = runSimulationHeadless(setup, src.id, targetIpFor(dst), "tcp", port, purpose);
-      return {
-        ok: r.success,
-        data: r,
-        output: [`connect ${dst}:${port}: ${r.success ? "open (handshake completed)" : r.refused ? "refused (RST)" : "timed out"} \u2014 ${r.steps} steps`]
-      };
+      return runOutput(r, `connect ${dst}:${port}: ${r.success ? "open (handshake completed)" : r.refused ? "refused (RST)" : "timed out"} \u2014 ${r.steps} steps`);
     }
     if (mode === "http") {
       const src = resolveDevice(args[1]);
@@ -16813,11 +16969,7 @@ Snort successfully validated the configuration${bad ? " (with errors)" : "."}`);
       const setup = buildHttpEvents(src, host, port, path);
       if (typeof setup === "string") return err(setup);
       const r = runSimulationHeadless(setup, src.id, targetIpFor(host), "http", port, purpose);
-      return {
-        ok: r.success,
-        data: r,
-        output: [`http http://${host}:${port}${path}: ${r.httpStatus != null ? `${r.httpStatus}` : r.refused ? "refused" : "no response"} \u2014 ${r.steps} steps`]
-      };
+      return runOutput(r, `http http://${host}:${port}${path}: ${r.httpStatus != null ? `${r.httpStatus}` : r.refused ? "refused" : "no response"} \u2014 ${r.steps} steps`);
     }
     if (mode === "dhcp") {
       const host = resolveDevice(args[1]);
@@ -16825,11 +16977,7 @@ Snort successfully validated the configuration${bad ? " (with errors)" : "."}`);
       const setup = buildDhcpEvents(host);
       if (typeof setup === "string") return err(setup);
       const r = runSimulationHeadless(setup, host.id, "", "dhcp", null, purpose);
-      return {
-        ok: r.success,
-        data: r,
-        output: [r.success ? `dhcp: assigned ${r.assignedIp} (gw ${r.assignedGateway})` : "dhcp: no response"]
-      };
+      return runOutput(r, r.success ? `dhcp: assigned ${r.assignedIp} (gw ${r.assignedGateway})` : "dhcp: no response");
     }
     if (mode === "resolve" || mode === "dns") {
       const src = resolveDevice(args[1]);
@@ -16839,11 +16987,7 @@ Snort successfully validated the configuration${bad ? " (with errors)" : "."}`);
       const setup = buildResolveEvents(src, name, null, null);
       if (typeof setup === "string") return err(setup);
       const r = runSimulationHeadless(setup, src.id, name, "dns", null, purpose);
-      return {
-        ok: r.success,
-        data: r,
-        output: [`resolve ${name}: ${r.resolvedIp || "no answer"} \u2014 ${r.steps} steps`]
-      };
+      return runOutput(r, `resolve ${name}: ${r.resolvedIp || "no answer"} \u2014 ${r.steps} steps`);
     }
     return err(`run: expected "ping <src> <dst>", "connect <src> <dst> <port>", "resolve <src> <name>", or "dhcp <host>".`);
   }
@@ -16856,7 +17000,8 @@ Snort successfully validated the configuration${bad ? " (with errors)" : "."}`);
     if (typeof result === "string") return err(result);
     const lines = [`traceroute to ${result.targetIp}, 30 hops max`];
     for (const hop of result.hops) lines.push(` ${hop.ttl}  ${hop.ip || "* (no response)"}`);
-    if (!result.reached) lines.push("(destination not reached within 30 hops)");
+    if (result.storm) lines.push(STORM_DIAGNOSIS);
+    else if (!result.reached) lines.push("(destination not reached within 30 hops)", ...result.diagnosis ?? []);
     return { ok: result.reached, data: result, output: lines };
   }
   function cmdPlay() {

@@ -1,7 +1,7 @@
 import type { EthernetFrame, ArpPayload, Ipv4Payload, DhcpPayload, TcpPayload, DnsPayload, Dot11Payload, Dot1xPayload, BpduPayload, NatEntry, SimEvent, SimLogEntry, ActiveTransit, FrameHistoryEntry, RouteEntry, RouterInterface, Device, DeviceType, FirewallRule, FirewallTarget, ConnState, Link, Cidr, SimMode } from "./types";
 import { state, pushUndo, sync } from "./state";
 import { dom } from "./dom";
-import { getDevice, linkedPortsFor, routerInterfacesWithNames, linkName, linkById, linksFor, linkAuthorizedForData, macsecState } from "./devices";
+import { getDevice, linkedPortsFor, routerInterfacesWithNames, linkName, linkById, linksFor, linkDataBlockReason, macsecState } from "./devices";
 import { normalisePortVlans, normalisePortModes, normaliseTrunkAllowedVlans, normaliseArpTable, normaliseMacTable, normaliseDhcpLeases, normaliseStaticRoutes, ensureConfig } from "./normalise";
 import { sameSubnet, prefixOf, isValidIpv4, escapeHtml, ipv4ToInt, intToIpv4, normaliseMacAddress, deriveMac, internetGatewayIp, parseIpv4, cidrOf, cidrHas } from "./utils";
 import { simRandomInt } from "./prng";
@@ -164,6 +164,7 @@ function resetRunState(setup: PingSetup, originDeviceId: string, targetIp: strin
   sim.pingTtl = 64;
   sim.pingResponderIp = null;
   sim.pingTimeExceeded = false;
+  sim.pingUnreachableFrom = null;
   sim.tcpSuccess = false;
   sim.tcpRefused = false;
   sim.tcpTargetPort = setup.dns?.port ?? targetPort;
@@ -182,6 +183,8 @@ function resetRunState(setup: PingSetup, originDeviceId: string, targetIp: strin
   sim.wifiAssociated = false;
   sim.dot1xAuthorized = false;
   sim.stormDetected = false;
+  sim.diagnosis = [];
+  sim.arpDrops = {};
   sim.scanOpen = []; sim.scanClosed = []; sim.sweepLive = [];
   sim.conntrack = {};   // connection tracking starts empty each run
   sim.dnatSessions = {};
@@ -334,10 +337,13 @@ export interface SimResult {
   ttl?: number;
   responderIp?: string | null;   // who answered (echo reply or a router's TTL-exceeded)
   timeExceeded?: boolean;        // the answer was an ICMP Time-Exceeded
+  unreachableFrom?: string | null; // who sent an ICMP Destination Unreachable (a REJECT), if anyone
   resolvedIp?: string | null;    // DNS answer (mode "dns" or a by-name ping/tcp/http flow)
   httpStatus?: number | null;    // HTTP response status (mode "http")
   assignedIp?: string | null;
   assignedGateway?: string | null;
+  storm: boolean;                // the run hit the broadcast-storm cap (an L2 loop with no spanning tree)
+  diagnosis: string[];           // the post-mortem: why the flow failed, when no single step says so (empty on success, bar a storm)
   log: SimLogEntry[];
   steps: number;
 }
@@ -398,10 +404,13 @@ function drainHeadless(mode: SimMode): SimResult {
     ttl: sim.pingTtl,
     responderIp: sim.pingResponderIp,
     timeExceeded: sim.pingTimeExceeded,
+    unreachableFrom: sim.pingUnreachableFrom,
     resolvedIp: sim.dnsResolvedIp,
     httpStatus: sim.httpStatus,
     assignedIp: sim.dhcpAssignedIp,
     assignedGateway: sim.dhcpAssignedGateway,
+    storm: sim.stormDetected,
+    diagnosis: sim.diagnosis,
     log: sim.log,
     steps: sim.stepIndex,
   };
@@ -533,7 +542,12 @@ function takeBootUndo(): void {
 }
 
 export interface TracerouteHop { ttl: number; ip: string | null; reached: boolean }
-export interface TracerouteResult { targetIp: string; hops: TracerouteHop[]; reached: boolean }
+// `storm`: a probe hit the broadcast-storm cap — the trace stops there, since
+// every later probe would drown in the same loop (and print 30 lines of `*`).
+// `diagnosis`: when the destination was not reached, the last probe's
+// post-mortem (an ARP nobody answered past the last hop, say). It plays the
+// part of real traceroute's `!H`: why the trail goes silent, not just that it does.
+export interface TracerouteResult { targetIp: string; hops: TracerouteHop[]; reached: boolean; storm?: boolean; diagnosis?: string[] }
 
 // Runs traceroute headlessly: sends probes with increasing TTL and records who
 // answered each round — a router's ICMP Time-Exceeded (intermediate hop) or the
@@ -558,22 +572,27 @@ export function runTraceroute(source: Device, targetText: string, maxHops = 30):
   // Probes target the resolved IP directly (per-probe TTLs must apply to the
   // ICMP leg, not a DNS round-trip).
   const warm = buildPingEvents(source, targetIp);
-  if (typeof warm !== "string") runSimulationHeadless(warm, source.id, targetIp, "ping", null, purpose);
-
   const hops: TracerouteHop[] = [];
+  if (typeof warm !== "string" && runSimulationHeadless(warm, source.id, targetIp, "ping", null, purpose).storm) {
+    return { targetIp, hops, reached: false, storm: true };
+  }
+
   let reached = false;
+  let diagnosis: string[] = [];
   for (let ttl = 1; ttl <= maxHops; ttl++) {
     const setup = buildPingEvents(source, targetIp, { ttl });
     if (typeof setup === "string") return setup; // validation error (e.g. cannot resolve / no gateway)
     const res = runSimulationHeadless(setup, source.id, targetIp, "ping", null, purpose);
+    if (res.storm) return { targetIp, hops, reached: false, storm: true };
     if (res.success) {
       hops.push({ ttl, ip: res.responderIp || targetIp, reached: true });
       reached = true;
       break;
     }
     hops.push({ ttl, ip: res.responderIp || null, reached: false });
+    diagnosis = res.diagnosis;
   }
-  return { targetIp, hops, reached };
+  return reached ? { targetIp, hops, reached } : { targetIp, hops, reached, diagnosis };
 }
 
 // ─── Animation loop ──────────────────────────────────────────────────────────
@@ -738,7 +757,17 @@ function processNextStep(): void {
     return;
   }
 
-  const outgoing = PROCESSORS[device.type]?.(device, event.frame, event.fromDeviceId) ?? [];
+  // A powered-off device processes nothing. One guard here, before dispatch,
+  // so the drop is explained (the processors' own poweredOff early-outs stay as
+  // defence for direct callers, but no longer swallow a run's frames silently).
+  let outgoing: OutgoingFrame[];
+  if (device.poweredOff) {
+    logStep(device, "sim-drop", `${device.name} is powered off — ${frameLabel(event.frame)} dropped`);
+    noteArpDrop(event.frame, device, `${device.name} is powered off`);
+    outgoing = [];
+  } else {
+    outgoing = PROCESSORS[device.type]?.(device, event.frame, event.fromDeviceId) ?? [];
+  }
 
   // Create transits for outgoing frames
   const now = performance.now();
@@ -746,8 +775,11 @@ function processNextStep(): void {
     const link = findLinkBetween(event.deviceId, out.toDeviceId);
     if (!link) continue;
     if (link.shutdown) {
-      // Administratively down — the cable's there but it carries no traffic.
-      logStep(device, "sim-drop", `${linkName(link)} is administratively down — frame dropped`);
+      // Administratively down — the cable's there but it carries no traffic,
+      // control frames included (so this precedes admitOnLink's data gate).
+      const reason = linkDataBlockReason(link)!;
+      logStep(device, "sim-drop", `${reason} — ${frameLabel(out.frame)} dropped`);
+      noteArpDrop(out.frame, getDevice(out.toDeviceId), reason);
       continue;
     }
     // A link that hasn't authenticated (a wrong-password WiFi association, or an
@@ -1058,7 +1090,9 @@ export function processAtComputer(device: Device, frame: EthernetFrame, fromDevi
       } else if (ipv4.payload.icmpType === 3) {
         // ICMP Destination Unreachable — a filter REJECTed the flow somewhere
         // along the path (real ping prints this; the run still reads as failed).
+        // Recorded apart from pingResponderIp, which traceroute reads as "the hop".
         if (device.id === sim.originDeviceId) {
+          sim.pingUnreachableFrom = ipv4.srcIp;
           logStep(device, "sim-icmp", `Received ICMP Destination Unreachable from ${ipv4.srcIp}`);
         }
       }
@@ -1832,17 +1866,43 @@ function handleRouterDhcp(device: Device, ingressIface: any, fromDeviceId: strin
 // silent). ONE admission path for the seeded first leg and every later hop:
 // startSimulation used to create the initial transit directly, so the first
 // frame crossed even a 100 %-loss link and a one-way attack still landed.
+// The device at the other end of `link` from `device`.
+function linkPeer(device: Device, link: Link): Device | undefined {
+  return getDevice(link.from === device.id ? link.to : link.from);
+}
+
+// Whether `device` holds `ip` — a host's address or one of a router's interfaces.
+function ownsIp(device: Device, ip: string): boolean {
+  const cfg = device.config;
+  return cfg?.ipv4Address === ip || !!cfg?.interfaces?.some(iface => iface.ipv4Address === ip);
+}
+
+// Files why an ARP frame was dropped under the address it was resolving (a
+// request's target, a reply's sender), so the post-mortem of an unanswered ARP
+// can quote the real cause. Non-ARP frames are not recorded; this runs only on
+// the drop paths, never on a delivered frame.
+function noteArpDrop(frame: EthernetFrame, headedTo: Device | undefined, reason: string): void {
+  const arp = frame.payload;
+  if (arp.type !== "arp") return;
+  const ip = arp.operation === "request" ? arp.targetIp : arp.senderIp;
+  (state.simulation.arpDrops[ip] ||= []).push({ reason, atOwner: !!headedTo && ownsIp(headedTo, ip) });
+}
+
 function admitOnLink(device: Device, link: Link, frame: EthernetFrame): boolean {
   const sim = state.simulation;
   const ptype = frame.payload.type;
   const ctrl = ptype === "dot11" || ptype === "dot1x" || ptype === "bpdu";
-  if (!ctrl && !linkAuthorizedForData(link)) {
-    const reason = link.stpBlocked ? "is spanning-tree blocked" : "is not authenticated";
-    logStep(device, "sim-drop", `${linkName(link)} ${reason} — frame dropped`);
+  const blocked = ctrl ? null : linkDataBlockReason(link);
+  if (blocked) {
+    logStep(device, "sim-drop", `${blocked} — ${frameLabel(frame)} dropped`);
+    // A spanning-tree block never explains an unanswered ARP: the tree keeps
+    // every bridge reachable, so the dropped copy was redundant by design.
+    if (!link.stpBlocked) noteArpDrop(frame, linkPeer(device, link), blocked);
     return false;
   }
   if (!sim.headless && Number(link.loss) > 0 && Math.random() * 100 < Number(link.loss)) {
     logStep(device, "sim-drop", `${linkName(link)} dropped ${frameLabel(frame)} (${link.loss}% loss)`);
+    noteArpDrop(frame, linkPeer(device, link), `${linkName(link)} lost it (${link.loss}% loss on that link — try the run again)`);
     return false;
   }
   if (sim.headless && Number(link.loss) > 0 && !(sim.lossNoted ||= new Set()).has(link.id)) {
@@ -2058,14 +2118,26 @@ function routeIpv4Frame(device: Device, frame: EthernetFrame, ifaces: any[], ing
       return outgoing;
     }
     if (inStateful) trackConnection(device, ipv4);
-    if (ipv4.payload.type === "icmp" && ipv4.payload.icmpType === 8) {
+    const inner = ipv4.payload;
+    if (inner.type === "icmp" && inner.icmpType === 8) {
       logStep(device, "sim-icmp", `Received ICMP Echo Request for self (${ipv4.dstIp}) — sending Reply`);
       const reply = createIcmpEchoReply(
         ingressIface.macAddress, frame.srcMac,
         ipv4.dstIp, ipv4.srcIp,
-        64, ingressIface.vlanTag ?? null, ipv4.payload.sequence
+        64, ingressIface.vlanTag ?? null, inner.sequence
       );
       outgoing.push({ frame: reply, toDeviceId: fromDeviceId });
+    } else if ((inner.type === "tcp" && inner.flags === "syn") || (inner.type === "dns" && inner.op === "query")) {
+      // INPUT accepted it, but nothing on the router listens — answer the way a
+      // real kernel does (TCP RST / ICMP Port Unreachable), so `nc` reads
+      // "refused" rather than timing out like a DROP would.
+      logStep(device, "sim-drop", inner.type === "tcp"
+        ? `TCP SYN to ${ipv4.dstIp}:${inner.dstPort} — no service listens on this port of the router, sending RST`
+        : `DNS query to ${ipv4.dstIp} — the router runs no DNS service (UDP/53 closed), sending ICMP Port Unreachable`);
+      const resp = rejectResponse(frame, ipv4, ingressIface.macAddress, selfIface.ipv4Address, ingressIface.vlanTag ?? null, fromDeviceId);
+      if (resp) outgoing.push(resp);
+    } else {
+      logStep(device, "sim-drop", `${frameLabel(frame)} addressed to the router itself (${ipv4.dstIp}) — nothing on the router handles it, dropped`);
     }
     return outgoing;
   }
@@ -2808,6 +2880,99 @@ export function linkLatencyFactor(link: any): number {
   return Math.min(20, Math.max(0.25, ms / 10));
 }
 
+// The one-line storm diagnosis: the sim-log entry, the headless SimResult's
+// diagnosis, and what `run`/`traceroute` print when a probe storms.
+export const STORM_DIAGNOSIS = "Broadcast storm — frames looped past the safety cap: an L2 loop with no spanning tree to break it (enable STP on the switches, or remove the redundant link)";
+
+// Why an ARP for `ip` was dropped on the way this run, if a recorded drop
+// explains it. A drop on the way INTO the device owning `ip` certainly
+// mattered. Failing that, when some device does own `ip`, the ARP (or its
+// reply) was lost somewhere on the path, so any recorded drop is the lead. When
+// nothing owns `ip`, a dropped flooded copy is beside the point: the address
+// itself is the problem. At most two distinct reasons are quoted.
+function arpDropReason(ip: string): string | null {
+  const notes = state.simulation.arpDrops[ip];
+  if (!notes?.length) return null;
+  let relevant = notes.filter(n => n.atOwner);
+  if (!relevant.length && state.devices.some(d => ownsIp(d, ip))) relevant = notes;
+  if (!relevant.length) return null;
+  return [...new Set(relevant.map(n => n.reason))].slice(0, 2).join("; ");
+}
+
+// Why frames still queued behind an ARP at the end of a run were never sent:
+// name who the ARP was meant for (a router's next hop, the host's own default
+// gateway, or an on-subnet target). When the run recorded the ARP being
+// dropped on the way (a data gate, a shut cable, a powered-off device, link
+// loss), that reason is the answer. Otherwise nobody answered it, and the hint
+// points at the classic causes, such as the gateway set to the wrong address.
+function explainUnansweredArp(device: Device, ip: string, frames: EthernetFrame[]): string {
+  const counts = new Map<string, number>();
+  for (const f of frames) { const label = frameLabel(f); counts.set(label, (counts.get(label) ?? 0) + 1); }
+  const queued = [...counts].map(([label, n]) => `${n} queued ${label}`).join(", ");
+  const head = `ARP for ${ip} got no reply — ${queued} never sent`;
+  const isRouter = device.type === "router";
+  const isGateway = !isRouter && ip === device.config?.gatewayIpv4Address;
+  const dropped = arpDropReason(ip);
+  if (dropped) {
+    const who = isRouter ? `next hop ${ip}` : isGateway ? `${ip} (this host's default gateway)` : ip;
+    return `${head}: the ARP for ${who} was dropped on the way — ${dropped}`;
+  }
+  if (isRouter) return `${head}: next hop ${ip} did not answer — is it powered on, cabled, and addressed on that subnet?`;
+  if (isGateway)
+    return `${head}: ${ip} is this host's default gateway and no device answered for it — is the gateway address right, and is the router interface up on this subnet?`;
+  return `${head}: no device on this subnet answered for ${ip} — is the address right, and is that host cabled and powered on?`;
+}
+
+// The run's post-mortem, before finishSimulation discards its queues: explain
+// what no single step could. A storm is the whole story (queued frames are its
+// symptom); otherwise every pendingArp entry still holding frames is an ARP
+// nobody answered. Each reason is logged on the device that waited, and
+// returned — the origin's verbatim, others prefixed with their name — for the
+// origin's terminal and SimResult.diagnosis. A sweep's many silent addresses
+// collapse into one line per device. On a run that met its goal (a sweep that
+// found hosts, a ping that got its reply) the unanswered ARPs are expected —
+// the dead addresses a sweep probes — so they are logged as plain ARP notes and
+// left out of the diagnosis, which explains failures. A storm is always reported.
+function runPostMortem(succeeded: boolean): string[] {
+  const sim = state.simulation;
+  const origin = sim.originDeviceId ? getDevice(sim.originDeviceId) : undefined;
+  if (sim.stormDetected) {
+    if (origin) logStep(origin, "sim-drop", STORM_DIAGNOSIS);
+    return [STORM_DIAGNOSIS];
+  }
+  const byDevice = new Map<string, { ip: string; frames: EthernetFrame[] }[]>();
+  for (const key in sim.pendingArp) {
+    const frames = sim.pendingArp[key];
+    if (!frames?.length) continue;
+    const cut = key.lastIndexOf(":");   // `${deviceId}:${ip}` — an IPv4 address has no colon
+    const id = key.slice(0, cut);
+    const list = byDevice.get(id) ?? [];
+    list.push({ ip: key.slice(cut + 1), frames });
+    byDevice.set(id, list);
+  }
+  const lines: string[] = [];
+  for (const [id, entries] of byDevice) {
+    const device = getDevice(id);
+    if (!device) continue;
+    const reasons: string[] = [];
+    if (entries.length > 3) {
+      const gw = device.config?.gatewayIpv4Address;
+      for (const e of entries) if (e.ip === gw) reasons.push(explainUnansweredArp(device, e.ip, e.frames));
+      const rest = entries.filter(e => e.ip !== gw);
+      const shown = rest.slice(0, 4).map(e => e.ip).join(", ") + (rest.length > 4 ? ", …" : "");
+      const queued = rest.reduce((n, e) => n + e.frames.length, 0);
+      reasons.push(`ARP got no reply from ${rest.length} addresses (${shown}) — ${queued} queued frames never sent: no device on this subnet answered for them`);
+    } else {
+      for (const e of entries) reasons.push(explainUnansweredArp(device, e.ip, e.frames));
+    }
+    for (const reason of reasons) {
+      logStep(device, succeeded ? "sim-arp" : "sim-drop", reason);
+      lines.push(id === sim.originDeviceId ? reason : `${device.name}: ${reason}`);
+    }
+  }
+  return succeeded ? [] : lines;
+}
+
 function finishSimulation(): void {
   const sim = state.simulation;
 
@@ -2816,6 +2981,11 @@ function finishSimulation(): void {
   const originSession = sessionFor(sim.originDeviceId);
   const out = (kind: string, text: string) =>
     originSession ? terminalLineFor(originSession, kind, text) : terminalLine(kind, text);
+
+  // Explain the failure before the queues holding the evidence are cleared.
+  const originArpUnanswered = Object.keys(sim.pendingArp).some(k => sim.pendingArp[k].length > 0 && k.startsWith(`${sim.originDeviceId}:`));
+  const succeeded = runSucceeded(sim.mode);
+  sim.diagnosis = runPostMortem(succeeded);
 
   if (sim.stormDetected) {
     // A switching loop multiplied frames without bound: no spanning tree to
@@ -2864,6 +3034,9 @@ function finishSimulation(): void {
         out("", `Server:\t\t${server}\nAddress:\t${server}#53\n\nName:\t${sim.dnsName}\nAddress: ${sim.dnsResolvedIp}`);
       } else if (sim.log.some(e => e.kind === "sim-drop" && e.action.includes("NXDOMAIN"))) {
         out("error", `** server can't find ${sim.dnsName}: NXDOMAIN`);
+      } else if (sim.pingUnreachableFrom) {
+        // The nameserver's host answered ICMP Port Unreachable: nothing listens on UDP/53 there.
+        out("error", `;; communications error to ${server}#53: connection refused`);
       } else {
         out("error", `;; connection timed out; no servers could be reached`);
       }
@@ -2909,9 +3082,26 @@ function finishSimulation(): void {
         const rtt = sim.stepIndex < 15 ? "1.0" : "2.0";
         out("", `PING ${name}\n64 bytes from ${targetIp}: icmp_seq=1 ttl=${ttl} time=${rtt} ms\n\n--- ${name} ping statistics ---\n1 packets transmitted, 1 received, 0% packet loss`);
       } else {
-        out("", `PING ${name}\n\n--- ${name} ping statistics ---\n1 packets transmitted, 0 received, 100% packet loss`);
+        // An ICMP error back to the origin is printed the way Linux ping does
+        // (`From <who> icmp_seq=1 …`, counted under "+1 errors"); so is the
+        // origin's own unanswered ARP (Destination Host Unreachable).
+        const origin = getDevice(sim.originDeviceId);
+        const errors: string[] = [];
+        if (sim.pingTimeExceeded && sim.pingResponderIp) errors.push(`From ${sim.pingResponderIp} icmp_seq=1 Time to live exceeded`);
+        if (sim.pingUnreachableFrom) errors.push(`From ${sim.pingUnreachableFrom} icmp_seq=1 Destination Port Unreachable`);
+        if (originArpUnanswered) errors.push(`From ${origin?.config?.ipv4Address || "?"} icmp_seq=1 Destination Host Unreachable`);
+        const body = errors.length ? errors.join("\n") + "\n" : "";
+        const tally = errors.length ? `, +${errors.length} error${errors.length > 1 ? "s" : ""}` : "";
+        out("", `PING ${name}\n${body}\n--- ${name} ping statistics ---\n1 packets transmitted, 0 received${tally}, 100% packet loss`);
       }
     }
+  }
+
+  // The post-mortem's reasons follow a failed flow's result in the origin's
+  // terminal (a storm already printed its own explanation above).
+  const flowMode = sim.mode === "ping" || sim.mode === "tcp" || sim.mode === "http" || sim.mode === "dns";
+  if (!sim.headless && flowMode && !succeeded && !sim.stormDetected && sim.diagnosis.length) {
+    out("error", sim.diagnosis.join("\n"));
   }
 
   // A capped storm can finish with thousands of frames still queued. They are

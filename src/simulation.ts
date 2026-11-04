@@ -1,6 +1,6 @@
 import type { SimEvent, EthernetFrame, Device } from "./types";
 import { state } from "./state";
-import { getDevice, linkedPortsFor, linksFor, linkAuthorizedForData, dot1xLinkInfo } from "./devices";
+import { getDevice, linkedPortsFor, linksFor, linkAuthorizedForData, linkDataBlockReason, linkName, dot1xLinkInfo } from "./devices";
 import { runStpConvergence, isStpParticipant } from "./stp";
 import { normalisePortVlans, normalisePortModes, normaliseTrunkAllowedVlans, memoPortVlans } from "./normalise";
 import { isValidIpv4, sameSubnet, prefixOf, deriveMac, networkOf, prefixLengthOfCidr, ipv4ToInt, intToIpv4 } from "./utils";
@@ -165,7 +165,7 @@ export function buildPingEvents(source: any, targetText: string, options: { ttl?
 
   // Find the first connected device to send the initial frame to
   const firstHop = findFirstHop(source);
-  if (!firstHop) return `ping: connect: Network is unreachable (no link)`;
+  if ("blocked" in firstHop) return `ping: connect: Network is unreachable (${firstHop.blocked})`;
 
   if (sameSubnet(srcIp, dstIp, prefixOf(source.config))) {
     // Same subnet — check ARP cache
@@ -256,7 +256,7 @@ export function buildConnectEvents(source: any, targetText: string, port: number
 
   const pendingArp: Record<string, EthernetFrame[]> = {};
   const firstHop = findFirstHop(source);
-  if (!firstHop) return `nc: Network is unreachable (no link)`;
+  if ("blocked" in firstHop) return `nc: Network is unreachable (${firstHop.blocked})`;
 
   const syn = (dstMac: string) => createTcpSegment(srcMac, dstMac, srcIp, dstIp, srcPort, port, "syn");
 
@@ -345,7 +345,7 @@ export function buildResolveEvents(source: any, name: string, then: "ping" | "tc
   const srcIp = source.config.ipv4Address;
   const srcMac = source.config.macAddress;
   const firstHop = findFirstHop(source);
-  if (!firstHop) return `;; connection timed out; no servers could be reached (no link)`;
+  if ("blocked" in firstHop) return `;; connection timed out; no servers could be reached (${firstHop.blocked})`;
 
   // Next hop toward the nameserver: on-subnet → the server itself, otherwise
   // the default gateway (same decision a ping makes).
@@ -385,7 +385,7 @@ export function buildDhcpEvents(source: any): PingSetup | string {
   seedSimRng();   // reseed the run's PRNG (the DHCP transaction id draws from it)
   if (!source.config?.macAddress) return `${source.name}: eth0 has no MAC address.`;
   const firstHop = findFirstHop(source);
-  if (!firstHop) return `dhcp: Network is unreachable (no link)`;
+  if ("blocked" in firstHop) return `dhcp: Network is unreachable (${firstHop.blocked})`;
 
   const srcMac = source.config.macAddress;
   const transactionId = `dhcp-${simRandomInt(0x1000, 0x100000).toString(16)}`; // seeded xid
@@ -510,7 +510,7 @@ export function buildScanEvents(attacker: any, targetText: string): PingSetup | 
   const dstIp = attackTargetIp(targetText);
   if (!dstIp) return `nmap: cannot resolve ${targetText}`;
   const firstHop = findFirstHop(attacker);
-  if (!firstHop) return `nmap: network is unreachable (no link)`;
+  if ("blocked" in firstHop) return `nmap: network is unreachable (${firstHop.blocked})`;
   const hop = attackNextHop(attacker, dstIp);
   if (!hop) return `nmap: no route to ${dstIp}`;
 
@@ -534,7 +534,7 @@ export function buildSweepEvents(attacker: any, subnetText: string): PingSetup |
   const cfg = attacker.config;
   if (!cfg?.ipv4Address || !cfg?.macAddress) return `${attacker.name}: eth0 has no address.`;
   const firstHop = findFirstHop(attacker);
-  if (!firstHop) return `nmap: network is unreachable (no link)`;
+  if ("blocked" in firstHop) return `nmap: network is unreachable (${firstHop.blocked})`;
   // The subnet to sweep: an explicit CIDR/IP, else the attacker's own subnet.
   const t = String(subnetText || "").trim();
   const base = t && (t.includes("/") || isValidIpv4(t)) ? t : `${cfg.ipv4Address}/${prefixOf(cfg)}`;
@@ -579,7 +579,7 @@ export function buildArpSpoofEvents(attacker: any, spoofText?: string): PingSetu
   const spoofIp = String(spoofText || cfg.spoofIp || cfg.gatewayIpv4Address || "").trim();
   if (!isValidIpv4(spoofIp)) return `arpspoof: no valid IP to impersonate (set a gateway, or "arp-spoof <ip>").`;
   const firstHop = findFirstHop(attacker);
-  if (!firstHop) return `arpspoof: network is unreachable (no link)`;
+  if ("blocked" in firstHop) return `arpspoof: network is unreachable (${firstHop.blocked})`;
   const gratuitous = createArpReply(cfg.macAddress, spoofIp, BROADCAST_MAC, spoofIp);
   return { events: [{ type: "frame_arrive", frame: gratuitous, deviceId: firstHop.peerId, fromDeviceId: attacker.id, linkId: firstHop.linkId }], pendingArp: {} };
 }
@@ -606,14 +606,23 @@ export function buildAttackEvents(attacker: any, only?: string): PingSetup | str
   return { events, pendingArp };
 }
 
-function findFirstHop(source: any): { peerId: string; linkId: string } | null {
+// The source's first hop for an originated frame — or, when no cable can carry
+// it, WHY, in the learner's words: "no link" only when there is no cable at
+// all; otherwise the data gate's reason (shut, spanning-tree blocked, a WiFi
+// password mismatch, an unauthorized 802.1X port, a failed MACsec link) or a
+// powered-off peer. The builders put it in their "Network is unreachable (…)"
+// error, so the troubleshooting lesson is in the message rather than hidden.
+type FirstHop = { peerId: string; linkId: string } | { blocked: string };
+function findFirstHop(source: Device): FirstHop {
+  let blocked: string | null = null;
   for (const link of linksFor(source.id)) {
-    if (link.hidden || link.shutdown) continue; // a shut link carries no traffic
-    if (!linkAuthorizedForData(link)) continue;  // unauthenticated WiFi / unauthorized 802.1X port: no data
-    const isFrom = link.from === source.id;
-    const peerId = isFrom ? link.to : link.from;
-    const peer = getDevice(peerId);
-    if (peer && !peer.hidden && !peer.poweredOff) return { peerId: peer.id, linkId: link.id };
+    if (link.hidden) continue;
+    const reason = linkDataBlockReason(link);
+    if (reason) { blocked ??= reason; continue; }
+    const peer = getDevice(link.from === source.id ? link.to : link.from);
+    if (!peer || peer.hidden) continue;
+    if (peer.poweredOff) { blocked ??= `${peer.name}, at the other end of ${linkName(link)}, is powered off`; continue; }
+    return { peerId: peer.id, linkId: link.id };
   }
-  return null;
+  return { blocked: blocked ?? "no link" };
 }

@@ -723,6 +723,7 @@ export interface SimulationState {
   pingTtl: number;
   pingResponderIp: string | null;   // who answered (echo reply, or a router's TTL-exceeded)
   pingTimeExceeded: boolean;         // the last answer was an ICMP Time-Exceeded
+  pingUnreachableFrom: string | null; // who answered with an ICMP Destination Unreachable (a REJECT), if anyone
   tcpSuccess: boolean;               // three-way handshake completed (mode "tcp"/"http")
   tcpRefused: boolean;               // destination answered RST (port closed)
   tcpTargetPort: number | null;
@@ -743,6 +744,17 @@ export interface SimulationState {
   wifiAssociated: boolean;           // the 802.11 association handshake completed (mode "associate")
   dot1xAuthorized: boolean;          // the 802.1X EAP exchange authorised the port (mode "dot1x")
   stormDetected: boolean;            // a switching loop multiplied frames past the safety cap (no spanning tree)
+  // The run's post-mortem (finishSimulation): plain-language reasons the origin's
+  // flow failed that no single step could state — an ARP nobody answered (its
+  // queued frames never sent), a broadcast storm. Empty when the run met its
+  // goal, except for a storm. Reset each run; also on SimResult.
+  diagnosis: string[];
+  // Why ARP frames were dropped on the way this run, keyed by the address being
+  // resolved (a request's targetIp, a reply's senderIp): the data-gate, shut-cable,
+  // powered-off and loss reasons the post-mortem quotes instead of guessing "is
+  // the address right?". `atOwner` = the frame was headed to a device owning that
+  // address (the drop that certainly mattered, not a flooded copy). Reset each run.
+  arpDrops: Record<string, { reason: string; atOwner: boolean }[]>;
   // Red-team attack run (mode "attack") findings: open/closed scanned ports and
   // live hosts a sweep discovered. Reset each run; reported in finishSimulation.
   scanOpen: number[];

@@ -3,7 +3,8 @@ import { state, sync, pushUndo, networkSnapshot, dropTerminalSessions, resetCapt
 import { dom } from "./dom";
 import { deviceSize, defaultDeviceConfig, ensureConfig, normaliseRouterInterfaces, normalisePortVlans, normalisePortModes } from "./normalise";
 import { clampPortCount, clampApPortCount, clampRouterPortCount, escapeHtml, randomMac, isValidHostname, MAX_PHYSICAL_PORT } from "./utils";
-import { DEVICE_SPECS, USER_ADDABLE_TYPES, freshNameCounters, hasSingleNic, isHost, defaultPortCount } from "./device-registry";
+import { quoteArg } from "./tokenize";
+import { DEVICE_SPECS, USER_ADDABLE_TYPES, freshNameCounters, hasSingleNic, isHost, isDot1xSupplicant, defaultPortCount } from "./device-registry";
 
 // The hostname role lives in the device registry; re-exported for the inspector.
 export { hasHostname } from "./device-registry";
@@ -209,12 +210,21 @@ function dot1xEndAuthorized(link: Link, info: Dot1xPortInfo | null): boolean {
   return !!link.dot1xAuthorized;
 }
 
-// Whether every 802.1X-controlled port on this link currently authorises it
-// (both ends of a switch↔switch link may be under port control).
-export function dot1xPortAuthorized(link: Link | null | undefined): boolean {
-  if (!link || link.wireless) return true;
+// The 802.1X-controlled end of this link that currently holds it closed, or
+// null when every controlled port authorises it (both ends of a switch↔switch
+// link may be under port control).
+function dot1xBlockingEnd(link: Link | null | undefined): Dot1xPortInfo | null {
+  if (!link || link.wireless) return null;
   const a = getDevice(link.from), b = getDevice(link.to);
-  return dot1xEndAuthorized(link, dot1xPortEnd(link, a, b)) && dot1xEndAuthorized(link, dot1xPortEnd(link, b, a));
+  const aEnd = dot1xPortEnd(link, a, b);
+  if (!dot1xEndAuthorized(link, aEnd)) return aEnd;
+  const bEnd = dot1xPortEnd(link, b, a);
+  return dot1xEndAuthorized(link, bEnd) ? null : bEnd;
+}
+
+// Whether every 802.1X-controlled port on this link currently authorises it.
+export function dot1xPortAuthorized(link: Link | null | undefined): boolean {
+  return dot1xBlockingEnd(link) === null;
 }
 
 // MACsec (802.1AE) state of a link, from each end's per-peer config. "secured" =
@@ -241,17 +251,60 @@ export function macsecState(link: any): "open" | "secured" | "failed" {
   return cfg!.mode === "must" ? "failed" : "open";
 }
 
-// The single data-path gate: false = this link drops DATA frames right now,
-// whether because a spanning-tree alternate port blocks it, a WiFi association
-// never authenticated, an 802.1X port is unauthorized, or a MACsec link could
-// not be secured (must-secure). (Shutdown/hidden are checked separately at each
-// site; auth/EAPOL/BPDU control frames bypass this — see the engine transit step.)
-export function linkAuthorizedForData(link: any): boolean {
-  if (link?.stpBlocked) return false;   // a spanning-tree alternate port — blocks data to break the loop
-  if (link?.wireless && !wifiLinkAuthenticated(link)) return false;
-  if (!dot1xPortAuthorized(link)) return false;
-  if (macsecState(link) === "failed") return false;
-  return true;
+// Why a link's MACsec is "failed", mirroring macsecState's branches — called
+// only once macsecState has said so.
+function macsecFailureDetail(link: Link): string {
+  const a = getDevice(link.from), b = getDevice(link.to);
+  const aCfg = a?.config?.macsec?.[link.to];
+  const bCfg = b?.config?.macsec?.[link.from];
+  if (aCfg && bCfg) {
+    if (aCfg.derive && bCfg.derive) return "it keys from 802.1X and the port has not authenticated yet";
+    if (aCfg.derive || bCfg.derive) return "one end derives its key from 802.1X, the other uses a static key";
+    return "the two ends' pre-shared keys do not match";
+  }
+  const [strict, bare] = aCfg ? [a, b] : [b, a];
+  return `${strict?.name ?? "one end"} requires MACsec but ${bare?.name ?? "its peer"} has none configured`;
+}
+
+// The console command a supplicant needs next: an identity first (`dot1x`
+// refuses a host without one), then the exchange itself. The name is quoted the
+// way the command line needs it, so a hostname with a space stays runnable.
+function dot1xNextStep(peer: Device): string {
+  const name = quoteArg(peer.name);
+  return peer.config?.dot1x?.identity
+    ? `run dot1x ${name} first`
+    : `give it an identity with supplicant ${name} <identity> <password>, then run dot1x ${name}`;
+}
+
+// Why this link drops DATA frames right now, in the learner's words — or null
+// when it carries data. The single data-path gate, behind all three chokepoints
+// (l2Reachable / findFirstHop / the engine transit step), so a drop names its
+// real cause instead of "no link": an administratively down cable, a
+// spanning-tree alternate port (cut to break a loop), a WiFi association that
+// never authenticated, an unauthorized 802.1X port, or a MACsec link that could
+// not be secured. Auth/EAPOL/BPDU control frames bypass it (the transit step's
+// `ctrl` set). The common open link returns null without building a string.
+export function linkDataBlockReason(link: Link | null | undefined): string | null {
+  if (!link) return null;
+  if (link.shutdown) return `${linkName(link)} is administratively down, so it carries no traffic`;
+  if (link.stpBlocked) return `${linkName(link)} is blocked by spanning tree — an alternate port, cut to break a switching loop`;
+  if (link.wireless && !wifiLinkAuthenticated(link))
+    return `${linkName(link)} never authenticated — the laptop's WiFi password does not match the access point's`;
+  const port = dot1xBlockingEnd(link);
+  if (port) {
+    return port.mode === "force-unauthorized"
+      ? `${port.sw.name} ${port.port} is 802.1X force-unauthorized, so it never carries data`
+      : isDot1xSupplicant(port.peer.type)
+        ? `${port.sw.name} ${port.port} is under 802.1X control and ${port.peer.name} has not authenticated — ${dot1xNextStep(port.peer)}`
+        : `${port.sw.name} ${port.port} is under 802.1X control and ${port.peer.name} cannot authenticate (it is not an 802.1X supplicant)`;
+  }
+  if (macsecState(link) === "failed") return `${linkName(link)} failed MACsec — ${macsecFailureDetail(link)}`;
+  return null;
+}
+
+// Boolean form of the gate: true = this link carries data right now.
+export function linkAuthorizedForData(link: Link | null | undefined): boolean {
+  return linkDataBlockReason(link) === null;
 }
 
 // Why a link from→to can't be created (null = allowed). Shared by addLink and

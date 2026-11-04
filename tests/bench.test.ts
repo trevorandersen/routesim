@@ -271,6 +271,8 @@ describe("bench: linkById", () => {
 });
 
 // ── 2f. The data-path gate (run on every transit) ───────────────────────────
+// linkAuthorizedForData is the boolean wrapper over linkDataBlockReason, so
+// these time the reason-returning gate (an open link builds no string).
 
 describe("bench: linkAuthorizedForData", () => {
   const results: BenchResult[] = [];

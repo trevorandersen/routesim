@@ -4,7 +4,7 @@
 import { describe, it, expect, beforeAll, beforeEach } from "bun:test";
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
-import { state, defaultConfig, vlanRoasConfig, routerMeshConfig, wifiVlanConfig } from "../src/state";
+import { state, defaultConfig, vlanRoasConfig, routerMeshConfig, wifiVlanConfig, undo, redo, networkSnapshot, restoreSnapshot, registerCallbacks } from "../src/state";
 import { SCENARIOS, getScenario, loadScenario, checkScenario, registerScenario, isValidScenarioCheck, unregisterScenario } from "../src/scenarios";
 import { SCENARIO_GROUPS } from "../src/scenario-library";
 import { addLink } from "../src/devices";
@@ -318,5 +318,100 @@ describe("isolation checks pass only for the taught reason (blockedBy)", () => {
   it("rejects a non-string blockedBy on import", () => {
     expect(isValidScenarioCheck({ kind: "ping-fail", from: "A", to: "B", blockedBy: 7, label: "l" })).toBe(false);
     expect(isValidScenarioCheck({ kind: "tcp-fail", from: "A", to: "B", port: 22, blockedBy: "", label: "l" })).toBe(false);
+  });
+});
+
+// R78: the active scenario and the name-resolution mode a load forces were not
+// part of the undo snapshot, so undoing a scenario load put the learner's own
+// network back under the scenario's goal banner, with realistic DNS still on.
+describe("undo across a load restores the scenario and name-resolution mode (R78)", () => {
+  beforeEach(() => { resetState(); registerNoopCallbacks(); });
+
+  const [first, second] = SCENARIOS;
+  const own = () => runConsoleScript("add computer MINE at 100 100\nadd switch MY-SW at 300 100\nlink MINE MY-SW");
+  const names = () => state.devices.map(d => d.name).sort().join(",");
+
+  it("undoing a scenario load deactivates the scenario and brings Instant DNS back", () => {
+    own();
+    expect(state.options.instantDns).toBe(true);
+    loadScenario(first.id);
+    expect(state.activeScenarioId).toBe(first.id);
+    expect(state.options.instantDns).toBe(false);
+    undo();
+    expect(names()).toBe("MINE,MY-SW");
+    expect(state.activeScenarioId).toBeNull();
+    expect(state.options.instantDns).toBe(true);
+  });
+
+  it("redo brings the scenario and its realistic DNS back with its network", () => {
+    own();
+    loadScenario(first.id);
+    const scenarioNames = names();
+    undo();
+    redo();
+    expect(names()).toBe(scenarioNames);
+    expect(state.activeScenarioId).toBe(first.id);
+    expect(state.options.instantDns).toBe(false);
+  });
+
+  it("undoing a switch from one scenario to another returns to the first", () => {
+    loadScenario(first.id);
+    loadScenario(second.id);
+    expect(state.activeScenarioId).toBe(second.id);
+    undo();
+    expect(state.activeScenarioId).toBe(first.id);
+    expect(checkScenario(getScenario(first.id)!).checks.length).toBe(first.checks.length);
+  });
+
+  it("undoing a topology load made inside a scenario returns to the scenario", () => {
+    loadScenario(first.id);
+    exec("topology basic");
+    expect(state.activeScenarioId).toBeNull();
+    expect(state.options.instantDns).toBe(true);
+    undo();
+    expect(state.activeScenarioId).toBe(first.id);
+    expect(state.options.instantDns).toBe(false);
+  });
+
+  it("undoing a topology load brings back an Instant DNS the learner had turned off", () => {
+    own();
+    state.options.instantDns = false;          // the learner's own choice, on their own network
+    exec("topology basic");
+    expect(state.options.instantDns).toBe(true);
+    undo();
+    expect(names()).toBe("MINE,MY-SW");
+    expect(state.options.instantDns).toBe(false);
+  });
+
+  it("an ordinary edit inside a scenario keeps the scenario through undo and redo", () => {
+    loadScenario(first.id);
+    exec("add computer EXTRA at 50 50");
+    undo();
+    expect(state.activeScenarioId).toBe(first.id);
+    redo();
+    expect(state.activeScenarioId).toBe(first.id);
+    expect(state.options.instantDns).toBe(false);
+  });
+
+  it("the goal banner and the settings checkbox are refreshed by the restore", () => {
+    const calls: string[] = [];
+    own();
+    loadScenario(first.id);
+    registerCallbacks({
+      render() {}, syncPanel() {}, syncTerminal() {}, resizeCanvas() {}, syncCoordReadout() {}, recomputeStp() {}, syncSimLog() {},
+      syncScenarioPanel: () => { calls.push(`scenario:${state.activeScenarioId}`); },
+      syncOptionControls: () => { calls.push(`dns:${state.options.instantDns}`); },
+    });
+    undo();
+    expect(calls).toContain("scenario:null");
+    expect(calls).toContain("dns:true");
+  });
+
+  it("a snapshot without the two fields leaves them alone", () => {
+    loadScenario(first.id);
+    const { activeScenarioId, instantDns, ...bare } = JSON.parse(networkSnapshot());
+    restoreSnapshot(JSON.stringify(bare));
+    expect(state.activeScenarioId).toBe(first.id);
+    expect(state.options.instantDns).toBe(false);
   });
 });

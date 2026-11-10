@@ -11,7 +11,7 @@ Serialises the live network to a portable payload, applies a payload back to the
 
 ## Loading built-ins
 - **`loadDefaultConfig()`** — startup: `applyConfigWithoutUndo(normaliseConfig(defaultConfig))` (the Basic Network). No network request.
-- **`loadTopology(name)`** — load one of the three built-in topologies (`defaultConfig`/`vlanRoasConfig`/`routerMeshConfig` from `state.ts`); wired to the File-tab Topologies `<select>`.
+- **`loadTopology(name)`** — load one of the three built-in topologies (`defaultConfig`/`vlanRoasConfig`/`routerMeshConfig` from `state.ts`); wired to the File-tab Topologies `<select>`. It forces Instant DNS on **after** `applyConfig` has taken its undo snapshot, so undoing the load restores the previous mode (the snapshot records it — see [state.md](state.md)).
 
 ## How it fits
 

@@ -610,7 +610,14 @@ export function networkSnapshot(): string {
     }),
     selectedId: state.selectedId,
     configuringId: state.configuringId,
-    nameCounters: { ...state.nameCounters }
+    nameCounters: { ...state.nameCounters },
+    // What a load changes besides the topology: the active scenario (its goal
+    // banner belongs to the network it was loaded with) and the name-resolution
+    // mode loadScenario/loadTopology force. Without them, undoing a scenario
+    // load left the scenario — and its realistic-DNS setting — active over the
+    // learner's own network.
+    activeScenarioId: state.activeScenarioId,
+    instantDns: state.options.instantDns
   });
 }
 
@@ -658,6 +665,10 @@ export function restoreSnapshot(snapshot: string): void {
   state.selectedId = restored.selectedId;
   state.configuringId = restored.configuringId;
   state.nameCounters = { ...freshNameCounters(), ...(restored.nameCounters || {}) };
+  // The scenario and name-resolution mode that stood with this network (absent
+  // from a snapshot built by hand: leave them as they are).
+  if ("activeScenarioId" in restored) state.activeScenarioId = restored.activeScenarioId ?? null;
+  if (typeof restored.instantDns === "boolean") state.options.instantDns = restored.instantDns;
   state.linkStartId = null;
   state.selectedLinkId = null;
   state.drag = null;
@@ -672,6 +683,8 @@ export function restoreSnapshot(snapshot: string): void {
   linksChanged();
   sync().syncPanel();
   sync().syncSimLog();
+  sync().syncScenarioPanel();
+  sync().syncOptionControls();
   // An open shell renders from the restored devices too: the prompt carries the
   // hostname, and a router CLI mode can point at configuration this restore
   // just removed (syncTerminal reconciles it — terminal/router.ts).

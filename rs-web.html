@@ -4421,7 +4421,14 @@ Full legal text: https://creativecommons.org/publicdomain/zero/1.0/legalcode</pr
       }),
       selectedId: state.selectedId,
       configuringId: state.configuringId,
-      nameCounters: { ...state.nameCounters }
+      nameCounters: { ...state.nameCounters },
+      // What a load changes besides the topology: the active scenario (its goal
+      // banner belongs to the network it was loaded with) and the name-resolution
+      // mode loadScenario/loadTopology force. Without them, undoing a scenario
+      // load left the scenario — and its realistic-DNS setting — active over the
+      // learner's own network.
+      activeScenarioId: state.activeScenarioId,
+      instantDns: state.options.instantDns
     });
   }
   function pushUndo() {
@@ -4458,6 +4465,8 @@ Full legal text: https://creativecommons.org/publicdomain/zero/1.0/legalcode</pr
     state.selectedId = restored.selectedId;
     state.configuringId = restored.configuringId;
     state.nameCounters = { ...freshNameCounters(), ...restored.nameCounters || {} };
+    if ("activeScenarioId" in restored) state.activeScenarioId = restored.activeScenarioId ?? null;
+    if (typeof restored.instantDns === "boolean") state.options.instantDns = restored.instantDns;
     state.linkStartId = null;
     state.selectedLinkId = null;
     state.drag = null;
@@ -4466,6 +4475,8 @@ Full legal text: https://creativecommons.org/publicdomain/zero/1.0/legalcode</pr
     linksChanged();
     sync().syncPanel();
     sync().syncSimLog();
+    sync().syncScenarioPanel();
+    sync().syncOptionControls();
     sync().syncTerminal();
   }
   function cancelActiveRun() {
@@ -16409,8 +16420,6 @@ Snort successfully validated the configuration${bad ? " (with errors)" : "."}`);
     render();
   }
   function loadTopology(name) {
-    state.options.instantDns = true;
-    sync().syncOptionControls();
     try {
       if (name === "vlan-roas") {
         applyConfig(normaliseConfig(vlanRoasConfig));
@@ -16425,6 +16434,8 @@ Snort successfully validated the configuration${bad ? " (with errors)" : "."}`);
         applyConfig(normaliseConfig(defaultConfig));
         dom.modeLabel.textContent = "Loaded Basic Network topology.";
       }
+      state.options.instantDns = true;
+      sync().syncOptionControls();
     } catch (error) {
       dom.modeLabel.textContent = error.message;
     }

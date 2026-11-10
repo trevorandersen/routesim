@@ -138,6 +138,7 @@ export const state: AppState = {
     dhcpAssignedGateway: null,
     wifiAssociated: false,
     dot1xAuthorized: false,
+    dot1xFailure: null,
     stormDetected: false,
     diagnosis: [],
     arpDrops: {},

@@ -101,6 +101,20 @@ Every way a run can fail states why (CLAUDE.md, "Failure is a lesson"). Four pie
 
 `dot1xLinkInfo` / `dot1xPortAuthorized` (devices.ts, feeding `linkAuthorizedForData`) key port control on the **switch port alone**: whatever is cabled to an `auto` or `force-unauthorized` port — a PC, a Kali PC, a Red Team host, a hub (and everything behind it), an access point's uplink, a router — faces the same gate, and a peer that can't or doesn't run a supplicant simply never authenticates. The gate used to apply only when the peer was a computer, laptop or server, so a Kali box on a locked port passed data as if it were open — the opposite of the NAC lesson. On a switch↔switch link both ends' port modes are checked. Which devices *can* be supplicants is the registry's `dot1xSupplicant` role (`isDot1xSupplicant`), shared by the `supplicant` command, `buildDot1xEvents` and the authenticator's identity fallback — every host, including the Kali PC and the Red Team actor (with valid credentials an attacker authenticates like anyone else).
 
+## The 802.1X authenticator obeys the port-control mode
+
+`handleDot1x` used to ignore `portAuth` (review R8): on a `force-unauthorized` port it relayed to RADIUS, set `link.dot1xAuthorized` and logged "the port is authorised, traffic may pass" while the data gate still held the port closed — and the stale flag then opened the port the moment it was switched to `auto`, with no exchange. Now, at EAPOL-Start, the switch reads its own port's mode (`dot1xPortFacing(sw, peerId)`, devices.ts) and behaves as the 802.1X PAE state machine does:
+
+| Port mode | Answer to EAPOL-Start | RADIUS | `link.dot1xAuthorized` |
+|---|---|---|---|
+| `auto` | EAP-Request/Identity — the full exchange | asked | set by Access-Accept, cleared by Access-Reject |
+| `force-unauthorized` | canned EAP-Failure | not asked | untouched (the gate is closed regardless) |
+| `force-authorized` (default) | canned EAP-Success | not asked | untouched (the gate is open regardless; with no exchange there are no keys for a `macsec … dot1x` link to derive) |
+
+The handler that decides a failure records why in `sim.dot1xFailure` — the forced-closed port (with the `portauth … auto` command to run), a switch with no RADIUS server attached, or an Access-Reject — and `runPostMortem` carries it into `SimResult.diagnosis`, so `run dot1x` prints the cause under `dot1x: authentication failed`. The supplicant's EAP-Failure line says "check the identity/password" only when credentials were actually checked.
+
+`portauth` (commands.ts) clears `link.dot1xAuthorized` on the port's cable whenever the mode **changes** (re-applying the same mode keeps the session), inside the same undo point, and says so in its output: a mode change ends the 802.1X session, as on a real switch.
+
 ## Two lifecycle details (LOW sweep)
 
 - **A device deleted mid-run no longer strands the simulation.** `processNextStep` used to `return` early when an event's target device was gone, skipping the completion check — if that was the last queued work the run sat on "running" with live controls. The drop is logged against the sender and the step still **settles** (`settleStep`: process the next event if any, else finish).

@@ -201,6 +201,19 @@ export function dot1xLinkInfo(link: Link | null | undefined): Dot1xPortInfo | nu
   return dot1xPortEnd(link, a, b) ?? dot1xPortEnd(link, b, a);
 }
 
+// The 802.1X port on `sw` that faces `peerId` — the authenticator's own view of
+// the cable an EAPOL frame arrived on. Null when `sw` has no port control.
+export function dot1xPortFacing(sw: Device | undefined, peerId: string | null | undefined): Dot1xPortInfo | null {
+  if (!sw || !peerId) return null;
+  const peer = getDevice(peerId);
+  for (const link of linksFor(sw.id)) {
+    if (link.wireless || (link.from !== peerId && link.to !== peerId)) continue;
+    const end = dot1xPortEnd(link, sw, peer);
+    if (end) return end;
+  }
+  return null;
+}
+
 // Whether one authenticator end lets data through. force-authorized (the
 // default / no 802.1X) always passes; force-unauthorized never; "auto" passes
 // only after a successful EAP exchange (stored on the link as dot1xAuthorized).

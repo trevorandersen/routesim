@@ -1,8 +1,9 @@
 import type { EthernetFrame, ArpPayload, Ipv4Payload, DhcpPayload, TcpPayload, DnsPayload, Dot11Payload, Dot1xPayload, BpduPayload, NatEntry, SimEvent, SimLogEntry, ActiveTransit, FrameHistoryEntry, RouteEntry, RouterInterface, Device, DeviceType, FirewallRule, FirewallTarget, ConnState, Link, Cidr, SimMode, ArpEntry } from "./types";
 import { state, pushUndo, sync } from "./state";
 import { dom } from "./dom";
-import { getDevice, linkedPortsFor, routerInterfacesWithNames, linkName, linkById, linksFor, linkDataBlockReason, macsecState, macsOwnedBy, liveMacsOf, isPhysicalLink } from "./devices";
+import { getDevice, linkedPortsFor, routerInterfacesWithNames, linkName, linkById, linksFor, linkDataBlockReason, macsecState, macsOwnedBy, liveMacsOf, isPhysicalLink, dot1xPortFacing } from "./devices";
 import { normalisePortVlans, normalisePortModes, normaliseTrunkAllowedVlans, normaliseArpTable, normaliseMacTable, normaliseDhcpLeases, normaliseStaticRoutes, ensureConfig } from "./normalise";
+import { quoteArg } from "./tokenize";
 import { sameSubnet, prefixOf, isValidIpv4, escapeHtml, ipv4ToInt, intToIpv4, normaliseMacAddress, deriveMac, internetGatewayIp, parseIpv4, cidrOf, cidrHas } from "./utils";
 import { simRandomInt, seedSimRng, seedLossRng, lossRandom } from "./prng";
 import { createArpRequest, createArpReply, createIcmpEchoRequest, createIcmpEchoReply, createIcmpTimeExceeded, createIcmpDestUnreachable, icmpOriginalOf, createDhcpOffer, createDhcpRequest, createDhcpAck, createTcpSegment, createHttpRequest, createHttpResponse, createDnsResponse, createDot11Frame, createDot1xFrame, createBpduFrame, BROADCAST_MAC, frameLabel, packetColumns, toneGlyph } from "./frame";
@@ -186,6 +187,7 @@ function resetRunState(setup: PingSetup, originDeviceId: string, targetIp: strin
   sim.dhcpAssignedGateway = null;
   sim.wifiAssociated = false;
   sim.dot1xAuthorized = false;
+  sim.dot1xFailure = null;
   sim.stormDetected = false;
   sim.diagnosis = [];
   sim.arpDrops = {};
@@ -991,6 +993,13 @@ function supplicantByIdentity(sw: Device, identity: string): { host: Device; lin
 // supplicant (host), authenticator (switch), and RADIUS server. EAPOL/EAP runs
 // host↔switch; RADIUS runs switch↔server. An `auto` port stays unauthorized
 // (link.dot1xAuthorized) until EAP-Success.
+//
+// The authenticator obeys the port's control mode, as the 802.1X PAE state
+// machine does: only an `auto` port runs the exchange. A force-unauthorized
+// port answers with a canned EAP-Failure and a force-authorized one with a
+// canned EAP-Success — neither asks RADIUS. (The handler used to ignore the
+// mode: a force-unauthorized port relayed to RADIUS, recorded the link as
+// authorised and reported success, while the data gate still held it closed.)
 function handleDot1x(device: Device, frame: EthernetFrame, fromDeviceId: string | null): OutgoingFrame[] {
   const p = frame.payload as Dot1xPayload;
   const identity = p.identity || "";
@@ -998,9 +1007,20 @@ function handleDot1x(device: Device, frame: EthernetFrame, fromDeviceId: string 
     fromDeviceId ? [{ frame: createDot1xFrame(frame.dstMac, frame.srcMac, subtype, id), toDeviceId: fromDeviceId }] : [];
 
   switch (p.subtype) {
-    case "eapol-start": // authenticator: kick off identity request
+    case "eapol-start": { // authenticator: obey the port's control mode, then kick off the identity request
+      const port = dot1xPortFacing(device, fromDeviceId);
+      if (port?.mode === "force-unauthorized") {
+        state.simulation.dot1xFailure = `${device.name} ${port.port} is 802.1X force-unauthorized: the switch refuses every login on it without asking RADIUS, whatever the credentials — set it to auto to authenticate ("portauth ${quoteArg(device.name)} ${port.port} auto")`;
+        logStep(device, "sim-drop", `EAPOL-Start on ${port.port} — the port is force-unauthorized: EAP-Failure without asking RADIUS (the port stays closed whatever the credentials)`);
+        return back("eap-failure", identity);
+      }
+      if (port?.mode !== "auto") {
+        logStep(device, "sim-dot1x", `EAPOL-Start on ${port?.port ?? "this port"} — the port is force-authorized (no 802.1X control): EAP-Success without asking RADIUS; nothing was authenticated`);
+        return back("eap-success", identity);
+      }
       logStep(device, "sim-dot1x", `EAPOL-Start — requesting the supplicant's identity`);
       return back("eap-req-id");
+    }
     case "eap-req-id": { // supplicant: answer with its identity
       const id = device.config?.dot1x?.identity || "";
       logStep(device, "sim-dot1x", `EAP Identity request — responding "${id}"`);
@@ -1008,7 +1028,11 @@ function handleDot1x(device: Device, frame: EthernetFrame, fromDeviceId: string 
     }
     case "eap-resp-id": { // authenticator: relay to RADIUS
       const server = radiusServerFor(device);
-      if (!server) { logStep(device, "sim-drop", `802.1X: no RADIUS server reachable — cannot authenticate`); return []; }
+      if (!server) {
+        state.simulation.dot1xFailure = `${device.name} has no RADIUS server attached to check "${identity}" against — cable a server to it and add the user ("radius <server> <identity> <password>")`;
+        logStep(device, "sim-drop", `802.1X: no RADIUS server reachable — cannot authenticate`);
+        return [];
+      }
       logStep(device, "sim-dot1x", `Relaying identity "${identity}" to RADIUS (${server.name})`);
       return [{ frame: createDot1xFrame(deriveMac(device.id), server.config?.macAddress || deriveMac(server.id), "radius-request", identity, frame.srcMac), toDeviceId: server.id }];
     }
@@ -1036,6 +1060,7 @@ function handleDot1x(device: Device, frame: EthernetFrame, fromDeviceId: string 
       const sup = supplicantByMac(device, p.supplicantMac) ?? supplicantByIdentity(device, identity);
       if (!sup) return [];
       sup.link.dot1xAuthorized = false;
+      state.simulation.dot1xFailure = `RADIUS rejected "${identity}" — the identity or password ${sup.host.name} presents does not match a user on the server`;
       logStep(device, "sim-drop", `Access-Reject — ${sup.host.name} stays unauthorized`);
       return [{ frame: createDot1xFrame(PAE_GROUP_MAC, sup.host.config?.macAddress || "", "eap-failure", identity), toDeviceId: sup.host.id }];
     }
@@ -1043,9 +1068,13 @@ function handleDot1x(device: Device, frame: EthernetFrame, fromDeviceId: string 
       state.simulation.dot1xAuthorized = true;
       logStep(device, "sim-dot1x", `EAP-Success — the port is authorised, traffic may pass`);
       return [];
-    case "eap-failure": // supplicant: rejected
-      logStep(device, "sim-drop", `EAP-Failure — 802.1X authentication denied (check the identity/password)`);
+    case "eap-failure": { // supplicant: rejected
+      const closed = dot1xPortFacing(getDevice(fromDeviceId), device.id)?.mode === "force-unauthorized";
+      logStep(device, "sim-drop", closed
+        ? `EAP-Failure — the switch port is force-unauthorized; no credentials can open it`
+        : `EAP-Failure — 802.1X authentication denied (check the identity/password)`);
       return [];
+    }
   }
   return [];
 }
@@ -3119,6 +3148,9 @@ function runPostMortem(succeeded: boolean): string[] {
     byDevice.set(id, list);
   }
   const lines: string[] = [];
+  // An 802.1X login's failure was decided — and logged — by one handler; carry
+  // its reason into the result so a headless `run dot1x` can state it too.
+  if (!succeeded && sim.dot1xFailure) lines.push(sim.dot1xFailure);
   if (!succeeded) {
     for (const { device, reason } of staleArpEntries(origin)) {
       logStep(device, "sim-drop", reason);

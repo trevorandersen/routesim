@@ -12,7 +12,7 @@ import { USER_ADDABLE_TYPES, isHost, isDot1xSupplicant, defaultPortCount } from 
 import { dom } from "./dom";
 import {
   addDevice, addLink, deleteLink, linkBlockReason, deleteSelection, clearNetwork, collapseLan, expandLan,
-  getDevice, moveDevice, linkName, routerInterfacesWithNames, isPhysicalLink } from "./devices";
+  getDevice, moveDevice, linkName, routerInterfacesWithNames, isPhysicalLink, linkedPortsFor } from "./devices";
 import {
   startSimulation, stopSimulation, pauseSimulation, resumeSimulation, stepOnce, animatedRunBlockReason, takePreemptionNote,
   runSimulationHeadless, runTraceroute, STORM_DIAGNOSIS,
@@ -450,9 +450,18 @@ function cmdPortAuth(args: string[]): CommandResult {
   pushUndo();
   ensureConfig(sw);
   sw.config.portAuth = sw.config.portAuth || {};
+  const previous = sw.config.portAuth[port] || "force-authorized";
   sw.config.portAuth[port] = mode as any;
+  // A change of control mode ends the port's 802.1X session, as it does on a
+  // real switch: an authorisation earned under the old mode must not open the
+  // port under the new one (a later switch to `auto` used to pass data, and the
+  // scenario check, with no exchange).
+  const link = linkedPortsFor(sw.id)[Number(portMatch![1]) - 1]?.link;
+  const cleared = previous !== mode && !!link?.dot1xAuthorized;
+  if (cleared) delete link.dot1xAuthorized;
   sync().syncPanel();
-  return ok(`${sw.name} ${port} 802.1X port-control: ${mode}.`);
+  sync().render();
+  return ok(`${sw.name} ${port} 802.1X port-control: ${mode}.${cleared ? " The port's 802.1X session was cleared — the host must authenticate again." : ""}`);
 }
 
 // 802.1X: add/update a RADIUS user on a server (enables the RADIUS back end).

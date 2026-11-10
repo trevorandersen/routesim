@@ -283,3 +283,117 @@ describe("a Red Team host's supplicant and ports round-trip through the script",
     expect(byName("RT1").config.openPorts).toEqual([22]);
   });
 });
+
+// R8: the authenticator ignored the port's control mode. On a force-unauthorized
+// port it relayed to RADIUS, recorded the link as authorised and reported
+// success while the data gate still held the port closed — and the stale
+// authorisation then opened the port the moment it was switched to `auto`.
+describe("802.1X — the authenticator obeys the port-control mode (R8)", () => {
+  const realRaf = (globalThis as any).requestAnimationFrame;
+  beforeEach(() => resetState());
+  afterEach(() => { (globalThis as any).requestAnimationFrame = realRaf; });
+
+  const link = () => state.links.find(l => [l.from, l.to].includes(byName("PC1").id))!;
+  const logText = () => state.simulation.log.map(e => e.summary).join("\n");
+
+  it("force-unauthorized: a canned EAP-Failure, no RADIUS, and the link is never marked authorised", () => {
+    const pc = topology("secret123");            // valid credentials
+    exec("portauth SW Ethernet1 force-unauthorized");
+    const seq = authenticate(pc);
+    expect(seq.map(c => c.protocol)).toEqual(["EAPOL", "EAP"]);
+    expect(seq[1].info).toBe("Failure");
+    expect(seq.some(c => c.protocol === "RADIUS")).toBe(false);
+    expect(state.simulation.dot1xAuthorized).toBe(false);
+    expect(link().dot1xAuthorized).toBeFalsy();
+    expect(logText()).toContain("force-unauthorized");
+    expect(logText()).not.toContain("check the identity/password");
+    expect(logText()).not.toContain("traffic may pass");
+  });
+
+  it("force-unauthorized: `run dot1x` fails and says why", () => {
+    topology("secret123");
+    exec("portauth SW Ethernet1 force-unauthorized");
+    const r = exec("run dot1x PC1");
+    expect(r.ok).toBe(false);
+    expect(r.output.join("\n")).toContain("SW Ethernet1 is 802.1X force-unauthorized");
+    expect(r.output.join("\n")).toContain("portauth SW Ethernet1 auto");
+    expect(exec("run ping PC1 10.0.0.1").ok).toBe(false);
+  });
+
+  it("the review's scenario: switching the port to `auto` afterwards needs a real exchange", () => {
+    topology("secret123");
+    exec("portauth SW Ethernet1 force-unauthorized");
+    exec("run dot1x PC1");
+    exec("portauth SW Ethernet1 auto");
+    expect(dot1xPortAuthorized(link())).toBe(false);
+    expect(exec("run ping PC1 10.0.0.1").ok).toBe(false);   // no free pass
+    expect(exec("run dot1x PC1").ok).toBe(true);
+    expect(exec("run ping PC1 10.0.0.1").ok).toBe(true);
+  });
+
+  it("changing the control mode ends the port's session, and says so", () => {
+    topology("secret123");
+    expect(exec("run dot1x PC1").ok).toBe(true);
+    expect(link().dot1xAuthorized).toBe(true);
+    const r = exec("portauth SW Ethernet1 force-authorized");
+    expect(r.output.join(" ")).toContain("session was cleared");
+    expect(link().dot1xAuthorized).toBeFalsy();
+    exec("portauth SW Ethernet1 auto");
+    expect(exec("run ping PC1 10.0.0.1").ok).toBe(false);   // must authenticate again
+  });
+
+  it("re-applying the same mode keeps the session", () => {
+    topology("secret123");
+    exec("run dot1x PC1");
+    const r = exec("portauth SW Ethernet1 auto");
+    expect(r.output.join(" ")).not.toContain("cleared");
+    expect(link().dot1xAuthorized).toBe(true);
+    expect(exec("run ping PC1 10.0.0.1").ok).toBe(true);
+  });
+
+  it("changing another port's mode leaves this port's session alone", () => {
+    topology("secret123");
+    exec("run dot1x PC1");
+    exec("portauth SW Ethernet2 force-unauthorized");
+    exec("portauth SW Ethernet2 force-authorized");
+    expect(link().dot1xAuthorized).toBe(true);
+  });
+
+  it("the cleared session is one undo step with the mode change", () => {
+    topology("secret123");
+    exec("run dot1x PC1");
+    exec("portauth SW Ethernet1 force-unauthorized");
+    exec("undo");
+    expect(byName("SW").config!.portAuth!.Ethernet1).toBe("auto");
+    expect(link().dot1xAuthorized).toBe(true);
+  });
+
+  it("force-authorized: a canned EAP-Success with no RADIUS; data already passes and nothing is recorded", () => {
+    const pc = topology("WRONG");                // even bad credentials: nothing is checked
+    exec("portauth SW Ethernet1 force-authorized");
+    const seq = authenticate(pc);
+    expect(seq.map(c => c.protocol)).toEqual(["EAPOL", "EAP"]);
+    expect(seq[1].info).toBe("Success");
+    expect(link().dot1xAuthorized).toBeFalsy();  // no exchange ran, so no session (and no MACsec keys to derive)
+    expect(logText()).toContain("nothing was authenticated");
+    expect(exec("run ping PC1 10.0.0.1").ok).toBe(true);
+  });
+
+  it("an `auto` port still runs the full exchange, and its failures state their cause", () => {
+    topology("WRONG");
+    const rejected = exec("run dot1x PC1");
+    expect(rejected.ok).toBe(false);
+    expect(rejected.output.join("\n")).toContain('RADIUS rejected "alice"');
+    exec("unlink SW RAD");
+    const noServer = exec("run dot1x PC1");
+    expect(noServer.ok).toBe(false);
+    expect(noServer.output.join("\n")).toContain("SW has no RADIUS server attached");
+  });
+
+  it("a successful login reports no diagnosis", () => {
+    topology("secret123");
+    const r = exec("run dot1x PC1");
+    expect(r.ok).toBe(true);
+    expect((r.data as any).diagnosis).toEqual([]);
+  });
+});

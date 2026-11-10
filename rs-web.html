@@ -3991,6 +3991,7 @@ Full legal text: https://creativecommons.org/publicdomain/zero/1.0/legalcode</pr
       dhcpAssignedGateway: null,
       wifiAssociated: false,
       dot1xAuthorized: false,
+      dot1xFailure: null,
       stormDetected: false,
       diagnosis: [],
       arpDrops: {},
@@ -4785,6 +4786,16 @@ Full legal text: https://creativecommons.org/publicdomain/zero/1.0/legalcode</pr
     if (!link || link.wireless) return null;
     const a = getDevice(link.from), b = getDevice(link.to);
     return dot1xPortEnd(link, a, b) ?? dot1xPortEnd(link, b, a);
+  }
+  function dot1xPortFacing(sw, peerId) {
+    if (!sw || !peerId) return null;
+    const peer = getDevice(peerId);
+    for (const link of linksFor(sw.id)) {
+      if (link.wireless || link.from !== peerId && link.to !== peerId) continue;
+      const end = dot1xPortEnd(link, sw, peer);
+      if (end) return end;
+    }
+    return null;
   }
   function dot1xEndAuthorized(link, info) {
     if (!info || info.mode === "force-authorized") return true;
@@ -8014,6 +8025,7 @@ Full legal text: https://creativecommons.org/publicdomain/zero/1.0/legalcode</pr
     sim.dhcpAssignedGateway = null;
     sim.wifiAssociated = false;
     sim.dot1xAuthorized = false;
+    sim.dot1xFailure = null;
     sim.stormDetected = false;
     sim.diagnosis = [];
     sim.arpDrops = {};
@@ -8619,9 +8631,20 @@ Full legal text: https://creativecommons.org/publicdomain/zero/1.0/legalcode</pr
     const identity = p.identity || "";
     const back2 = (subtype, id) => fromDeviceId ? [{ frame: createDot1xFrame(frame.dstMac, frame.srcMac, subtype, id), toDeviceId: fromDeviceId }] : [];
     switch (p.subtype) {
-      case "eapol-start":
+      case "eapol-start": {
+        const port = dot1xPortFacing(device, fromDeviceId);
+        if (port?.mode === "force-unauthorized") {
+          state.simulation.dot1xFailure = `${device.name} ${port.port} is 802.1X force-unauthorized: the switch refuses every login on it without asking RADIUS, whatever the credentials \u2014 set it to auto to authenticate ("portauth ${quoteArg(device.name)} ${port.port} auto")`;
+          logStep(device, "sim-drop", `EAPOL-Start on ${port.port} \u2014 the port is force-unauthorized: EAP-Failure without asking RADIUS (the port stays closed whatever the credentials)`);
+          return back2("eap-failure", identity);
+        }
+        if (port?.mode !== "auto") {
+          logStep(device, "sim-dot1x", `EAPOL-Start on ${port?.port ?? "this port"} \u2014 the port is force-authorized (no 802.1X control): EAP-Success without asking RADIUS; nothing was authenticated`);
+          return back2("eap-success", identity);
+        }
         logStep(device, "sim-dot1x", `EAPOL-Start \u2014 requesting the supplicant's identity`);
         return back2("eap-req-id");
+      }
       case "eap-req-id": {
         const id = device.config?.dot1x?.identity || "";
         logStep(device, "sim-dot1x", `EAP Identity request \u2014 responding "${id}"`);
@@ -8630,6 +8653,7 @@ Full legal text: https://creativecommons.org/publicdomain/zero/1.0/legalcode</pr
       case "eap-resp-id": {
         const server = radiusServerFor(device);
         if (!server) {
+          state.simulation.dot1xFailure = `${device.name} has no RADIUS server attached to check "${identity}" against \u2014 cable a server to it and add the user ("radius <server> <identity> <password>")`;
           logStep(device, "sim-drop", `802.1X: no RADIUS server reachable \u2014 cannot authenticate`);
           return [];
         }
@@ -8657,6 +8681,7 @@ Full legal text: https://creativecommons.org/publicdomain/zero/1.0/legalcode</pr
         const sup = supplicantByMac(device, p.supplicantMac) ?? supplicantByIdentity(device, identity);
         if (!sup) return [];
         sup.link.dot1xAuthorized = false;
+        state.simulation.dot1xFailure = `RADIUS rejected "${identity}" \u2014 the identity or password ${sup.host.name} presents does not match a user on the server`;
         logStep(device, "sim-drop", `Access-Reject \u2014 ${sup.host.name} stays unauthorized`);
         return [{ frame: createDot1xFrame(PAE_GROUP_MAC, sup.host.config?.macAddress || "", "eap-failure", identity), toDeviceId: sup.host.id }];
       }
@@ -8664,9 +8689,11 @@ Full legal text: https://creativecommons.org/publicdomain/zero/1.0/legalcode</pr
         state.simulation.dot1xAuthorized = true;
         logStep(device, "sim-dot1x", `EAP-Success \u2014 the port is authorised, traffic may pass`);
         return [];
-      case "eap-failure":
-        logStep(device, "sim-drop", `EAP-Failure \u2014 802.1X authentication denied (check the identity/password)`);
+      case "eap-failure": {
+        const closed = dot1xPortFacing(getDevice(fromDeviceId), device.id)?.mode === "force-unauthorized";
+        logStep(device, "sim-drop", closed ? `EAP-Failure \u2014 the switch port is force-unauthorized; no credentials can open it` : `EAP-Failure \u2014 802.1X authentication denied (check the identity/password)`);
         return [];
+      }
     }
     return [];
   }
@@ -10258,6 +10285,7 @@ Full legal text: https://creativecommons.org/publicdomain/zero/1.0/legalcode</pr
       byDevice.set(id, list);
     }
     const lines = [];
+    if (!succeeded && sim.dot1xFailure) lines.push(sim.dot1xFailure);
     if (!succeeded) {
       for (const { device, reason } of staleArpEntries(origin)) {
         logStep(device, "sim-drop", reason);
@@ -17045,9 +17073,14 @@ Snort successfully validated the configuration${bad ? " (with errors)" : "."}`);
     pushUndo();
     ensureConfig(sw);
     sw.config.portAuth = sw.config.portAuth || {};
+    const previous = sw.config.portAuth[port] || "force-authorized";
     sw.config.portAuth[port] = mode;
+    const link = linkedPortsFor(sw.id)[Number(portMatch[1]) - 1]?.link;
+    const cleared = previous !== mode && !!link?.dot1xAuthorized;
+    if (cleared) delete link.dot1xAuthorized;
     sync().syncPanel();
-    return ok(`${sw.name} ${port} 802.1X port-control: ${mode}.`);
+    sync().render();
+    return ok(`${sw.name} ${port} 802.1X port-control: ${mode}.${cleared ? " The port's 802.1X session was cleared \u2014 the host must authenticate again." : ""}`);
   }
   function cmdRadius(args) {
     const server = resolveDevice(args[0]);

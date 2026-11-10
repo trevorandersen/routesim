@@ -74,7 +74,7 @@ Param keys and boolean values are case-insensitive. Adding a setting is a one-ro
 | `mac <host> <addr>` | Set a host MAC. |
 | `ssid <laptop\|access-point> <name> [password]` | Set the WiFi network a laptop joins or an access point broadcasts. Omitting the password opens the network (and clears any existing one). A laptop only associates if its SSID — and password, if set — match the AP's. |
 | `supplicant <host> <identity> <password>` | Set a host's 802.1X credentials (the supplicant). |
-| `portauth <switch> <EthN> <auto\|force-authorized\|force-unauthorized>` | Set a switch port's 802.1X control. `auto` blocks data until the host authenticates; `force-authorized` (default) is open. |
+| `portauth <switch> <EthN> <auto\|force-authorized\|force-unauthorized>` | Set a switch port's 802.1X control. `auto` blocks data until the host authenticates; `force-authorized` (default) is open. `force-unauthorized` is closed whatever the host presents (a login gets an immediate failure). Changing the mode ends the port's 802.1X session, so the host must authenticate again. |
 | `radius <server> <identity> <password>` | Add/update a RADIUS user on a server (enables the authentication back end). |
 | `ports <host> <port[,port…]>` | Set a host's listening TCP ports (what `nc`/`connect` find open); comma- or space-separated. `ports <host> none` clears the list (accept on **any** port); `ports <host> closed` sets an explicitly **empty** list (refuse every connection). Different states — the export preserves which you meant. |
 | `power <device> on\|off` | Power a device on or off (the canvas power state). |

@@ -743,6 +743,10 @@ export interface SimulationState {
   dhcpAssignedGateway: string | null;
   wifiAssociated: boolean;           // the 802.11 association handshake completed (mode "associate")
   dot1xAuthorized: boolean;          // the 802.1X EAP exchange authorised the port (mode "dot1x")
+  // Why the 802.1X login failed, stated by the handler that decided it (the
+  // port is force-unauthorized, no RADIUS server, Access-Reject). Reset each
+  // run; the post-mortem puts it in `diagnosis`.
+  dot1xFailure: string | null;
   stormDetected: boolean;            // a frame came back round a switching loop (no spanning tree), or the run hit the storm backstop
   // The run's post-mortem (finishSimulation): plain-language reasons the origin's
   // flow failed that no single step could state — an ARP nobody answered (its

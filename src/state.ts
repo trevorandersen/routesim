@@ -576,11 +576,36 @@ export function linksChanged(deviceIds?: readonly string[]): void {
 
 // --- Undo system ---
 
+// A device as an undo snapshot stores it: its configuration and what it has
+// learnt from traffic (ARP caches, DHCP leases, NAT translations), but nothing
+// DERIVED from the topology — RIP's learned routes, the spanning tree's bridge
+// id / root / port roles, and a bridge's dynamic MAC entries. Those are
+// recomputed from the restored topology (RIP at each read and each run, STP and
+// the MAC flush by restoreSnapshot's linksChanged), so storing them only made
+// two snapshots of the same network compare unequal — a run that learnt nothing
+// else still left a distinct undo point — and bloated every snapshot. Devices
+// with nothing derived are stored as they are (no copy).
+function persistentDevice(device: Device): Device {
+  const config = device.config as any;
+  if (!config) return device;
+  let kept = config;
+  if (config.rip?.learnedRoutes?.length) kept = { ...kept, rip: { ...config.rip, learnedRoutes: [] } };
+  const stp = config.stp;
+  if (stp && (stp.bridgeId !== undefined || stp.rootId !== undefined || stp.rootCost !== undefined || stp.ports !== undefined)) {
+    const { bridgeId, rootId, rootCost, ports, ...stpConfig } = stp;
+    kept = { ...kept, stp: stpConfig };
+  }
+  if (Array.isArray(config.macTable) && config.macTable.some((e: any) => e.type !== "STATIC")) {
+    kept = { ...kept, macTable: config.macTable.filter((e: any) => e.type === "STATIC") };
+  }
+  return kept === config ? device : { ...device, config: kept };
+}
+
 export function networkSnapshot(): string {
   return JSON.stringify({
-    devices: state.devices,
+    devices: state.devices.map(persistentDevice),
     links: state.links.map(l => {
-      const { frameHistory, ...rest } = l;
+      const { frameHistory, stpBlocked, ...rest } = l;   // per-wire history and the derived STP block
       return rest;
     }),
     selectedId: state.selectedId,
@@ -640,16 +665,17 @@ export function restoreSnapshot(snapshot: string): void {
   // The restored topology may not contain the devices/links the saved captures
   // reference — clear the capture archive so the packet list can't dangle.
   resetCaptureState();
+  // A snapshot carries no derived state (persistentDevice): recompute the
+  // spanning tree for the restored cabling — which ports block, who is root —
+  // before anything renders from it (also flushes any MAC entry a hand-built
+  // snapshot carried, and renders the canvas). RIP converges at its readers.
+  linksChanged();
   sync().syncPanel();
   sync().syncSimLog();
   // An open shell renders from the restored devices too: the prompt carries the
   // hostname, and a router CLI mode can point at configuration this restore
   // just removed (syncTerminal reconciles it — terminal/router.ts).
   sync().syncTerminal();
-  // Restoring a different topology can change which ports the spanning tree
-  // blocks, and the snapshot's MAC tables were learnt over whatever cabling
-  // stood when it was taken — flush them and recompute (also renders).
-  linksChanged();
 }
 
 // Undo/redo replace the topology; an active run must be torn down first,

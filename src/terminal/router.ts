@@ -31,8 +31,19 @@ export function showRouterInterfaceBrief(router: Device): string {
   ].join("\n");
 }
 
+// The routing table as it stands NOW. RIP's learned routes are derived state:
+// stored on the router, but only true for the topology they were computed over.
+// The show commands used to print them as stored — dead paths after an unlink,
+// and no RIP routes at all until the first simulation had run — so every reader
+// converges first (idempotent; the same call beginRun makes before a run), as
+// `show spanning-tree` does for STP.
+function currentRoutingTable(router: Device) {
+  runRipConvergence();
+  return buildRoutingTable(router);
+}
+
 export function showRouterRoute(router: Device): string {
-  const table = buildRoutingTable(router);
+  const table = currentRoutingTable(router);
   if (!table.length) return "Codes: C - connected, S - static, R - RIP\n\nNo routes configured.";
   return [
     "Codes: C - connected, S - static, R - RIP",
@@ -84,6 +95,7 @@ export function showRouterDhcpBindings(router: Device): string {
 }
 
 export function showRouterRip(router: Device): string {
+  runRipConvergence();   // learned routes are derived — never print them as stored
   const rip = normaliseRipConfig(router.config?.rip);
   if (!rip.enabled) return "RIP is not enabled on this router.";
   const lines = [
@@ -98,6 +110,7 @@ export function showRouterRip(router: Device): string {
 
 // FRR `show ip rip` — the RIP route table (what RIP itself knows).
 export function showRouterRipRoutes(router: Device): string {
+  runRipConvergence();
   const rip = normaliseRipConfig(router.config?.rip);
   if (!rip.enabled) return "RIP is not enabled on this router.";
   const header = [
@@ -116,7 +129,7 @@ export function showRouterRipRoutes(router: Device): string {
 
 // FRR `show ip route rip` — RIP entries as installed in the main routing table.
 export function showRouterRouteRip(router: Device): string {
-  const table = buildRoutingTable(router).filter((r: any) => r.type === "R");
+  const table = currentRoutingTable(router).filter((r: any) => r.type === "R");
   if (!table.length) return "Codes: C - connected, S - static, R - RIP\n\nNo RIP routes.";
   return [
     "Codes: C - connected, S - static, R - RIP",
@@ -564,10 +577,12 @@ function routerShowCommand(router: Device, lower: string): boolean {
       terminalLine("error", "% RIP is not enabled on this router.");
       return true;
     }
-    pushUndo();
+    // Learned routes are derived state, outside the undo history: no undo point.
+    // As on a real router, the neighbours' next updates bring them back — here
+    // that is the next convergence (a show command, or the next run).
     router.config.rip.learnedRoutes = [];
     sync().syncPanel();
-    terminalLine("", "RIP learned routes cleared.");
+    terminalLine("", "RIP learned routes cleared — they are relearned from the neighbours' next updates.");
     return true;
   }
   if (lower === "write memory" || lower === "copy running-config startup-config") {

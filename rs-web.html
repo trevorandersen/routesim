@@ -4397,11 +4397,26 @@ Full legal text: https://creativecommons.org/publicdomain/zero/1.0/legalcode</pr
     flushLearnedMacs(deviceIds);
     sync().recomputeStp();
   }
+  function persistentDevice(device) {
+    const config = device.config;
+    if (!config) return device;
+    let kept = config;
+    if (config.rip?.learnedRoutes?.length) kept = { ...kept, rip: { ...config.rip, learnedRoutes: [] } };
+    const stp = config.stp;
+    if (stp && (stp.bridgeId !== void 0 || stp.rootId !== void 0 || stp.rootCost !== void 0 || stp.ports !== void 0)) {
+      const { bridgeId, rootId, rootCost, ports, ...stpConfig } = stp;
+      kept = { ...kept, stp: stpConfig };
+    }
+    if (Array.isArray(config.macTable) && config.macTable.some((e) => e.type !== "STATIC")) {
+      kept = { ...kept, macTable: config.macTable.filter((e) => e.type === "STATIC") };
+    }
+    return kept === config ? device : { ...device, config: kept };
+  }
   function networkSnapshot() {
     return JSON.stringify({
-      devices: state.devices,
+      devices: state.devices.map(persistentDevice),
       links: state.links.map((l) => {
-        const { frameHistory, ...rest } = l;
+        const { frameHistory, stpBlocked, ...rest } = l;
         return rest;
       }),
       selectedId: state.selectedId,
@@ -4448,10 +4463,10 @@ Full legal text: https://creativecommons.org/publicdomain/zero/1.0/legalcode</pr
     state.drag = null;
     state.panDrag = null;
     resetCaptureState();
+    linksChanged();
     sync().syncPanel();
     sync().syncSimLog();
     sync().syncTerminal();
-    linksChanged();
   }
   function cancelActiveRun() {
     if (state.simulation.status === "running" || state.simulation.status === "paused") sync().stopSimulation?.();
@@ -11085,8 +11100,12 @@ ${body}
       })
     ].join("\n");
   }
+  function currentRoutingTable(router) {
+    runRipConvergence();
+    return buildRoutingTable(router);
+  }
   function showRouterRoute(router) {
-    const table = buildRoutingTable(router);
+    const table = currentRoutingTable(router);
     if (!table.length) return "Codes: C - connected, S - static, R - RIP\n\nNo routes configured.";
     return [
       "Codes: C - connected, S - static, R - RIP",
@@ -11132,6 +11151,7 @@ ${body}
     ].join("\n");
   }
   function showRouterRip(router) {
+    runRipConvergence();
     const rip = normaliseRipConfig(router.config?.rip);
     if (!rip.enabled) return "RIP is not enabled on this router.";
     const lines = [
@@ -11144,6 +11164,7 @@ ${body}
     return lines.join("\n");
   }
   function showRouterRipRoutes(router) {
+    runRipConvergence();
     const rip = normaliseRipConfig(router.config?.rip);
     if (!rip.enabled) return "RIP is not enabled on this router.";
     const header = [
@@ -11159,7 +11180,7 @@ ${body}
     ].join("\n");
   }
   function showRouterRouteRip(router) {
-    const table = buildRoutingTable(router).filter((r) => r.type === "R");
+    const table = currentRoutingTable(router).filter((r) => r.type === "R");
     if (!table.length) return "Codes: C - connected, S - static, R - RIP\n\nNo RIP routes.";
     return [
       "Codes: C - connected, S - static, R - RIP",
@@ -11559,10 +11580,9 @@ ${body}
         terminalLine("error", "% RIP is not enabled on this router.");
         return true;
       }
-      pushUndo();
       router.config.rip.learnedRoutes = [];
       sync().syncPanel();
-      terminalLine("", "RIP learned routes cleared.");
+      terminalLine("", "RIP learned routes cleared \u2014 they are relearned from the neighbours' next updates.");
       return true;
     }
     if (lower === "write memory" || lower === "copy running-config startup-config") {

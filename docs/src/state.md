@@ -15,11 +15,11 @@ The heart of the app. Holds the single mutable `state` object, the cross-module 
 - **`registerCallbacks(cb)` / `sync()`** — the bridge that lets any module call `sync().render()`, `sync().syncPanel()`, `sync().syncTerminal()`, `sync().resizeCanvas()` without importing `canvas.ts`/`inspector.ts`/`terminal/`. Wired in `app.ts`; no-op'd in tests. See [architecture.md](../architecture.md).
 
 ### Undo system
-- **`networkSnapshot()`** — deep-copies only the persistent network (`devices`, `links`), stripping transient data like per-link frame history, so snapshots stay small.
+- **`networkSnapshot()`** — serialises only the persistent network (`devices`, `links`). It stores a device's configuration and what it has **learnt from traffic** (ARP caches, DHCP leases, NAT translations), but nothing **derived from the topology**: RIP `learnedRoutes` (stored as `[]`), the spanning tree's `bridgeId`/`rootId`/`rootCost`/`ports`, a bridge's non-`STATIC` MAC entries (`persistentDevice`), each link's `stpBlocked`, and the per-link `frameHistory`. Those are recomputed for the restored topology, so two snapshots of the same network compare equal whatever has run in between (review R58) — the equality checks in `pushUndoSnapshot`, `redo`, the field-focus capture and the tutorial's exit depend on that. Devices with nothing derived are stored without a copy.
 - **`pushUndo()` / `pushUndoSnapshot(snap)`** — push the current (or a pre-captured) snapshot onto an 80-deep stack.
 - **`captureUndoOnFocus(input)`** — used by the inspector: captures a snapshot when a text field gains focus, so a whole edit is one undo step (not one per keystroke).
 - **`captureUndoOnFocusWithin(container, selector)`** — the delegated form, bound once on a stable container through the bubbling `focusin`/`focusout`, so it covers inputs the container re-renders (the router interface rows).
-- **`restoreSnapshot()` / `undo()`** — pop and apply; `syncUndoButton()` toggles the toolbar button's enabled state.
+- **`restoreSnapshot()` / `undo()`** — pop and apply; `syncUndoButton()` toggles the toolbar button's enabled state. `restoreSnapshot` calls `linksChanged()` **before** `syncPanel`, so the spanning tree is recomputed for the restored cabling before the inspector draws from it (the snapshot carries no roles).
 
 ### Static data
 - **`toolCopy`** — per-tool label + hint strings shown in the header.

@@ -25,16 +25,32 @@ type ScenarioCheck =
   | { kind: "link";      a: string; b: string; label: string }              // a real cable exists between a and b (a collapsed LAN's hidden cables count; its proxy links don't)
   | { kind: "config";    device: string; field: string; equals: unknown; label: string }  // device.config[field] === equals
   | { kind: "ping";      from: string; to: string; label: string }          // a ping from→to succeeds (headless)
-  | { kind: "ping-fail"; from: string; to: string; label: string }          // isolation: the ping must NOT succeed
+  | { kind: "ping-fail"; from: string; to: string; blockedBy?: string; label: string }   // isolation: the ping must NOT succeed — because of `blockedBy`, when given
   | { kind: "tcp";       from: string; to: string; port: number; label: string }   // a TCP connect succeeds
-  | { kind: "tcp-fail";  from: string; to: string; port: number; label: string }   // the TCP connect must NOT succeed
+  | { kind: "tcp-fail";  from: string; to: string; port: number; blockedBy?: string; label: string }   // the TCP connect must NOT succeed — because of `blockedBy`, when given
   | { kind: "http";      from: string; to: string; path?: string; status?: number; label: string }  // an HTTP GET returns 2xx (or the given status)
   | { kind: "dns";       from: string; name: string; ip?: string; label: string }  // the name resolves (optionally to a given address)
   | { kind: "dhcp";      host: string; label: string }                      // a DHCP request from host succeeds (headless)
   | { kind: "alert";     from: string; to: string; port?: number; contains: string; label: string };  // a flow makes an IDS raise an alert containing the substring — an attacker `from` launches its port scan, otherwise a tcp connect (if port) or ping
 ```
 
-Device references in checks/topology resolve by **name or id**. `checkScenario(scenario)` returns `{ id, name, passed, checks: [{ label, passed }] }` — `passed` is true when every check passes.
+Device references in checks/topology resolve by **name or id**. `checkScenario(scenario)` returns `{ id, name, passed, checks: [{ label, passed, note? }] }` — `passed` is true when every check passes. A failed check may carry a **`note`**: the reason, when the label alone would mislead. The banner shows it under the goal and `scenario check` prints it on the next line.
+
+### Isolation checks name their cause (`blockedBy`)
+
+A bare `ping-fail`/`tcp-fail` passes on **any** failure, so a scenario built on one can be "solved" without the concept it teaches: closing the server's Telnet port satisfied *firewall-guard* with no firewall rule, re-subnetting the hosts satisfied *vlan-segmentation* with no VLAN, and renumbering the router satisfied *harden-gateway* with an empty INPUT chain.
+
+`blockedBy: "<device>"` closes that. The check then needs two things: the flow fails **and** the same flow *would succeed with that device's policy removed*. The second half is a what-if run (`wouldSucceedWithout` in `scenarios.ts`): every device's config is swapped for a deep copy, the named device's policy is taken out, the flow is re-run headless, and the original configs are put back — so nothing the what-if learns or changes survives it. "Policy" is:
+
+| Named device | What the what-if removes |
+|---|---|
+| firewall, router | every netfilter rule; all chain policies back to ACCEPT |
+| switch | management (`managed: false`) — one flat broadcast domain, no VLANs |
+| anything else | nothing — the check fails (that device cannot be the cause) |
+
+A flow that is dead for another reason stays dead in the what-if, so the check fails with a note: *"It is blocked, but not by FW-1: with FW-1's rules out of the way it still fails, so something else is stopping it. The goal is to block it at FW-1."* A flow that simply gets through fails with no note — the label already says what is wrong.
+
+**Every built-in isolation check names its device.** Give a new `ping-fail`/`tcp-fail` a `blockedBy` unless any failure genuinely satisfies the goal; the check without it is kept for imported scenarios and that rare case.
 
 - `loadScenario(id)` → `applyConfig(normaliseConfig(topology))` + sets `state.activeScenarioId` + refreshes the banner. Loading a plain topology or clearing the network drops the active scenario.
 - `ping`/`dns`/`dhcp` checks reuse `buildPingEvents`/`buildResolveEvents`/`buildDhcpEvents` (simulation.ts) + `runSimulationHeadless` (engine.ts). A `ping`/`tcp` check whose `to` is neither a device nor an IP is a real hostname — the headless run performs the DNS resolution first, so name-based goals exercise the full resolver path.

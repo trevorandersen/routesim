@@ -1889,6 +1889,10 @@
       color: var(--muted);
     }
     .scenario-check .mark { width: 14px; text-align: center; font-weight: 800; }
+    /* A failed check's explanation sits under its label, so the mark aligns to the label's first line. */
+    .scenario-check:has(.scenario-check-note) { align-items: flex-start; }
+    .scenario-check-text { min-width: 0; }
+    .scenario-check-note { display: block; margin-top: 2px; font-size: 11px; line-height: 1.35; color: var(--muted); }
     .scenario-check.pass { color: var(--text); }
     .scenario-check.pass .mark { color: #22c55e; }
     .scenario-check.fail .mark { color: var(--danger); }
@@ -14236,8 +14240,8 @@ Snort successfully validated the configuration${bad ? " (with errors)" : "."}`);
     checks: [
       { kind: "ping", from: "PC-S1", to: "PC-S2", label: "Sales can reach Sales" },
       { kind: "ping", from: "PC-E1", to: "PC-E2", label: "Engineering can reach Engineering" },
-      { kind: "ping-fail", from: "PC-S1", to: "PC-E1", label: "Sales cannot reach Engineering" },
-      { kind: "ping-fail", from: "PC-E2", to: "PC-S2", label: "Engineering cannot reach Sales" }
+      { kind: "ping-fail", from: "PC-S1", to: "PC-E1", blockedBy: "MSW-1", label: "Sales cannot reach Engineering" },
+      { kind: "ping-fail", from: "PC-E2", to: "PC-S2", blockedBy: "MSW-1", label: "Engineering cannot reach Sales" }
     ]
   };
   var routerOnAStick = {
@@ -14379,7 +14383,7 @@ Snort successfully validated the configuration${bad ? " (with errors)" : "."}`);
     checks: [
       { kind: "ping", from: "PC-A", to: "SRV-1", label: "Ping still works" },
       { kind: "tcp", from: "PC-A", to: "SRV-1", port: 22, label: "SSH (22) still connects" },
-      { kind: "tcp-fail", from: "PC-A", to: "SRV-1", port: 23, label: "Telnet (23) is blocked" }
+      { kind: "tcp-fail", from: "PC-A", to: "SRV-1", port: 23, blockedBy: "FW-1", label: "Telnet (23) is blocked" }
     ]
   };
   var troubleshootGateway = {
@@ -14464,7 +14468,7 @@ Snort successfully validated the configuration${bad ? " (with errors)" : "."}`);
     },
     checks: [
       { kind: "tcp", from: "PC-A", to: "SRV-1", port: 22, label: "SSH (22) connects" },
-      { kind: "tcp-fail", from: "PC-A", to: "SRV-1", port: 23, label: "Telnet (23) is blocked" },
+      { kind: "tcp-fail", from: "PC-A", to: "SRV-1", port: 23, blockedBy: "FW-1", label: "Telnet (23) is blocked" },
       { kind: "ping", from: "PC-A", to: "SRV-1", label: "Ping still works" }
     ]
   };
@@ -14609,7 +14613,7 @@ Snort successfully validated the configuration${bad ? " (with errors)" : "."}`);
       ]
     },
     checks: [
-      { kind: "ping-fail", from: "PC-A", to: "192.168.1.1", label: "R1 itself no longer answers pings" },
+      { kind: "ping-fail", from: "PC-A", to: "192.168.1.1", blockedBy: "R1", label: "R1 itself no longer answers pings" },
       { kind: "ping", from: "PC-A", to: "PC-B", label: "Traffic through R1 still flows" }
     ]
   };
@@ -14916,7 +14920,7 @@ Snort successfully validated the configuration${bad ? " (with errors)" : "."}`);
     },
     checks: [
       { kind: "tcp", from: "PC-A", to: "SRV", port: 80, label: "PC-A can still reach the web server (its replies are ESTABLISHED)" },
-      { kind: "tcp-fail", from: "RT", to: "PC-A", port: 22, label: "The Red Team cannot open a new connection in to PC-A" }
+      { kind: "tcp-fail", from: "RT", to: "PC-A", port: 22, blockedBy: "FW-1", label: "The Red Team cannot open a new connection in to PC-A" }
     ]
   };
   var webService = {
@@ -15027,6 +15031,7 @@ Snort successfully validated the configuration${bad ? " (with errors)" : "."}`);
   }
   var CHECK_KINDS = /* @__PURE__ */ new Set(["link", "config", "ping", "ping-fail", "tcp", "tcp-fail", "http", "dns", "dhcp", "alert"]);
   var str = (v) => typeof v === "string" && v.length > 0;
+  var optStr = (v) => v === void 0 || str(v);
   function isValidScenarioCheck(c) {
     if (!c || typeof c !== "object") return false;
     const k = c;
@@ -15037,12 +15042,13 @@ Snort successfully validated the configuration${bad ? " (with errors)" : "."}`);
       case "config":
         return str(k.device) && str(k.field);
       case "ping":
-      case "ping-fail":
       case "http":
         return str(k.from) && str(k.to);
+      case "ping-fail":
+        return str(k.from) && str(k.to) && optStr(k.blockedBy);
       case "tcp":
       case "tcp-fail":
-        return str(k.from) && str(k.to) && Number.isInteger(k.port) && k.port >= 1 && k.port <= 65535;
+        return str(k.from) && str(k.to) && Number.isInteger(k.port) && k.port >= 1 && k.port <= 65535 && (k.kind === "tcp" || optStr(k.blockedBy));
       case "dns":
         return str(k.from) && str(k.name);
       case "dhcp":
@@ -15091,22 +15097,8 @@ Snort successfully validated the configuration${bad ? " (with errors)" : "."}`);
       const d = resolve(check.device);
       return !!d && d.config?.[check.field] === check.equals;
     }
-    if (check.kind === "ping" || check.kind === "ping-fail") {
-      const from = resolve(check.from);
-      if (!from) return false;
-      const to = resolve(check.to)?.config?.ipv4Address || check.to;
-      const setup = buildPingEvents(from, to);
-      const success = typeof setup === "string" ? false : runSimulationHeadless(setup, from.id, to, "ping", null, CHECK_PURPOSE).success;
-      return check.kind === "ping" ? success : !success;
-    }
-    if (check.kind === "tcp" || check.kind === "tcp-fail") {
-      const from = resolve(check.from);
-      if (!from) return false;
-      const to = resolve(check.to)?.config?.ipv4Address || check.to;
-      const setup = buildConnectEvents(from, to, check.port);
-      const success = typeof setup === "string" ? false : runSimulationHeadless(setup, from.id, to, "tcp", check.port, CHECK_PURPOSE).success;
-      return check.kind === "tcp" ? success : !success;
-    }
+    if (check.kind === "ping") return pingSucceeds(check.from, check.to);
+    if (check.kind === "tcp") return tcpSucceeds(check.from, check.to, check.port);
     if (check.kind === "http") {
       const from = resolve(check.from);
       if (!from) return false;
@@ -15151,8 +15143,75 @@ Snort successfully validated the configuration${bad ? " (with errors)" : "."}`);
     }
     return false;
   }
+  function pingSucceeds(fromRef, toRef) {
+    const from = resolve(fromRef);
+    if (!from) return false;
+    const to = resolve(toRef)?.config?.ipv4Address || toRef;
+    const setup = buildPingEvents(from, to);
+    return typeof setup !== "string" && runSimulationHeadless(setup, from.id, to, "ping", null, CHECK_PURPOSE).success;
+  }
+  function tcpSucceeds(fromRef, toRef, port) {
+    const from = resolve(fromRef);
+    if (!from) return false;
+    const to = resolve(toRef)?.config?.ipv4Address || toRef;
+    const setup = buildConnectEvents(from, to, port);
+    return typeof setup !== "string" && runSimulationHeadless(setup, from.id, to, "tcp", port, CHECK_PURPOSE).success;
+  }
+  function removePolicy(guard) {
+    const config = guard.config;
+    if (!config) return null;
+    if (guard.type === "firewall" || guard.type === "router") {
+      config.rules = [];
+      config.policy = {};
+      return "rules";
+    }
+    if (guard.type === "switch") {
+      config.managed = false;
+      return "VLANs";
+    }
+    return null;
+  }
+  function wouldSucceedWithout(guard, flow) {
+    const savedConfigs = state.devices.map((d) => d.config);
+    const savedLinks = state.links.map((l) => ({ stpBlocked: l.stpBlocked, dot1xAuthorized: l.dot1xAuthorized }));
+    for (const d of state.devices) if (d.config) d.config = JSON.parse(JSON.stringify(d.config));
+    try {
+      const removed = removePolicy(guard);
+      return { succeeds: removed !== null && flow(), removed };
+    } finally {
+      state.devices.forEach((d, i) => {
+        d.config = savedConfigs[i];
+      });
+      state.links.forEach((l, i) => {
+        l.stpBlocked = savedLinks[i].stpBlocked;
+        l.dot1xAuthorized = savedLinks[i].dot1xAuthorized;
+      });
+    }
+  }
+  function evaluateIsolation(blockedBy, flow) {
+    if (flow()) return { passed: false };
+    if (!blockedBy) return { passed: true };
+    const guard = resolve(blockedBy);
+    if (!guard) return { passed: false, note: `${blockedBy} is missing \u2014 the goal is to block this at ${blockedBy}.` };
+    const whatIf = wouldSucceedWithout(guard, flow);
+    if (whatIf.succeeds) return { passed: true };
+    const policy = whatIf.removed ?? "configuration";
+    return {
+      passed: false,
+      note: `It is blocked, but not by ${guard.name}: with ${guard.name}'s ${policy} out of the way it still fails, so something else is stopping it. The goal is to block it at ${guard.name}.`
+    };
+  }
+  function evaluateCheck(check) {
+    if (check.kind === "ping-fail") {
+      return { label: check.label, ...evaluateIsolation(check.blockedBy, () => pingSucceeds(check.from, check.to)) };
+    }
+    if (check.kind === "tcp-fail") {
+      return { label: check.label, ...evaluateIsolation(check.blockedBy, () => tcpSucceeds(check.from, check.to, check.port)) };
+    }
+    return { label: check.label, passed: evaluate(check) };
+  }
   function checkScenario(scenario) {
-    const checks = scenario.checks.map((c) => ({ label: c.label, passed: evaluate(c) }));
+    const checks = scenario.checks.map(evaluateCheck);
     return { id: scenario.id, name: scenario.name, passed: checks.every((c) => c.passed), checks };
   }
 
@@ -15184,7 +15243,8 @@ Snort successfully validated the configuration${bad ? " (with errors)" : "."}`);
       const res = lastResult?.checks[i];
       const mark = res == null ? "\u25CB" : res.passed ? "\u2713" : "\u2717";
       const cls = res == null ? "pending" : res.passed ? "pass" : "fail";
-      return `<li class="scenario-check ${cls}"><span class="mark">${mark}</span>${escapeHtml(c.label)}</li>`;
+      const note = res && !res.passed && res.note ? `<span class="scenario-check-note">${escapeHtml(res.note)}</span>` : "";
+      return `<li class="scenario-check ${cls}"><span class="mark">${mark}</span><span class="scenario-check-text">${escapeHtml(c.label)}${note}</span></li>`;
     }).join("");
     dom.scenarioStatus.textContent = lastResult ? lastResult.passed ? "Scenario complete" : "Not yet \u2014 keep going." : "";
     dom.scenarioStatus.className = "scenario-status" + (lastResult ? lastResult.passed ? " pass" : " fail" : "");
@@ -17478,7 +17538,7 @@ Snort successfully validated the configuration${bad ? " (with errors)" : "."}`);
         ok: r.passed,
         data: r,
         output: [
-          ...r.checks.map((c) => `${c.passed ? "\u2713" : "\u2717"} ${c.label}`),
+          ...r.checks.flatMap((c) => [`${c.passed ? "\u2713" : "\u2717"} ${c.label}`, ...!c.passed && c.note ? [`    ${c.note}`] : []]),
           r.passed ? "Scenario complete!" : "Not yet \u2014 keep going."
         ]
       };

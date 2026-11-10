@@ -38,7 +38,10 @@ export function syncScenarioPanel(): void {
     const res = lastResult?.checks[i];
     const mark = res == null ? "○" : res.passed ? "✓" : "✗";
     const cls = res == null ? "pending" : res.passed ? "pass" : "fail";
-    return `<li class="scenario-check ${cls}"><span class="mark">${mark}</span>${escapeHtml(c.label)}</li>`;
+    // A failed check can carry a note — why it failed when the label alone
+    // would read as satisfied (blocked, but not where the scenario asks).
+    const note = res && !res.passed && res.note ? `<span class="scenario-check-note">${escapeHtml(res.note)}</span>` : "";
+    return `<li class="scenario-check ${cls}"><span class="mark">${mark}</span><span class="scenario-check-text">${escapeHtml(c.label)}${note}</span></li>`;
   }).join("");
   dom.scenarioStatus.textContent = lastResult
     ? (lastResult.passed ? "Scenario complete" : "Not yet — keep going.")

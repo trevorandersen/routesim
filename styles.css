@@ -1880,6 +1880,10 @@
       color: var(--muted);
     }
     .scenario-check .mark { width: 14px; text-align: center; font-weight: 800; }
+    /* A failed check's explanation sits under its label, so the mark aligns to the label's first line. */
+    .scenario-check:has(.scenario-check-note) { align-items: flex-start; }
+    .scenario-check-text { min-width: 0; }
+    .scenario-check-note { display: block; margin-top: 2px; font-size: 11px; line-height: 1.35; color: var(--muted); }
     .scenario-check.pass { color: var(--text); }
     .scenario-check.pass .mark { color: #22c55e; }
     .scenario-check.fail .mark { color: var(--danger); }

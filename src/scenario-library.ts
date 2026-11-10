@@ -53,8 +53,8 @@ const vlanSegmentation: Scenario = {
   checks: [
     { kind: "ping", from: "PC-S1", to: "PC-S2", label: "Sales can reach Sales" },
     { kind: "ping", from: "PC-E1", to: "PC-E2", label: "Engineering can reach Engineering" },
-    { kind: "ping-fail", from: "PC-S1", to: "PC-E1", label: "Sales cannot reach Engineering" },
-    { kind: "ping-fail", from: "PC-E2", to: "PC-S2", label: "Engineering cannot reach Sales" },
+    { kind: "ping-fail", from: "PC-S1", to: "PC-E1", blockedBy: "MSW-1", label: "Sales cannot reach Engineering" },
+    { kind: "ping-fail", from: "PC-E2", to: "PC-S2", blockedBy: "MSW-1", label: "Engineering cannot reach Sales" },
   ],
 };
 
@@ -199,7 +199,7 @@ const firewallGuard: Scenario = {
   checks: [
     { kind: "ping", from: "PC-A", to: "SRV-1", label: "Ping still works" },
     { kind: "tcp", from: "PC-A", to: "SRV-1", port: 22, label: "SSH (22) still connects" },
-    { kind: "tcp-fail", from: "PC-A", to: "SRV-1", port: 23, label: "Telnet (23) is blocked" },
+    { kind: "tcp-fail", from: "PC-A", to: "SRV-1", port: 23, blockedBy: "FW-1", label: "Telnet (23) is blocked" },
   ],
 };
 
@@ -283,7 +283,7 @@ const troubleshootFirewall: Scenario = {
   },
   checks: [
     { kind: "tcp", from: "PC-A", to: "SRV-1", port: 22, label: "SSH (22) connects" },
-    { kind: "tcp-fail", from: "PC-A", to: "SRV-1", port: 23, label: "Telnet (23) is blocked" },
+    { kind: "tcp-fail", from: "PC-A", to: "SRV-1", port: 23, blockedBy: "FW-1", label: "Telnet (23) is blocked" },
     { kind: "ping", from: "PC-A", to: "SRV-1", label: "Ping still works" },
   ],
 };
@@ -426,7 +426,7 @@ const hardenGateway: Scenario = {
     ],
   },
   checks: [
-    { kind: "ping-fail", from: "PC-A", to: "192.168.1.1", label: "R1 itself no longer answers pings" },
+    { kind: "ping-fail", from: "PC-A", to: "192.168.1.1", blockedBy: "R1", label: "R1 itself no longer answers pings" },
     { kind: "ping", from: "PC-A", to: "PC-B", label: "Traffic through R1 still flows" },
   ],
 };
@@ -746,7 +746,7 @@ const statefulFirewall: Scenario = {
   },
   checks: [
     { kind: "tcp", from: "PC-A", to: "SRV", port: 80, label: "PC-A can still reach the web server (its replies are ESTABLISHED)" },
-    { kind: "tcp-fail", from: "RT", to: "PC-A", port: 22, label: "The Red Team cannot open a new connection in to PC-A" },
+    { kind: "tcp-fail", from: "RT", to: "PC-A", port: 22, blockedBy: "FW-1", label: "The Red Team cannot open a new connection in to PC-A" },
   ],
 };
 

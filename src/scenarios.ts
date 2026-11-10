@@ -17,9 +17,15 @@ export type ScenarioCheck =
   | { kind: "link"; a: string; b: string; label: string }
   | { kind: "config"; device: string; field: string; equals: unknown; label: string }
   | { kind: "ping"; from: string; to: string; label: string }
-  | { kind: "ping-fail"; from: string; to: string; label: string }   // isolation: the ping must NOT succeed
+  // Isolation: the flow must NOT succeed. `blockedBy` names the device whose
+  // policy must be the reason (a firewall's or router's netfilter rules, a
+  // managed switch's VLANs): the check then also requires that the same flow
+  // WOULD succeed with that policy removed. Without it any failure passes —
+  // a closed port, a renumbered host — and the scenario can be "solved"
+  // without the concept it teaches.
+  | { kind: "ping-fail"; from: string; to: string; blockedBy?: string; label: string }
   | { kind: "tcp"; from: string; to: string; port: number; label: string }
-  | { kind: "tcp-fail"; from: string; to: string; port: number; label: string }
+  | { kind: "tcp-fail"; from: string; to: string; port: number; blockedBy?: string; label: string }
   | { kind: "http"; from: string; to: string; path?: string; status?: number; label: string }   // an HTTP GET returns 2xx (or the given status)
   | { kind: "dns"; from: string; name: string; ip?: string; label: string }   // name resolves (optionally to a given address)
   | { kind: "dhcp"; host: string; label: string }
@@ -36,7 +42,9 @@ export interface Scenario {
   group?: string;           // chooser category; built-ins are grouped via SCENARIO_GROUPS
 }
 
-export interface CheckResult { label: string; passed: boolean }
+// `note` explains a failed check whose label alone would mislead — an isolation
+// goal that IS blocked, but not by the device the scenario asks for.
+export interface CheckResult { label: string; passed: boolean; note?: string }
 export interface ScenarioResult { id: string; name: string; passed: boolean; checks: CheckResult[] }
 
 // ── Registry ─────────────────────────────────────────────────────────────────
@@ -75,6 +83,7 @@ export function getScenario(id: string | null): Scenario | undefined {
 
 const CHECK_KINDS = new Set(["link", "config", "ping", "ping-fail", "tcp", "tcp-fail", "http", "dns", "dhcp", "alert"]);
 const str = (v: unknown) => typeof v === "string" && v.length > 0;
+const optStr = (v: unknown) => v === undefined || str(v);
 
 /**
  * Structural validity of one goal check — the discriminant is known and every
@@ -90,8 +99,11 @@ export function isValidScenarioCheck(c: unknown): c is ScenarioCheck {
   switch (k.kind) {
     case "link":     return str(k.a) && str(k.b);
     case "config":   return str(k.device) && str(k.field);
-    case "ping": case "ping-fail": case "http": return str(k.from) && str(k.to);
-    case "tcp": case "tcp-fail":   return str(k.from) && str(k.to) && Number.isInteger(k.port) && k.port >= 1 && k.port <= 65535;
+    case "ping": case "http": return str(k.from) && str(k.to);
+    case "ping-fail": return str(k.from) && str(k.to) && optStr(k.blockedBy);
+    case "tcp": case "tcp-fail":
+      return str(k.from) && str(k.to) && Number.isInteger(k.port) && k.port >= 1 && k.port <= 65535
+        && (k.kind === "tcp" || optStr(k.blockedBy));
     case "dns":      return str(k.from) && str(k.name);
     case "dhcp":     return str(k.host);
     case "alert":    return str(k.from) && str(k.to) && str(k.contains);
@@ -152,24 +164,8 @@ function evaluate(check: ScenarioCheck): boolean {
     const d = resolve(check.device);
     return !!d && (d.config as any)?.[check.field] === check.equals;
   }
-  if (check.kind === "ping" || check.kind === "ping-fail") {
-    const from = resolve(check.from);
-    if (!from) return false;
-    const to = resolve(check.to)?.config?.ipv4Address || check.to;
-    const setup = buildPingEvents(from, to);
-    const success = typeof setup === "string" ? false
-      : runSimulationHeadless(setup, from.id, to, "ping", null, CHECK_PURPOSE).success;
-    return check.kind === "ping" ? success : !success;
-  }
-  if (check.kind === "tcp" || check.kind === "tcp-fail") {
-    const from = resolve(check.from);
-    if (!from) return false;
-    const to = resolve(check.to)?.config?.ipv4Address || check.to;
-    const setup = buildConnectEvents(from, to, check.port);
-    const success = typeof setup === "string" ? false
-      : runSimulationHeadless(setup, from.id, to, "tcp", check.port, CHECK_PURPOSE).success;
-    return check.kind === "tcp" ? success : !success;
-  }
+  if (check.kind === "ping") return pingSucceeds(check.from, check.to);
+  if (check.kind === "tcp") return tcpSucceeds(check.from, check.to, check.port);
   if (check.kind === "http") {
     const from = resolve(check.from);
     if (!from) return false;
@@ -219,7 +215,91 @@ function evaluate(check: ScenarioCheck): boolean {
   return false;
 }
 
+// ── Isolation checks ─────────────────────────────────────────────────────────
+
+function pingSucceeds(fromRef: string, toRef: string): boolean {
+  const from = resolve(fromRef);
+  if (!from) return false;
+  const to = resolve(toRef)?.config?.ipv4Address || toRef;
+  const setup = buildPingEvents(from, to);
+  return typeof setup !== "string" && runSimulationHeadless(setup, from.id, to, "ping", null, CHECK_PURPOSE).success;
+}
+
+function tcpSucceeds(fromRef: string, toRef: string, port: number): boolean {
+  const from = resolve(fromRef);
+  if (!from) return false;
+  const to = resolve(toRef)?.config?.ipv4Address || toRef;
+  const setup = buildConnectEvents(from, to, port);
+  return typeof setup !== "string" && runSimulationHeadless(setup, from.id, to, "tcp", port, CHECK_PURPOSE).success;
+}
+
+// Take a device's traffic policy out of the way, in place, and name what was
+// removed (for the note). null = this device type has no policy to remove.
+function removePolicy(guard: Device): string | null {
+  const config: any = guard.config;
+  if (!config) return null;
+  if (guard.type === "firewall" || guard.type === "router") {
+    config.rules = [];
+    config.policy = {};          // every chain falls back to ACCEPT
+    return "rules";
+  }
+  if (guard.type === "switch") {
+    config.managed = false;      // an unmanaged switch is one flat broadcast domain
+    return "VLANs";
+  }
+  return null;
+}
+
+// Run `flow` in a what-if copy of the network with `guard`'s policy removed.
+// Every device's config is swapped for a deep copy first and the originals put
+// back afterwards, so nothing the what-if run learns (ARP caches, MAC tables,
+// conntrack-visible NAT entries, IDS alerts) or changes (the removed policy)
+// survives it. The link flags a run can set are restored too.
+function wouldSucceedWithout(guard: Device, flow: () => boolean): { succeeds: boolean; removed: string | null } {
+  const savedConfigs = state.devices.map(d => d.config);
+  const savedLinks = state.links.map(l => ({ stpBlocked: l.stpBlocked, dot1xAuthorized: l.dot1xAuthorized }));
+  for (const d of state.devices) if (d.config) d.config = JSON.parse(JSON.stringify(d.config));
+  try {
+    const removed = removePolicy(guard);
+    return { succeeds: removed !== null && flow(), removed };
+  } finally {
+    state.devices.forEach((d, i) => { d.config = savedConfigs[i]; });
+    state.links.forEach((l, i) => { l.stpBlocked = savedLinks[i].stpBlocked; l.dot1xAuthorized = savedLinks[i].dot1xAuthorized; });
+  }
+}
+
+// An isolation goal: the flow must fail — and, when the check names who must
+// block it, fail BECAUSE of that device. The test for "because" is a what-if:
+// the same flow, re-run with only that device's policy removed, must get
+// through. A flow that is dead for some other reason (a closed port, a host
+// moved to another subnet, an address that no longer exists) stays dead in the
+// what-if, so it does not pass — and the note says so, since the label alone
+// ("Telnet is blocked") would read as satisfied.
+function evaluateIsolation(blockedBy: string | undefined, flow: () => boolean): { passed: boolean; note?: string } {
+  if (flow()) return { passed: false };
+  if (!blockedBy) return { passed: true };
+  const guard = resolve(blockedBy);
+  if (!guard) return { passed: false, note: `${blockedBy} is missing — the goal is to block this at ${blockedBy}.` };
+  const whatIf = wouldSucceedWithout(guard, flow);
+  if (whatIf.succeeds) return { passed: true };
+  const policy = whatIf.removed ?? "configuration";
+  return {
+    passed: false,
+    note: `It is blocked, but not by ${guard.name}: with ${guard.name}'s ${policy} out of the way it still fails, so something else is stopping it. The goal is to block it at ${guard.name}.`,
+  };
+}
+
+function evaluateCheck(check: ScenarioCheck): CheckResult {
+  if (check.kind === "ping-fail") {
+    return { label: check.label, ...evaluateIsolation(check.blockedBy, () => pingSucceeds(check.from, check.to)) };
+  }
+  if (check.kind === "tcp-fail") {
+    return { label: check.label, ...evaluateIsolation(check.blockedBy, () => tcpSucceeds(check.from, check.to, check.port)) };
+  }
+  return { label: check.label, passed: evaluate(check) };
+}
+
 export function checkScenario(scenario: Scenario): ScenarioResult {
-  const checks = scenario.checks.map(c => ({ label: c.label, passed: evaluate(c) }));
+  const checks = scenario.checks.map(evaluateCheck);
   return { id: scenario.id, name: scenario.name, passed: checks.every(c => c.passed), checks };
 }

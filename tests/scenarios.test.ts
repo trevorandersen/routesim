@@ -145,6 +145,8 @@ describe("scenario import validates every check before registering (F12)", () =>
       { kind: "ping-fail", from: "A", to: "B", label: "l" },
       { kind: "tcp", from: "A", to: "B", port: 80, label: "l" },
       { kind: "tcp-fail", from: "A", to: "B", port: 22, label: "l" },
+      { kind: "ping-fail", from: "A", to: "B", blockedBy: "FW", label: "l" },
+      { kind: "tcp-fail", from: "A", to: "B", port: 22, blockedBy: "FW", label: "l" },
       { kind: "http", from: "A", to: "B", label: "l" },
       { kind: "dns", from: "A", name: "web", label: "l" },
       { kind: "dhcp", host: "A", label: "l" },
@@ -170,5 +172,151 @@ describe("scenario import validates every check before registering (F12)", () =>
     expect(getScenario("__tmp")).toBeDefined();
     unregisterScenario("__tmp");
     expect(getScenario("__tmp")).toBeUndefined();
+  });
+});
+
+// R35: an isolation check used to pass on ANY failure, so three scenarios could
+// be "solved" without the concept they teach. A fail-check can now name the
+// device that must do the blocking (`blockedBy`), and passes only if the same
+// flow would get through with that device's policy removed.
+describe("isolation checks pass only for the taught reason (blockedBy)", () => {
+  beforeEach(() => resetState());
+
+  const run = (script: string) => runConsoleScript(script).filter(r => !r.ok).map(r => r.output.join(" "));
+  const check = (id: string) => checkScenario(getScenario(id)!);
+  const failed = (id: string) => check(id).checks.filter(c => !c.passed);
+
+  it("firewall-guard: closing the server's Telnet port is not a firewall rule", () => {
+    loadScenario("firewall-guard");
+    expect(run("ports SRV-1 22")).toEqual([]);
+    const r = check("firewall-guard");
+    expect(r.passed).toBe(false);
+    const telnet = r.checks.find(c => c.label.includes("Telnet"))!;
+    expect(telnet.passed).toBe(false);
+    expect(telnet.note).toContain("not by FW-1");
+    expect(telnet.note).toContain("rules");
+    // Everything else about that network is fine — only the cause is wrong.
+    expect(r.checks.filter(c => !c.passed).length).toBe(1);
+  });
+
+  it("vlan-segmentation: re-subnetting the hosts is not VLAN isolation", () => {
+    loadScenario("vlan-segmentation");
+    expect(run("ip PC-E1 192.168.2.21/24\nip PC-E2 192.168.2.22/24")).toEqual([]);
+    const r = check("vlan-segmentation");
+    expect(r.passed).toBe(false);
+    const notes = r.checks.filter(c => !c.passed).map(c => c.note);
+    expect(notes.length).toBe(2);
+    for (const note of notes) { expect(note).toContain("not by MSW-1"); expect(note).toContain("VLANs"); }
+  });
+
+  it("harden-gateway: renumbering the router is not an INPUT rule", () => {
+    loadScenario("harden-gateway");
+    expect(run(`
+      cli R1 enable
+      cli R1 configure terminal
+      cli R1 interface Ethernet1
+      cli R1 ip address 192.168.1.254/24
+      cli R1 end
+      gateway PC-A 192.168.1.254
+    `)).toEqual([]);
+    const r = check("harden-gateway");
+    expect(r.checks.find(c => c.label.includes("still flows"))!.passed).toBe(true);   // the shortcut keeps traffic flowing
+    const ping = r.checks.find(c => c.label.includes("no longer answers"))!;
+    expect(ping.passed).toBe(false);
+    expect(ping.note).toContain("not by R1");
+  });
+
+  it("the real solutions pass, and carry no note", () => {
+    for (const [id, fix] of [
+      ["firewall-guard", "cli FW-1 iptables -A FORWARD -p tcp --dport 23 -j DROP"],
+      ["harden-gateway", "cli R1 enable\ncli R1 iptables -A INPUT -p icmp -j DROP"],
+      ["vlan-segmentation", [10, 10, 20, 20].map((v, i) => `cli MSW-1 config vlan member add ${v} Ethernet${i + 1}`).join("\n")],
+    ] as const) {
+      loadScenario(id);
+      if (id === "vlan-segmentation") run("cli MSW-1 config vlan add 10\ncli MSW-1 config vlan add 20");
+      expect(run(fix)).toEqual([]);
+      const r = check(id);
+      expect(r.passed, id).toBe(true);
+      expect(r.checks.every(c => c.note === undefined), id).toBe(true);
+    }
+  });
+
+  it("an unsolved scenario fails without a note (the flow simply gets through)", () => {
+    loadScenario("firewall-guard");
+    const telnet = check("firewall-guard").checks.find(c => c.label.includes("Telnet"))!;
+    expect(telnet.passed).toBe(false);
+    expect(telnet.note).toBeUndefined();
+  });
+
+  it("the what-if run leaves no trace on the live network", () => {
+    loadScenario("firewall-guard");
+    run("cli FW-1 iptables -A FORWARD -p tcp --dport 23 -j DROP");
+    check("firewall-guard");                                   // warm the ARP/MAC tables the real runs learn
+    const fw = state.devices.find(d => d.name === "FW-1")!;
+    const configObjects = state.devices.map(d => d.config);
+    const before = JSON.stringify(state.devices) + JSON.stringify(state.links.map(l => ({ ...l, frameHistory: undefined })));
+    expect(check("firewall-guard").passed).toBe(true);
+    // The policy the what-if removed is still there, on the same config objects.
+    expect(fw.config!.rules!.length).toBe(1);
+    state.devices.forEach((d, i) => expect(d.config).toBe(configObjects[i]));
+    expect(JSON.stringify(state.devices) + JSON.stringify(state.links.map(l => ({ ...l, frameHistory: undefined })))).toBe(before);
+
+    loadScenario("vlan-segmentation");
+    run("ip PC-E1 192.168.2.21/24");
+    check("vlan-segmentation");
+    expect(state.devices.find(d => d.name === "MSW-1")!.config!.managed).toBe(true);
+  });
+
+  it("a blockedBy naming a missing or policy-less device fails with a reason", () => {
+    registerScenario({
+      id: "t-blockedby", name: "t", objective: "o",
+      topology: getScenario("firewall-guard")!.topology,
+      checks: [
+        { kind: "tcp-fail", from: "PC-A", to: "SRV-1", port: 9, blockedBy: "NOPE", label: "missing guard" },
+        { kind: "tcp-fail", from: "PC-A", to: "SRV-1", port: 9, blockedBy: "SW-1", label: "unmanaged switch has no policy to remove... but is a switch" },
+        { kind: "tcp-fail", from: "PC-A", to: "SRV-1", port: 9, blockedBy: "PC-A", label: "a host has no policy" },
+        { kind: "tcp-fail", from: "PC-A", to: "SRV-1", port: 9, label: "no blockedBy: any failure passes" },
+      ],
+    });
+    try {
+      loadScenario("t-blockedby");
+      const r = check("t-blockedby").checks;       // port 9 is closed on SRV-1 (it listens on 22 and 23)
+      expect(r[0].passed).toBe(false);
+      expect(r[0].note).toContain("NOPE is missing");
+      expect(r[1].passed).toBe(false);
+      expect(r[2].passed).toBe(false);
+      expect(r[2].note).toContain("not by PC-A");
+      expect(r[3].passed).toBe(true);
+    } finally { unregisterScenario("t-blockedby"); }
+  });
+
+  it("the console's scenario check prints the note under the failed goal", () => {
+    loadScenario("firewall-guard");
+    run("ports SRV-1 22");
+    const out = exec("scenario check").output;
+    const i = out.findIndex(l => l.includes("Telnet"));
+    expect(out[i].startsWith("✗")).toBe(true);
+    expect(out[i + 1]).toContain("not by FW-1");
+  });
+
+  it("every built-in isolation check names a device that has a policy to remove", () => {
+    const POLICY_TYPES = new Set(["firewall", "router", "switch"]);
+    let seen = 0;
+    for (const scenario of SCENARIOS) {
+      for (const c of scenario.checks) {
+        if (c.kind !== "ping-fail" && c.kind !== "tcp-fail") continue;
+        seen++;
+        expect(c.blockedBy, `${scenario.id}: "${c.label}" has no blockedBy`).toBeTruthy();
+        const guard = scenario.topology.devices.find((d: any) => d.name === c.blockedBy || d.id === c.blockedBy);
+        expect(guard, `${scenario.id}: blockedBy ${c.blockedBy} is not in the topology`).toBeTruthy();
+        expect(POLICY_TYPES.has(guard.type), `${scenario.id}: ${c.blockedBy} (${guard.type}) has no policy`).toBe(true);
+      }
+    }
+    expect(seen).toBeGreaterThanOrEqual(6);   // vlan x2, firewall-guard, troubleshoot-firewall, harden-gateway, stateful-firewall
+  });
+
+  it("rejects a non-string blockedBy on import", () => {
+    expect(isValidScenarioCheck({ kind: "ping-fail", from: "A", to: "B", blockedBy: 7, label: "l" })).toBe(false);
+    expect(isValidScenarioCheck({ kind: "tcp-fail", from: "A", to: "B", port: 22, blockedBy: "", label: "l" })).toBe(false);
   });
 });

@@ -122,7 +122,7 @@ Param keys and boolean values are case-insensitive. Adding a setting is a one-ro
 |---------|--------|
 | `topology <basic\|vlan-roas\|router-mesh\|wifi-vlan>` | Load a built-in topology. `wifi-vlan` is a campus WiFi with staff (secured SSID, VLAN 10) and guest (open SSID, VLAN 20) separated by VLAN, plus a shared server on a Servers VLAN (30) reachable by all VLANs, routed by a gateway that isolates guests from the staff subnet. |
 | `save <name>` / `load <name>` | Save/load to the in-memory config store. |
-| `undo` / `redo` | Undo / redo the last change. |
+| `undo` / `redo` | Undo / redo the last change. Refused, with the reason, while the tutorial is playing (its one undo snapshot is the learner's own network). |
 | `export` | Print the current topology as a reproducible command script. |
 | `stress [seed] [steps]` | **Destructive dev tool — replaces the current topology and mutates it randomly; the run is far longer than the 80-entry undo stack, so your work is not recoverable.** Runs a repeatable mutation/invariant test from a fresh Basic topology (defaults: seed `20260706`, 250 actions; maximum 5000). The full action log is returned in `data`; failures include a replay command. |
 

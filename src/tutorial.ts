@@ -10,7 +10,7 @@
  * cycles (commands.ts already owns setTool/setTheme). The launch is wired in
  * app.ts.
  */
-import { state, pushUndo } from "./state";
+import { state, pushUndo, pushUndoSnapshot, networkSnapshot } from "./state";
 import { dom } from "./dom";
 import { getDevice } from "./devices";
 import { worldToScreen, render } from "./canvas";
@@ -134,6 +134,9 @@ let runToken = 0;       // bumped on skip/replay/exit to abort the in-flight run
 let paused = false;
 let active = false;
 let resumeWaiters: (() => void)[] = [];
+// The learner's network as it was when the tutorial started (an undo snapshot),
+// held here as well as on the undo stack — see startTutorial / exitTutorial.
+let preTutorial: string | null = null;
 
 function layer(): HTMLElement | null { return document.getElementById("tutorialLayer"); }
 function cursorEl(): HTMLElement | null { return document.getElementById("tutorialCursor"); }
@@ -258,8 +261,15 @@ export function startTutorial(): void {
   // dozens of entries deep and off the 80-entry cap. One snapshot before the
   // clear, then everything the tutorial does runs as a composite change — a
   // single Undo after exiting restores whatever was there.
+  //
+  // The snapshot is also kept here (preTutorial), and undo/redo are refused
+  // while the demo is up (state.tutorialActive → undoBlockReason): an undo
+  // mid-demo used to pop that one snapshot back onto the canvas, where the next
+  // Back/Replay cleared it with pushes suppressed — gone from undo and redo.
+  preTutorial = networkSnapshot();
   pushUndo();
   state.isApplyingCompositeChange = true;
+  state.tutorialActive = true;
   const l = layer();
   if (l) { l.hidden = false; l.classList.remove("tutorial-finished"); }
   syncControls();
@@ -325,15 +335,28 @@ function replay(): void {
   play(0);
 }
 
-function exitTutorial(): void {
+export function exitTutorial(): void {
   abortRun();            // abort any in-flight run + release waiters
   paused = false;
   active = false;
   state.isApplyingCompositeChange = false;   // the demo's edits were one composite change
+  state.tutorialActive = false;
   exec("stop");
+  // The promise the tutorial makes is "one Undo brings your network back".
+  // Nothing should have been able to move the stack while the demo was up, but
+  // if the learner's snapshot is no longer on top, put it back rather than
+  // trust that — losing their work is the one outcome with no recovery.
+  if (preTutorial !== null && state.undoStack[state.undoStack.length - 1] !== preTutorial) {
+    pushUndoSnapshot(preTutorial);
+  }
+  preTutorial = null;
   const l = layer();
   if (l) { l.hidden = true; l.classList.remove("tutorial-finished"); }
 }
+
+// The control-bar actions, exported so tests can drive the tutorial without a
+// DOM (the buttons below call the same functions).
+export const tutorialControls = { back, forward, togglePause, replay, exit: exitTutorial };
 
 // Wire the control bar once (idempotent). Called from app.ts after setupUI.
 export function setupTutorial(): void {

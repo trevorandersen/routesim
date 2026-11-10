@@ -101,6 +101,7 @@ export const state: AppState = {
   inspectedCapture: null,
   savedCaptures: [],
   isApplyingCompositeChange: false,
+  tutorialActive: false,
   simulation: {
     status: "idle",
     mode: "ping",
@@ -655,7 +656,23 @@ function cancelActiveRun(): void {
   if (state.simulation.status === "running" || state.simulation.status === "paused") sync().stopSimulation?.();
 }
 
+// Why undo/redo are refused right now, or null when they are available.
+//
+// The tutorial takes ONE snapshot of the learner's network, then clears the
+// canvas and runs its demo as a composite change (no further undo points). An
+// undo during the demo would pop that one snapshot and put the learner's
+// network back on the canvas — and the demo's next Back/Replay would then clear
+// it with pushes suppressed, leaving it in neither undo nor redo. So the stack
+// is frozen while the tutorial is up; every caller (shortcut, ribbon, console)
+// goes through undo()/redo() and surfaces this reason.
+export function undoBlockReason(): string | null {
+  return state.tutorialActive
+    ? "Undo and redo are paused while the tutorial plays — exit the tutorial first; one Undo then brings your own network back."
+    : null;
+}
+
 export function undo(): void {
+  if (undoBlockReason()) return;
   cancelActiveRun();
   const snapshot = state.undoStack.pop();
   if (!snapshot) return;
@@ -666,6 +683,7 @@ export function undo(): void {
 }
 
 export function redo(): void {
+  if (undoBlockReason()) return;
   cancelActiveRun();
   const snapshot = state.redoStack.pop();
   if (!snapshot) return;

@@ -3950,6 +3950,7 @@ Full legal text: https://creativecommons.org/publicdomain/zero/1.0/legalcode</pr
     inspectedCapture: null,
     savedCaptures: [],
     isApplyingCompositeChange: false,
+    tutorialActive: false,
     simulation: {
       status: "idle",
       mode: "ping",
@@ -4450,7 +4451,11 @@ Full legal text: https://creativecommons.org/publicdomain/zero/1.0/legalcode</pr
   function cancelActiveRun() {
     if (state.simulation.status === "running" || state.simulation.status === "paused") sync().stopSimulation?.();
   }
+  function undoBlockReason() {
+    return state.tutorialActive ? "Undo and redo are paused while the tutorial plays \u2014 exit the tutorial first; one Undo then brings your own network back." : null;
+  }
   function undo() {
+    if (undoBlockReason()) return;
     cancelActiveRun();
     const snapshot = state.undoStack.pop();
     if (!snapshot) return;
@@ -4460,6 +4465,7 @@ Full legal text: https://creativecommons.org/publicdomain/zero/1.0/legalcode</pr
     syncUndoButton();
   }
   function redo() {
+    if (undoBlockReason()) return;
     cancelActiveRun();
     const snapshot = state.redoStack.pop();
     if (!snapshot) return;
@@ -15331,12 +15337,13 @@ Snort successfully validated the configuration${bad ? " (with errors)" : "."}`);
   }
   function runImportedScript(text) {
     pushUndo();
+    const wasComposite = state.isApplyingCompositeChange;
     state.isApplyingCompositeChange = true;
     let results;
     try {
       results = runConsoleScript(text);
     } finally {
-      state.isApplyingCompositeChange = false;
+      state.isApplyingCompositeChange = wasComposite;
     }
     const rejected = results.filter((r) => !r.ok);
     if (!rejected.length) return `Ran imported script (${results.length} lines).`;
@@ -15558,6 +15565,14 @@ Snort successfully validated the configuration${bad ? " (with errors)" : "."}`);
   }
   function handleGlobalKeydown(event) {
     const inField = ["INPUT", "SELECT", "TEXTAREA"].includes(event.target?.tagName);
+    if (state.tutorialActive) {
+      const key = event.key.toLowerCase();
+      if (!inField && (event.metaKey || event.ctrlKey) && (key === "z" || key === "y")) {
+        event.preventDefault();
+        dom.modeLabel.textContent = undoBlockReason() ?? "";
+      }
+      return;
+    }
     if (!inField && (event.metaKey || event.ctrlKey) && event.key.toLowerCase() === "z") {
       event.preventDefault();
       if (event.shiftKey) redo();
@@ -17320,10 +17335,14 @@ Snort successfully validated the configuration${bad ? " (with errors)" : "."}`);
     return ok(`Loaded "${name}".`);
   }
   function cmdUndo() {
+    const blocked = undoBlockReason();
+    if (blocked) return err(blocked);
     undo();
     return ok("Undone.");
   }
   function cmdRedo() {
+    const blocked = undoBlockReason();
+    if (blocked) return err(blocked);
     redo();
     return ok("Redone.");
   }
@@ -17990,6 +18009,7 @@ Snort successfully validated the configuration${bad ? " (with errors)" : "."}`);
   var paused = false;
   var active = false;
   var resumeWaiters = [];
+  var preTutorial = null;
   function layer() {
     return document.getElementById("tutorialLayer");
   }
@@ -18093,8 +18113,10 @@ Snort successfully validated the configuration${bad ? " (with errors)" : "."}`);
     paused = false;
     resumeWaiters = [];
     steps = buildSteps();
+    preTutorial = networkSnapshot();
     pushUndo();
     state.isApplyingCompositeChange = true;
+    state.tutorialActive = true;
     const l = layer();
     if (l) {
       l.hidden = false;
@@ -18166,7 +18188,12 @@ Snort successfully validated the configuration${bad ? " (with errors)" : "."}`);
     paused = false;
     active = false;
     state.isApplyingCompositeChange = false;
+    state.tutorialActive = false;
     exec("stop");
+    if (preTutorial !== null && state.undoStack[state.undoStack.length - 1] !== preTutorial) {
+      pushUndoSnapshot(preTutorial);
+    }
+    preTutorial = null;
     const l = layer();
     if (l) {
       l.hidden = true;

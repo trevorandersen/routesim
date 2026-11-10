@@ -827,6 +827,9 @@ export interface AppState {
   inspectedCapture: CaptureEntry | null; // selected packet-list row: cross-links the wire + endpoints on the canvas
   savedCaptures: SavedCapture[];         // archived completed runs (for multi-run compare)
   isApplyingCompositeChange: boolean;
+  // The faux-cursor tutorial is on screen. While it is, undo/redo are refused
+  // (see undoBlockReason in state.ts) and the global shortcuts are gated.
+  tutorialActive: boolean;
   simulation: SimulationState;
   portSelection: PortSelectionState | null;
 }

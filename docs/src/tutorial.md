@@ -32,3 +32,14 @@ The tutorial reads `state` and drives `runConsoleCommand` + `closeDock` + `rende
 `startTutorial` takes one undo snapshot before it clears the canvas and then runs the whole demo — including every Back/Forward rebuild — under `isApplyingCompositeChange`, so nothing the tutorial does pushes an entry of its own; `exitTutorial` clears the flag. A single Undo after exiting restores whatever the learner had built. Previously the launch pushed ~20 entries and each rebuild another ~20, so three Back/Forward presses left the original 64 undos away and the fourth pushed it off the 80-entry cap.
 
 The document-level Esc / arrow-key handler ignores keystrokes whose target is an input, textarea, or contenteditable — typing in the console while the tutorial is active no longer steps it.
+
+## Undo is frozen while the demo is up
+
+That one snapshot is the only copy of the learner's network, so nothing may move the undo stack until the tutorial exits. It used to be possible: Ctrl+Z during the demo popped the snapshot and put the learner's network back on the canvas, and the next Back or Replay then ran `clear` with undo pushes suppressed — the network was in neither undo nor redo, with no way back.
+
+- **`state.tutorialActive`** is set by `startTutorial` and cleared by `exitTutorial`. While it is set, **`undoBlockReason()`** (`state.ts`) returns a plain-language reason and `undo()`/`redo()` do nothing. Every caller surfaces the reason: the console's `undo`/`redo` return it as an error, and the keyboard shortcut puts it on the status line.
+- **The global shortcuts are gated** (`handleGlobalKeydown` in `ui.ts`): Delete and the tool letters would act on the demo network behind the click-catcher, so the tutorial owns the keyboard while it plays. Its own listener still handles Esc and the arrow keys, and typing in a field is untouched.
+- **A second copy as a safety net.** `startTutorial` also keeps the snapshot in module state (`preTutorial`). On exit, if it is no longer on top of the undo stack, `exitTutorial` pushes it back — so "one Undo brings your network back" holds even if some path bypassed the freeze.
+- **A nested composite change does not end the tutorial's.** `runImportedScript` (`io.ts`) restores `isApplyingCompositeChange` to its previous value instead of clearing it.
+
+`exitTutorial` and `tutorialControls` (`back`/`forward`/`togglePause`/`replay`/`exit`) are exported so `tests/tutorial.test.ts` can drive the lifecycle without a DOM.

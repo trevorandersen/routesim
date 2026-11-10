@@ -1,4 +1,4 @@
-import { state, toolCopy, networkSnapshot, pushUndoSnapshot, pushUndo, undo, redo, THEMES, DEFAULT_THEME } from "./state";
+import { state, toolCopy, networkSnapshot, pushUndoSnapshot, pushUndo, undo, redo, undoBlockReason, THEMES, DEFAULT_THEME } from "./state";
 import type { DisplayOptions } from "./types";
 import { dom } from "./dom";
 import { addLink, deleteSelection, clearNetwork, findDeviceAt, findLinkAt, getDevice, configureDevice, openPortSelectionModal, confirmPortSelection, cancelPortSelection, placeToolDevice, PLACEMENT_TOOLS, toggleLinkShutdown, linkName } from "./devices";
@@ -241,6 +241,18 @@ function endAboutDrag(event: PointerEvent): void {
 // Global keyboard shortcuts. Extracted from setupUI() so it can be unit-tested.
 export function handleGlobalKeydown(event: KeyboardEvent): void {
   const inField = ["INPUT", "SELECT", "TEXTAREA"].includes((event.target as HTMLElement)?.tagName);
+  // The tutorial owns the keyboard while it plays (its own listener handles Esc
+  // and the arrow keys): the editing shortcuts would act on the demo network
+  // behind the click-catcher, and an undo would pull the learner's saved network
+  // out from under the demo. Typing in a field is left alone.
+  if (state.tutorialActive) {
+    const key = event.key.toLowerCase();
+    if (!inField && (event.metaKey || event.ctrlKey) && (key === "z" || key === "y")) {
+      event.preventDefault();
+      dom.modeLabel.textContent = undoBlockReason() ?? "";
+    }
+    return;
+  }
   // Undo/redo — but NOT while typing in a field: there, Ctrl/Cmd+Z must drive
   // the browser's native text undo, not revert an unrelated topology change.
   if (!inField && (event.metaKey || event.ctrlKey) && event.key.toLowerCase() === "z") {

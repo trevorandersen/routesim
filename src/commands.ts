@@ -7,7 +7,7 @@
  * tests. See docs/scripting.md for the command reference.
  */
 import type { Device, DeviceType } from "./types";
-import { state, undo, redo, sync, pushUndo, THEMES, linksChanged } from "./state";
+import { state, undo, redo, undoBlockReason, sync, pushUndo, THEMES, linksChanged } from "./state";
 import { USER_ADDABLE_TYPES, isHost, isDot1xSupplicant, defaultPortCount } from "./device-registry";
 import { dom } from "./dom";
 import {
@@ -884,8 +884,16 @@ function cmdLoad(args: string[]): CommandResult {
   return ok(`Loaded "${name}".`);
 }
 
-function cmdUndo(): CommandResult { undo(); return ok("Undone."); }
-function cmdRedo(): CommandResult { redo(); return ok("Redone."); }
+function cmdUndo(): CommandResult {
+  const blocked = undoBlockReason();
+  if (blocked) return err(blocked);
+  undo(); return ok("Undone.");
+}
+function cmdRedo(): CommandResult {
+  const blocked = undoBlockReason();
+  if (blocked) return err(blocked);
+  redo(); return ok("Redone.");
+}
 
 function cmdExport(): CommandResult {
   const script = exportTopologyScript();

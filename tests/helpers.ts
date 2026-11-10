@@ -33,6 +33,8 @@ export function resetState(): void {
   state.linkStartId = null;
   state.undoStack = [];
   state.redoStack = [];
+  state.isApplyingCompositeChange = false;   // never let an aborted composite change (tutorial, import) leak
+  state.tutorialActive = false;
   state.tool = "select";
   state.drag = null;
   state.panDrag = null;

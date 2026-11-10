@@ -123,9 +123,12 @@ export function exportScript(): void {
 // file picker.
 export function runImportedScript(text: string): string {
   pushUndo();
+  // Restore the flag rather than clearing it: an import fired while another
+  // composite change is open (the tutorial) must not end that one early.
+  const wasComposite = state.isApplyingCompositeChange;
   state.isApplyingCompositeChange = true;
   let results;
-  try { results = runConsoleScript(text); } finally { state.isApplyingCompositeChange = false; }
+  try { results = runConsoleScript(text); } finally { state.isApplyingCompositeChange = wasComposite; }
   const rejected = results.filter(r => !r.ok);
   if (!rejected.length) return `Ran imported script (${results.length} lines).`;
   return `Imported script: ${rejected.length} of ${results.length} lines rejected — first: ${rejected[0].output.join(" ")}`;

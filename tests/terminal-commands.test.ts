@@ -10,7 +10,8 @@
  */
 import { describe, it, expect, beforeAll, beforeEach, afterAll } from "bun:test";
 import { runConsoleScript } from "../src/commands";
-import { state } from "../src/state";
+import { state, undo, redo } from "../src/state";
+import { terminalPromptText, syncTerminal } from "../src/terminal";
 import {
   runRouterTerminalCommand, runSwitchTerminalCommand, runTerminalCommand, runDeviceCommand, runHostTerminalCommand, setSwitchPortMode, showSwitchRunningConfig, showRouterRunningConfig } from "../src/terminal";
 import { registerNoopCallbacks, resetState } from "./helpers";
@@ -640,7 +641,8 @@ describe("P3 sweep — router shell", () => {
     return { r1, run };
   };
   it("iptables is refused in a sub-mode, as the registry advertises", () => {
-    const { run } = router("interface");
+    const { run } = router("config");
+    run("interface Ethernet1");   // a real interface mode — one with no interface selected is reconciled away
     expect(run("iptables -L")).toContain("Leave the sub-mode");
   });
   it("removing a port-forward that does not exist is an error and pushes no undo", () => {
@@ -659,5 +661,134 @@ describe("P3 sweep — router shell", () => {
     const { r1, run } = router("config");
     run("ip nat inside source static tcp 10.0.0.5 80 203.0.113.1 8080");
     expect(showRouterRunningConfig(r1)).toContain("ip nat inside source static tcp 10.0.0.5 80 203.0.113.1 8080");
+  });
+});
+
+// R33: a router session's CLI mode points at configuration (the RIP process, one
+// sub-interface). Undo rewound that configuration but not the mode, so the next
+// `network` dereferenced a RIP block that no longer existed (a TypeError that
+// escaped the submit) and `ip address` silently recreated the undone
+// sub-interface. The mode is now reconciled against the live router.
+describe("router shell — a CLI mode whose target is gone falls back to config mode (R33)", () => {
+  function shell() {
+    resetState();
+    runConsoleScript("add router R1 at 0 0\nadd switch SW at 200 0\nmanaged SW on\nlink R1 SW\ninterface R1 SW ip 10.0.0.1/24");
+    const r1 = () => state.devices.find(d => d.name === "R1")!;   // undo replaces the device objects
+    state.terminal = { deviceId: r1().id, mode: "config", interfacePeerId: null, interfaceVlanTag: null, lines: [], history: [], historyIndex: -1 } as any;
+    state.terminalSessions = [state.terminal];
+    const run = (c: string) => { const n = state.terminal.lines.length; runRouterTerminalCommand(r1(), c); return state.terminal.lines.slice(n).map((l: any) => l.text).join(" "); };
+    return { r1, run };
+  }
+
+  it("undoing `router rip` leaves rip mode: `network` reports it instead of throwing", () => {
+    const { r1, run } = shell();
+    run("router rip");
+    expect(state.terminal.mode).toBe("rip");
+    undo();
+    expect(r1().config!.rip?.enabled).toBeFalsy();
+    let out = "";
+    expect(() => { out = run("network 10.0.0.0/24"); }).not.toThrow();
+    expect(state.terminal.mode).toBe("config");
+    expect(out).toContain("RIP is no longer enabled on R1");
+    expect(out).toContain("Enter router rip mode first");
+    expect(r1().config!.rip?.networks ?? []).toEqual([]);   // nothing was configured behind the learner's back
+  });
+
+  it("every RIP sub-mode command survives the undo", () => {
+    for (const cmd of ["network 10.0.0.0/24", "no network 10.0.0.0/24", "passive-interface Ethernet1", "no passive-interface Ethernet1"]) {
+      const { run } = shell();
+      run("router rip");
+      undo();
+      expect(() => run(cmd)).not.toThrow();
+      expect(state.terminal.mode).toBe("config");
+    }
+  });
+
+  it("redo brings the RIP process back, and `router rip` re-enters it", () => {
+    const { r1, run } = shell();
+    run("router rip");
+    undo();
+    run("exit");                       // reconciled to config, then exit → privileged
+    redo();
+    expect(r1().config!.rip?.enabled).toBe(true);
+    run("configure terminal");
+    run("router rip");
+    run("network 10.0.0.0/24");
+    expect(r1().config!.rip!.networks).toEqual(["10.0.0.0/24"]);
+  });
+
+  it("`no router rip` in a script, then a stale rip-mode session, is reconciled the same way", () => {
+    const { r1, run } = shell();
+    run("router rip");
+    r1().config!.rip = { enabled: false, networks: [], passiveInterfaces: [], learnedRoutes: [] };   // disabled from elsewhere
+    expect(run("network 10.0.0.0/24")).toContain("RIP is no longer enabled");
+  });
+
+  it("an undone sub-interface is not silently recreated by the next `ip address`", () => {
+    const { r1, run } = shell();
+    run("interface Ethernet1.20");     // naming it creates it (one undo point)
+    expect(r1().config!.interfaces!.some(i => i.vlanTag === 20)).toBe(true);
+    undo();
+    expect(r1().config!.interfaces!.some(i => i.vlanTag === 20)).toBe(false);
+    const out = run("ip address 192.168.20.1/24");
+    expect(out).toContain("Sub-interface .20 no longer exists");
+    expect(out).toContain("Interface mode required");
+    expect(state.terminal.mode).toBe("config");
+    expect(state.terminal.interfacePeerId).toBeNull();
+    expect(r1().config!.interfaces!.some(i => i.vlanTag === 20)).toBe(false);
+  });
+
+  it("an interface command typed in config mode is answered as one, not expanded to iptables", () => {
+    const { run } = shell();
+    expect(run("ip address 10.0.0.9/24")).toBe("% Interface mode required.");
+    expect(run("ip nat inside")).toBe("% Interface mode required.");
+    expect(run("ipt -L")).not.toContain("Interface mode");   // a real abbreviation of iptables still expands
+  });
+
+  it("an unplugged cable ends interface mode instead of configuring a phantom interface", () => {
+    const { r1, run } = shell();
+    run("interface Ethernet1");
+    const before = r1().config!.interfaces!.length;
+    runConsoleScript("unlink R1 SW");
+    const out = run("ip address 10.9.9.1/24");
+    expect(out).toContain("no longer cabled");
+    expect(state.terminal.mode).toBe("config");
+    expect(r1().config!.interfaces!.some(i => i.ipv4Address === "10.9.9.1")).toBe(false);
+    expect(r1().config!.interfaces!.length).toBe(before);
+  });
+
+  it("a live mode is left alone (no notice, no fallback)", () => {
+    const { run } = shell();
+    run("interface Ethernet1");
+    const lines = state.terminal.lines.length;
+    syncTerminal();
+    expect(state.terminal.mode).toBe("interface");
+    run("exit");
+    run("router rip");
+    syncTerminal();
+    expect(state.terminal.mode).toBe("rip");
+    expect(state.terminal.lines.slice(lines).some((l: any) => /back in configuration mode/.test(l.text))).toBe(false);
+  });
+
+  it("the prompt follows at the next render, and the notice is written once", () => {
+    const { r1, run } = shell();
+    run("router rip");
+    expect(terminalPromptText(r1())).toBe("R1(config-router)#");
+    undo();
+    syncTerminal();                    // what restoreSnapshot's bridge call does in the app
+    syncTerminal();
+    expect(terminalPromptText(r1())).toBe("R1(config)#");
+    expect(state.terminal.lines.filter((l: any) => /RIP is no longer enabled/.test(l.text)).length).toBe(1);
+  });
+
+  it("the console's `cli` echoes the reconciled prompt", () => {
+    const { r1 } = shell();
+    runTerminalCommand("router rip");
+    undo();
+    const n = state.terminal.lines.length;
+    runTerminalCommand("network 10.0.0.0/24");
+    const echoed = state.terminal.lines.slice(n).find((l: any) => l.kind === "command")!;
+    expect(echoed.text).toBe("R1(config)# network 10.0.0.0/24");
+    expect(r1().config!.rip?.enabled).toBeFalsy();
   });
 });

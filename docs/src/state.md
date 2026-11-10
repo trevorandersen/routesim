@@ -55,4 +55,4 @@ A bridge's MAC table is learnt state derived from the cabling it was learnt over
 
 Covered by `tests/mac-flush.test.ts`; benchmarked as `flushLearnedMacs — 30 switches`.
 
-**`restoreSnapshot`** now drops terminal sessions whose device the restored topology lacks (`dropTerminalSessions` with just those ids), so undoing an add cannot leave a tab — or the active terminal — pointing at a vanished device. `tests/lifecycle.test.ts` pins all of this with `diagnoseState`.
+**`restoreSnapshot`** now drops terminal sessions whose device the restored topology lacks (`dropTerminalSessions` with just those ids), so undoing an add cannot leave a tab — or the active terminal — pointing at a vanished device. It also calls the `syncTerminal` bridge: the open shell's prompt is drawn from the restored devices (its hostname), and a router CLI mode that pointed at configuration the restore removed is reconciled there (`reconcileRouterSession`, [terminal.md](terminal.md); review R33). `tests/lifecycle.test.ts` pins all of this with `diagnoseState`.

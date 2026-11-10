@@ -642,6 +642,10 @@ export function restoreSnapshot(snapshot: string): void {
   resetCaptureState();
   sync().syncPanel();
   sync().syncSimLog();
+  // An open shell renders from the restored devices too: the prompt carries the
+  // hostname, and a router CLI mode can point at configuration this restore
+  // just removed (syncTerminal reconciles it — terminal/router.ts).
+  sync().syncTerminal();
   // Restoring a different topology can change which ports the spanning tree
   // blocks, and the snapshot's MAC tables were learnt over whatever cabling
   // stood when it was taken — flush them and recompute (also renders).

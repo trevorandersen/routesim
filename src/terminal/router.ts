@@ -3,13 +3,13 @@
  * (exec/privileged/config/interface/rip), show commands, prefix abbreviation,
  * and context-sensitive `?` driven by the ROUTER_COMMANDS registry.
  */
-import type { Device } from "../types";
+import type { Device, TerminalSession } from "../types";
 import { state, sync, pushUndo } from "../state";
 import { isValidIpv4, parseIpv4Token, normaliseVlanId, prefixOf, clampPrefixLength, networkOf } from "../utils";
 import { normaliseArpTable, normaliseDhcpLeases, normaliseStaticRoutes, normaliseRipConfig } from "../normalise";
-import { routerInterfacesWithNames, routerInterfaceFor, routerInterfaceByName, applyHostname } from "../devices";
+import { routerInterfacesWithNames, routerInterfaceFor, routerInterfaceByName, applyHostname, linkedPortsFor } from "../devices";
 import { buildRoutingTable, runRipConvergence } from "../engine";
-import { terminalLine, closeSession } from "./core";
+import { terminalLine, terminalLineFor, closeSession } from "./core";
 import { runIptablesCommand } from "./iptables";
 
 export function showRouterInterfaceBrief(router: Device): string {
@@ -227,6 +227,38 @@ const ROUTER_COMMANDS: RouterCmdSpec[] = [
   { tokens: ["clear"], modes: ALL_ROUTER_MODES },
 ];
 
+// A router session's CLI mode points at configuration: `rip` mode at the
+// router's RIP process, `interface` mode at one cabled (sub-)interface. That
+// configuration can go away behind the shell's back — an undo or redo rewinds
+// it, a cable is pulled, the sub-interface is removed elsewhere — and the mode
+// would then dangle: `network …` dereferenced a RIP block that no longer
+// existed (a TypeError that escaped the submit), and `ip address …` silently
+// recreated the undone sub-interface. So the mode is checked against the live
+// router wherever it is read (each command, each terminal render): a mode whose
+// target is gone falls back to configuration mode, and the session says why.
+export function reconcileRouterSession(session: TerminalSession, router: Device): void {
+  if (session.mode === "rip") {
+    if (router.config?.rip?.enabled) return;
+    session.mode = "config";
+    terminalLineFor(session, "muted", `% RIP is no longer enabled on ${router.name} — back in configuration mode (router rip to re-enter).`);
+    return;
+  }
+  if (session.mode !== "interface") return;
+  const peerId = session.interfacePeerId;
+  const tag = session.interfaceVlanTag;
+  let gone: string | null = null;
+  if (!peerId || !linkedPortsFor(router.id).some((port: any) => port?.peer?.id === peerId)) {
+    gone = "The interface you were configuring is no longer cabled";
+  } else if (tag != null && !(router.config?.interfaces || []).some((i: any) => i.peerId === peerId && i.vlanTag === tag)) {
+    gone = `Sub-interface .${tag} no longer exists`;
+  }
+  if (!gone) return;
+  session.mode = "config";
+  session.interfacePeerId = null;
+  session.interfaceVlanTag = null;
+  terminalLineFor(session, "muted", `% ${gone} — back in configuration mode.`);
+}
+
 function routerMode(): RouterMode {
   const m = state.terminal.mode;
   return (m === "privileged" || m === "config" || m === "interface" || m === "rip") ? m : "exec";
@@ -246,18 +278,26 @@ function routerCmdMatches(tokens: string[], spec: RouterCmdSpec): boolean {
 function expandRouterCommand(command: string, mode: RouterMode): string | null {
   const tokens = command.trim().split(/\s+/);
   if (!tokens[0]) return null;
-  let matches = ROUTER_COMMANDS.filter(c => c.modes.includes(mode) && routerCmdMatches(tokens, c));
+  const any = ROUTER_COMMANDS.filter(c => routerCmdMatches(tokens, c));
+  let matches = any.filter(c => c.modes.includes(mode));
+  // How many of a spec's keywords were typed in full (not abbreviated).
+  const exactness = (spec: RouterCmdSpec) =>
+    spec.tokens.filter((t, i) => tokens[i] && t === tokens[i].toLowerCase()).length;
   if (matches.length === 0) {
-    const any = ROUTER_COMMANDS.filter(c => routerCmdMatches(tokens, c));
     if (any.length !== 1) return null; // unknown or cross-mode ambiguity → pass through
     matches = any;
+  } else {
+    // A command spelled out in full for ANOTHER mode beats a mere prefix match
+    // in this one: `ip address …` typed in config mode is the interface command
+    // in the wrong mode ("% Interface mode required"), not an abbreviation of
+    // `iptables`. Pass it through for its own handler to answer.
+    const bestHere = Math.max(...matches.map(exactness));
+    if (any.some(c => !c.modes.includes(mode) && exactness(c) === c.tokens.length && exactness(c) > bestHere)) return null;
   }
   if (matches.length > 1) {
     // Prefer the candidates whose keywords match the typed tokens exactly —
     // "ip route" must beat "iptables" for the input "ip route ..." even though
     // "ip" is also a prefix of "iptables".
-    const exactness = (spec: RouterCmdSpec) =>
-      spec.tokens.filter((t, i) => tokens[i] && t === tokens[i].toLowerCase()).length;
     const best = Math.max(...matches.map(exactness));
     matches = matches.filter(m => exactness(m) === best);
   }
@@ -350,6 +390,7 @@ function routerNatCommand(router: Device, lower: string): boolean {
 }
 
 export function runRouterTerminalCommand(router: Device, rawCommand: string): void {
+  reconcileRouterSession(state.terminal, router);   // never dispatch on a mode whose target is gone
   const mode = routerMode();
   const trimmed = rawCommand.trim();
   // Context-sensitive `?` (bare or trailing) and `help`.

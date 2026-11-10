@@ -4450,6 +4450,7 @@ Full legal text: https://creativecommons.org/publicdomain/zero/1.0/legalcode</pr
     resetCaptureState();
     sync().syncPanel();
     sync().syncSimLog();
+    sync().syncTerminal();
     linksChanged();
   }
   function cancelActiveRun() {
@@ -11258,6 +11259,28 @@ ${body}
     { tokens: ["end"], modes: ["privileged", "config", "interface", "rip"] },
     { tokens: ["clear"], modes: ALL_ROUTER_MODES }
   ];
+  function reconcileRouterSession(session, router) {
+    if (session.mode === "rip") {
+      if (router.config?.rip?.enabled) return;
+      session.mode = "config";
+      terminalLineFor(session, "muted", `% RIP is no longer enabled on ${router.name} \u2014 back in configuration mode (router rip to re-enter).`);
+      return;
+    }
+    if (session.mode !== "interface") return;
+    const peerId = session.interfacePeerId;
+    const tag = session.interfaceVlanTag;
+    let gone = null;
+    if (!peerId || !linkedPortsFor(router.id).some((port) => port?.peer?.id === peerId)) {
+      gone = "The interface you were configuring is no longer cabled";
+    } else if (tag != null && !(router.config?.interfaces || []).some((i) => i.peerId === peerId && i.vlanTag === tag)) {
+      gone = `Sub-interface .${tag} no longer exists`;
+    }
+    if (!gone) return;
+    session.mode = "config";
+    session.interfacePeerId = null;
+    session.interfaceVlanTag = null;
+    terminalLineFor(session, "muted", `% ${gone} \u2014 back in configuration mode.`);
+  }
   function routerMode() {
     const m = state.terminal.mode;
     return m === "privileged" || m === "config" || m === "interface" || m === "rip" ? m : "exec";
@@ -11273,14 +11296,17 @@ ${body}
   function expandRouterCommand(command, mode) {
     const tokens = command.trim().split(/\s+/);
     if (!tokens[0]) return null;
-    let matches = ROUTER_COMMANDS.filter((c) => c.modes.includes(mode) && routerCmdMatches(tokens, c));
+    const any = ROUTER_COMMANDS.filter((c) => routerCmdMatches(tokens, c));
+    let matches = any.filter((c) => c.modes.includes(mode));
+    const exactness = (spec2) => spec2.tokens.filter((t, i) => tokens[i] && t === tokens[i].toLowerCase()).length;
     if (matches.length === 0) {
-      const any = ROUTER_COMMANDS.filter((c) => routerCmdMatches(tokens, c));
       if (any.length !== 1) return null;
       matches = any;
+    } else {
+      const bestHere = Math.max(...matches.map(exactness));
+      if (any.some((c) => !c.modes.includes(mode) && exactness(c) === c.tokens.length && exactness(c) > bestHere)) return null;
     }
     if (matches.length > 1) {
-      const exactness = (spec2) => spec2.tokens.filter((t, i) => tokens[i] && t === tokens[i].toLowerCase()).length;
       const best = Math.max(...matches.map(exactness));
       matches = matches.filter((m) => exactness(m) === best);
     }
@@ -11374,6 +11400,7 @@ ${body}
     return true;
   }
   function runRouterTerminalCommand(router, rawCommand) {
+    reconcileRouterSession(state.terminal, router);
     const mode = routerMode();
     const trimmed = rawCommand.trim();
     if (trimmed === "?" || /\?\s*$/.test(trimmed)) {
@@ -12660,6 +12687,7 @@ Snort successfully validated the configuration${bad ? " (with errors)" : "."}`);
       return;
     }
     if (!command) return;
+    if (host.type === "router") reconcileRouterSession(state.terminal, host);
     terminalLine("command", `${terminalPromptText(host)} ${command}`);
     takePreemptionNote();
     const session = state.terminal;
@@ -12698,6 +12726,7 @@ Snort successfully validated the configuration${bad ? " (with errors)" : "."}`);
       return;
     }
     const activeHost = getDevice(state.terminal.deviceId);
+    if (activeHost?.type === "router") reconcileRouterSession(state.terminal, activeHost);
     dom.terminalPrompt.textContent = activeHost ? terminalPromptText(activeHost) : "device$";
     const busy = terminalBusy();
     dom.terminalInput.disabled = !activeHost;
@@ -12719,12 +12748,15 @@ Snort successfully validated the configuration${bad ? " (with errors)" : "."}`);
       }
     }
     state.terminal.historyIndex = -1;
-    if (command.trim() && terminalBusy()) {
-      terminalLine("error", RUN_BUSY);
-    } else {
-      runTerminalCommand(command);
+    try {
+      if (command.trim() && terminalBusy()) {
+        terminalLine("error", RUN_BUSY);
+      } else {
+        runTerminalCommand(command);
+      }
+    } finally {
+      syncTerminal();
     }
-    syncTerminal();
   }
   function handleTerminalKeydown(event) {
     const h = state.terminal.history;

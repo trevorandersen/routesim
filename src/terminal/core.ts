@@ -17,7 +17,7 @@ import { getDevice } from "../devices";
 import { isHost, offersTerminal } from "../device-registry";
 import { runHostTerminalCommand } from "./host";
 import { runServerTerminalCommand } from "./server";
-import { runRouterTerminalCommand } from "./router";
+import { runRouterTerminalCommand, reconcileRouterSession } from "./router";
 import { runSwitchTerminalCommand } from "./switch";
 import { runFirewallTerminalCommand } from "./firewall";
 import { runIdsTerminalCommand } from "./ids";
@@ -269,6 +269,7 @@ export function runTerminalCommand(rawCommand: string): void {
     return;
   }
   if (!command) return;
+  if (host.type === "router") reconcileRouterSession(state.terminal, host);   // before the echo, so it shows the real prompt
   terminalLine("command", `${terminalPromptText(host)} ${command}`);
   // A command here can stop another run (a ping preempting a network boot, a
   // traceroute stopping an animation — engine beginRun). Say so in this shell,
@@ -323,6 +324,9 @@ export function syncTerminal(): void {
     return; // closeSession re-enters syncTerminal with a valid pointer
   }
   const activeHost = getDevice(state.terminal.deviceId);
+  // A router CLI mode whose target is gone (undone, unplugged) falls back to
+  // configuration mode before the prompt is drawn — see reconcileRouterSession.
+  if (activeHost?.type === "router") reconcileRouterSession(state.terminal, activeHost);
   dom.terminalPrompt.textContent = activeHost ? terminalPromptText(activeHost) : "device$";
   // The input lock follows the run, not the command that started it: while the
   // run this shell started is running or paused, the shell is busy, as a real
@@ -358,14 +362,17 @@ export function submitTerminalCommand(event: Event): void {
     }
   }
   state.terminal.historyIndex = -1;
-  if (command.trim() && terminalBusy()) {
-    // The busy shell's input is read-only; this catches a submit that slips
-    // through anyway (a value typed before the run began, an autofill).
-    terminalLine("error", RUN_BUSY);
-  } else {
-    runTerminalCommand(command);
+  try {
+    if (command.trim() && terminalBusy()) {
+      // The busy shell's input is read-only; this catches a submit that slips
+      // through anyway (a value typed before the run began, an autofill).
+      terminalLine("error", RUN_BUSY);
+    } else {
+      runTerminalCommand(command);
+    }
+  } finally {
+    syncTerminal();   // a handler that throws must not leave the pane showing the old scrollback and prompt
   }
-  syncTerminal();
 }
 
 export function handleTerminalKeydown(event: KeyboardEvent): void {

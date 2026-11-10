@@ -331,7 +331,7 @@ Every outgoing frame passes through **`admitOnLink`**, the single admission poin
 
 **Finish.** `finishSimulation` writes a mode-specific result (ping statistics, DHCP lease, nmap-style report and so on) into the **origin device's** session, even if another tab is active. It archives the capture for the multi-run compare view, then advances the network-boot queue. Play while idle calls `startNetworkBoot`, which boots every unconfigured cabled host in turn over animated DHCP, falling back to APIPA when enabled, then launches any ready Red Team actor.
 
-**Determinism.** Protocol-visible random values come from `prng.ts`, reseeded by each `build*Events` call. By default the seed comes from the clock, so traffic varies like a real network. `seed <n>` pins it, making runs bit-for-bit reproducible.
+**Determinism.** Protocol-visible random values come from `prng.ts`, reseeded by each `build*Events` call. Per-link loss draws from a second stream that `beginRun` reseeds for every animated run, so runs that use no seeding builder (association, 802.1X, spanning tree) are covered too. By default the seed comes from the clock, so traffic varies like a real network. `seed <n>` pins it, making runs bit-for-bit reproducible, dropped frames included.
 
 ## 10. Topology lifecycle
 

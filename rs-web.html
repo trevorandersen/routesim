@@ -6102,6 +6102,14 @@ Full legal text: https://creativecommons.org/publicdomain/zero/1.0/legalcode</pr
     rng = mulberry32(currentSeed);
     return currentSeed;
   }
+  var lossRng = mulberry32(2654435769);
+  function seedLossRng() {
+    const base = override != null ? override : Date.now() >>> 0;
+    lossRng = mulberry32((base ^ 2654435769) >>> 0);
+  }
+  function lossRandom() {
+    return lossRng();
+  }
   function simRandomInt(loInclusive, hiExclusive) {
     return loInclusive + Math.floor(rng() * (hiExclusive - loInclusive));
   }
@@ -7929,6 +7937,7 @@ Full legal text: https://creativecommons.org/publicdomain/zero/1.0/legalcode</pr
     runStpConvergence();
     if (!headless) {
       if (!boot) pushUndo();
+      seedLossRng();
       bootRunActive = boot;
     }
     resetRunState(setup, originDeviceId, targetIp, mode, targetPort, headless);
@@ -8202,6 +8211,7 @@ Full legal text: https://creativecommons.org/publicdomain/zero/1.0/legalcode</pr
       return false;
     }
     bootUndoPending = true;
+    if (!state.options.autoDhcp) seedSimRng();
     return bootNextHost();
   }
   function bootNextHost() {
@@ -9377,7 +9387,7 @@ Full legal text: https://creativecommons.org/publicdomain/zero/1.0/legalcode</pr
       if (!link.stpBlocked) noteArpDrop(frame, linkPeer(device, link), blocked);
       return false;
     }
-    if (!sim.headless && Number(link.loss) > 0 && Math.random() * 100 < Number(link.loss)) {
+    if (!sim.headless && Number(link.loss) > 0 && lossRandom() * 100 < Number(link.loss)) {
       logStep(device, "sim-drop", `${linkName(link)} dropped ${frameLabel(frame)} (${link.loss}% loss)`);
       noteArpDrop(frame, linkPeer(device, link), `${linkName(link)} lost it (${link.loss}% loss on that link \u2014 try the run again)`);
       return false;
@@ -9761,11 +9771,15 @@ Full legal text: https://creativecommons.org/publicdomain/zero/1.0/legalcode</pr
     });
     return outgoing;
   }
-  function generateApipaAddress() {
+  function generateApipaAddress(self) {
+    for (let attempt = 0; attempt < 64; attempt++) {
+      const candidate = `169.254.${simRandomInt(1, 255)}.${simRandomInt(1, 255)}`;
+      if (!state.devices.some((d) => d !== self && d.config?.ipv4Address === candidate)) return candidate;
+    }
     return `169.254.${simRandomInt(1, 255)}.${simRandomInt(1, 255)}`;
   }
   function assignApipa(device) {
-    const apipaIp = generateApipaAddress();
+    const apipaIp = generateApipaAddress(device);
     if (device.config) {
       device.config.ipv4Address = apipaIp;
       device.config.ipSource = "apipa";

@@ -4,7 +4,7 @@ import { dom } from "./dom";
 import { getDevice, linkedPortsFor, routerInterfacesWithNames, linkName, linkById, linksFor, linkDataBlockReason, macsecState, macsOwnedBy, liveMacsOf, isPhysicalLink } from "./devices";
 import { normalisePortVlans, normalisePortModes, normaliseTrunkAllowedVlans, normaliseArpTable, normaliseMacTable, normaliseDhcpLeases, normaliseStaticRoutes, ensureConfig } from "./normalise";
 import { sameSubnet, prefixOf, isValidIpv4, escapeHtml, ipv4ToInt, intToIpv4, normaliseMacAddress, deriveMac, internetGatewayIp, parseIpv4, cidrOf, cidrHas } from "./utils";
-import { simRandomInt } from "./prng";
+import { simRandomInt, seedSimRng, seedLossRng, lossRandom } from "./prng";
 import { createArpRequest, createArpReply, createIcmpEchoRequest, createIcmpEchoReply, createIcmpTimeExceeded, createIcmpDestUnreachable, icmpOriginalOf, createDhcpOffer, createDhcpRequest, createDhcpAck, createTcpSegment, createHttpRequest, createHttpResponse, createDnsResponse, createDot11Frame, createDot1xFrame, createBpduFrame, BROADCAST_MAC, frameLabel, packetColumns, toneGlyph } from "./frame";
 import { terminalLine, terminalLineFor, sessionFor, syncTerminal, openDock, syncSimLogBadge } from "./terminal";
 import { buildPingEvents, buildResolveEvents, buildDhcpEvents, buildAttackEvents, findPingTarget, hostnameToIp } from "./simulation";
@@ -140,6 +140,10 @@ function beginRun(setup: PingSetup, originDeviceId: string, targetIp: string, mo
     // except a boot run: startNetworkBoot took ONE snapshot for the whole chain,
     // so one Ctrl+Z undoes one Play press rather than one host.
     if (!boot) pushUndo();
+    // Link loss is animated-only, and its stream is reseeded here — the one
+    // place every animated run passes — so `seed <n>` reproduces which frames a
+    // lossy wire drops, whatever the run type.
+    seedLossRng();
     bootRunActive = boot;   // latched for the run's lifetime (keeps boot chatter out of the compare archive)
   }
   resetRunState(setup, originDeviceId, targetIp, mode, targetPort, headless);
@@ -498,6 +502,10 @@ export function startNetworkBoot(): boolean {
   // ONE undo point for the whole Play press: the boot runs below skip their own
   // (beginRun), and the direct-APIPA path never had one.
   bootUndoPending = true;
+  // The direct-APIPA path starts no run, so nothing else reseeds for it: without
+  // this the addresses depended on whatever the last run left in the stream, and
+  // a pinned seed reproduced nothing. (A DHCP boot reseeds in its builder.)
+  if (!state.options.autoDhcp) seedSimRng();
   return bootNextHost();
 }
 
@@ -1991,7 +1999,7 @@ function admitOnLink(device: Device, link: Link, frame: EthernetFrame): boolean 
     if (!link.stpBlocked) noteArpDrop(frame, linkPeer(device, link), blocked);
     return false;
   }
-  if (!sim.headless && Number(link.loss) > 0 && Math.random() * 100 < Number(link.loss)) {
+  if (!sim.headless && Number(link.loss) > 0 && lossRandom() * 100 < Number(link.loss)) {
     logStep(device, "sim-drop", `${linkName(link)} dropped ${frameLabel(frame)} (${link.loss}% loss)`);
     noteArpDrop(frame, linkPeer(device, link), `${linkName(link)} lost it (${link.loss}% loss on that link — try the run again)`);
     return false;
@@ -2514,9 +2522,16 @@ export function processAtFirewall(device: Device, frame: EthernetFrame, fromDevi
   return outgoing;
 }
 
-function generateApipaAddress(): string {
+function generateApipaAddress(self?: Device): string {
   // Seeded (not Math.random) — an APIPA address is config-visible, so a pinned
-  // seed reproduces the same link-local fallback.
+  // seed reproduces the same link-local fallback. A candidate another device
+  // already holds is skipped: the stand-in for the ARP probe a real host sends
+  // before claiming a link-local address (RFC 3927 §2.2.1). Without it a pinned
+  // seed would hand every host the same first draw.
+  for (let attempt = 0; attempt < 64; attempt++) {
+    const candidate = `169.254.${simRandomInt(1, 255)}.${simRandomInt(1, 255)}`;
+    if (!state.devices.some(d => d !== self && d.config?.ipv4Address === candidate)) return candidate;
+  }
   return `169.254.${simRandomInt(1, 255)}.${simRandomInt(1, 255)}`;
 }
 
@@ -2524,7 +2539,7 @@ function generateApipaAddress(): string {
 // both as the DHCP-failure fallback and as the direct boot path when auto-DHCP
 // is off but APIPA is on. Returns the assigned address.
 function assignApipa(device: Device): string {
-  const apipaIp = generateApipaAddress();
+  const apipaIp = generateApipaAddress(device);
   if (device.config) {
     device.config.ipv4Address = apipaIp;
     device.config.ipSource = "apipa";

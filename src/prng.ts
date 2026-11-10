@@ -55,6 +55,25 @@ export function seedSimRng(): number {
 /** Next float in [0, 1) from the current run's stream. */
 export function simRandom(): number { return rng(); }
 
+// Per-link packet loss draws from its OWN stream, reseeded when an animated run
+// begins (engine.ts beginRun). Two reasons it is not the main stream: (1) not
+// every animated run goes through a builder that reseeds — an 802.11
+// association, an 802.1X exchange, a BPDU flood and an ARP-spoof draw no
+// ephemeral values, so the main stream would be wherever the previous run left
+// it; (2) a builder draws its ports/ids BEFORE the run starts, so reseeding the
+// main stream at run start would replay those same numbers as loss decisions.
+// The seed is mixed with a constant so the two streams never coincide.
+let lossRng: () => number = mulberry32(0x9e3779b9);
+
+/** Reseed the link-loss stream for a new animated run (pinned seed, else clock). */
+export function seedLossRng(): void {
+  const base = override != null ? override : (Date.now() >>> 0);
+  lossRng = mulberry32((base ^ 0x9e3779b9) >>> 0);
+}
+
+/** Next float in [0, 1) from the run's link-loss stream. */
+export function lossRandom(): number { return lossRng(); }
+
 /** Next integer in [loInclusive, hiExclusive) from the current run's stream. */
 export function simRandomInt(loInclusive: number, hiExclusive: number): number {
   return loInclusive + Math.floor(rng() * (hiExclusive - loInclusive));

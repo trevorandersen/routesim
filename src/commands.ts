@@ -12,7 +12,7 @@ import { USER_ADDABLE_TYPES, isHost, isDot1xSupplicant, defaultPortCount } from 
 import { dom } from "./dom";
 import {
   addDevice, addLink, deleteLink, linkBlockReason, deleteSelection, clearNetwork, collapseLan, expandLan,
-  getDevice, moveDevice, linkName, routerInterfacesWithNames, isPhysicalLink, linkedPortsFor } from "./devices";
+  getDevice, moveDevice, linkName, routerInterfacesWithNames, isPhysicalLink, linkedPortsFor, portBlockReason, linkPortName } from "./devices";
 import {
   startSimulation, stopSimulation, pauseSimulation, resumeSimulation, stepOnce, animatedRunBlockReason, takePreemptionNote,
   runSimulationHeadless, runTraceroute, STORM_DIAGNOSIS,
@@ -111,14 +111,28 @@ function cmdLink(args: string[]): CommandResult {
   if (typeof a === "string") return err(a);
   const b = resolveDevice(args[1]);
   if (typeof b === "string") return err(b);
-  const fromPort = args[2] ? Number(args[2]) : undefined;
-  const toPort = args[3] ? Number(args[3]) : undefined;
+  // `auto` (or `-`) leaves that end unpinned: `link R1 SW auto 4` pins only
+  // SW's port. The script export writes it for an end nobody chose.
+  const portArg = (text: string | undefined) => !text || /^(auto|-)$/i.test(text) ? undefined : Number(text);
+  const fromPort = portArg(args[2]);
+  const toPort = portArg(args[3]);
   const badPort = (p: number | undefined) => p !== undefined && !(Number.isInteger(p) && p >= 1);
-  if (badPort(fromPort) || badPort(toPort)) return err("link: ports must be positive whole numbers.");
+  if (badPort(fromPort) || badPort(toPort)) return err("link: ports must be positive whole numbers (or auto).");
   const reason = linkBlockReason(a.id, b.id);
   if (reason) return err(reason);
+  const existing = state.links.some(l => (l.from === a.id && l.to === b.id) || (l.from === b.id && l.to === a.id));
+  // A requested port that is taken (by ANY cable, pinned or not) or does not
+  // exist is not honoured: the cable is still made, on the next free port, and
+  // the output says which port was refused, why, and where the cable went.
+  const refusedFrom = !existing && fromPort != null ? portBlockReason(a.id, b.id, fromPort) : null;
+  const refusedTo = !existing && toPort != null ? portBlockReason(b.id, a.id, toPort) : null;
   addLink(a.id, b.id, fromPort, toPort);
-  return ok(`Linked ${a.name} ↔ ${b.name}.`);
+  const notes: string[] = [];
+  const link = state.links.find(l => (l.from === a.id && l.to === b.id) || (l.from === b.id && l.to === a.id));
+  const landed = (id: string) => (link && linkPortName(link, id)) || "the next free port";
+  if (refusedFrom) notes.push(`${refusedFrom}, so the cable went to ${a.name} ${landed(a.id)} instead.`);
+  if (refusedTo) notes.push(`${refusedTo}, so the cable went to ${b.name} ${landed(b.id)} instead.`);
+  return ok([`Linked ${a.name} ↔ ${b.name}.`, ...notes].join(" "));
 }
 
 function cmdUnlink(args: string[]): CommandResult {
@@ -1154,7 +1168,7 @@ const COMMANDS: Record<string, Handler> = {
 
 const HELP: Record<string, string> = {
   add: "add <computer|laptop|server|switch|router|firewall|hub|access-point> [name] [at <x> <y>]",
-  remove: "remove <device>", link: "link <a> <b> [portA portB]", unlink: "unlink <a> <b>",
+  remove: "remove <device>", link: "link <a> <b> [portA portB] (a port number pins that end; auto leaves it to the next free port)", unlink: "unlink <a> <b>",
   linkset: "linkset <a> <b> name|bandwidth|latency|loss <value> (0 clears a number)",
   shut: "shut <a> <b> (administratively down the link)", noshut: "noshut <a> <b> (bring the link up)",
   move: "move <device> <x> <y>", rename: "rename <device> <name>", clear: "remove all devices",
@@ -1236,6 +1250,29 @@ export function runConsoleScript(text: string): CommandResult[] {
  * + positions, host/router/switch config, links (ports, admin status, and
  * name/bandwidth/latency/loss via `linkset`).
  */
+// The port a `link` line states for one end of a cable. Never a made-up number:
+// the export used to write `1` for an end nobody pinned, which on replay took
+// port 1 first and pushed the real pin elsewhere, so every later line naming a
+// port (vlan, mirror, portauth, a NAT role) landed on the wrong cable.
+//   - a pinned end states its pin;
+//   - an unpinned end on a device with NO pinned cables is `auto` (null): its
+//     cables replay in order onto the same ports;
+//   - an unpinned end on a device that HAS a pinned cable states the port it
+//     occupies now. Where that cable sits depends on the pins around it, and a
+//     replay adds one cable at a time — a later pin can no longer displace an
+//     earlier implicit cable (it is refused), so the layout is written out.
+function exportedPort(payloadLink: any, deviceId: string): number | null {
+  const pinned = payloadLink.from === deviceId ? payloadLink.fromPort : payloadLink.toPort;
+  if (pinned != null) return pinned;
+  const pinsHere = state.links.some(l => isPhysicalLink(l) &&
+    ((l.from === deviceId && l.fromPort != null) || (l.to === deviceId && l.toPort != null)));
+  if (!pinsHere) return null;
+  const live = state.links.find(l => l.from === payloadLink.from && l.to === payloadLink.to);
+  const name = live ? linkPortName(live, deviceId) : null;
+  const n = name ? Number(name.replace(/\D+/g, "")) : 0;
+  return n > 0 ? n : null;
+}
+
 export function exportTopologyScript(): string {
   const payload: any = buildConfigPayload();
   // Names are quoted on the way out so a name containing a space still parses
@@ -1267,7 +1304,8 @@ export function exportTopologyScript(): string {
   for (const l of payload.links) {
     const f = idToName.get(l.from); const t = idToName.get(l.to);
     if (!f || !t) continue;
-    const ports = (l.fromPort != null || l.toPort != null) ? ` ${l.fromPort ?? 1} ${l.toPort ?? 1}` : "";
+    const fromPort = exportedPort(l, l.from), toPort = exportedPort(l, l.to);
+    const ports = (fromPort != null || toPort != null) ? ` ${fromPort ?? "auto"} ${toPort ?? "auto"}` : "";
     lines.push(`link ${f} ${t}${ports}`);
     if (l.shutdown) lines.push(`shut ${f} ${t}`);
     if (l.name) lines.push(`linkset ${f} ${t} name ${quoteArg(l.name)}`);

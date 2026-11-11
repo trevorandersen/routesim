@@ -3813,10 +3813,12 @@ Full legal text: https://creativecommons.org/publicdomain/zero/1.0/legalcode</pr
     const links = [];
     const seenLinks = /* @__PURE__ */ new Set();
     const seenPorts = /* @__PURE__ */ new Set();
-    const claimPort = (deviceId, raw) => {
+    const typeOf = new Map(devices.map((d) => [String(d.id), String(d.type)]));
+    const claimPort = (deviceId, peerId, raw) => {
       const port = normalisePortNumber(raw);
       if (port == null) return void 0;
-      const key = `${deviceId}:${port}`;
+      const media = typeOf.get(deviceId) === "router" && typeOf.get(peerId) === "router" ? "serial" : "ethernet";
+      const key = `${deviceId}:${media}:${port}`;
       if (seenPorts.has(key)) return void 0;
       seenPorts.add(key);
       return port;
@@ -3841,8 +3843,8 @@ Full legal text: https://creativecommons.org/publicdomain/zero/1.0/legalcode</pr
         ...Number(link.bandwidth) > 0 ? { bandwidth: Number(link.bandwidth) } : {},
         ...Number(link.latency) > 0 ? { latency: Number(link.latency) } : {},
         ...Number(link.loss) > 0 ? { loss: Math.min(100, Number(link.loss)) } : {},
-        ...((p) => p != null ? { fromPort: p } : {})(claimPort(from, link.fromPort)),
-        ...((p) => p != null ? { toPort: p } : {})(claimPort(to, link.toPort)),
+        ...((p) => p != null ? { fromPort: p } : {})(claimPort(from, to, link.fromPort)),
+        ...((p) => p != null ? { toPort: p } : {})(claimPort(to, from, link.toPort)),
         hidden: Boolean(link.hidden),
         ...link.collapsedBy ? { collapsedBy: String(link.collapsedBy) } : {},
         ...link.proxy ? { proxy: true } : {}
@@ -4880,16 +4882,14 @@ Full legal text: https://creativecommons.org/publicdomain/zero/1.0/legalcode</pr
       }
       const { wireless } = classifyLink(fromId, toId);
       pushUndo();
-      const resolvedFromPort = resolvePort(fromId, fromPort);
-      const resolvedToPort = resolvePort(toId, toPort);
-      const keepFrom = fromPort != null && resolvedFromPort === fromPort;
-      const keepTo = toPort != null && resolvedToPort === toPort;
+      const keepFrom = fromPort != null && portBlockReason(fromId, toId, fromPort) === null;
+      const keepTo = toPort != null && portBlockReason(toId, fromId, toPort) === null;
       const link = {
         id: crypto.randomUUID ? crypto.randomUUID() : `${Date.now()}-${Math.random()}`,
         from: fromId,
         to: toId,
-        ...keepFrom ? { fromPort: resolvedFromPort } : {},
-        ...keepTo ? { toPort: resolvedToPort } : {},
+        ...keepFrom ? { fromPort } : {},
+        ...keepTo ? { toPort } : {},
         ...wireless ? { wireless: true } : {}
       };
       state.links.push(link);
@@ -4903,27 +4903,73 @@ Full legal text: https://creativecommons.org/publicdomain/zero/1.0/legalcode</pr
     linksChanged(exists ? [] : [fromId, toId]);
     sync().syncPanel();
   }
-  function nextAvailablePort(deviceId) {
+  function portMediaFor(deviceId, peerId) {
+    return getDevice(deviceId)?.type === "router" && getDevice(peerId)?.type === "router" ? "serial" : "ethernet";
+  }
+  function portCapacity(device, media) {
+    if (device.type === "router") {
+      return media === "serial" ? clampRouterPortCount(device.config?.serialPorts ?? 4) : clampRouterPortCount(device.config?.ethernetPorts ?? defaultPortCount("router"));
+    }
+    if (media === "serial") return 0;
+    if (hasSingleNic(device.type)) return 1;
+    return defaultPortCount(device.type) > 0 ? wiredPortCapacity(device) : MAX_PHYSICAL_PORT;
+  }
+  function portLabel(device, media, port) {
+    if (hasSingleNic(device.type)) return "eth0";
+    return `${media === "serial" ? "Serial" : "Ethernet"}${port}`;
+  }
+  function occupiedPorts(deviceId, media = "ethernet") {
+    const taken = /* @__PURE__ */ new Map();
     const device = getDevice(deviceId);
-    if (!device) return 1;
-    const occupied = /* @__PURE__ */ new Set();
-    for (const link of state.links) {
-      if (!isPhysicalLink(link)) continue;
-      if (link.from === deviceId && link.fromPort) occupied.add(link.fromPort);
-      if (link.to === deviceId && link.toPort) occupied.add(link.toPort);
+    if (!device) return taken;
+    if (device.type === "router") {
+      for (const iface of routerInterfacesWithNames(device, true)) {
+        if (iface.type !== media) continue;
+        const n = Number(iface.name.replace(/\..*$/, "").replace(/\D+/g, ""));
+        if (n) taken.set(n, iface.peer ?? null);
+      }
+      return taken;
     }
-    let port = 1;
-    while (occupied.has(port)) port++;
-    return port;
-  }
-  function portTaken(deviceId, port) {
-    return state.links.some((l) => isPhysicalLink(l) && (l.from === deviceId && l.fromPort === port || l.to === deviceId && l.toPort === port));
-  }
-  function resolvePort(deviceId, requested) {
-    if (requested != null && Number.isInteger(requested) && requested >= 1 && requested <= MAX_PHYSICAL_PORT && !portTaken(deviceId, requested)) {
-      return requested;
+    if (media !== "ethernet") return taken;
+    const ports = linkedPortsFor(deviceId);
+    if (hasSingleNic(device.type)) {
+      const only = ports.find((port) => port);
+      if (only) taken.set(1, only.peer ?? null);
+      return taken;
     }
-    return nextAvailablePort(deviceId);
+    ports.filter((port) => !port?.link?.wireless).forEach((port, index) => {
+      if (port) taken.set(index + 1, port.peer ?? null);
+    });
+    return taken;
+  }
+  function portBlockReason(deviceId, peerId, port) {
+    const device = getDevice(deviceId);
+    if (!device) return "No such device.";
+    const media = portMediaFor(deviceId, peerId);
+    if (!Number.isInteger(port) || port < 1 || port > MAX_PHYSICAL_PORT) return `${device.name} has no port ${port}`;
+    const capacity = portCapacity(device, media);
+    if (port > capacity) {
+      if (hasSingleNic(device.type)) return `${device.name} has a single NIC (eth0), so it has no port ${port}`;
+      const kind = device.type === "router" ? media === "serial" ? "serial " : "Ethernet " : "";
+      return `${device.name} has ${capacity} ${kind}port${capacity === 1 ? "" : "s"}, so there is no ${portLabel(device, media, port)}`;
+    }
+    const taken = occupiedPorts(deviceId, media);
+    if (taken.has(port)) {
+      const peer = taken.get(port);
+      return `${device.name} ${portLabel(device, media, port)} is already cabled${peer ? ` to ${peer.name}` : ""}`;
+    }
+    return null;
+  }
+  function linkPortName(link, deviceId) {
+    const device = getDevice(deviceId);
+    if (!device || link.wireless) return null;
+    if (device.type === "router") {
+      const iface = routerInterfacesWithNames(device, true).find((i) => i.link?.id === link.id);
+      return iface ? iface.name.replace(/\..*$/, "") : null;
+    }
+    if (hasSingleNic(device.type)) return "eth0";
+    const index = linkedPortsFor(deviceId).filter((port) => !port?.link?.wireless).findIndex((port) => port?.link?.id === link.id);
+    return index >= 0 ? `Ethernet${index + 1}` : null;
   }
   function deleteLink(linkId) {
     const gone = state.links.find((l) => l.id === linkId);
@@ -5147,6 +5193,10 @@ Full legal text: https://creativecommons.org/publicdomain/zero/1.0/legalcode</pr
     const implicit = entries.filter((e) => e.portNum === 0);
     for (const entry of explicit) {
       const idx = entry.portNum - 1;
+      if (result[idx]) {
+        implicit.push(entry);
+        continue;
+      }
       while (result.length <= idx) result.push(null);
       result[idx] = { link: entry.link, peer: entry.peer };
     }
@@ -5447,7 +5497,7 @@ Full legal text: https://creativecommons.org/publicdomain/zero/1.0/legalcode</pr
     const lower = String(portName || "").toLowerCase();
     return switchInterfacesWithNames(device).find((p) => p.name.toLowerCase() === lower);
   }
-  function buildPortList(deviceId) {
+  function buildPortList(deviceId, peerId) {
     const device = getDevice(deviceId);
     if (!device) return [];
     if (hasSingleNic(device.type)) {
@@ -5470,8 +5520,9 @@ Full legal text: https://creativecommons.org/publicdomain/zero/1.0/legalcode</pr
       }));
     }
     if (device.type === "router") {
+      const media = peerId ? portMediaFor(deviceId, peerId) : null;
       const ifaces = routerInterfacesWithNames(device);
-      return ifaces.filter((iface) => !iface.name.includes(".")).map((iface) => ({
+      return ifaces.filter((iface) => !iface.name.includes(".")).filter((iface) => !media || iface.type === media).map((iface) => ({
         name: iface.name,
         // The number the NAME carries is what becomes the link's fromPort/toPort,
         // and naming honours it back — so "Ethernet4" picked here is Ethernet4
@@ -5498,8 +5549,8 @@ Full legal text: https://creativecommons.org/publicdomain/zero/1.0/legalcode</pr
       addLink(fromId, toId, 1, 1);
       return;
     }
-    const fromPorts = buildPortList(fromId);
-    const toPorts = buildPortList(toId);
+    const fromPorts = buildPortList(fromId, toId);
+    const toPorts = buildPortList(toId, fromId);
     state.portSelection = {
       fromId,
       toId,
@@ -16765,14 +16816,23 @@ Snort successfully validated the configuration${bad ? " (with errors)" : "."}`);
     if (typeof a === "string") return err(a);
     const b = resolveDevice(args[1]);
     if (typeof b === "string") return err(b);
-    const fromPort = args[2] ? Number(args[2]) : void 0;
-    const toPort = args[3] ? Number(args[3]) : void 0;
+    const portArg = (text) => !text || /^(auto|-)$/i.test(text) ? void 0 : Number(text);
+    const fromPort = portArg(args[2]);
+    const toPort = portArg(args[3]);
     const badPort = (p) => p !== void 0 && !(Number.isInteger(p) && p >= 1);
-    if (badPort(fromPort) || badPort(toPort)) return err("link: ports must be positive whole numbers.");
+    if (badPort(fromPort) || badPort(toPort)) return err("link: ports must be positive whole numbers (or auto).");
     const reason = linkBlockReason(a.id, b.id);
     if (reason) return err(reason);
+    const existing = state.links.some((l) => l.from === a.id && l.to === b.id || l.from === b.id && l.to === a.id);
+    const refusedFrom = !existing && fromPort != null ? portBlockReason(a.id, b.id, fromPort) : null;
+    const refusedTo = !existing && toPort != null ? portBlockReason(b.id, a.id, toPort) : null;
     addLink(a.id, b.id, fromPort, toPort);
-    return ok(`Linked ${a.name} \u2194 ${b.name}.`);
+    const notes = [];
+    const link = state.links.find((l) => l.from === a.id && l.to === b.id || l.from === b.id && l.to === a.id);
+    const landed = (id) => link && linkPortName(link, id) || "the next free port";
+    if (refusedFrom) notes.push(`${refusedFrom}, so the cable went to ${a.name} ${landed(a.id)} instead.`);
+    if (refusedTo) notes.push(`${refusedTo}, so the cable went to ${b.name} ${landed(b.id)} instead.`);
+    return ok([`Linked ${a.name} \u2194 ${b.name}.`, ...notes].join(" "));
   }
   function cmdUnlink(args) {
     const a = resolveDevice(args[0]);
@@ -17791,7 +17851,7 @@ Snort successfully validated the configuration${bad ? " (with errors)" : "."}`);
   var HELP = {
     add: "add <computer|laptop|server|switch|router|firewall|hub|access-point> [name] [at <x> <y>]",
     remove: "remove <device>",
-    link: "link <a> <b> [portA portB]",
+    link: "link <a> <b> [portA portB] (a port number pins that end; auto leaves it to the next free port)",
     unlink: "unlink <a> <b>",
     linkset: "linkset <a> <b> name|bandwidth|latency|loss <value> (0 clears a number)",
     shut: "shut <a> <b> (administratively down the link)",
@@ -17882,6 +17942,16 @@ Snort successfully validated the configuration${bad ? " (with errors)" : "."}`);
   function runConsoleScript(text) {
     return (text || "").split("\n").map((l) => l.trim()).filter((l) => l && !l.startsWith("#")).map(runConsoleCommand);
   }
+  function exportedPort(payloadLink, deviceId) {
+    const pinned = payloadLink.from === deviceId ? payloadLink.fromPort : payloadLink.toPort;
+    if (pinned != null) return pinned;
+    const pinsHere = state.links.some((l) => isPhysicalLink(l) && (l.from === deviceId && l.fromPort != null || l.to === deviceId && l.toPort != null));
+    if (!pinsHere) return null;
+    const live = state.links.find((l) => l.from === payloadLink.from && l.to === payloadLink.to);
+    const name = live ? linkPortName(live, deviceId) : null;
+    const n = name ? Number(name.replace(/\D+/g, "")) : 0;
+    return n > 0 ? n : null;
+  }
   function exportTopologyScript() {
     const payload = buildConfigPayload();
     const idToName = new Map(payload.devices.map((d) => [d.id, quoteArg(d.name)]));
@@ -17902,7 +17972,8 @@ Snort successfully validated the configuration${bad ? " (with errors)" : "."}`);
       const f = idToName.get(l.from);
       const t = idToName.get(l.to);
       if (!f || !t) continue;
-      const ports = l.fromPort != null || l.toPort != null ? ` ${l.fromPort ?? 1} ${l.toPort ?? 1}` : "";
+      const fromPort = exportedPort(l, l.from), toPort = exportedPort(l, l.to);
+      const ports = fromPort != null || toPort != null ? ` ${fromPort ?? "auto"} ${toPort ?? "auto"}` : "";
       lines.push(`link ${f} ${t}${ports}`);
       if (l.shutdown) lines.push(`shut ${f} ${t}`);
       if (l.name) lines.push(`linkset ${f} ${t} name ${quoteArg(l.name)}`);

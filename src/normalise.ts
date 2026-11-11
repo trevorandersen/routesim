@@ -521,10 +521,14 @@ export function normaliseConfig(parsed: any): { devices: Device[]; links: Link[]
   // device, the later claim is dropped to auto-assignment rather than silently
   // overwriting the earlier one in the port view.
   const seenPorts = new Set<string>();
-  const claimPort = (deviceId: string, raw: unknown): number | undefined => {
+  // A router numbers its Ethernet and serial ports separately (serial = a cable
+  // to another router), so the claim is per device AND media.
+  const typeOf = new Map<string, string>(devices.map((d: any) => [String(d.id), String(d.type)]));
+  const claimPort = (deviceId: string, peerId: string, raw: unknown): number | undefined => {
     const port = normalisePortNumber(raw);   // bounded: non-finite / fractional / oversized → unset
     if (port == null) return undefined;
-    const key = `${deviceId}:${port}`;
+    const media = typeOf.get(deviceId) === "router" && typeOf.get(peerId) === "router" ? "serial" : "ethernet";
+    const key = `${deviceId}:${media}:${port}`;
     if (seenPorts.has(key)) return undefined;
     seenPorts.add(key);
     return port;
@@ -549,8 +553,8 @@ export function normaliseConfig(parsed: any): { devices: Device[]; links: Link[]
       ...(Number(link.bandwidth) > 0 ? { bandwidth: Number(link.bandwidth) } : {}),
       ...(Number(link.latency) > 0 ? { latency: Number(link.latency) } : {}),
       ...(Number(link.loss) > 0 ? { loss: Math.min(100, Number(link.loss)) } : {}),
-      ...((p => p != null ? { fromPort: p } : {})(claimPort(from, link.fromPort))),
-      ...((p => p != null ? { toPort: p } : {})(claimPort(to, link.toPort))),
+      ...((p => p != null ? { fromPort: p } : {})(claimPort(from, to, link.fromPort))),
+      ...((p => p != null ? { toPort: p } : {})(claimPort(to, from, link.toPort))),
       hidden: Boolean(link.hidden),
       ...(link.collapsedBy ? { collapsedBy: String(link.collapsedBy) } : {}),
       ...(link.proxy ? { proxy: true } : {})

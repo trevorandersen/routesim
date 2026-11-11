@@ -349,22 +349,21 @@ export function addLink(fromId: string, toId: string, fromPort?: number, toPort?
     }
     const { wireless } = classifyLink(fromId, toId);
     pushUndo();
-    const resolvedFromPort = resolvePort(fromId, fromPort);
-    const resolvedToPort = resolvePort(toId, toPort);
-    // Persist a port number only when the caller CHOSE it and it was honoured
-    // (the picker or `link A B 4 1`). An auto-assigned cable stays implicit —
+    // Persist a port number only when the caller CHOSE it and it can be
+    // honoured (the picker or `link A B 4 1`) — portBlockReason is the one
+    // answer to "is this port free?". An auto-assigned cable stays implicit —
     // it fills the lowest free slot and names densely per media (Ethernet1,
     // Serial1, …) — whereas a chosen port is pinned to its number in every
     // view. Storing the auto slot made every cable "explicit" in one shared
     // numbering space, so a router's first serial cable came out as Serial2.
-    const keepFrom = fromPort != null && resolvedFromPort === fromPort;
-    const keepTo = toPort != null && resolvedToPort === toPort;
+    const keepFrom = fromPort != null && portBlockReason(fromId, toId, fromPort) === null;
+    const keepTo = toPort != null && portBlockReason(toId, fromId, toPort) === null;
     const link: any = {
       id: crypto.randomUUID ? crypto.randomUUID() : `${Date.now()}-${Math.random()}`,
       from: fromId,
       to: toId,
-      ...(keepFrom ? { fromPort: resolvedFromPort } : {}),
-      ...(keepTo ? { toPort: resolvedToPort } : {}),
+      ...(keepFrom ? { fromPort } : {}),
+      ...(keepTo ? { toPort } : {}),
       ...(wireless ? { wireless: true } : {})
     };
     state.links.push(link);
@@ -387,34 +386,113 @@ export function addLink(fromId: string, toId: string, fromPort?: number, toPort?
   sync().syncPanel();
 }
 
-export function nextAvailablePort(deviceId: string): number {
+// ─── Port occupancy ───────────────────────────────────────────────────────────
+//
+// ONE answer to "which numbered ports of this device are in use?", shared by
+// addLink, the `link` command, the port picker and (through linkPortName) the
+// script export. It counts EVERY physical cable — pinned or implicit — exactly
+// as the naming functions number them, and it is media-aware: a router numbers
+// its Ethernet and serial ports separately, so Ethernet3 and Serial3 are two
+// different ports.
+//
+// Three checks used to disagree. portTaken/nextAvailablePort counted only
+// pinned cables, so `link SW1 PC2 1` landed on the port an implicit cable
+// already held, shifted that host along and handed its VLAN to the newcomer
+// (review R28). They also kept one number space per device, so with Ethernet3
+// pinned the picker still offered Serial3 and choosing it produced Serial1
+// (R29). And the script export invented a port for an unpinned end (R32).
+
+export type PortMedia = "ethernet" | "serial";
+
+// The kind of port a cable from `deviceId` to `peerId` uses at the `deviceId`
+// end: serial between two routers, Ethernet otherwise — the same rule
+// routerInterfacesWithNames names by. Only a router has two kinds.
+export function portMediaFor(deviceId: string, peerId: string): PortMedia {
+  return getDevice(deviceId)?.type === "router" && getDevice(peerId)?.type === "router" ? "serial" : "ethernet";
+}
+
+// How many ports of this kind the device has.
+function portCapacity(device: Device, media: PortMedia): number {
+  if (device.type === "router") {
+    return media === "serial"
+      ? clampRouterPortCount(device.config?.serialPorts ?? 4)
+      : clampRouterPortCount(device.config?.ethernetPorts ?? defaultPortCount("router"));
+  }
+  if (media === "serial") return 0;
+  if (hasSingleNic(device.type)) return 1;
+  return defaultPortCount(device.type) > 0 ? wiredPortCapacity(device) : MAX_PHYSICAL_PORT;
+}
+
+function portLabel(device: Device, media: PortMedia, port: number): string {
+  if (hasSingleNic(device.type)) return "eth0";
+  return `${media === "serial" ? "Serial" : "Ethernet"}${port}`;
+}
+
+// The ports of one kind in use on a device, as port number → the peer cabled
+// there. Read from the same views that NAME the ports (routerInterfacesWithNames
+// for a router, linkedPortsFor's slots otherwise), so "occupied" can never
+// disagree with what the inspector and terminal show.
+export function occupiedPorts(deviceId: string, media: PortMedia = "ethernet"): Map<number, Device | null> {
+  const taken = new Map<number, Device | null>();
   const device = getDevice(deviceId);
-  if (!device) return 1;
-  const occupied = new Set<number>();
-  for (const link of state.links) {
-    if (!isPhysicalLink(link)) continue;   // a cable a collapsed LAN hides still fills its port
-    if (link.from === deviceId && link.fromPort) occupied.add(link.fromPort);
-    if (link.to === deviceId && link.toPort) occupied.add(link.toPort);
+  if (!device) return taken;
+  if (device.type === "router") {
+    for (const iface of routerInterfacesWithNames(device, true)) {
+      if (iface.type !== media) continue;
+      const n = Number(iface.name.replace(/\..*$/, "").replace(/\D+/g, ""));
+      if (n) taken.set(n, iface.peer ?? null);
+    }
+    return taken;
   }
-  let port = 1;
-  while (occupied.has(port)) port++;
-  return port;
+  if (media !== "ethernet") return taken;
+  const ports = linkedPortsFor(deviceId);
+  if (hasSingleNic(device.type)) {
+    const only = ports.find((port: any) => port);
+    if (only) taken.set(1, only.peer ?? null);
+    return taken;
+  }
+  // A wireless association is not a wired port (as in switchInterfacesWithNames).
+  ports.filter((port: any) => !port?.link?.wireless).forEach((port: any, index: number) => {
+    if (port) taken.set(index + 1, port.peer ?? null);
+  });
+  return taken;
 }
 
-function portTaken(deviceId: string, port: number): boolean {
-  return state.links.some(l => isPhysicalLink(l) &&
-    ((l.from === deviceId && l.fromPort === port) || (l.to === deviceId && l.toPort === port)));
+// Why a cable from `deviceId` to `peerId` cannot take `port` at the `deviceId`
+// end — or null when the port exists and is free. The reason is written for the
+// learner: the `link` command prints it when a requested port is not honoured.
+export function portBlockReason(deviceId: string, peerId: string, port: number): string | null {
+  const device = getDevice(deviceId);
+  if (!device) return "No such device.";
+  const media = portMediaFor(deviceId, peerId);
+  if (!Number.isInteger(port) || port < 1 || port > MAX_PHYSICAL_PORT) return `${device.name} has no port ${port}`;
+  const capacity = portCapacity(device, media);
+  if (port > capacity) {
+    if (hasSingleNic(device.type)) return `${device.name} has a single NIC (eth0), so it has no port ${port}`;
+    const kind = device.type === "router" ? (media === "serial" ? "serial " : "Ethernet ") : "";
+    return `${device.name} has ${capacity} ${kind}port${capacity === 1 ? "" : "s"}, so there is no ${portLabel(device, media, port)}`;
+  }
+  const taken = occupiedPorts(deviceId, media);
+  if (taken.has(port)) {
+    const peer = taken.get(port);
+    return `${device.name} ${portLabel(device, media, port)} is already cabled${peer ? ` to ${peer.name}` : ""}`;
+  }
+  return null;
 }
 
-// An explicit port request is honoured only when it's a positive integer that's
-// free; otherwise fall back to the next available port. Prevents a NaN or an
-// already-occupied console-supplied port from landing two links on the same
-// slot (the second would overwrite the first in linkedPortsFor and orphan it).
-function resolvePort(deviceId: string, requested: number | undefined): number {
-  if (requested != null && Number.isInteger(requested) && requested >= 1 && requested <= MAX_PHYSICAL_PORT && !portTaken(deviceId, requested)) {
-    return requested;
+// The name of the port a cable occupies at one of its ends — "Ethernet3",
+// "Serial1", "eth0" — as the inspector and terminal show it. Null for a
+// wireless association, or a cable past the device's capacity.
+export function linkPortName(link: Link, deviceId: string): string | null {
+  const device = getDevice(deviceId);
+  if (!device || link.wireless) return null;
+  if (device.type === "router") {
+    const iface = routerInterfacesWithNames(device, true).find((i: any) => i.link?.id === link.id);
+    return iface ? iface.name.replace(/\..*$/, "") : null;
   }
-  return nextAvailablePort(deviceId);
+  if (hasSingleNic(device.type)) return "eth0";
+  const index = linkedPortsFor(deviceId).filter((port: any) => !port?.link?.wireless).findIndex((port: any) => port?.link?.id === link.id);
+  return index >= 0 ? `Ethernet${index + 1}` : null;
 }
 
 // Remove a link by id. Returns true if one was removed.
@@ -722,7 +800,7 @@ export function linkedPortsFor(id: string): any[] {
     .map(link => {
       const isFrom = link.from === id;
       const raw = isFrom ? link.fromPort : link.toPort;
-      // Defensive bound (normalise + resolvePort already enforce it): an
+      // Defensive bound (normalise + portBlockReason already enforce it): an
       // out-of-range port is treated as implicit rather than grown to.
       const portNum = Number.isInteger(raw) && (raw as number) >= 1 && (raw as number) <= MAX_PHYSICAL_PORT ? (raw as number) : 0;
       return {
@@ -746,6 +824,10 @@ export function linkedPortsFor(id: string): any[] {
 
   for (const entry of explicit) {
     const idx = entry.portNum - 1; // 0-based
+    // Two cables can carry the same number: a router's Ethernet3 and Serial3
+    // are different ports (it names per media, not by slot). The later one
+    // takes a free slot rather than overwriting — and orphaning — the first.
+    if (result[idx]) { implicit.push(entry); continue; }
     while (result.length <= idx) result.push(null);
     result[idx] = { link: entry.link, peer: entry.peer };
   }
@@ -1097,7 +1179,11 @@ export function switchIfaceByName(device: any, portName: string): any {
 
 // ─── Port selection modal ─────────────────────────────────────────────────────
 
-export function buildPortList(deviceId: string): PortOption[] {
+// `peerId` (the other end of the cable being made) narrows a router's list to
+// the kind of port that cable will use — serial to another router, Ethernet to
+// anything else. Offering both let the learner pick "Serial2" for a switch and
+// get Ethernet2.
+export function buildPortList(deviceId: string, peerId?: string): PortOption[] {
   const device = getDevice(deviceId);
   if (!device) return [];
 
@@ -1128,9 +1214,11 @@ export function buildPortList(deviceId: string): PortOption[] {
   }
 
   if (device.type === "router") {
+    const media = peerId ? portMediaFor(deviceId, peerId) : null;
     const ifaces = routerInterfacesWithNames(device);
     return ifaces
       .filter((iface: any) => !iface.name.includes(".")) // skip sub-interfaces
+      .filter((iface: any) => !media || iface.type === media)
       .map((iface: any) => ({
         name: iface.name,
         // The number the NAME carries is what becomes the link's fromPort/toPort,
@@ -1164,8 +1252,8 @@ export function openPortSelectionModal(fromId: string, toId: string): void {
     return;
   }
 
-  const fromPorts = buildPortList(fromId);
-  const toPorts = buildPortList(toId);
+  const fromPorts = buildPortList(fromId, toId);
+  const toPorts = buildPortList(toId, fromId);
 
   state.portSelection = {
     fromId,

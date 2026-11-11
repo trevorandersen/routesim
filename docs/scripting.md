@@ -55,7 +55,7 @@ Param keys and boolean values are case-insensitive. Adding a setting is a one-ro
 |---------|--------|
 | `add <computer\|laptop\|server\|switch\|router\|firewall\|hub\|access-point> [name] [at <x> <y>]` | Create a device (hosts get a random MAC). A `laptop` is a WiFi-only host; an `access-point` bridges laptops onto the wired LAN. |
 | `remove <ref>` / `delete <ref>` | Delete a device and its links. |
-| `link <a> <b> [portA portB]` | Connect two devices (optional explicit ports). |
+| `link <a> <b> [portA portB]` | Connect two devices. A port number **pins** that end to the port (`link R1 SW 3 1` → R1 Ethernet3, SW Ethernet1); `auto` (or `-`) leaves an end to the next free port (`link R1 SW auto 4`). On a router the number counts within the cable's own kind of port — serial to another router, Ethernet otherwise. A port that is already cabled (by any cable, pinned or not) or does not exist is **not honoured**: the cable is still made on the next free port, and the output says which port was refused, why, and where the cable went. |
 | `linkset <a> <b> <name\|bandwidth\|latency\|loss> <value>` | Set a link attribute (`0` clears a numeric one). |
 | `unlink <a> <b>` | Remove the link between two devices. |
 | `shut <a> <b>` | Administratively down the link (stays in the topology, carries no traffic). |
@@ -214,6 +214,8 @@ const script = routesim.export();   // "clear\nadd computer PC1 at …\nip PC1 �
 routesim.exec("clear");
 routesim.run(script);               // recreates the identical topology
 ```
+
+**Ports in the export.** A `link` line never states a made-up port. A pinned end states its pin; an unpinned end is `auto`; and on a device that has *any* pinned cable, every cable states the port it occupies now — where an unpinned cable sits depends on the pins around it, and a replay adds one cable at a time, so the layout is written out. The result replays onto the same named port at both ends of every cable (`tests/ports.test.ts` checks every built-in topology and scenario) and re-exports unchanged. (The export used to write `1` for an unpinned end; on replay that took port 1 first and pushed the real pin elsewhere, so the VLAN, mirror, `portauth` and NAT-role lines landed on the wrong cable — review R32.)
 
 This is the completeness guarantee — the command set can express everything the GUI can build. The export emits `managed <name>` (before a switch's VLAN/STP config) and only the STP deviations — `stp <name> off` or `stp <name> priority <n>` — since the default-on, default-priority spanning tree round-trips implicitly. A switch's SPAN session emits `mirror <name> <dst>`; an IDS sensor emits `idsrule <name> clear` followed by one `idsrule <name> <rule>` per rule (so the device's default rule set is re-established exactly). A Kali PC (`kali`) exports as a plain host — its `ip`/`gateway`/`mac`/`nameserver` lines, with **no** `redteam` lines (it is hand-driven and carries no stored plan). A Red Team actor (`attacker`) emits those host lines too, then `redteam <name> attacks <list>`, `redteam <name> target <t>`, and `redteam <name> spoof <ip>` (only the non-empty ones) — its runtime `attackLog` is not exported. Both serialise via the shared host helpers, so a non-/24 prefix and the nameserver survive the round-trip (a prior bug dropped them for the attacker).
 

@@ -12,7 +12,7 @@ import { state } from "../src/state";
 import { runSimulationHeadless, allocateDhcpIp } from "../src/engine";
 import { buildRoutingTable } from "../src/routing";
 import { buildPingEvents, l2Reachable } from "../src/simulation";
-import { addDevice, addLink, collapseLan, expandLan, getDevice, isPhysicalLink, linkedPortsFor, nextAvailablePort, routerInterfacesWithNames } from "../src/devices";
+import { addDevice, addLink, collapseLan, expandLan, getDevice, isPhysicalLink, linkedPortsFor, occupiedPorts, portBlockReason, routerInterfacesWithNames } from "../src/devices";
 import { runStpConvergence } from "../src/stp";
 import { checkScenario } from "../src/scenarios";
 import { runConsoleCommand } from "../src/commands";
@@ -77,9 +77,11 @@ describe("collapse is a view — routing keeps the physical topology (R4)", () =
 
   it("a cable pinned to a port still occupies it while its LAN is collapsed", () => {
     state.links.find(l => l.id === "l3")!.fromPort = 1;            // SW-B Ethernet1 → PC-B, chosen
-    expect(nextAvailablePort("sw-b")).toBe(2);
+    const before = [...occupiedPorts("sw-b").keys()].sort();
+    expect(before).toContain(1);
     collapseLan(dev("sw-b"));
-    expect(nextAvailablePort("sw-b")).toBe(2);                     // not offered to a new cable
+    expect([...occupiedPorts("sw-b").keys()].sort()).toEqual(before);   // every cable still fills its port
+    expect(portBlockReason("sw-b", "rtr", 1)).toContain("already cabled");   // not offered to a new cable
   });
 
   it("proxy links are not physical; collapse-hidden cables are", () => {

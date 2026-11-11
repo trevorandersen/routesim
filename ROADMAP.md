@@ -72,6 +72,84 @@ committed scope — it's a menu for "what next".
 > configurable per-link path cost, and an animated listening/learning state
 > machine with timers.
 
+### Requested features (GitHub issues, 2026-11)
+
+Five requests raised on GitHub by a colleague who teaches with the tool, ranked
+by value for effort. Each names the issue, what exists today, and where the work
+lands. None has started.
+
+1. **Placement ghost, and only left-click places**
+   ([#3](https://github.com/trevorandersen/routesim/issues/3)) — while a
+   placement tool is armed, draw a **translucent copy of the device under the
+   cursor** (next to the cross-hair), so it is obvious both what a click will
+   drop and that the canvas is still in place mode (no context menu, no pan).
+   The issue also questions the click mapping, and it is right to: today
+   `pointerdown` never looks at `event.button`, so *every* button places a
+   device. Make **left-click place, right-click and Escape cancel** back to the
+   select tool. Leverages `state.pointer` (already tracked for the coordinate
+   readout), the existing device draw routine at reduced alpha in `canvas.ts`,
+   and `PLACEMENT_TOOLS`/`placeToolDevice`. Effort: low.
+2. **Kali as a real man-in-the-middle** — two requests that only make sense
+   together:
+   - **IP forwarding on the Kali hosts**
+     ([#4](https://github.com/trevorandersen/routesim/issues/4)) —
+     `sysctl -w net.ipv4.ip_forward=1` (and `cat /proc/sys/net/ipv4/ip_forward`)
+     on the Kali PC and Red Team actor. Today a poisoned victim's traffic
+     reaches the attacker and dies there ("not for us"), so `arpspoof` is a
+     black hole — a denial of service the victim notices — rather than the
+     silent interception the tool is known for. With forwarding on, a frame
+     addressed to the attacker's MAC but another host's IP is captured, then
+     re-sent to the true next hop from the attacker's own (unpoisoned) ARP
+     cache: the ping still succeeds, and the packet list shows the extra hop.
+     Off by default, as on Linux; round-trips through JSON and the script.
+   - **`arpspoof -r` (reverse / both directions)**
+     ([#5](https://github.com/trevorandersen/routesim/issues/5)) — also poison
+     the gateway's entry for the victim, so return traffic crosses the attacker
+     too. Needs `-t <victim>` to mean something first: `buildArpSpoofEvents`
+     currently parses and ignores it, broadcasting one gratuitous ARP that
+     poisons every host on the segment. Make `-t` a unicast poisoning of one
+     victim, and `-r` add the mirror-image reply to the gateway.
+
+   Together they open a red-vs-blue scenario (intercept without breaking the
+   victim's connection; the IDS or a static ARP entry catches it) and give
+   MACsec and 802.1X a visible payoff. Depends on review finding R3's router
+   MAC admission (fixed) — the forwarding path must apply the same "frame is
+   for my MAC" test. IPv6 forwarding waits for IPv6 (Reach). Effort: moderate.
+3. **Packet callouts during the animation**
+   ([#2](https://github.com/trevorandersen/routesim/issues/2)) — an optional
+   higher-detail view: each frame in flight carries a small **callout with its
+   most relevant fields** (ARP: who-has / is-at; IPv4: src → dst, plus the MAC
+   pair; TCP: flags and ports). A field that a device **rewrote flashes** as the
+   frame leaves it — the MAC pair at every router hop while the IP pair stays
+   put, the source address and port at a NAT router — and a field a reply
+   **echoes from its request** is tinted to match. The NAT part of the request
+   also asks for the translation table to be visible: the inspector shows only
+   a count today ("N active flows — see `show ip nat translations`"); list the
+   entries, and flash the one a frame just created or used. Leverages
+   `packetColumns`/the frame inspector's field breakdown (the same fields,
+   fewer of them), `ActiveTransit` (give it the previous hop's frame to diff
+   against) and `drawFrameTransits`. A View-tab toggle, off by default; must
+   stay legible at speed and with many frames in flight (cap the callouts,
+   prefer the selected flow), and must not carry meaning by colour alone. This
+   is the canvas half of the **"Why?" affordance** below — build them together.
+   Effort: moderate–high.
+4. **nftables alongside iptables**
+   ([#1](https://github.com/trevorandersen/routesim/issues/1)) — nftables has
+   replaced iptables on current Linux, and is the cleaner syntax to learn
+   first. A **per-device rule-language toggle** (iptables | nftables) on routers
+   and the firewall that switches three things together: the shell accepts
+   `nft add rule inet filter forward tcp dport 22 accept` / `nft list ruleset`
+   (or `iptables …` / `iptables-save`), the inspector's add-rule form follows
+   the chosen language's vocabulary, and a **native ruleset view** shows the
+   device's rules exactly as `nft list ruleset` or `iptables-save` would print
+   them. One rule model underneath (`config.rules`/`config.policy`, the shared
+   netfilter engine) — nftables is a second parser and printer over it, so the
+   two views can never disagree, and a ruleset written in one reads back in the
+   other. Scope the first cut to what the engine already matches (chain,
+   protocol, addresses, `dport`, `ct state`, accept/drop/reject, policy); sets,
+   maps and named tables come later. Scenarios and the script export need a
+   decision on which language they speak by default. Effort: moderate–high.
+
 ## Later
 
 ### Teaching affordances (from the learner principles)

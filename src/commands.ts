@@ -12,7 +12,7 @@ import { USER_ADDABLE_TYPES, isHost, isDot1xSupplicant, defaultPortCount } from 
 import { dom } from "./dom";
 import {
   addDevice, addLink, deleteLink, deleteSelection, clearNetwork, collapseLan, expandLan,
-  getDevice, moveDevice, linkName, routerInterfacesWithNames, isPhysicalLink, linkedPortsFor, linkPortName } from "./devices";
+  getDevice, moveDevice, linkName, routerInterfacesWithNames, isPhysicalLink, linkedPortsFor, linkPortName, setLinkShutdown, setDevicePower, setSwitchManaged } from "./devices";
 import {
   startSimulation, stopSimulation, pauseSimulation, resumeSimulation, stepOnce, animatedRunBlockReason, takePreemptionNote,
   runSimulationHeadless, runTraceroute, STORM_DIAGNOSIS,
@@ -178,11 +178,9 @@ function cmdLinkState(args: string[], down: boolean): CommandResult {
   const link = state.links.find(l => isPhysicalLink(l) &&
     ((l.from === a.id && l.to === b.id) || (l.from === b.id && l.to === a.id)));
   if (!link) return err(`No link between ${a.name} and ${b.name}.`);
-  pushUndo();
-  if (down) link.shutdown = true; else delete link.shutdown;
-  sync().syncPanel();
-  linksChanged([link.from, link.to]);   // flush learnt MACs + re-run STP (also re-renders), as toggleLinkShutdown does
-  return ok(`Link ${a.name} ↔ ${b.name} is now ${down ? "administratively down (shut)" : "up (no shut)"}.`);
+  const already = !!link.shutdown === down;
+  setLinkShutdown(link, down);   // the mutator the inspector toggle and the canvas double-click use
+  return ok(`Link ${a.name} ↔ ${b.name} is ${already ? "already" : "now"} ${down ? "administratively down (shut)" : "up (no shut)"}.`);
 }
 function cmdShut(args: string[]): CommandResult { return cmdLinkState(args, true); }
 function cmdNoShut(args: string[]): CommandResult { return cmdLinkState(args, false); }
@@ -549,12 +547,7 @@ function cmdManaged(args: string[]): CommandResult {
   if (typeof sw === "string") return err(sw);
   if (sw.type !== "switch") return err(`${sw.name} is not a switch.`);
   const on = !args[1] || /^(on|true|yes|enable)$/i.test(args[1]);
-  pushUndo();
-  ensureConfig(sw);
-  (sw.config as any).managed = on;
-  sync().recomputeStp();
-  sync().syncPanel();
-  return ok(`${sw.name} is now ${on ? "managed" : "unmanaged"}.`);
+  return ok(mutationText(setSwitchManaged(sw, on)));
 }
 
 // Enable/disable a host's HTTP service: `web <server> on|off [title]`. With it
@@ -1053,10 +1046,7 @@ function cmdPower(args: string[]): CommandResult {
   if (typeof dev === "string") return err(dev);
   const mode = (args[1] || "").toLowerCase();
   if (mode !== "on" && mode !== "off") return err("Usage: power <device> on|off");
-  pushUndo();
-  dev.poweredOff = mode === "off";
-  sync().syncPanel(); sync().syncTerminal(); sync().render();
-  return ok(`${dev.name} powered ${mode}.`);
+  return ok(mutationText(setDevicePower(dev, mode === "on")));
 }
 
 // portcount <device> [serial] <n> — a device's physical port capacity. Each

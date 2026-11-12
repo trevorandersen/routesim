@@ -7,7 +7,8 @@ import { ensureConfig, normaliseVlans, normaliseDnsRecords, normaliseDhcpLeases,
 import {
   getDevice, isVisibleDevice, connectedIds, linkedPortsFor, linksFor, wifiLinkAuthenticated,
   routerInterfacesWithNames, routerInterfaceFor, routerInterfaceForName, switchInterfacesWithNames,
-  deleteSelection, deleteLink, collapseLan, expandLan, configureDevice, hasHostname, applyHostname
+  deleteSelection, deleteLink, collapseLan, expandLan, configureDevice, hasHostname, applyHostname,
+  setLinkShutdown, setDevicePower, setSwitchManaged
 } from "./devices";
 import {
   openTerminalFor, syncTerminal, runDeviceCommand, openDock,
@@ -960,10 +961,7 @@ function renderLinkPanel(link: Link): void {
   const shutdownInput = document.getElementById("selectedLinkShutdown") as HTMLInputElement | null;
   if (shutdownInput) {
     shutdownInput.addEventListener("change", (event: any) => {
-      pushUndo();
-      if (event.target.checked) link.shutdown = true; else delete link.shutdown;
-      syncPanel();
-      linksChanged([link.from, link.to]); // flush learnt MACs, re-run STP, redraw the down/up styling
+      dom.modeLabel.textContent = mutationText(setLinkShutdown(link, event.target.checked));
     });
   }
   // Bandwidth / latency / loss: a positive number sets the property; blank or
@@ -1367,11 +1365,7 @@ export function syncPanel(): void {
     const managedInput = document.getElementById("selectedManaged") as HTMLInputElement;
     if (managedInput) {
       managedInput.addEventListener("change", (event: any) => {
-        pushUndo();
-        ensureConfig(selected);
-        selected.config.managed = event.target.checked;
-        syncPanel();
-        sync().render();
+        dom.modeLabel.textContent = mutationText(setSwitchManaged(selected, event.target.checked));
       });
     }
     const portsInput = document.getElementById("selectedPorts") as HTMLInputElement;
@@ -1450,12 +1444,7 @@ export function syncPanel(): void {
     if (terminalButton) terminalButton.addEventListener("click", () => openTerminalFor(selected));
     const powerButton = document.getElementById("togglePower");
     if (powerButton) powerButton.addEventListener("click", () => {
-      pushUndo();
-      selected.poweredOff = !selected.poweredOff;
-      // Power state only — an unconfigured host stays "unassigned" until the
-      // simulation is started (Play boots it via animated DHCP).
-      syncPanel();
-      sync().render();
+      dom.modeLabel.textContent = mutationText(setDevicePower(selected, !!selected.poweredOff));
     });
     const collapseButton = document.getElementById("collapseSelectedLan");
     if (collapseButton) collapseButton.addEventListener("click", () => { dom.modeLabel.textContent = mutationText(collapseLan(selected)); });

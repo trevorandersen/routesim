@@ -537,22 +537,68 @@ export function deleteLink(linkId: string): boolean {
   return true;
 }
 
-// Flip a link's admin status (shut ⇄ up), select it, and re-sync. Returns the
-// link (with its new state) or null if not found. Backs the canvas double-click
-// gesture; the inspector toggle and `shut`/`noshut` console commands set it too.
+// ─── Shared state mutators: admin status, power, switch management ────────────
+// Each of these had two or three hand-written copies — the canvas gesture, the
+// inspector control, the console command — that disagreed about what to
+// recompute afterwards: the inspector's Managed toggle and both power buttons
+// skipped the spanning tree, so stale "blocked" dashes, root badges and port
+// roles stayed on screen until the next run (review R46). Every front door now
+// calls the one mutator, which recomputes BEFORE the panel re-renders.
+
+// Take a cable out of service (shut) or put it back (no shut).
+export function setLinkShutdown(link: Link, down: boolean): MutationResult {
+  const name = linkName(link);
+  if (!!link.shutdown === down) return { ok: true, message: `${name} is already ${down ? "administratively down (shut)" : "up"}.`, warnings: [] };
+  pushUndo();
+  if (down) link.shutdown = true; else delete link.shutdown;
+  // A shut port's learnt MACs are gone (it carries nothing), and a shut
+  // redundant link lets the spanning tree re-open the other — flush, recompute
+  // and redraw first, so the panel shows the tree as it now stands.
+  linksChanged([link.from, link.to]);
+  sync().syncPanel();
+  return { ok: true, message: `${name} is now ${down ? "administratively down (shut)" : "up (no shut)"}.`, warnings: [] };
+}
+
+// Flip a link's admin status (shut ⇄ up) and select it. Returns the link (with
+// its new state) or null if not found. Backs the canvas double-click gesture.
 export function toggleLinkShutdown(linkId: string): Link | null {
   const link = state.links.find(l => l.id === linkId);
   if (!link) return null;
-  pushUndo();
-  if (link.shutdown) delete link.shutdown; else link.shutdown = true;
+  setLinkShutdown(link, !link.shutdown);   // takes the undo point first, so undo also restores the selection
   state.selectedLinkId = link.id;
   state.selectedId = null;
   state.configuringId = null;
   sync().syncPanel();
-  // A shut port's learnt MACs are gone (it carries nothing), and a shut
-  // redundant link lets the spanning tree re-open the other.
-  linksChanged([link.from, link.to]);
+  sync().render();
   return link;
+}
+
+// Power a device on or off. A powered-off switch leaves the spanning tree (and
+// a powered-on one rejoins it), so the tree is recomputed — which also redraws.
+// Power state only: an unconfigured host stays "unassigned" until the
+// simulation is started (Play boots it via animated DHCP).
+export function setDevicePower(device: Device, on: boolean): MutationResult {
+  if (!device.poweredOff === on) return { ok: true, message: `${device.name} is already powered ${on ? "on" : "off"}.`, warnings: [] };
+  pushUndo();
+  device.poweredOff = !on;
+  sync().recomputeStp();
+  sync().syncPanel();
+  sync().syncTerminal();
+  return { ok: true, message: `${device.name} powered ${on ? "on" : "off"}.`, warnings: [] };
+}
+
+// Turn a switch's management plane on or off (VLANs, STP, port security need
+// it). Only a managed switch runs spanning tree, so the tree is recomputed.
+export function setSwitchManaged(device: Device, managed: boolean): MutationResult {
+  if (device.type !== "switch") return { ok: false, error: `${device.name} is not a switch.`, warnings: [] };
+  if (!!device.config?.managed === managed) return { ok: true, message: `${device.name} is already ${managed ? "managed" : "unmanaged"}.`, warnings: [] };
+  pushUndo();
+  ensureConfig(device);
+  device.config.managed = managed;
+  sync().recomputeStp();
+  sync().syncPanel();
+  sync().syncTerminal();   // an unmanaged switch has no CLI
+  return { ok: true, message: `${device.name} is now ${managed ? "managed" : "unmanaged"}.`, warnings: [] };
 }
 
 export function deleteSelection(): void {

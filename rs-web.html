@@ -5005,18 +5005,46 @@ Full legal text: https://creativecommons.org/publicdomain/zero/1.0/legalcode</pr
     linksChanged([gone.from, gone.to]);
     return true;
   }
+  function setLinkShutdown(link, down) {
+    const name = linkName(link);
+    if (!!link.shutdown === down) return { ok: true, message: `${name} is already ${down ? "administratively down (shut)" : "up"}.`, warnings: [] };
+    pushUndo();
+    if (down) link.shutdown = true;
+    else delete link.shutdown;
+    linksChanged([link.from, link.to]);
+    sync().syncPanel();
+    return { ok: true, message: `${name} is now ${down ? "administratively down (shut)" : "up (no shut)"}.`, warnings: [] };
+  }
   function toggleLinkShutdown(linkId) {
     const link = state.links.find((l) => l.id === linkId);
     if (!link) return null;
-    pushUndo();
-    if (link.shutdown) delete link.shutdown;
-    else link.shutdown = true;
+    setLinkShutdown(link, !link.shutdown);
     state.selectedLinkId = link.id;
     state.selectedId = null;
     state.configuringId = null;
     sync().syncPanel();
-    linksChanged([link.from, link.to]);
+    sync().render();
     return link;
+  }
+  function setDevicePower(device, on) {
+    if (!device.poweredOff === on) return { ok: true, message: `${device.name} is already powered ${on ? "on" : "off"}.`, warnings: [] };
+    pushUndo();
+    device.poweredOff = !on;
+    sync().recomputeStp();
+    sync().syncPanel();
+    sync().syncTerminal();
+    return { ok: true, message: `${device.name} powered ${on ? "on" : "off"}.`, warnings: [] };
+  }
+  function setSwitchManaged(device, managed) {
+    if (device.type !== "switch") return { ok: false, error: `${device.name} is not a switch.`, warnings: [] };
+    if (!!device.config?.managed === managed) return { ok: true, message: `${device.name} is already ${managed ? "managed" : "unmanaged"}.`, warnings: [] };
+    pushUndo();
+    ensureConfig(device);
+    device.config.managed = managed;
+    sync().recomputeStp();
+    sync().syncPanel();
+    sync().syncTerminal();
+    return { ok: true, message: `${device.name} is now ${managed ? "managed" : "unmanaged"}.`, warnings: [] };
   }
   function deleteSelection() {
     if (!state.selectedId && state.selectedLinkId) {
@@ -13717,11 +13745,7 @@ Snort successfully validated the configuration${bad ? " (with errors)" : "."}`);
     const shutdownInput = document.getElementById("selectedLinkShutdown");
     if (shutdownInput) {
       shutdownInput.addEventListener("change", (event) => {
-        pushUndo();
-        if (event.target.checked) link.shutdown = true;
-        else delete link.shutdown;
-        syncPanel();
-        linksChanged([link.from, link.to]);
+        dom.modeLabel.textContent = mutationText(setLinkShutdown(link, event.target.checked));
       });
     }
     const linkNumberField = (id, key, max) => {
@@ -14123,11 +14147,7 @@ Snort successfully validated the configuration${bad ? " (with errors)" : "."}`);
       const managedInput = document.getElementById("selectedManaged");
       if (managedInput) {
         managedInput.addEventListener("change", (event) => {
-          pushUndo();
-          ensureConfig(selected);
-          selected.config.managed = event.target.checked;
-          syncPanel();
-          sync().render();
+          dom.modeLabel.textContent = mutationText(setSwitchManaged(selected, event.target.checked));
         });
       }
       const portsInput = document.getElementById("selectedPorts");
@@ -14203,10 +14223,7 @@ Snort successfully validated the configuration${bad ? " (with errors)" : "."}`);
       if (terminalButton) terminalButton.addEventListener("click", () => openTerminalFor(selected));
       const powerButton = document.getElementById("togglePower");
       if (powerButton) powerButton.addEventListener("click", () => {
-        pushUndo();
-        selected.poweredOff = !selected.poweredOff;
-        syncPanel();
-        sync().render();
+        dom.modeLabel.textContent = mutationText(setDevicePower(selected, !!selected.poweredOff));
       });
       const collapseButton = document.getElementById("collapseSelectedLan");
       if (collapseButton) collapseButton.addEventListener("click", () => {
@@ -15734,10 +15751,7 @@ Snort successfully validated the configuration${bad ? " (with errors)" : "."}`);
     dom.contextMenu.style.top = `${Math.min(clientY, window.innerHeight - h - 8)}px`;
   }
   function toggleDevicePower(device) {
-    pushUndo();
-    device.poweredOff = !device.poweredOff;
-    syncPanel();
-    render();
+    dom.modeLabel.textContent = mutationText(setDevicePower(device, !!device.poweredOff));
   }
   function clearLogFilter() {
     state.dock.logFilter = { protocols: [], device: "", link: "", expr: "" };
@@ -16937,12 +16951,9 @@ Snort successfully validated the configuration${bad ? " (with errors)" : "."}`);
     if (typeof b === "string") return err(b);
     const link = state.links.find((l) => isPhysicalLink(l) && (l.from === a.id && l.to === b.id || l.from === b.id && l.to === a.id));
     if (!link) return err(`No link between ${a.name} and ${b.name}.`);
-    pushUndo();
-    if (down) link.shutdown = true;
-    else delete link.shutdown;
-    sync().syncPanel();
-    linksChanged([link.from, link.to]);
-    return ok(`Link ${a.name} \u2194 ${b.name} is now ${down ? "administratively down (shut)" : "up (no shut)"}.`);
+    const already = !!link.shutdown === down;
+    setLinkShutdown(link, down);
+    return ok(`Link ${a.name} \u2194 ${b.name} is ${already ? "already" : "now"} ${down ? "administratively down (shut)" : "up (no shut)"}.`);
   }
   function cmdShut(args) {
     return cmdLinkState(args, true);
@@ -17263,12 +17274,7 @@ Snort successfully validated the configuration${bad ? " (with errors)" : "."}`);
     if (typeof sw === "string") return err(sw);
     if (sw.type !== "switch") return err(`${sw.name} is not a switch.`);
     const on = !args[1] || /^(on|true|yes|enable)$/i.test(args[1]);
-    pushUndo();
-    ensureConfig(sw);
-    sw.config.managed = on;
-    sync().recomputeStp();
-    sync().syncPanel();
-    return ok(`${sw.name} is now ${on ? "managed" : "unmanaged"}.`);
+    return ok(mutationText(setSwitchManaged(sw, on)));
   }
   function cmdWeb(args) {
     const dev = resolveDevice(args[0]);
@@ -17747,12 +17753,7 @@ Snort successfully validated the configuration${bad ? " (with errors)" : "."}`);
     if (typeof dev === "string") return err(dev);
     const mode = (args[1] || "").toLowerCase();
     if (mode !== "on" && mode !== "off") return err("Usage: power <device> on|off");
-    pushUndo();
-    dev.poweredOff = mode === "off";
-    sync().syncPanel();
-    sync().syncTerminal();
-    sync().render();
-    return ok(`${dev.name} powered ${mode}.`);
+    return ok(mutationText(setDevicePower(dev, mode === "on")));
   }
   function cmdPortCount(args) {
     const dev = resolveDevice(args[0]);

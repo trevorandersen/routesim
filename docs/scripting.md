@@ -82,7 +82,7 @@ Param keys and boolean values are case-insensitive. Adding a setting is a one-ro
 | `macsec <device> <peer> <key\|dot1x> [must\|should]` | Set MACsec (802.1AE) for the link to a peer (`off` clears it). A literal key is a static pre-shared CAK (both ends must match); `dot1x` instead **derives** the key from a successful 802.1X exchange on the link (MKA) — it secures only after the port authenticates. `must` drops traffic when it can't secure, `should` falls back to plaintext. |
 | `interface <router> <peer> ip <addr> [vlan <tag>]` | Set a router interface IP (by connected peer; optional sub-interface VLAN). |
 | `route <router> <net/prefix> <nextHop>` | Add a static route. |
-| `managed <switch> [on\|off]` | Turn a switch's management plane on/off (no arg reports the current state). A managed switch carries VLANs, STP, and a SONiC CLI; an unmanaged one is a transparent L2 bridge. |
+| `managed <switch> [on\|off]` | Turn a switch's management plane on/off (no argument turns it on, as the script export writes it). A managed switch carries VLANs, STP, and a SONiC CLI; an unmanaged one is a transparent L2 bridge. |
 | `vlan <switch> add\|del <id>` | Add/remove a VLAN on a managed switch. |
 | `stp <switch> on\|off` | Enable/disable spanning tree on a managed switch (default on). With STP off, an L2 loop becomes a broadcast storm. |
 | `stp <switch> priority <n>` | Set the bridge priority (`0`–`61440`, multiples of `4096`; default `32768`). Lowest priority (then MAC) in a connected component wins the root election. |

@@ -1,7 +1,7 @@
 import { state, toolCopy, networkSnapshot, pushUndoSnapshot, pushUndo, undo, redo, undoBlockReason, THEMES, DEFAULT_THEME } from "./state";
 import type { DisplayOptions } from "./types";
 import { dom } from "./dom";
-import { addLink, deleteSelection, clearNetwork, findDeviceAt, findLinkAt, getDevice, configureDevice, placeToolDevice, PLACEMENT_TOOLS, toggleLinkShutdown, linkName } from "./devices";
+import { addLink, deleteSelection, clearNetwork, findDeviceAt, findLinkAt, getDevice, configureDevice, placeToolDevice, PLACEMENT_TOOLS, toggleLinkShutdown, setDevicePower, linkName } from "./devices";
 import { openPortSelectionModal, confirmPortSelection, cancelPortSelection } from "./port-picker";
 import { render, resizeCanvas, screenToWorld, setZoom, syncZoomLevel, fitNetwork, findTransitAt } from "./canvas";
 import { clearCssColorCache, escapeHtml, mutationText } from "./utils";
@@ -113,10 +113,7 @@ function openDeviceContextMenu(device: any, clientX: number, clientY: number): v
 }
 
 function toggleDevicePower(device: any): void {
-  pushUndo();
-  device.poweredOff = !device.poweredOff;
-  syncPanel();
-  render();
+  dom.modeLabel.textContent = mutationText(setDevicePower(device, !!device.poweredOff));
 }
 
 // Reset every dimension of the sim-log packet-list display filter.

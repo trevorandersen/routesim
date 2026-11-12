@@ -3,7 +3,9 @@
  * from device config + topology state, so they can be asserted on directly.
  */
 import { describe, it, expect, beforeAll, beforeEach, afterEach } from "bun:test";
-import { state, undo } from "../src/state";
+import { state, undo, registerCallbacks } from "../src/state";
+import { runStpConvergence } from "../src/stp";
+import { setDevicePower, setLinkShutdown, setSwitchManaged, toggleLinkShutdown } from "../src/devices";
 import { renderSwitchPorts, renderSwitchVlans, renderRouterInterfaces, renderFramePanel, ipSourceInfo, syncPanel } from "../src/inspector";
 import { findTransitAt } from "../src/canvas";
 import { createIcmpEchoRequest, createTcpSegment } from "../src/frame";
@@ -368,5 +370,122 @@ describe("server fields commit through the shell's mutators (R57)", () => {
     expect(setDhcpRange(srv(), "", "")).toMatchObject({ ok: true });     // already off: nothing to do
     expect(state.undoStack.length).toBe(undoPoints);
     expect(setDhcpRange(srv(), "10.0.0.1", "10.0.0.9")).toMatchObject({ ok: true, message: "SRV: DHCP range 10.0.0.1 – 10.0.0.9." });
+  });
+});
+
+// R46: the inspector's Managed toggle and the power buttons changed the state by
+// hand and skipped the spanning-tree recompute the console commands do, so stale
+// "blocked" dashes, the root badge and port roles stayed on screen until the
+// next run. Every front door now calls one mutator per action.
+describe("shut, power and managed recompute the spanning tree from every front door (R46)", () => {
+  let mini: ReturnType<typeof installMiniDom>;
+  let seen: string[];
+  const blocked = () => state.links.filter(l => l.stpBlocked).length;
+  beforeEach(() => {
+    resetState();
+    mini = installMiniDom();
+    seen = [];
+    registerCallbacks({
+      render() {}, syncTerminal() {}, resizeCanvas() {}, syncScenarioPanel() {}, syncCoordReadout() {}, syncOptionControls() {}, syncSimLog() {},
+      recomputeStp: () => { runStpConvergence(); seen.push("stp"); },
+      syncPanel: () => { seen.push(`panel:${blocked()}`); syncPanel(); },   // what the inspector draws from
+    });
+    // Three managed switches in a triangle: spanning tree blocks one cable.
+    runConsoleScript("add switch S1 at 100 100\nadd switch S2 at 400 100\nadd switch S3 at 250 300\nmanaged S1 on\nmanaged S2 on\nmanaged S3 on\nlink S1 S2\nlink S2 S3\nlink S3 S1");
+    seen.length = 0;
+  });
+  afterEach(() => { mini.uninstall(); registerNoopCallbacks(); });
+
+  const dev = (name: string) => state.devices.find(d => d.name === name)!;
+  const el = (id: string): MiniElement => {
+    const found = mini.panel.getElementById(id);
+    if (!found) throw new Error(`#${id} not rendered`);
+    return found;
+  };
+  const configure = (name: string) => { state.selectedLinkId = null; state.selectedId = dev(name).id; state.configuringId = dev(name).id; syncPanel(); };
+  const setChecked = (id: string, on: boolean) => { const input = el(id); input.checked = on; input.dispatchEvent(new MiniEvent("change")); };
+  // The tree was recomputed, and before the panel was redrawn from it.
+  const recomputedFirst = () => seen.includes("stp") && seen.indexOf("stp") < seen.findIndex(s => s.startsWith("panel:"));
+
+  it("starts with one blocked cable", () => {
+    expect(blocked()).toBe(1);
+  });
+
+  it("the inspector's Managed toggle recomputes: an unmanaged switch leaves the tree", () => {
+    configure("S3");
+    setChecked("selectedManaged", false);
+    expect(dev("S3").config!.managed).toBe(false);
+    expect(blocked()).toBe(0);                                    // no longer a loop of bridges
+    expect(recomputedFirst()).toBe(true);
+    seen.length = 0;
+    configure("S3");
+    setChecked("selectedManaged", true);
+    expect(blocked()).toBe(1);
+    expect(recomputedFirst()).toBe(true);
+  });
+
+  it("the inspector's power button recomputes: a powered-off switch leaves the tree", () => {
+    configure("S3");
+    el("togglePower").click();
+    expect(dev("S3").poweredOff).toBe(true);
+    expect(blocked()).toBe(0);
+    expect(recomputedFirst()).toBe(true);
+    expect(dom.modeLabel.textContent).toBe("S3 powered off.");
+    configure("S3");
+    el("togglePower").click();
+    expect(dev("S3").poweredOff).toBeFalsy();
+    expect(blocked()).toBe(1);
+  });
+
+  it("the link inspector's shut toggle recomputes before the panel redraws", () => {
+    const open = state.links.find(l => !l.stpBlocked)!;
+    state.selectedId = null; state.configuringId = null; state.selectedLinkId = open.id; syncPanel();
+    seen.length = 0;
+    setChecked("selectedLinkShutdown", true);
+    expect(open.shutdown).toBe(true);
+    expect(blocked()).toBe(0);                                    // the redundant path is now needed
+    expect(recomputedFirst()).toBe(true);
+    expect(seen.filter(s => s.startsWith("panel:"))[0]).toBe("panel:0");
+  });
+
+  it("the console commands and the canvas double-click are the same mutators", () => {
+    const undoPoints = state.undoStack.length;
+    expect(exec("power S3 off").output).toEqual(["S3 powered off."]);
+    expect(blocked()).toBe(0);
+    expect(exec("power S3 on").output).toEqual(["S3 powered on."]);
+    expect(blocked()).toBe(1);
+    expect(exec("managed S3 off").output).toEqual(["S3 is now unmanaged."]);
+    expect(blocked()).toBe(0);
+    expect(exec("managed S3 on").output).toEqual(["S3 is now managed."]);
+    expect(exec("shut S1 S2").output).toEqual(["Link S1 ↔ S2 is now administratively down (shut)."]);
+    expect(blocked()).toBe(0);
+    expect(exec("noshut S1 S2").output).toEqual(["Link S1 ↔ S2 is now up (no shut)."]);
+    expect(blocked()).toBe(1);
+    expect(state.undoStack.length).toBe(undoPoints + 6);
+    const link = state.links.find(l => !l.stpBlocked)!;
+    expect(toggleLinkShutdown(link.id)!.shutdown).toBe(true);
+    expect(state.selectedLinkId).toBe(link.id);
+    expect(blocked()).toBe(0);
+  });
+
+  it("a change that changes nothing takes no undo point and says so", () => {
+    const undoPoints = state.undoStack.length;
+    expect(setDevicePower(dev("S1"), true)).toMatchObject({ ok: true, message: "S1 is already powered on." });
+    expect(setSwitchManaged(dev("S1"), true)).toMatchObject({ ok: true, message: "S1 is already managed." });
+    expect(setLinkShutdown(state.links[0], false).message).toContain("is already up");
+    expect(exec("shut S1 S2").ok).toBe(true);
+    expect(exec("shut S1 S2").output).toEqual(["Link S1 ↔ S2 is already administratively down (shut)."]);
+    expect(state.undoStack.length).toBe(undoPoints + 1);
+    expect(setSwitchManaged(dev("S1"), false).ok).toBe(true);
+    runConsoleScript("add computer PC at 600 100");
+    expect(setSwitchManaged(dev("PC"), true)).toMatchObject({ ok: false, error: "PC is not a switch." });
+  });
+
+  it("each change is one undo step that restores the tree", () => {
+    exec("power S3 off");
+    expect(blocked()).toBe(0);
+    undo();
+    expect(dev("S3").poweredOff).toBeFalsy();
+    expect(blocked()).toBe(1);
   });
 });

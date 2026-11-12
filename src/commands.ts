@@ -86,11 +86,16 @@ function cmdAdd(args: string[]): CommandResult {
   }
   let name: string | undefined;
   let pos = spawnPosition();
-  const atIdx = args.indexOf("at");
-  if (atIdx >= 0) {
+  // The position is the TRAILING `at <x> <y>` — found from the end, so a device
+  // may itself be named "at" (`add computer at at 10 20`); the first `at` used
+  // to win and the name was read as the keyword.
+  const atIdx = args.length - 3;
+  if (atIdx >= 1 && args[atIdx].toLowerCase() === "at") {
     pos = { x: Number(args[atIdx + 1]), y: Number(args[atIdx + 2]) };
     if (!Number.isFinite(pos.x) || !Number.isFinite(pos.y)) return err(`add: invalid "at <x> <y>".`);
     if (atIdx >= 2) name = args[1];
+  } else if (args.slice(1).some(a => a.toLowerCase() === "at") && args.length > 2) {
+    return err(`add: invalid "at <x> <y>".`);   // an `at` that is not followed by exactly two numbers
   } else if (args[1]) {
     name = args[1];
   }
@@ -263,7 +268,10 @@ function cmdSsid(args: string[]): CommandResult {
     return err(`${device.name} is not a WiFi device — set an SSID on a laptop or access point.`);
   }
   const ssid = normaliseSsid(args[1] || "");
-  if (!ssid) return err("Usage: ssid <laptop|access-point> <name> [password]");
+  // `ssid LT ""` clears it — a laptop with no network configured is a real
+  // state (the wifi-join scenario starts in it), and the script export has to
+  // be able to say so. A missing argument is still a usage error.
+  if (!ssid && args[1] !== "") return err("Usage: ssid <laptop|access-point> <name> [password]   (\"\" clears the name)");
   pushUndo();
   ensureConfig(device);
   device.config.ssid = ssid;
@@ -271,6 +279,7 @@ function cmdSsid(args: string[]): CommandResult {
   device.config.wifiPassword = password;
   sync().render();
   const role = device.type === "access-point" ? "broadcasts" : "joins";
+  if (!ssid) return ok(`${device.name}: SSID cleared.`);
   return ok(`${device.name} ${role} SSID "${ssid}"${password ? " (password set)" : ""}.`);
 }
 
@@ -315,7 +324,7 @@ function cmdVlan(args: string[]): CommandResult {
   if (typeof sw === "string") return err(sw);
   const action = (args[1] || "").toLowerCase();
   const id = args[2];
-  if (action === "add") return mutatorResult(addSwitchVlan(sw, id));
+  if (action === "add") return mutatorResult(addSwitchVlan(sw, id, args.slice(3).join(" ")));   // optional name: vlan SW add 10 Sales
   if (["del", "delete", "remove"].includes(action)) return mutatorResult(removeSwitchVlan(sw, id));
   return err(`vlan: expected "add|del <id>".`);
 }
@@ -1139,7 +1148,7 @@ const HELP: Record<string, string> = {
   move: "move <device> <x> <y>", rename: "rename <device> <name>", clear: "remove all devices",
   collapse: "collapse <switch> into a LAN", expand: "expand <lan>",
   ip: "ip <host> <addr/prefix>", gateway: "gateway <host> <ip>", nameserver: "nameserver <host> <ip>", mac: "mac <host> <addr>",
-  ssid: "ssid <laptop|access-point> <name> [password] (omit password = open)",
+  ssid: "ssid <laptop|access-point> <name> [password] (omit password = open; \"\" clears the name)",
   supplicant: "supplicant <host> <identity> <password> (set 802.1X credentials)",
   portauth: "portauth <switch> <EthN> <auto|force-authorized|force-unauthorized>",
   radius: "radius <server> <identity> <password> (add a RADIUS user, enables the back end)",
@@ -1147,7 +1156,7 @@ const HELP: Record<string, string> = {
   dot1x: "dot1x <host> (animate the 802.1X EAP/RADIUS exchange)",
   macsec: "macsec <device> <peer> <key|dot1x> [must|should] (802.1AE link encryption; 'dot1x' derives keys from 802.1X, 'off' clears)",
   interface: "interface <router> <peer> ip <addr> [vlan <tag>]", route: "route <router> <net/prefix> <nextHop>",
-  vlan: "vlan <switch> add|del <id>", port: "port <switch> <EthN> vlan|mode|native|allowed ...",
+  vlan: "vlan <switch> add <id> [name] | vlan <switch> del <id>", port: "port <switch> <EthN> vlan|mode|native|allowed ...",
   managed: "managed <switch> [on|off] (enable the switch's management plane: VLANs, STP, port security)",
   role: "role <router> border|internal (set the router's placement archetype — border faces the outside)",
   stp: "stp (animate the BPDU exchange) | stp <switch> on|off | stp <switch> priority <n> (default on for managed switches)",
@@ -1267,6 +1276,7 @@ export function exportTopologyScript(): string {
   // after, `interface Ethernet1` opened an unbound config-if prompt and the
   // `ip nat` inside it was silently lost.
   for (const l of payload.links) {
+    if (l.proxy) continue;   // a collapsed LAN's stand-in cable — `collapse` recreates it (below)
     const f = idToName.get(l.from); const t = idToName.get(l.to);
     if (!f || !t) continue;
     const fromPort = exportedPort(l, l.from), toPort = exportedPort(l, l.to);
@@ -1289,14 +1299,19 @@ export function exportTopologyScript(): string {
       if (c.gatewayIpv4Address) lines.push(`gateway ${quoteArg(d.name)} ${c.gatewayIpv4Address}`);
       if (c.macAddress) lines.push(`mac ${quoteArg(d.name)} ${c.macAddress}`);
       if (c.dnsServerIp) lines.push(`nameserver ${quoteArg(d.name)} ${c.dnsServerIp}`);
-      if (d.type === "laptop" && c.ssid) lines.push(`ssid ${quoteArg(d.name)} ${quoteArg(c.ssid)}${c.wifiPassword ? ` ${quoteArg(c.wifiPassword)}` : ""}`);
+      // Always stated for a laptop: a new one defaults to the shared SSID, so an
+      // empty (unconfigured) one must be written out as "".
+      if (d.type === "laptop") lines.push(`ssid ${quoteArg(d.name)} ${quoteArg(c.ssid || "")}${c.wifiPassword ? ` ${quoteArg(c.wifiPassword)}` : ""}`);
       // dnsmasq state replays through the server terminal (same as a human would type).
       for (const r of (c.dnsRecords || [])) lines.push(`cli ${quoteArg(d.name)} echo address=/${r.name}/${r.ip} >> /etc/dnsmasq.conf`);
       if (c.dhcpRangeStart && c.dhcpRangeEnd) lines.push(`cli ${quoteArg(d.name)} echo dhcp-range=${c.dhcpRangeStart},${c.dhcpRangeEnd} >> /etc/dnsmasq.conf`);
       if (c.dhcpRouterIp) lines.push(`cli ${quoteArg(d.name)} echo dhcp-option=option:router,${c.dhcpRouterIp} >> /etc/dnsmasq.conf`);
       if (d.type === "server" && c.dnsmasqRunning === false) lines.push(`cli ${quoteArg(d.name)} systemctl stop dnsmasq`);
-      if (c.dot1x?.identity) lines.push(`supplicant ${quoteArg(d.name)} ${quoteArg(c.dot1x.identity)} ${c.dot1x.password ? quoteArg(c.dot1x.password) : ""}`.trimEnd());
-      for (const u of (c.radius?.users || [])) lines.push(`radius ${quoteArg(d.name)} ${quoteArg(u.identity)} ${u.password ? quoteArg(u.password) : ""}`.trimEnd());
+      // The password is ALWAYS written, quoted — an empty one as "". Dropping it
+      // left `supplicant PC alice`, which replays as a usage error, and the
+      // credential was lost.
+      if (c.dot1x?.identity) lines.push(`supplicant ${quoteArg(d.name)} ${quoteArg(c.dot1x.identity)} ${quoteArg(c.dot1x.password ?? "")}`);
+      for (const u of (c.radius?.users || [])) lines.push(`radius ${quoteArg(d.name)} ${quoteArg(u.identity)} ${quoteArg(u.password ?? "")}`);
       if (Array.isArray(c.openPorts)) lines.push(c.openPorts.length ? `ports ${quoteArg(d.name)} ${c.openPorts.join(",")}` : `ports ${quoteArg(d.name)} closed`);
       if (c.httpEnabled) lines.push(`web ${quoteArg(d.name)} on${c.httpTitle ? ` ${quoteArg(c.httpTitle)}` : ""}`);
       if (d.type === "attacker") {
@@ -1307,7 +1322,13 @@ export function exportTopologyScript(): string {
     } else if (d.type === "switch") {
       if (c.managed) {
         lines.push(`managed ${quoteArg(d.name)}`);   // a managed switch needs its management plane on before VLAN/STP config
-        for (const v of (c.vlans || [])) if (v.id !== 1) lines.push(`vlan ${quoteArg(d.name)} add ${v.id}`);
+        // A VLAN's name is written when it is not the default — `Sales` used to
+        // come back as `Vlan10`.
+        for (const v of (c.vlans || [])) {
+          const defaultName = v.id === 1 ? "default" : `Vlan${v.id}`;
+          const named = v.name && v.name !== defaultName ? ` ${quoteArg(v.name)}` : "";
+          if (v.id !== 1 || named) lines.push(`vlan ${quoteArg(d.name)} add ${v.id}${named}`);
+        }
         for (const [port, mode] of Object.entries(c.portModes || {})) lines.push(`port ${quoteArg(d.name)} ${port} mode ${mode}`);
         for (const [port, id] of Object.entries(c.portVlans || {})) lines.push(`port ${quoteArg(d.name)} ${port} vlan ${id}`);
         for (const [port, id] of Object.entries(c.trunkNativeVlans || {})) lines.push(`port ${quoteArg(d.name)} ${port} native ${id}`);
@@ -1371,14 +1392,31 @@ export function exportTopologyScript(): string {
       // shape as the router, minus the mode dance (the firewall shell is flat).
       if (c.policy?.forward === "drop") lines.push(`cli ${quoteArg(d.name)} iptables -P FORWARD DROP`);
       for (const r of (c.rules || [])) lines.push(`cli ${quoteArg(d.name)} ${ruleToIptables(r)}`);
-    } else if (d.type === "access-point" && c.ssid) {
-      lines.push(`ssid ${quoteArg(d.name)} ${quoteArg(c.ssid)}${c.wifiPassword ? ` ${quoteArg(c.wifiPassword)}` : ""}`);
+    } else if (d.type === "access-point") {
+      lines.push(`ssid ${quoteArg(d.name)} ${quoteArg(c.ssid || "")}${c.wifiPassword ? ` ${quoteArg(c.wifiPassword)}` : ""}`);
     }
     // MACsec keys (any device, keyed by peer) — each end emits its own.
     for (const [peerId, m] of Object.entries((c.macsec || {}) as Record<string, any>)) {
       const peer = idToName.get(peerId);
-      if (peer) lines.push(`macsec ${quoteArg(d.name)} ${peer} ${m.derive ? "dot1x" : m.cak} ${m.mode}`);
+      // The key is quoted: `my key must` used to replay as the key "my" in
+      // should-secure mode — a silent downgrade from must-secure.
+      if (peer) lines.push(`macsec ${quoteArg(d.name)} ${peer} ${m.derive ? "dot1x" : quoteArg(m.cak ?? "")} ${m.mode}`);
     }
+  }
+
+  // Collapsed LANs last, once everything inside them is built: collapse each
+  // around its switch (inner LANs first — payload order is creation order),
+  // then restore a name or position the learner gave the LAN node. The LAN
+  // device and its proxy link are views, never `add`ed or `link`ed.
+  for (const d of payload.devices) {
+    if (d.type !== "lan") continue;
+    const anchor = idToName.get(d.config?.anchorId);
+    const anchorDevice = payload.devices.find((x: any) => x.id === d.config?.anchorId);
+    if (!anchor || !anchorDevice) continue;
+    lines.push(`collapse ${anchor}`);
+    const defaultName = `${anchorDevice.name} LAN`;
+    if (d.name !== defaultName) lines.push(`rename ${quoteArg(defaultName)} ${quoteArg(d.name)}`);
+    lines.push(`move ${quoteArg(d.name)} ${Math.round(d.x)} ${Math.round(d.y)}`);
   }
 
 

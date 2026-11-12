@@ -53,7 +53,7 @@ Param keys and boolean values are case-insensitive. Adding a setting is a one-ro
 ### Topology
 | Command | Effect |
 |---------|--------|
-| `add <computer\|laptop\|server\|switch\|router\|firewall\|hub\|access-point> [name] [at <x> <y>]` | Create a device (hosts get a random MAC). A `laptop` is a WiFi-only host; an `access-point` bridges laptops onto the wired LAN. |
+| `add <computer\|laptop\|server\|switch\|router\|firewall\|hub\|access-point> [name] [at <x> <y>]` | Create a device (hosts get a random MAC). A `laptop` is a WiFi-only host; an `access-point` bridges laptops onto the wired LAN. The position is the *trailing* `at <x> <y>`, so a device may itself be named `at`. |
 | `remove <ref>` / `delete <ref>` | Delete a device and its links. |
 | `link <a> <b> [portA portB]` | Connect two devices. A port number **pins** that end to the port (`link R1 SW 3 1` → R1 Ethernet3, SW Ethernet1); `auto` (or `-`) leaves an end to the next free port (`link R1 SW auto 4`). On a router the number counts within the cable's own kind of port — serial to another router, Ethernet otherwise. A port that is already cabled (by any cable, pinned or not) or does not exist is **not honoured**: the cable is still made on the next free port, and the output says which port was refused, why, and where the cable went. Linking a pair that is already linked is a no-op that says so (and says when the ports asked for were not applied); a WiFi association with the wrong password links with a warning. |
 | `linkset <a> <b> <name\|bandwidth\|latency\|loss> <value>` | Set a link attribute (`0` clears a numeric one). |
@@ -72,7 +72,7 @@ Param keys and boolean values are case-insensitive. Adding a setting is a one-ro
 | `gateway <host> <ip>` | Set a host default gateway. |
 | `nameserver <host> <ip>` | Set a host DNS server (`/etc/resolv.conf`). |
 | `mac <host> <addr>` | Set a host MAC. |
-| `ssid <laptop\|access-point> <name> [password]` | Set the WiFi network a laptop joins or an access point broadcasts. Omitting the password opens the network (and clears any existing one). A laptop only associates if its SSID — and password, if set — match the AP's. |
+| `ssid <laptop\|access-point> <name> [password]` | Set the WiFi network a laptop joins or an access point broadcasts. Omitting the password opens the network (and clears any existing one). A laptop only associates if its SSID — and password, if set — match the AP's. `ssid <laptop> ""` clears the name (a laptop with no network configured). |
 | `supplicant <host> <identity> <password>` | Set a host's 802.1X credentials (the supplicant). |
 | `portauth <switch> <EthN> <auto\|force-authorized\|force-unauthorized>` | Set a switch port's 802.1X control. `auto` blocks data until the host authenticates; `force-authorized` (default) is open. `force-unauthorized` is closed whatever the host presents (a login gets an immediate failure). Changing the mode ends the port's 802.1X session, so the host must authenticate again. |
 | `radius <server> <identity> <password>` | Add/update a RADIUS user on a server (enables the authentication back end). |
@@ -83,7 +83,7 @@ Param keys and boolean values are case-insensitive. Adding a setting is a one-ro
 | `interface <router> <peer> ip <addr> [vlan <tag>]` | Set a router interface IP (by connected peer; optional sub-interface VLAN). |
 | `route <router> <net/prefix> <nextHop>` | Add a static route. |
 | `managed <switch> [on\|off]` | Turn a switch's management plane on/off (no argument turns it on, as the script export writes it). A managed switch carries VLANs, STP, and a SONiC CLI; an unmanaged one is a transparent L2 bridge. |
-| `vlan <switch> add\|del <id>` | Add/remove a VLAN on a managed switch. |
+| `vlan <switch> add <id> [name]` / `vlan <switch> del <id>` | Add/remove a VLAN on a managed switch. A name is optional (`vlan SW add 10 Sales`; default `Vlan10`); adding an existing id with a name renames it. |
 | `stp <switch> on\|off` | Enable/disable spanning tree on a managed switch (default on). With STP off, an L2 loop becomes a broadcast storm. |
 | `stp <switch> priority <n>` | Set the bridge priority (`0`–`61440`, multiples of `4096`; default `32768`). Lowest priority (then MAC) in a connected component wins the root election. |
 | `port <switch> <EthN> vlan <id>` | Access VLAN for a port. |
@@ -207,7 +207,15 @@ route R1 10.0.0.0/24 192.168.10.254
 - Anything whose natural home is a device's own CLI replays through **`cli <device> …`** exactly as a person would type it: a router's `router rip` / `network` / `passive-interface`, `interface EthernetN` + `ip nat inside|outside`, static port-forwards, and `iptables -P` / `iptables -A …` (each `FirewallRule` formatted by `ruleToIptables`, the parser's inverse); a firewall's `iptables` lines directly.
 - **Cables are emitted before per-device config**, because port and interface names (`port SW Ethernet2 …`, `mirror … Ethernet3`, the CLI's `interface Ethernet1`) only resolve once the link exists.
 
-The round-trip test in `tests/commands.test.ts` compares the replayed *configuration* — policy, rules, RIP, NAT role, listener list, power, port counts — not merely device names.
+**The guarantee is tested for every built-in network.** `tests/roundtrip.test.ts` exports each of the four topologies and every scenario, replays the script from an empty canvas, and compares the two saved configurations field by field (ids mapped to names; an address with no stored prefix compared as the `/24` it means) — nothing may be rejected and nothing may differ, and re-exporting must give the same script. It also covers the awkward corners:
+
+- **Credentials** are always written, quoted: an empty password as `""` (it used to be dropped, leaving `supplicant PC alice`, a usage error on replay), and a MACsec key as one token (`"my key" must` used to replay as the key `my` in should-secure mode — a silent downgrade). Review R36.
+- **VLAN names** are written when they are not the default (`vlan SW add 10 Sales`); they used to come back as `Vlan10`. Review R79.
+- **A laptop's SSID is always stated**, as `""` when unconfigured — a new laptop defaults to the shared SSID, so an empty one has to be written out.
+- **Collapsed LANs** are rebuilt last: the LAN node and its stand-in cable are views, so they are never `add`ed or `link`ed; the script ends with `collapse <switch>` for each, then a `rename` / `move` for the LAN node. They used to emit `link "SW LAN" R1`, which was rejected, and came back expanded. Review R81.
+- **A device named `at`** exports and replays (`add computer at at 120 240`).
+
+When you add a field to a device, this suite fails until the export can express it.
 
 ```js
 const script = routesim.export();   // "clear\nadd computer PC1 at …\nip PC1 …\nlink …"

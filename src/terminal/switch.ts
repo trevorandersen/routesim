@@ -172,16 +172,22 @@ export function setSwitchStp(device: Device, change: { enabled?: boolean; priori
   return `Spanning tree ${change.enabled ? "enabled" : "disabled"}.`;
 }
 
-export function addSwitchVlan(device: Device, vlanId: string): string {
+// Add a VLAN, optionally with a name (the console's `vlan SW add 10 Sales`, and
+// what the script export writes for a named VLAN). Adding an existing id with a
+// name renames it; without one it is left as it is.
+export function addSwitchVlan(device: Device, vlanId: string, name = ""): string {
   const id = normaliseVlanId(vlanId);
   if (!id) return `Invalid VLAN ID: ${vlanId}`;
+  const label = name.replace(/\s+/g, " ").trim().slice(0, 32);
   pushUndo();
   ensureConfig(device);
   const vlans = normaliseVlans(device.config.vlans || []);
-  if (!vlans.some((vlan: any) => vlan.id === id)) vlans.push({ id, name: id === 1 ? "default" : `Vlan${id}` });
+  const existing = vlans.find((vlan: any) => vlan.id === id);
+  if (existing) { if (label) existing.name = label; }
+  else vlans.push({ id, name: label || (id === 1 ? "default" : `Vlan${id}`) });
   device.config.vlans = vlans.sort((a: any, b: any) => a.id - b.id);
   sync().syncPanel();
-  return `Added VLAN ${id}.`;
+  return `Added VLAN ${id}${label ? ` (${label})` : ""}.`;
 }
 
 export function removeSwitchVlan(device: Device, vlanId: string): string {

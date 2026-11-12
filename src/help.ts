@@ -126,7 +126,7 @@ export function buildHelpHtml(): string {
     </div>`).join("");
 
   return `
-    <p class="help-intro">RouteSim simulates real Ethernet frames hopping through a network you build. Drop devices on the canvas, cable them with the Connect tool, address them, then press Play (or run <code>ping</code> from a device terminal) and watch each frame move. Below is every device you can place and every setting that shapes a run.</p>
+    <p class="help-intro">RouteSim simulates real Ethernet frames hopping through a network you build. Pick a device tool and a faint preview follows the cursor: left-click drops the device (the tool stays armed for the next one), right-click or Esc puts the tool down. Cable devices with the Connect tool, address them, then press Play (or run <code>ping</code> from a device terminal) and watch each frame move. Below is every device you can place and every setting that shapes a run.</p>
     <h3 class="help-heading">Devices</h3>
     <div class="help-devices">${devices}</div>
     <h3 class="help-heading">Simulation settings</h3>

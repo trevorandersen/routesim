@@ -76,20 +76,22 @@ committed scope — it's a menu for "what next".
 
 Five requests raised on GitHub by a colleague who teaches with the tool, ranked
 by value for effort. Each names the issue, what exists today, and where the work
-lands. None has started.
+lands.
 
-1. **Placement ghost, and only left-click places**
-   ([#3](https://github.com/trevorandersen/routesim/issues/3)) — while a
-   placement tool is armed, draw a **translucent copy of the device under the
-   cursor** (next to the cross-hair), so it is obvious both what a click will
-   drop and that the canvas is still in place mode (no context menu, no pan).
-   The issue also questions the click mapping, and it is right to: today
-   `pointerdown` never looks at `event.button`, so *every* button places a
-   device. Make **left-click place, right-click and Escape cancel** back to the
-   select tool. Leverages `state.pointer` (already tracked for the coordinate
-   readout), the existing device draw routine at reduced alpha in `canvas.ts`,
-   and `PLACEMENT_TOOLS`/`placeToolDevice`. Effort: low.
-2. **Kali as a real man-in-the-middle** — two requests that only make sense
+> **Placement ghost, and only left-click places — shipped (2026-11)**
+> ([#3](https://github.com/trevorandersen/routesim/issues/3)). While a placement
+> tool is armed a **translucent copy of the device a click would drop** follows
+> the cursor, with its managed / border badge and the name it will get
+> (`placementPreview` in `devices.ts`, drawn by `drawPlacementGhost` in
+> `canvas.ts`; the preview and the click read one table, so they cannot
+> disagree). **Left-click places and stays armed; right-click or Escape leaves
+> place mode** (a right-click there opens no menu); a middle-click no longer
+> drops a device. The status line says how to leave for as long as the tool is
+> armed.
+
+The four still open:
+
+1. **Kali as a real man-in-the-middle** — two requests that only make sense
    together:
    - **IP forwarding on the Kali hosts**
      ([#4](https://github.com/trevorandersen/routesim/issues/4)) —
@@ -115,7 +117,7 @@ lands. None has started.
    MACsec and 802.1X a visible payoff. Depends on review finding R3's router
    MAC admission (fixed) — the forwarding path must apply the same "frame is
    for my MAC" test. IPv6 forwarding waits for IPv6 (Reach). Effort: moderate.
-3. **Packet callouts during the animation**
+2. **Packet callouts during the animation**
    ([#2](https://github.com/trevorandersen/routesim/issues/2)) — an optional
    higher-detail view: each frame in flight carries a small **callout with its
    most relevant fields** (ARP: who-has / is-at; IPv4: src → dst, plus the MAC
@@ -133,7 +135,7 @@ lands. None has started.
    prefer the selected flow), and must not carry meaning by colour alone. This
    is the canvas half of the **"Why?" affordance** below — build them together.
    Effort: moderate–high.
-4. **nftables alongside iptables**
+3. **nftables alongside iptables**
    ([#1](https://github.com/trevorandersen/routesim/issues/1)) — nftables has
    replaced iptables on current Linux, and is the cleaner syntax to learn
    first. A **per-device rule-language toggle** (iptables | nftables) on routers

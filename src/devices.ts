@@ -76,40 +76,57 @@ function nextNameForPrefix(prefix: string): string {
   return `${prefix}-${highest + 1}`;
 }
 
-// Place the device for a placement tool, resolving UI variants to real types:
-// "managed-switch" is a switch with management on; the server presets seed a
-// role's config onto a plain server.
-export function placeToolDevice(tool: string, x: number, y: number): Device {
-  if (tool === "managed-switch") {
-    const device = addDevice("switch", x, y);
-    device.config = device.config || {};
-    (device.config as any).managed = true;
-    sync().syncPanel();
-    sync().render();
-    return device;
-  }
-  // A border/edge router — a `router` with the role flag (the inside/outside NAT
-  // marks and the firewall are then yours to add). The plain "router" tool stays
-  // an internal/core router (no role). Mirrors the managed-switch variant.
-  if (tool === "border-router") {
-    const device = addDevice("router", x, y, nextNameForPrefix("Border"));
-    device.config = device.config || {};
-    (device.config as any).role = "border";
-    sync().syncPanel();
-    sync().render();
-    return device;
-  }
-  // A server role preset (dns/dhcp/radius/web). The plain "server" tool isn't in
-  // the table, so it falls through to the default addDevice below.
+// What a placement tool drops: the real device type, plus — for the UI variants —
+// a name prefix of its own and the config the variant seeds on top of the type
+// default. "managed-switch" is a switch with management on; "border-router" is a
+// router with the role flag (the inside/outside NAT marks and the firewall are
+// then yours to add; the plain "router" tool stays an internal/core router); the
+// server presets seed a role's config onto a plain server. One table, read by
+// both the click (placeToolDevice) and the preview under the cursor
+// (placementPreview), so the ghost cannot promise a device the click won't drop.
+interface PlacementVariant { type: DeviceType; namePrefix?: string; config?: () => DeviceConfig }
+function placementVariant(tool: string): PlacementVariant {
+  if (tool === "managed-switch") return { type: "switch", config: () => ({ managed: true }) as DeviceConfig };
+  if (tool === "border-router") return { type: "router", namePrefix: "Border", config: () => ({ role: "border" }) as DeviceConfig };
   const preset = SERVER_PRESETS[tool];
-  if (preset) {
-    const device = addDevice("server", x, y, nextNameForPrefix(preset.namePrefix));
-    device.config = { ...device.config, ...preset.config() } as DeviceConfig;
+  if (preset) return { type: "server", namePrefix: preset.namePrefix, config: preset.config };
+  return { type: tool as DeviceType };
+}
+
+// Place the device for a placement tool, resolving UI variants to real types.
+export function placeToolDevice(tool: string, x: number, y: number): Device {
+  const variant = placementVariant(tool);
+  const device = addDevice(variant.type, x, y, variant.namePrefix ? nextNameForPrefix(variant.namePrefix) : undefined);
+  if (variant.config) {
+    device.config = { ...device.config, ...variant.config() } as DeviceConfig;
     sync().syncPanel();
     sync().render();
-    return device;
   }
-  return addDevice(tool as DeviceType, x, y);
+  return device;
+}
+
+// The device a click at (x, y) WOULD place for this tool — same type, size, name
+// and badge-bearing config as placeToolDevice, but nothing is added to the
+// network, no name counter moves and no undo step is pushed. The canvas draws it
+// translucent under the cursor while a placement tool is armed (issue #3). Null
+// for a tool that places nothing (select / connect / configure).
+export function placementPreview(tool: string, x: number, y: number): Device | null {
+  if (!PLACEMENT_TOOLS.has(tool)) return null;
+  const variant = placementVariant(tool);
+  const spec = DEVICE_SPECS[variant.type];
+  const name = variant.namePrefix
+    ? nextNameForPrefix(variant.namePrefix)
+    : `${spec.namePrefix}-${state.nameCounters[variant.type]}`;
+  return {
+    id: "",
+    type: variant.type,
+    name,
+    x,
+    y,
+    width: deviceSize(variant.type).width,
+    height: deviceSize(variant.type).height,
+    config: variant.config ? variant.config() : {},
+  } as Device;
 }
 
 // Hosts and the IDS sensor model a single NIC (the registry's singleNic role), so

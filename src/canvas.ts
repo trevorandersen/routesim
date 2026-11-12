@@ -3,7 +3,7 @@ import { state, colors } from "./state";
 import { dom } from "./dom";
 import { cssColor, prefixOf } from "./utils";
 import { DEVICE_SPECS, isHost } from "./device-registry";
-import { getDevice, isVisibleDevice, routerInterfacesWithNames, linkedPortsFor, wifiLinkAuthenticated, macsecState } from "./devices";
+import { getDevice, isVisibleDevice, routerInterfacesWithNames, linkedPortsFor, wifiLinkAuthenticated, macsecState, placementPreview, findDeviceAt } from "./devices";
 import { isRootBridge } from "./stp";
 import { memoPortModes } from "./normalise";
 import { getVlanForDevice } from "./simulation";
@@ -435,6 +435,44 @@ export function drawDevice(device: any): void {
   ctx.restore();
 }
 
+// How see-through the placement ghost is. Faint enough to read as "not there
+// yet" over the grid in every theme, solid enough that the icon is recognisable.
+export const PLACEMENT_GHOST_ALPHA = 0.55;
+
+// While a placement tool is armed, a translucent copy of the device a click
+// would drop follows the cursor, centred where the device would land (issue #3).
+// It says what is about to be placed — the icon, the managed / border badge, and
+// the name it will get, which is what tells the server presets apart — and that
+// the canvas is still in place mode.
+//
+// Two cases keep it from fighting what is already drawn. Straight after a click
+// the cursor is still exactly where the device was dropped, and a ghost there
+// would wash the new device out (its translucent body over the real icon) — so
+// nothing is drawn until the cursor moves off that spot. And while the cursor is
+// anywhere on an existing device the name is left off, since two names would
+// print over each other.
+function drawPlacementGhost(): void {
+  if (!state.pointer) return;
+  const world = screenToWorld(state.pointer);
+  const ghost = placementPreview(state.tool, world.x, world.y);
+  if (!ghost) return;
+  if (state.devices.some(d => !d.hidden && Math.abs(d.x - world.x) < 0.5 && Math.abs(d.y - world.y) < 0.5)) return;
+  const palette = devicePalette(ghost.type);
+  ctx.save();
+  ctx.globalAlpha = PLACEMENT_GHOST_ALPHA;
+  drawIconDevice(ghost, palette);
+  if (ghost.type === "switch" && ghost.config?.managed) drawManagedBadge(ghost, palette);
+  if (ghost.type === "router" && ghost.config?.role === "border") drawBorderBadge(ghost);
+  if (state.options.showDeviceNames && !findDeviceAt(world)) {
+    ctx.textAlign = "center";
+    ctx.textBaseline = "top";
+    ctx.fillStyle = cssColor("--label-primary");
+    ctx.font = FONT_LABEL;
+    ctx.fillText(clampText(ghost.name, ghost.width + 10), ghost.x, ghost.y + ghost.height / 2 + 10);
+  }
+  ctx.restore();
+}
+
 export function clampText(text: string, maxWidth: number): string {
   if (ctx.measureText(text).width <= maxWidth) return text;
   let next = text;
@@ -486,6 +524,7 @@ export function render(): void {
   drawFrameTransits();
   state.devices.forEach(drawDeviceIcon);
   state.devices.forEach(drawDevice);
+  drawPlacementGhost();
   ctx.restore();
 }
 

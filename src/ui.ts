@@ -20,12 +20,27 @@ import { syncSimLog } from "./simlog-view";
 import { setupRibbon, renderScenarioOptions } from "./ribbon";
 import * as io from "./io";
 
+// Appended to the status line while a placement tool is armed, so the way out of
+// place mode is always on screen (issue #3).
+export const PLACEMENT_HINT = "click to place, right-click or Esc to stop";
+
+// A press that is not the primary button: middle, right, or — on a Mac, where it
+// is the one-button secondary click and is followed by `contextmenu` — Ctrl+click.
+// Elsewhere Ctrl+click is an ordinary click. `platform` is a parameter for tests.
+export function isSecondaryPress(
+  event: { button?: number; ctrlKey?: boolean },
+  platform: string = typeof navigator !== "undefined" ? navigator.platform || "" : "",
+): boolean {
+  if ((event.button ?? 0) > 0) return true;
+  return !!event.ctrlKey && /Mac|iPhone|iPad/.test(platform);
+}
+
 export function setTool(tool: string): void {
   state.tool = tool;
   state.linkStartId = null;
   syncToolGroups(tool); // reflect the active variant on its split-button face first
   dom.toolButtons.forEach(button => button.classList.toggle("active", (button as HTMLElement).dataset.tool === tool));
-  dom.modeLabel.textContent = toolCopy[tool][0];
+  dom.modeLabel.textContent = PLACEMENT_TOOLS.has(tool) ? `${toolCopy[tool][0]} — ${PLACEMENT_HINT}` : toolCopy[tool][0];
   dom.canvas.style.cursor = tool === "select" ? "default" : tool === "configure" ? "pointer" : "crosshair";
   render();
 }
@@ -309,6 +324,149 @@ export function handleGlobalKeydown(event: KeyboardEvent): void {
   if (event.key.toLowerCase() === "w") setTool("configure");
 }
 
+// A press on the canvas: place, connect, configure, pick a packet, select, drag
+// or pan, by the armed tool. A named export (like handleGlobalKeydown) so tests
+// can drive it with event-shaped objects; setupUI registers it by reference.
+export function handleCanvasPointerDown(event: PointerEvent): void {
+  // Synthetic events (UI automation/tests) carry pointer ids the browser
+  // doesn't know — capture is best-effort, never fatal.
+  try { dom.canvas.setPointerCapture(event.pointerId); } catch { /* synthetic event */ }
+  const pointer = pointerFromEvent(event);
+  // A press is also where the cursor is. A mouse always moves here first, but a
+  // touch or a scripted click does not, and the placement ghost and the connect
+  // rubber band are drawn at state.pointer — so it must not be left stale.
+  state.pointer = pointer;
+  const world = screenToWorld(pointer);
+  const device = findDeviceAt(world);
+
+  if (PLACEMENT_TOOLS.has(state.tool)) {
+    // Only the primary button places (issue #3). A right-click cancels place
+    // mode — handled on `contextmenu`, which every platform fires for it (on
+    // press on macOS/Linux, on release on Windows) — and a middle-click does
+    // nothing rather than dropping a device.
+    if (!isSecondaryPress(event)) placeToolDevice(state.tool, world.x, world.y);
+    return;
+  }
+
+  if (state.tool === "connect") {
+    if (!device) {
+      state.linkStartId = null;
+      render();
+      return;
+    }
+    state.selectedLinkId = null;
+    if (!state.linkStartId) {
+      state.linkStartId = device.id;
+      state.selectedId = device.id;
+      dom.modeLabel.textContent = `Connect ${device.name} to another device (Shift-click to choose ports).`;
+    } else if (event.shiftKey) {
+      // Shift-click: pick the exact ports by hand.
+      openPortSelectionModal(state.linkStartId, device.id);
+      dom.modeLabel.textContent = toolCopy.connect[1];
+    } else {
+      // Default: auto-pick the first available port on each end (addLink
+      // resolves them) — no dialog. The status line shows what addLink
+      // reports: the cable made, a warning, or why it was refused.
+      dom.modeLabel.textContent = mutationText(addLink(state.linkStartId, device.id));
+    }
+    syncPanel();
+    render();
+    return;
+  }
+
+  if (state.tool === "configure") {
+    state.selectedLinkId = null;
+    if (device) {
+      configureDevice(device);
+    } else {
+      state.selectedId = null;
+      state.configuringId = null;
+      syncPanel();
+      render();
+    }
+    return;
+  }
+
+  // Click-a-packet: in select mode a transit dot takes priority. Capture the
+  // frame, pause the simulation, and show the field breakdown.
+  if (state.tool === "select") {
+    const transit = findTransitAt(world);
+    if (transit) {
+      state.inspectedFrame = transit.frame;
+      state.inspectedCapture = null; // a canvas-dot pick is not a packet-list row
+      pauseSimulation();
+      if (!state.options.networkPanelOpen) setNetworkPanel(true);
+      syncPanel();
+      render();
+      syncSimLog(); // highlight the frame's packet-list row
+      return;
+    }
+  }
+  if (state.inspectedFrame) {
+    state.inspectedFrame = null; // clicking elsewhere dismisses the frame panel
+    state.inspectedCapture = null;
+    syncSimLog();
+  }
+
+  if (device) {
+    state.selectedId = device.id;
+    state.selectedLinkId = null;
+    state.configuringId = null;
+    const dragSnapshot = networkSnapshot();
+    state.drag = {
+      id: device.id,
+      dx: world.x - device.x,
+      dy: world.y - device.y,
+      undoSnapshot: dragSnapshot
+    };
+    state.panDrag = null;
+  } else {
+    const link = (state.tool === "select") ? findLinkAt(world) : null;
+    if (link) {
+      state.selectedId = null;
+      state.selectedLinkId = link.id;
+      state.configuringId = null;
+      state.drag = null;
+      state.panDrag = null;
+      if (!state.options.networkPanelOpen) setNetworkPanel(true);
+    } else {
+      state.selectedId = null;
+      state.selectedLinkId = null;
+      state.configuringId = null;
+      state.drag = null;
+      state.panDrag = {
+        startX: pointer.x,
+        startY: pointer.y,
+        panX: state.pan.x,
+        panY: state.pan.y
+      };
+      dom.canvas.style.cursor = "grabbing";
+    }
+  }
+  syncPanel();
+  render();
+}
+
+// Right-click on the canvas. With a placement tool armed it cancels place mode
+// (back to the select tool) and opens nothing — the click that leaves place mode
+// should not also act on whatever was under it. Otherwise: a device → its
+// context menu; empty canvas closes the menu.
+export function handleCanvasContextMenu(event: MouseEvent): void {
+  event.preventDefault();
+  if (PLACEMENT_TOOLS.has(state.tool)) {
+    closeContextMenu();
+    setTool("select");
+    return;
+  }
+  const device = findDeviceAt(screenToWorld(pointerFromEvent(event)));
+  if (!device) { closeContextMenu(); return; }
+  state.selectedId = device.id;
+  state.selectedLinkId = null;
+  syncPanel();
+  render();
+  openDeviceContextMenu(device, event.clientX, event.clientY);
+}
+
 export function setupUI(): void {
   dom.toolButtons.forEach(button => {
     button.addEventListener("click", () => setTool((button as HTMLElement).dataset.tool!));
@@ -345,117 +503,7 @@ export function setupUI(): void {
   });
   document.addEventListener("click", () => { closeToolMenus(); closeScenarioMenu(); closeContextMenu(); });
 
-  dom.canvas.addEventListener("pointerdown", (event: PointerEvent) => {
-    // Synthetic events (UI automation/tests) carry pointer ids the browser
-    // doesn't know — capture is best-effort, never fatal.
-    try { dom.canvas.setPointerCapture(event.pointerId); } catch { /* synthetic event */ }
-    const pointer = pointerFromEvent(event);
-    const world = screenToWorld(pointer);
-    const device = findDeviceAt(world);
-
-    if (PLACEMENT_TOOLS.has(state.tool)) {
-      placeToolDevice(state.tool, world.x, world.y);
-      return;
-    }
-
-    if (state.tool === "connect") {
-      if (!device) {
-        state.linkStartId = null;
-        render();
-        return;
-      }
-      state.selectedLinkId = null;
-      if (!state.linkStartId) {
-        state.linkStartId = device.id;
-        state.selectedId = device.id;
-        dom.modeLabel.textContent = `Connect ${device.name} to another device (Shift-click to choose ports).`;
-      } else if (event.shiftKey) {
-        // Shift-click: pick the exact ports by hand.
-        openPortSelectionModal(state.linkStartId, device.id);
-        dom.modeLabel.textContent = toolCopy.connect[1];
-      } else {
-        // Default: auto-pick the first available port on each end (addLink
-        // resolves them) — no dialog. The status line shows what addLink
-        // reports: the cable made, a warning, or why it was refused.
-        dom.modeLabel.textContent = mutationText(addLink(state.linkStartId, device.id));
-      }
-      syncPanel();
-      render();
-      return;
-    }
-
-    if (state.tool === "configure") {
-      state.selectedLinkId = null;
-      if (device) {
-        configureDevice(device);
-      } else {
-        state.selectedId = null;
-        state.configuringId = null;
-        syncPanel();
-        render();
-      }
-      return;
-    }
-
-    // Click-a-packet: in select mode a transit dot takes priority. Capture the
-    // frame, pause the simulation, and show the field breakdown.
-    if (state.tool === "select") {
-      const transit = findTransitAt(world);
-      if (transit) {
-        state.inspectedFrame = transit.frame;
-        state.inspectedCapture = null; // a canvas-dot pick is not a packet-list row
-        pauseSimulation();
-        if (!state.options.networkPanelOpen) setNetworkPanel(true);
-        syncPanel();
-        render();
-        syncSimLog(); // highlight the frame's packet-list row
-        return;
-      }
-    }
-    if (state.inspectedFrame) {
-      state.inspectedFrame = null; // clicking elsewhere dismisses the frame panel
-      state.inspectedCapture = null;
-      syncSimLog();
-    }
-
-    if (device) {
-      state.selectedId = device.id;
-      state.selectedLinkId = null;
-      state.configuringId = null;
-      const dragSnapshot = networkSnapshot();
-      state.drag = {
-        id: device.id,
-        dx: world.x - device.x,
-        dy: world.y - device.y,
-        undoSnapshot: dragSnapshot
-      };
-      state.panDrag = null;
-    } else {
-      const link = (state.tool === "select") ? findLinkAt(world) : null;
-      if (link) {
-        state.selectedId = null;
-        state.selectedLinkId = link.id;
-        state.configuringId = null;
-        state.drag = null;
-        state.panDrag = null;
-        if (!state.options.networkPanelOpen) setNetworkPanel(true);
-      } else {
-        state.selectedId = null;
-        state.selectedLinkId = null;
-        state.configuringId = null;
-        state.drag = null;
-        state.panDrag = {
-          startX: pointer.x,
-          startY: pointer.y,
-          panX: state.pan.x,
-          panY: state.pan.y
-        };
-        dom.canvas.style.cursor = "grabbing";
-      }
-    }
-    syncPanel();
-    render();
-  });
+  dom.canvas.addEventListener("pointerdown", handleCanvasPointerDown);
 
   dom.canvas.addEventListener("pointermove", (event: PointerEvent) => {
     state.pointer = pointerFromEvent(event);
@@ -489,7 +537,8 @@ export function setupUI(): void {
     } else if (state.tool === "configure") {
       dom.canvas.style.cursor = hovering ? "pointer" : "default";
     }
-    if (state.tool === "connect" && state.linkStartId) render();
+    // The connect rubber band and the placement ghost both follow the cursor.
+    if ((state.tool === "connect" && state.linkStartId) || PLACEMENT_TOOLS.has(state.tool)) render();
   });
 
   dom.canvas.addEventListener("dblclick", (event: MouseEvent) => {
@@ -524,7 +573,8 @@ export function setupUI(): void {
     state.drag = null;
     state.panDrag = null;
     updateCoordReadout(null);
-    if (state.tool === "connect" && state.linkStartId) render();
+    // Off the canvas there is no cursor to draw the rubber band or the ghost at.
+    if ((state.tool === "connect" && state.linkStartId) || PLACEMENT_TOOLS.has(state.tool)) render();
   });
 
   dom.canvas.addEventListener("wheel", (event: WheelEvent) => {
@@ -535,17 +585,7 @@ export function setupUI(): void {
     setZoom(state.scale * factor, pointer);
   }, { passive: false });
 
-  // Right-click a device → the context menu; right-click empty canvas closes it.
-  dom.canvas.addEventListener("contextmenu", (event: MouseEvent) => {
-    event.preventDefault();
-    const device = findDeviceAt(screenToWorld(pointerFromEvent(event)));
-    if (!device) { closeContextMenu(); return; }
-    state.selectedId = device.id;
-    state.selectedLinkId = null;
-    syncPanel();
-    render();
-    openDeviceContextMenu(device, event.clientX, event.clientY);
-  });
+  dom.canvas.addEventListener("contextmenu", handleCanvasContextMenu);
   dom.contextMenu.addEventListener("click", (event) => {
     const btn = (event.target as HTMLElement).closest("[data-i]") as HTMLElement | null;
     if (!btn) return;

@@ -9,7 +9,9 @@
  *   re-render the inspector does;
  * - events dispatch on the target and bubble through `parentElement` (the
  *   non-bubbling `focus`/`blur` don't; `focus()`/`blur()` also fire the
- *   bubbling `focusin`/`focusout`, like a browser);
+ *   bubbling `focusin`/`focusout`, like a browser — and a field edited since it
+ *   took focus fires `change` as it blurs). Replacing a parent's `innerHTML`
+ *   detaches a focused child WITHOUT blurring it, as Firefox and Safari do;
  * - `getElementById` / `querySelector(All)` / `closest` / `matches` take simple
  *   compound selectors (`tag`, `#id`, `.class`, `[attr]`, `[attr="v"]`) and
  *   comma lists — what the inspector uses.
@@ -92,6 +94,7 @@ export class MiniElement {
   private listeners = new Map<string, Listener[]>();
   private valueOverride: string | null = null;
   private checkedOverride: boolean | null = null;
+  private valueAtFocus: string | null = null;   // the value a pending `change` is measured against
 
   constructor(tag: string) { this.tagName = tag.toUpperCase(); }
 
@@ -218,6 +221,7 @@ export class MiniElement {
   listenerCount(type: string): number { return this.listeners.get(type)?.length ?? 0; }
   dispatchEvent(event: MiniEvent): boolean {
     event.target = this;
+    if (event.type === "change" && this.valueAtFocus !== null) this.valueAtFocus = this.value;   // committed: nothing pending
     for (let node: MiniElement | null = this; node; node = event.bubbles ? node.parentElement : null) {
       event.currentTarget = node;
       for (const fn of [...(node.listeners.get(event.type) ?? [])]) fn(event);
@@ -231,6 +235,7 @@ export class MiniElement {
     if (doc?.activeElement === this) return;
     doc?.activeElement?.blur();
     if (doc) doc.activeElement = this;
+    this.valueAtFocus = this.value;
     this.dispatchEvent(new MiniEvent("focus", false));
     this.dispatchEvent(new MiniEvent("focusin"));
   }
@@ -238,6 +243,10 @@ export class MiniElement {
     const doc = this.ownerDocument;
     if (doc && doc.activeElement !== this) return;
     if (doc) doc.activeElement = null;
+    // A field edited since it took focus (or since its last change event)
+    // fires `change` as it loses focus, before `blur` — as a browser does.
+    if (this.valueAtFocus !== null && this.value !== this.valueAtFocus) this.dispatchEvent(new MiniEvent("change"));
+    this.valueAtFocus = null;
     this.dispatchEvent(new MiniEvent("blur", false));
     this.dispatchEvent(new MiniEvent("focusout"));
   }
@@ -325,8 +334,10 @@ export function installMiniDom(): { panel: MiniElement; document: MiniDocument; 
     getElementById: (id: string) => document.getElementById(id),
     querySelectorAll: (selector: string) => document.querySelectorAll(selector),
     querySelector: (selector: string) => document.querySelector(selector),
-    get activeElement() { return document.activeElement; },
   });
+  // A live getter (Object.assign would copy the getter's value once, at install
+  // time, leaving `document.activeElement` permanently null).
+  Object.defineProperty(g.document, "activeElement", { get: () => document.activeElement, configurable: true });
   g.__routesimDomMounts = { detailsPanel: panel };
   return {
     panel,

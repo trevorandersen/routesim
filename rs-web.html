@@ -13845,7 +13845,14 @@ Snort successfully validated the configuration${bad ? " (with errors)" : "."}`);
       syncSimLog();
     });
   }
+  function commitFocusedField() {
+    const active2 = typeof document !== "undefined" ? document.activeElement : null;
+    if (!active2 || typeof active2.blur !== "function") return;
+    if (!dom.detailsPanel.contains?.(active2)) return;
+    active2.blur();
+  }
   function syncPanel() {
+    commitFocusedField();
     sync().syncCoordReadout();
     if (state.inspectedFrame) {
       renderFramePanel(state.inspectedFrame);

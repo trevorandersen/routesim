@@ -79,7 +79,7 @@ Open `http://localhost:8767/rs-web.html` for the app (`/` redirects there), `/te
 
 ## Architecture
 
-Single-page canvas app. All state lives in one `AppState` object (`state.ts`). No framework, no virtual DOM — imperative `render()` redraws the full canvas, `syncPanel()` rebuilds inspector HTML, `syncTerminal()` rebuilds terminal HTML.
+Single-page canvas app. All state lives in one `AppState` object (`state.ts`). No framework, no virtual DOM — imperative `render()` redraws the full canvas, `syncPanel()` rebuilds inspector HTML (blurring a focused panel field first, so an edit still being typed commits rather than vanishing with the old markup), `syncTerminal()` rebuilds terminal HTML.
 
 **[docs/architecture.md](docs/architecture.md) is the map of the whole codebase**: every source file by layer (foundation → model → network logic → engine and CLIs → presentation → application → entry), the state-mutation rules, both callback bridges, the four front doors that converge on one set of mutators, the simulation pipeline, the topology lifecycle, and extension recipes. Keep it current when adding, removing, or re-layering a module.
 

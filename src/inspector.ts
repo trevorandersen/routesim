@@ -1053,7 +1053,21 @@ export function renderFramePanel(frame: any): void {
   });
 }
 
+// Commit whatever the learner is still typing before the panel is rebuilt.
+// A rebuild replaces the panel's HTML; Firefox and Safari fire neither `blur`
+// nor `change` on a focused field removed that way, so an address typed into
+// PC-A and followed by a click on PC-B (or by a run finishing) was silently
+// discarded, and the undo snapshot taken on focus was orphaned. Blurring first
+// fires both, in every browser, so the field commits through its own handler.
+function commitFocusedField(): void {
+  const active = (typeof document !== "undefined" ? document.activeElement : null) as HTMLElement | null;
+  if (!active || typeof active.blur !== "function") return;
+  if (!dom.detailsPanel.contains?.(active)) return;
+  active.blur();
+}
+
 export function syncPanel(): void {
+  commitFocusedField();
   sync().syncCoordReadout();
   if (state.inspectedFrame) {
     renderFramePanel(state.inspectedFrame);

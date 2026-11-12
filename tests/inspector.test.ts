@@ -489,3 +489,91 @@ describe("shut, power and managed recompute the spanning tree from every front d
     expect(blocked()).toBe(1);
   });
 });
+
+// R45: syncPanel replaces the panel's HTML. Firefox and Safari fire neither blur
+// nor change on a focused field removed that way (the mini DOM models this), so
+// an edit still being typed was discarded when the learner clicked another
+// device or a run finished — and the undo snapshot taken on focus was orphaned.
+describe("a panel rebuild commits the field still being edited (R45)", () => {
+  let mini: ReturnType<typeof installMiniDom>;
+  beforeEach(() => {
+    resetState();
+    mini = installMiniDom();
+    runConsoleScript("add computer PC-A at 100 100\nadd computer PC-B at 100 300\nadd switch SW at 300 200\nadd router R1 at 500 200\nlink PC-A SW\nlink PC-B SW\nlink SW R1");
+  });
+  afterEach(() => mini.uninstall());
+
+  const dev = (name: string) => state.devices.find(d => d.name === name)!;
+  const el = (id: string): MiniElement => {
+    const found = mini.panel.getElementById(id);
+    if (!found) throw new Error(`#${id} not rendered`);
+    return found;
+  };
+  const configure = (name: string) => { state.selectedLinkId = null; state.selectedId = dev(name).id; state.configuringId = dev(name).id; syncPanel(); };
+
+  it("the review's case: an address typed into PC-A survives clicking PC-B", () => {
+    configure("PC-A");
+    typeInto(el("selectedIpv4"), "10.0.0.5/24");                 // typed, not yet committed
+    expect(dev("PC-A").config!.ipv4Address || "").toBe("");
+    configure("PC-B");                                           // what a canvas click does: select, rebuild
+    expect(dev("PC-A").config!.ipv4Address).toBe("10.0.0.5");
+    expect(dev("PC-B").config!.ipv4Address || "").toBe("");      // committed to the device it was typed for
+    expect(mini.panel.getElementById("selectedIpv4")!.value).toBe("");   // and PC-B's own panel is what shows
+  });
+
+  it("it is one undo step, like a commit by Enter or Tab", () => {
+    configure("PC-A");
+    const undoPoints = state.undoStack.length;
+    typeInto(el("selectedIpv4"), "10.0.0.5/24");
+    configure("PC-B");
+    expect(state.undoStack.length).toBe(undoPoints + 1);
+    undo();
+    expect(dev("PC-A").config!.ipv4Address || "").toBe("");
+  });
+
+  it("a rebuild from a finished run (no selection change) commits too", () => {
+    configure("PC-A");
+    typeInto(el("selectedGateway"), "10.0.0.1");
+    syncPanel();                                                 // finishSimulation → syncPanel
+    expect(dev("PC-A").config!.gatewayIpv4Address).toBe("10.0.0.1");
+  });
+
+  it("a field written per keystroke gets its undo point when the rebuild blurs it", () => {
+    const link = state.links[0];
+    state.selectedId = null; state.configuringId = null; state.selectedLinkId = link.id; syncPanel();
+    const undoPoints = state.undoStack.length;
+    typeInto(el("selectedLinkName"), "uplink");
+    expect(link.name).toBe("uplink");                            // already written …
+    expect(state.undoStack.length).toBe(undoPoints);             // … but its snapshot is still pending on the field
+    configure("PC-B");
+    expect(state.undoStack.length).toBe(undoPoints + 1);         // not orphaned
+    undo();
+    expect(state.links[0].name).toBeUndefined();
+  });
+
+  it("an untouched focused field commits nothing", () => {
+    configure("PC-A");
+    const undoPoints = state.undoStack.length;
+    el("selectedIpv4").focus();
+    configure("PC-B");
+    expect(state.undoStack.length).toBe(undoPoints);
+  });
+
+  it("a refused value is reported, not stored, and does not stop the rebuild", () => {
+    configure("PC-A");
+    typeInto(el("selectedIpv4"), "10.0.0.999/24");
+    configure("PC-B");
+    expect(dev("PC-A").config!.ipv4Address || "").toBe("");
+    expect(state.selectedId).toBe(dev("PC-B").id);
+    expect(mini.panel.getElementById("selectedIpv4")).not.toBeNull();
+  });
+
+  it("focus outside the panel is left alone", () => {
+    configure("PC-A");
+    const outside = mini.document.createElement("input");
+    mini.document.body.appendNode(outside);
+    outside.focus();
+    syncPanel();
+    expect(mini.document.activeElement).toBe(outside);
+  });
+});

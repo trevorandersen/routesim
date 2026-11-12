@@ -292,7 +292,7 @@ async function runSuite(id, pattern) {
 
   const params = new URLSearchParams({ file: 'bench.test.ts', pattern });
   try {
-    const res = await fetch(`${API}/api/run?${params}`);
+    const res = await fetch(`${API}/api/run?${params}`, { method: "POST" });
     const data = await res.json();
     const elapsed = ((Date.now() - start) / 1000).toFixed(1);
     document.getElementById('duration').textContent = `${elapsed}s`;
@@ -315,7 +315,7 @@ async function runAll() {
   const start = Date.now();
 
   try {
-    const res = await fetch(`${API}/api/run?file=bench.test.ts`);
+    const res = await fetch(`${API}/api/run?file=bench.test.ts`, { method: "POST" });
     const data = await res.json();
     const elapsed = ((Date.now() - start) / 1000).toFixed(1);
     document.getElementById('duration').textContent = `${elapsed}s`;

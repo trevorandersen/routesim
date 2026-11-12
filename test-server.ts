@@ -35,6 +35,68 @@ export function isAllowedTestFile(file: string | null, known: string[]): boolean
   return !!file && /^[A-Za-z0-9_-]+\.test\.ts$/.test(file) && known.includes(file);
 }
 
+// ── Who may talk to this server ───────────────────────────────────────────────
+// It runs `bun test` on request, so two browser-borne attacks matter even on
+// loopback: a page on another site making your browser call it (cross-site
+// request), and DNS rebinding, where an attacker's domain is re-pointed at
+// 127.0.0.1 so their page becomes "same-origin" with it. Both are refused by
+// looking at what the browser cannot forge for a page: Host, Origin and
+// Sec-Fetch-Site.
+
+const LOOPBACK_HOSTS = new Set(["localhost", "127.0.0.1", "[::1]"]);
+
+// The hostname of a Host header or origin, without the port ("[::1]:8767" → "[::1]").
+function hostnameOf(hostHeader: string): string {
+  const value = hostHeader.trim().toLowerCase();
+  if (value.startsWith("[")) return value.slice(0, value.indexOf("]") + 1);
+  return value.split(":")[0];
+}
+
+/**
+ * Whether a Host header names this server. A rebinding attack arrives with the
+ * attacker's own domain in Host, so a name is accepted only if it is loopback,
+ * an IP literal, or the host the server was deliberately bound to. Bound to
+ * loopback (the default), only loopback names are accepted.
+ */
+export function isAllowedHost(hostHeader: string | null, boundTo: string): boolean {
+  if (!hostHeader) return false;
+  const name = hostnameOf(hostHeader);
+  if (!name) return false;
+  if (LOOPBACK_HOSTS.has(name)) return true;
+  const bound = boundTo.trim().toLowerCase();
+  if (LOOPBACK_HOSTS.has(bound) || bound === "::1") return false;      // loopback-only server: nothing else is us
+  if (name === bound) return true;
+  const isIpv4 = /^\d{1,3}(\.\d{1,3}){3}$/.test(name);
+  const isIpv6 = /^\[[0-9a-f:.]+\]$/.test(name);
+  return isIpv4 || isIpv6;                                              // shared on the LAN: reached by address, never by a foreign name
+}
+
+/**
+ * Whether a request to the API may run. Beyond the Host check: `/api/run`
+ * starts a test run, so it must be a POST (a cross-site <img> or link can only
+ * GET), and a request the browser marks as coming from another site — an
+ * Origin that is not this server, or Sec-Fetch-Site other than same-origin /
+ * none — is refused. Returns the reason, or null when allowed.
+ */
+export function apiRequestBlockReason(
+  request: { method: string; path: string; host: string | null; origin: string | null; secFetchSite: string | null },
+  boundTo: string,
+): string | null {
+  if (!isAllowedHost(request.host, boundTo)) return "This server only answers to its own address (unexpected Host header).";
+  if (request.path === "/api/run" && request.method !== "POST") return "/api/run starts a test run and must be a POST.";
+  if (request.origin && request.origin !== "null") {
+    // An origin is scheme://host[:port] — read the host[:port] directly.
+    const parsed = request.origin.trim().toLowerCase().match(/^[a-z][a-z0-9+.-]*:\/\/([^/?#\s]+)$/);
+    if (!parsed) return "Malformed Origin header.";
+    if (parsed[1] !== (request.host || "").trim().toLowerCase()) return "Cross-site requests are refused.";
+  } else if (request.origin === "null") {
+    return "Cross-site requests are refused.";                            // a sandboxed or file:// page
+  }
+  const site = request.secFetchSite;
+  if (site && site !== "same-origin" && site !== "none") return "Cross-site requests are refused.";
+  return null;
+}
+
 function stripAnsi(text: string): string {
   return text.replace(/\x1b\[[0-9;]*m/g, "");
 }
@@ -130,6 +192,22 @@ if (import.meta.main) Bun.serve({
   async fetch(req: Request) {
     const url = new URL(req.url);
     const path = url.pathname;
+
+    // Every request must be addressed to this server (DNS-rebinding guard); the
+    // API additionally refuses cross-site callers and a non-POST run.
+    if (!isAllowedHost(req.headers.get("host"), HOST)) return new Response("Forbidden", { status: 403 });
+    if (path.startsWith("/api/")) {
+      const blocked = apiRequestBlockReason({
+        method: req.method, path,
+        host: req.headers.get("host"), origin: req.headers.get("origin"), secFetchSite: req.headers.get("sec-fetch-site"),
+      }, HOST);
+      if (blocked) {
+        return new Response(JSON.stringify({ ok: false, output: blocked, code: -1 }), {
+          status: req.method !== "POST" && path === "/api/run" ? 405 : 403,
+          headers: { "Content-Type": "application/json", ...(path === "/api/run" ? { Allow: "POST" } : {}) },
+        });
+      }
+    }
 
     if (path === "/api/tests") {
       return json(await listTests());

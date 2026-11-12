@@ -269,7 +269,7 @@ async function runAll() {
 
   try {
     // Run them all together (no file filter, bun runs all)
-    const res = await fetch(`${API}/api/run`);
+    const res = await fetch(`${API}/api/run`, { method: "POST" });
     const data = await res.json();
     renderOutput(data.output);
     if (data.ok) {
@@ -294,7 +294,7 @@ async function runTests(file, pattern, label) {
   if (pattern) params.set('pattern', pattern);
 
   try {
-    const res = await fetch(`${API}/api/run?${params}`);
+    const res = await fetch(`${API}/api/run?${params}`, { method: "POST" });
     const data = await res.json();
     renderOutput(data.output);
     const status = data.ok ? 'pass' : 'fail';

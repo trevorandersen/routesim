@@ -13,7 +13,7 @@ import {
 import {
   openTerminalFor, syncTerminal, runDeviceCommand, openDock,
   addSwitchVlan, removeSwitchVlan, setSwitchPortVlan, setSwitchPortMode, setSwitchTrunkNative, setSwitchStp, setSwitchMirror,
-  setDhcpRange, setDhcpRouterOption, setListeningPorts, stpPriorityError
+  setDhcpRange, setDhcpRouterOption, setListeningPorts, stpPriorityError, appendFirewallRule
 } from "./terminal";
 import { resizeCanvas } from "./canvas";
 import { startSimulation, animatedRunBlockReason } from "./engine";
@@ -855,27 +855,21 @@ export function bindFirewallControls(device: any, chains: string[]): void {
     const protocol = val("fwAddProto");
     const stateRaw = (document.getElementById("fwAddState") as HTMLSelectElement | null)?.value || "";
     const states = stateRaw ? stateRaw.split(",") : undefined;
-    const src = val("fwAddSrc"), dst = val("fwAddDst"), dportRaw = val("fwAddDport");
-    if (src && !parseIpv4Token(src)) return fail("Source must be a valid IPv4 address or CIDR.");
-    if (dst && !parseIpv4Token(dst)) return fail("Destination must be a valid IPv4 address or CIDR.");
-    let dport: number | undefined;
-    if (dportRaw) {
-      const n = Number(dportRaw);
-      if (!Number.isInteger(n) || n < 1 || n > 65535) return fail("Port must be 1–65535.");
-      if (protocol !== "tcp") return fail("A destination port needs protocol tcp.");
-      dport = n;
-    }
-    pushUndo();
-    ensureConfig(device);
-    device.config.rules = device.config.rules || [];
-    device.config.rules.push({
-      chain, target,
-      ...(protocol ? { protocol } : {}),
-      ...(src ? { src } : {}),
-      ...(dst ? { dst } : {}),
-      ...(dport != null ? { dport } : {}),
-      ...(states ? { states } : {}),
-    });
+    const src = val("fwAddSrc"), dst = val("fwAddDst"), dport = val("fwAddDport");
+    // The form states the rule as iptables flags and hands it to the shell's
+    // own parser (appendFirewallRule) — one validation for both front doors.
+    // A refusal shows the shell's message, the one `iptables -A` would print.
+    const flags = [
+      ...(protocol ? ["-p", protocol] : []),
+      ...(src ? ["-s", src] : []),
+      ...(dst ? ["-d", dst] : []),
+      ...(dport ? ["--dport", dport] : []),
+      ...(states ? ["-m", "state", "--state", states.join(",")] : []),
+      "-j", target,
+    ];
+    const result = appendFirewallRule(device, chain, flags, chains);
+    if (!result.ok) return fail(result.error || "Invalid rule.");
+    dom.modeLabel.textContent = mutationText(result);
     syncPanel();
   });
 }

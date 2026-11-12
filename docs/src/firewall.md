@@ -134,7 +134,7 @@ iptables CLI does. Powered-off firewalls drop everything.
 
 ## The CLI validates what it stores
 
-`parseFirewallRule` refuses a `-s`/`-d` that is not an IPv4 address or CIDR (`host/network "…" not found`, as iptables says), a `--dport` outside 1–65535, and `--icmp-type` without `-p icmp`. Each used to be accepted with "Appended", listed by `-L`, persisted — and never able to match a packet. The inspector's add-rule form already validated; the CLI the firewall scenarios are taught through did not.
+`parseFirewallRule` refuses a `-s`/`-d` that is not an IPv4 address or CIDR (`host/network "…" not found`, as iptables says), a `--dport` outside 1–65535, and `--icmp-type` without `-p icmp`. Each used to be accepted with "Appended", listed by `-L`, persisted — and never able to match a packet. The inspector's add-rule form already validated; the CLI the firewall scenarios are taught through did not. The two are now **one parser**: `appendFirewallRule(device, chain, flags, allowed)` is the body of `iptables -A`, and the form calls it with its fields written as flags — so a rule either front door accepts is stored identically, and one either refuses is refused by both with the same message (`tests/inspector.test.ts`).
 
 
 ## Reads do not write

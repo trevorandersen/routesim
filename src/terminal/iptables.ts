@@ -7,7 +7,7 @@
  * and `policy` (chain → accept|drop). Evaluation lives in engine.ts
  * (`evaluateFirewall`).
  */
-import type { Device, FirewallRule } from "../types";
+import type { Device, FirewallRule, MutationResult } from "../types";
 import { state, sync, pushUndo } from "../state";
 import { ensureConfig } from "../normalise";
 import { isValidIpv4 } from "../utils";
@@ -144,6 +144,23 @@ export function iptablesHelpLines(allowed: string[]): string[] {
  * Returns true when the line was an iptables command (handled, success or
  * error); false when it isn't iptables at all (caller may dispatch further).
  */
+// Append a rule given as iptables match/target flags (`-p tcp --dport 22 -j
+// ACCEPT`) — the body of `iptables -A <chain> …`, shared with the inspector's
+// Add rule form so the two front doors have ONE parser and ONE set of checks.
+// The form used to validate for itself, and disagreed: it took `1e2` as a port
+// and addresses the shell rejects. Returns the shell's own error on refusal.
+export function appendFirewallRule(device: Device, chainName: string, flags: string[], allowed: string[]): MutationResult {
+  const chain = parseChain(chainName, allowed);
+  if (!chain) return { ok: false, error: `iptables: chain must be ${allowed.map(c => c.toUpperCase()).join("|")}.`, warnings: [] };
+  const parsed = parseFirewallRule(chain, flags);
+  if (typeof parsed === "string") return { ok: false, error: parsed, warnings: [] };
+  pushUndo();
+  ensureConfig(device);
+  device.config!.rules = [...(device.config!.rules || []), parsed];
+  sync().syncPanel();
+  return { ok: true, message: `Appended ${chain.toUpperCase()} rule (${parsed.target.toUpperCase()}).`, warnings: [] };
+}
+
 export function runIptablesCommand(device: Device, command: string, allowed: string[]): boolean {
   const tokens = command.trim().split(/\s+/);
   if (tokens[0]?.toLowerCase() !== "iptables") return false;
@@ -212,6 +229,11 @@ export function runIptablesCommand(device: Device, command: string, allowed: str
     let rest = args.slice(2);
     let pos = -1;
     if (inserting && rest[0] && /^\d+$/.test(rest[0])) { pos = parseInt(rest[0], 10); rest = rest.slice(1); }
+    if (!inserting) {
+      const result = appendFirewallRule(device, chain, rest, allowed);
+      terminalLine(result.ok ? "" : "error", result.ok ? result.message! : result.error!);
+      return true;
+    }
     const parsed = parseFirewallRule(chain, rest);
     if (typeof parsed === "string") { terminalLine("error", parsed); return true; }
     pushUndo();

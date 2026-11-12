@@ -757,3 +757,123 @@ describe("the device panel is a registry of sections (R108)", () => {
     }
   });
 });
+
+// R114: the inspector's Add rule form validated for itself and disagreed with the
+// `iptables` shell it sits beside (it took `1e2` as a port, and addresses the
+// shell rejects). The form now hands its fields to the shell's own parser.
+describe("the firewall Add rule form and `iptables -A` are one parser (R114)", () => {
+  let mini: ReturnType<typeof installMiniDom>;
+  beforeEach(() => { resetState(); mini = installMiniDom(); });
+  afterEach(() => mini.uninstall());
+
+  type Fields = { target?: string; proto?: string; state?: string; src?: string; dst?: string; dport?: string };
+  const el = (id: string): MiniElement => mini.panel.getElementById(id)!;
+  const fw = () => state.devices.find(d => d.name === "FW")!;
+
+  // The same rule through each front door, on a fresh firewall each time.
+  function viaForm(f: Fields): { ok: boolean; rules: unknown; error: string } {
+    resetState();
+    runConsoleScript("add firewall FW at 100 100");
+    state.selectedId = fw().id; state.configuringId = fw().id; syncPanel();
+    el("fwAddTarget").value = f.target ?? "accept";
+    el("fwAddProto").value = f.proto ?? "";
+    el("fwAddState").value = f.state ?? "";
+    el("fwAddSrc").value = f.src ?? "";
+    el("fwAddDst").value = f.dst ?? "";
+    el("fwAddDport").value = f.dport ?? "";
+    const before = (fw().config!.rules || []).length;
+    el("fwAddRule").click();
+    const rules = fw().config!.rules || [];
+    return { ok: rules.length === before + 1, rules, error: mini.panel.getElementById("fwAddError")?.textContent || "" };
+  }
+  function viaShell(f: Fields): { ok: boolean; rules: unknown; error: string } {
+    resetState();
+    runConsoleScript("add firewall FW at 100 100");
+    const flags = [
+      ...(f.proto ? ["-p", f.proto] : []), ...(f.src ? ["-s", f.src] : []), ...(f.dst ? ["-d", f.dst] : []),
+      ...(f.dport ? ["--dport", f.dport] : []), ...(f.state ? ["-m", "state", "--state", f.state] : []),
+      "-j", (f.target ?? "accept").toUpperCase(),
+    ];
+    const r = exec(`cli FW iptables -A FORWARD ${flags.join(" ")}`);
+    return { ok: r.ok, rules: fw().config!.rules || [], error: r.output.slice(1).join(" ") };
+  }
+
+  const accepted: Fields[] = [
+    {},
+    { target: "drop" },
+    { target: "reject", proto: "tcp", dport: "22" },
+    { proto: "icmp", src: "10.0.0.5" },
+    { proto: "tcp", src: "10.0.0.0/24", dst: "192.168.1.10", dport: "443" },
+    { proto: "udp", dst: "10.0.0.53" },
+    { proto: "tcp", state: "established,related" },
+    { state: "new", src: "10.0.0.0/8" },
+    { proto: "tcp", dport: "65535" },
+    { src: "0.0.0.0/0" },
+  ];
+  for (const fields of accepted) {
+    it(`both accept ${JSON.stringify(fields)} and store the same rule`, () => {
+      const form = viaForm(fields), shell = viaShell(fields);
+      expect(form.ok, form.error).toBe(true);
+      expect(shell.ok, shell.error).toBe(true);
+      expect(form.rules).toEqual(shell.rules);
+    });
+  }
+
+  const refused: [Fields, string][] = [
+    [{ proto: "tcp", dport: "1e2" }, "--dport needs a port number"],          // the form used to read this as port 100
+    [{ proto: "tcp", dport: "0x50" }, "--dport needs a port number"],
+    [{ proto: "tcp", dport: "22.0" }, "--dport needs a port number"],
+    [{ proto: "tcp", dport: "0" }, "--dport needs a port number"],
+    [{ proto: "tcp", dport: "65536" }, "--dport needs a port number"],
+    [{ dport: "22" }, "--dport requires -p tcp"],
+    [{ proto: "udp", dport: "53" }, "--dport requires -p tcp"],
+    [{ src: "10.0.0.999" }, "not found"],
+    [{ src: "10.0.0.0/33" }, "not found"],
+    [{ dst: "web.corp" }, "not found"],
+    [{ src: "10.0.0.1/" }, "not found"],
+  ];
+  for (const [fields, reason] of refused) {
+    it(`both refuse ${JSON.stringify(fields)}, with the shell's reason`, () => {
+      const form = viaForm(fields), shell = viaShell(fields);
+      expect(form.ok).toBe(false);
+      expect(shell.ok).toBe(false);
+      expect(form.error).toContain(reason);
+      expect(shell.error).toContain(reason);
+      expect(form.rules).toEqual([]);
+      expect(shell.rules).toEqual([]);
+    });
+  }
+
+  it("a field cannot smuggle in extra flags", () => {
+    const form = viaForm({ src: "10.0.0.1 -j DROP" });
+    expect(form.ok).toBe(false);
+    expect(form.rules).toEqual([]);
+  });
+
+  it("a rule added through the form is one undo step and is reported on the status line", () => {
+    viaForm({ proto: "tcp", dport: "22" });
+    expect(dom.modeLabel.textContent).toBe("Appended FORWARD rule (ACCEPT).");
+    undo();
+    expect(fw().config!.rules || []).toEqual([]);
+  });
+
+  it("a refused rule takes no undo point", () => {
+    resetState();
+    runConsoleScript("add firewall FW at 100 100");
+    const undoPoints = state.undoStack.length;
+    state.selectedId = fw().id; state.configuringId = fw().id; syncPanel();
+    el("fwAddProto").value = "tcp"; el("fwAddDport").value = "1e2";
+    el("fwAddRule").click();
+    expect(state.undoStack.length).toBe(undoPoints);
+  });
+
+  it("a router's form can target INPUT as well as FORWARD; the firewall's cannot", () => {
+    resetState();
+    runConsoleScript("add router R1 at 100 100");
+    const r1 = state.devices.find(d => d.name === "R1")!;
+    state.selectedId = r1.id; state.configuringId = r1.id; syncPanel();
+    el("fwAddChain").value = "input"; el("fwAddProto").value = "icmp"; el("fwAddTarget").value = "drop";
+    el("fwAddRule").click();
+    expect(r1.config!.rules).toEqual([{ chain: "input", target: "drop", protocol: "icmp" }]);
+  });
+});

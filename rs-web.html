@@ -10465,6 +10465,17 @@ ${body}
       `  chains: ${C}`
     ];
   }
+  function appendFirewallRule(device, chainName, flags, allowed) {
+    const chain = parseChain(chainName, allowed);
+    if (!chain) return { ok: false, error: `iptables: chain must be ${allowed.map((c) => c.toUpperCase()).join("|")}.`, warnings: [] };
+    const parsed = parseFirewallRule(chain, flags);
+    if (typeof parsed === "string") return { ok: false, error: parsed, warnings: [] };
+    pushUndo();
+    ensureConfig(device);
+    device.config.rules = [...device.config.rules || [], parsed];
+    sync().syncPanel();
+    return { ok: true, message: `Appended ${chain.toUpperCase()} rule (${parsed.target.toUpperCase()}).`, warnings: [] };
+  }
   function runIptablesCommand(device, command, allowed) {
     const tokens = command.trim().split(/\s+/);
     if (tokens[0]?.toLowerCase() !== "iptables") return false;
@@ -10551,6 +10562,11 @@ ${body}
       if (inserting && rest[0] && /^\d+$/.test(rest[0])) {
         pos = parseInt(rest[0], 10);
         rest = rest.slice(1);
+      }
+      if (!inserting) {
+        const result = appendFirewallRule(device, chain, rest, allowed);
+        terminalLine(result.ok ? "" : "error", result.ok ? result.message : result.error);
+        return true;
       }
       const parsed = parseFirewallRule(chain, rest);
       if (typeof parsed === "string") {
@@ -13671,28 +13687,19 @@ Snort successfully validated the configuration${bad ? " (with errors)" : "."}`);
       const protocol = val("fwAddProto");
       const stateRaw = document.getElementById("fwAddState")?.value || "";
       const states = stateRaw ? stateRaw.split(",") : void 0;
-      const src = val("fwAddSrc"), dst = val("fwAddDst"), dportRaw = val("fwAddDport");
-      if (src && !parseIpv4Token(src)) return fail2("Source must be a valid IPv4 address or CIDR.");
-      if (dst && !parseIpv4Token(dst)) return fail2("Destination must be a valid IPv4 address or CIDR.");
-      let dport;
-      if (dportRaw) {
-        const n = Number(dportRaw);
-        if (!Number.isInteger(n) || n < 1 || n > 65535) return fail2("Port must be 1\u201365535.");
-        if (protocol !== "tcp") return fail2("A destination port needs protocol tcp.");
-        dport = n;
-      }
-      pushUndo();
-      ensureConfig(device);
-      device.config.rules = device.config.rules || [];
-      device.config.rules.push({
-        chain,
-        target,
-        ...protocol ? { protocol } : {},
-        ...src ? { src } : {},
-        ...dst ? { dst } : {},
-        ...dport != null ? { dport } : {},
-        ...states ? { states } : {}
-      });
+      const src = val("fwAddSrc"), dst = val("fwAddDst"), dport = val("fwAddDport");
+      const flags = [
+        ...protocol ? ["-p", protocol] : [],
+        ...src ? ["-s", src] : [],
+        ...dst ? ["-d", dst] : [],
+        ...dport ? ["--dport", dport] : [],
+        ...states ? ["-m", "state", "--state", states.join(",")] : [],
+        "-j",
+        target
+      ];
+      const result = appendFirewallRule(device, chain, flags, chains);
+      if (!result.ok) return fail2(result.error || "Invalid rule.");
+      dom.modeLabel.textContent = mutationText(result);
       syncPanel();
     });
   }

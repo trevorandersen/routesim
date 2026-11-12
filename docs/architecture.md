@@ -142,7 +142,7 @@ Every source file, grouped by layer. Line counts are approximate and indicate we
 | File | Lines | Role | Key exports | Doc |
 |---|---:|---|---|---|
 | `canvas.ts` | 600 | All canvas drawing: grid, links, devices, badges, transit dots; pan and zoom; hit-testing transits. Reads `state`, never mutates the network. | `render`, `resizeCanvas`, `screenToWorld`, `fitNetwork`, `findTransitAt` | [canvas.md](src/canvas.md) |
-| `inspector.ts` | 1,470 | The right panel: per-type config forms, link details, the clicked-frame field view, display options. Host edits are replayed as visible terminal commands. | `syncPanel`, `renderFramePanel`, `syncOptionControls`, `setNetworkPanel` | [inspector.md](src/inspector.md) |
+| `inspector.ts` | 1,600 | The right panel: per-type config forms, link details, the clicked-frame field view, display options. Host edits are replayed as visible terminal commands. | `syncPanel`, `renderFramePanel`, `syncOptionControls`, `setNetworkPanel` | [inspector.md](src/inspector.md) |
 | `port-picker.ts` | 120 | The port-picker dialog the Connect tool opens on Shift-click: renders each end's ports and makes the cable with the chosen pair. Rows come from `buildPortList`; the cable from `addLink`. | `openPortSelectionModal`, `confirmPortSelection`, `cancelPortSelection` | [ui.md](src/ui.md) |
 | `simlog-view.ts` | 300 | The Sim Log pane: the packet list, the event log, the display-filter toolbar and the saved-capture bar. Reads the run's capture and log from `state` and the filter model from `packet-filter.ts`; registered as the `syncSimLog` callback. | `syncSimLog` | [engine.md](src/engine.md) |
 
@@ -410,6 +410,7 @@ bash build.sh
 5. Optionally add a shell in `terminal/`, register it in `CLI_DISPATCH`, and give it a prompt in `terminalPromptText`. The registry test fails if `CLI_DISPATCH` and the `terminal` role disagree.
 6. Add `--<palette>-*` CSS variables for every theme, and a tool button in `template.html`.
 7. Add a help entry in `help.ts`. The help test enforces it.
+8. If the device has settings of its own, add a section to `INSPECTOR_SECTIONS` in `inspector.ts`, and list the type's sections in the registry test in `tests/inspector.test.ts` (it fails until you do).
 
 **Add a console verb.** Write a `cmd<Verb>` handler in `commands.ts` that validates, calls an existing mutator, and returns `ok()` or `err()`. Register it in `COMMANDS` and `HELP`. If it changes persistent config, make sure `exportTopologyScript` can emit it so the round-trip holds, and document it in [scripting.md](scripting.md).
 

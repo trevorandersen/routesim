@@ -6,7 +6,9 @@ import { describe, it, expect, beforeAll, beforeEach, afterEach } from "bun:test
 import { state, undo, registerCallbacks } from "../src/state";
 import { runStpConvergence } from "../src/stp";
 import { setDevicePower, setLinkShutdown, setSwitchManaged, toggleLinkShutdown } from "../src/devices";
-import { renderSwitchPorts, renderSwitchVlans, renderRouterInterfaces, renderFramePanel, ipSourceInfo, syncPanel } from "../src/inspector";
+import { renderSwitchPorts, renderSwitchVlans, renderRouterInterfaces, renderFramePanel, ipSourceInfo, syncPanel, INSPECTOR_SECTIONS, inspectorSectionsFor } from "../src/inspector";
+import { DEVICE_SPECS, USER_ADDABLE_TYPES } from "../src/device-registry";
+import { addDevice, collapseLan } from "../src/devices";
 import { findTransitAt } from "../src/canvas";
 import { createIcmpEchoRequest, createTcpSegment } from "../src/frame";
 import { dom } from "../src/dom";
@@ -668,5 +670,90 @@ describe("inspector edits take an undo point and surface their errors (R92)", ()
     runConsoleScript("add firewall FW at 100 100");
     const loaded = parseConfig(JSON.stringify(buildConfigPayload()));
     expect(loaded.devices.find((d: any) => d.name === "FW")!.config.ethernetPorts).toBe(2);   // the normaliser used to make it 4
+  });
+});
+
+// R108: the device panel was one 444-line render-and-bind function with a branch
+// per device type in each half. It is now an ordered registry of sections.
+describe("the device panel is a registry of sections (R108)", () => {
+  let mini: ReturnType<typeof installMiniDom>;
+  beforeEach(() => { resetState(); mini = installMiniDom(); });
+  afterEach(() => mini.uninstall());
+
+  const sectionIds = (type: (typeof USER_ADDABLE_TYPES)[number]) => inspectorSectionsFor(addDevice(type, 100, 100)).map(s => s.id);
+
+  it("each device type is made of the sections it should be", () => {
+    const expected: Record<string, string[]> = {
+      computer: ["identity", "actions", "host", "summary"],
+      laptop: ["identity", "actions", "host", "summary"],
+      server: ["identity", "actions", "host", "summary"],
+      kali: ["identity", "actions", "host", "summary"],
+      attacker: ["identity", "actions", "host", "red-team", "summary"],
+      switch: ["identity", "actions", "switch", "summary"],
+      hub: ["identity", "actions", "hub", "summary"],
+      "access-point": ["identity", "actions", "access-point", "summary"],
+      router: ["identity", "actions", "router", "summary"],
+      firewall: ["identity", "actions", "firewall", "summary"],
+      ids: ["identity", "actions", "ids", "summary"],
+      internet: ["identity", "actions", "summary"],
+    };
+    for (const type of USER_ADDABLE_TYPES) {
+      expect(expected[type], `no expectation for ${type} — a new device type needs its sections listed here`).toBeDefined();
+      expect(sectionIds(type), type).toEqual(expected[type]);
+    }
+  });
+
+  it("section ids are unique, and the panel opens with identity and closes with the summary", () => {
+    const ids = INSPECTOR_SECTIONS.map(s => s.id);
+    expect(new Set(ids).size).toBe(ids.length);
+    expect(ids[0]).toBe("identity");
+    expect(ids[ids.length - 1]).toBe("summary");
+  });
+
+  it("every device type renders and binds, selected and configuring, with its own controls", () => {
+    const marker: Record<string, string> = {
+      computer: "selectedIpv4", laptop: "selectedSsid", server: "dhcpRangeStart", kali: "selectedIpv4", attacker: "selectedAttackTarget",
+      switch: "selectedManaged", hub: "selectedPorts", "access-point": "selectedSsid", router: "routerInterfaceList",
+      firewall: "selectedFwPorts", ids: "selectedIdsRules", internet: "selectedName",
+    };
+    for (const type of USER_ADDABLE_TYPES) {
+      const device = addDevice(type, 100, 100);
+      for (const configuring of [false, true]) {
+        state.selectedLinkId = null; state.selectedId = device.id; state.configuringId = configuring ? device.id : null;
+        expect(() => syncPanel(), `${type} ${configuring ? "configure" : "select"}`).not.toThrow();
+        expect(mini.panel.getElementById("selectedName"), type).not.toBeNull();
+        expect(mini.panel.getElementById(marker[type]), `${type} should render #${marker[type]}`).not.toBeNull();
+        expect(mini.panel.querySelector(".pill-row"), type).not.toBeNull();
+      }
+    }
+  });
+
+  it("controls a type does not own are absent from its panel", () => {
+    const pc = addDevice("computer", 100, 100);
+    state.selectedId = pc.id; syncPanel();
+    for (const id of ["selectedManaged", "routerInterfaceList", "selectedFwPorts", "selectedIdsRules", "selectedAttackTarget", "selectedSsid", "dhcpRangeStart"]) {
+      expect(mini.panel.getElementById(id), id).toBeNull();
+    }
+    const hub = addDevice("hub", 300, 100);
+    state.selectedId = hub.id; syncPanel();
+    expect(mini.panel.getElementById("selectedManaged")).toBeNull();   // a hub shares the port field, not the switch's management
+    expect(mini.panel.getElementById("switchPortList")).not.toBeNull();
+  });
+
+  it("a collapsed LAN shows only its name, the Expand action and the summary", () => {
+    runConsoleScript("add switch SW at 100 100\nadd computer PC at 300 100\nlink SW PC");
+    collapseLan(state.devices.find(d => d.name === "SW")!);
+    const lan = state.devices.find(d => d.type === "lan")!;
+    expect(inspectorSectionsFor(lan).map(s => s.id)).toEqual(["identity", "actions", "summary"]);
+    state.selectedId = lan.id; syncPanel();
+    expect(mini.panel.getElementById("expandSelectedLan")).not.toBeNull();
+    expect(mini.panel.getElementById("togglePower")).toBeNull();
+  });
+
+  it("every type in the registry of device specs has a panel", () => {
+    for (const type of Object.keys(DEVICE_SPECS)) {
+      const ids = INSPECTOR_SECTIONS.filter(s => s.applies({ type } as any)).map(s => s.id);
+      expect(ids.slice(0, 2), type).toEqual(["identity", "actions"]);
+    }
   });
 });

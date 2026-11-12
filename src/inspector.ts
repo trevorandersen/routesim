@@ -1065,48 +1065,172 @@ export function renderFramePanel(frame: any): void {
   });
 }
 
-// Commit whatever the learner is still typing before the panel is rebuilt.
-// A rebuild replaces the panel's HTML; Firefox and Safari fire neither `blur`
-// nor `change` on a focused field removed that way, so an address typed into
-// PC-A and followed by a click on PC-B (or by a run finishing) was silently
-// discarded, and the undo snapshot taken on focus was orphaned. Blurring first
-// fires both, in every browser, so the field commits through its own handler.
-function commitFocusedField(): void {
-  const active = (typeof document !== "undefined" ? document.activeElement : null) as HTMLElement | null;
-  if (!active || typeof active.blur !== "function") return;
-  if (!dom.detailsPanel.contains?.(active)) return;
-  active.blur();
+// ─── Inspector sections ───────────────────────────────────────────────────────
+// A device's panel is an ordered list of sections. Each section says which
+// devices it applies to, renders its own HTML, and wires its own controls.
+// syncPanel renders every section that applies, in order, then binds them.
+//
+// This replaced one 444-line render-and-bind function with a branch per device
+// type scattered through both halves (review R108): to change what a device
+// shows, edit its section; to add a device type, add a section here — nothing
+// else in syncPanel changes.
+export interface InspectorSection {
+  id: string;
+  applies(device: Device): boolean;
+  render(selected: Device): string;
+  bind?(selected: Device): void;
 }
 
-export function syncPanel(): void {
-  commitFocusedField();
-  sync().syncCoordReadout();
-  if (state.inspectedFrame) {
-    renderFramePanel(state.inspectedFrame);
-    return;
-  }
-  const selected = getDevice(state.selectedId);
-  const isConfiguring = selected && state.configuringId === selected.id;
+// The SSID / password pair a laptop joins with and an access point broadcasts.
+// Set directly on the config — these aren't terminal-driven — committing on
+// change so the normalised value (and any association the canvas draws) re-renders.
+function bindWifiControls(selected: Device): void {
+    const bindWifiField = (id: string, field: "ssid" | "wifiPassword", normalise: (v: string) => string) => {
+      const input = document.getElementById(id) as HTMLInputElement | null;
+      if (!input) return;
+      captureUndoOnFocus(input);
+      input.addEventListener("change", (event: any) => {
+        ensureConfig(selected);
+        selected.config[field] = normalise(event.target.value);
+        syncPanel();
+        sync().render();
+      });
+      input.addEventListener("keydown", (event: any) => { if (event.key === "Enter") input.blur(); });
+    };
+    bindWifiField("selectedSsid", "ssid", normaliseSsid);
+    bindWifiField("selectedWifiPassword", "wifiPassword", normaliseWifiPassword);
+    document.getElementById("clearWifiPassword")?.addEventListener("click", () => {
+      pushUndo();
+      ensureConfig(selected);
+      selected.config.wifiPassword = "";
+      syncPanel();
+      sync().render();
+    });
+}
 
-  if (!selected && state.selectedLinkId) {
-    const link = state.links.find(l => l.id === state.selectedLinkId);
-    if (link) {
-      renderLinkPanel(link);
-    } else {
-      dom.detailsPanel.innerHTML = `
-        ${panelHeading("Selection")}
-        <p class="empty-state">No device selected.</p>
-      `;
+// The Ethernet port-count field a switch and a hub share.
+function bindPortCountField(selected: Device): void {
+    const portsInput = document.getElementById("selectedPorts") as HTMLInputElement;
+    if (portsInput) {
+      captureUndoOnFocus(portsInput);
+      portsInput.addEventListener("input", (event: any) => {
+        const value = Number(event.target.value);
+        if (!Number.isInteger(value) || value < 4 || value > 24) {
+          event.target.setCustomValidity("Enter a port count from 4 to 24.");
+        } else {
+          event.target.setCustomValidity("");
+          ensureConfig(selected);
+          selected.config.ethernetPorts = value;
+          // The rows' listeners are delegated on the list (bindSwitchPortControls),
+          // so re-rendering them needs no rebind — and must not stack one.
+          document.getElementById("switchPortList")!.innerHTML = renderSwitchPorts(selected);
+        }
+      });
     }
-  } else if (!selected) {
-    dom.detailsPanel.innerHTML = `
-      ${panelHeading("Selection")}
-      <p class="empty-state">No device selected.</p>
-    `;
-  } else {
-    const neighbors = connectedIds(selected.id).map((id: string) => getDevice(id)).filter(isVisibleDevice);
-    const selectedType = DEVICE_SPECS[selected.type]?.label ?? "Device";
-    const pcConfigFields = isHost(selected.type) ? `
+}
+
+export const INSPECTOR_SECTIONS: InspectorSection[] = [
+  {
+    id: "identity",
+    applies: () => true,
+    render: selected => `
+      <div class="field">
+        <label for="selectedName">${hasHostname(selected) ? "Hostname" : "Name"}</label>
+        <input id="selectedName" value="${escapeHtml(selected.name)}" autocomplete="off">
+      </div>
+`,
+    bind(selected) {
+      const nameInput = document.getElementById("selectedName") as HTMLInputElement;
+      if (hasHostname(selected)) {
+        // For these types the field is labelled Hostname and the name IS the
+        // hostname — the terminal prompt, the DNS auto-zone, the script export —
+        // so it must satisfy the same RFC-1123 rule the CLIs enforce rather than
+        // accept free text. Commit on change/Enter like the other device fields
+        // (validating each keystroke would reject every prefix of a valid name),
+        // and route through applyHostname so the CLI and the panel agree.
+        // No captureUndoOnFocus here: applyHostname pushes undo itself, and
+        // pairing the two would stack a second entry on every rename.
+        nameInput.addEventListener("change", () => {
+          const problem = applyHostname(selected, nameInput.value);
+          if (problem) {
+            nameInput.setCustomValidity(problem);
+            nameInput.reportValidity();
+            nameInput.value = selected.name;      // revert to the device's actual name
+            return;
+          }
+          nameInput.setCustomValidity("");
+        });
+        nameInput.addEventListener("keydown", (event: any) => { if (event.key === "Enter") nameInput.blur(); });
+      } else {
+        // Everything else (LAN, hub, unmanaged switch, AP, cloud) keeps a plain
+        // label with no hostname semantics, so free text stays fine.
+        captureUndoOnFocus(nameInput);
+        nameInput.addEventListener("input", (event: any) => {
+          selected.name = event.target.value || selected.name;
+          syncDeviceList();
+          syncTerminal();
+          sync().render();
+        });
+      }
+    },
+  },
+  {
+    id: "actions",   // collapse / expand / terminal / power / delete
+    applies: () => true,
+    render: selected => `      ${selected.type === "switch" ? `
+        <button class="wide-button" id="collapseSelectedLan">
+          <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M6 9h12"></path><path d="M9 6l-3 3l3 3"></path><path d="M15 6l3 3l-3 3"></path><path d="M8 17h8"></path></svg>
+          Collapse LAN
+        </button>
+        <div style="height: 10px"></div>
+      ` : ""}
+      ${selected.type === "lan" ? `
+        <button class="wide-button" id="expandSelectedLan">
+          <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 9h16"></path><path d="M7 6l-3 3l3 3"></path><path d="M17 6l3 3l-3 3"></path><path d="M8 17h8"></path></svg>
+          Expand LAN
+        </button>
+        <div style="height: 10px"></div>
+      ` : ""}
+      ${offersTerminal(selected) ? `
+        <button class="wide-button" id="openSelectedTerminal">
+          <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 17l6 -6l-6 -6"></path><path d="M12 19h8"></path></svg>
+          Terminal
+        </button>
+        <div style="height: 10px"></div>
+      ` : ""}
+      ${selected.type !== "lan" ? `
+        <div class="button-row">
+          <button class="row-button ${selected.poweredOff ? "" : "danger"}" id="togglePower">
+            <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M7 6a7.75 7.75 0 1 0 10 0"></path><path d="M12 2v6"></path></svg>
+            ${selected.poweredOff ? "Power On" : "Power Off"}
+          </button>
+          <button class="row-button danger" id="deleteSelected">
+            <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M3 6h18"></path><path d="M8 6V4h8v2"></path><path d="M19 6l-1 14H6L5 6"></path></svg>
+            Delete
+          </button>
+        </div>
+        <div style="height: 14px"></div>
+      ` : ""}
+`,
+    bind(selected) {
+      const terminalButton = document.getElementById("openSelectedTerminal");
+      if (terminalButton) terminalButton.addEventListener("click", () => openTerminalFor(selected));
+      const powerButton = document.getElementById("togglePower");
+      if (powerButton) powerButton.addEventListener("click", () => {
+        dom.modeLabel.textContent = mutationText(setDevicePower(selected, !!selected.poweredOff));
+      });
+      const collapseButton = document.getElementById("collapseSelectedLan");
+      if (collapseButton) collapseButton.addEventListener("click", () => { dom.modeLabel.textContent = mutationText(collapseLan(selected)); });
+      const expandButton = document.getElementById("expandSelectedLan");
+      if (expandButton) expandButton.addEventListener("click", () => { dom.modeLabel.textContent = mutationText(expandLan(selected)); });
+      const deleteButton = document.getElementById("deleteSelected");
+      if (deleteButton) deleteButton.addEventListener("click", deleteSelection);
+    },
+  },
+  {
+    id: "host",      // every IP end-system: PC, laptop, server, Kali PC, Red Team actor
+    applies: device => isHost(device.type),
+    render: selected => `
       <div class="field">
         <label class="label-with-badge" for="selectedIpv4">IPv4 address / prefix ${ipSourceBadge(selected.config)}</label>
         <div class="input-with-button">
@@ -1146,13 +1270,63 @@ export function syncPanel(): void {
         <label>ARP table</label>
         ${renderArpTable(selected)}
       </div>
-    ` : "";
-    const apConfigFields = selected.type === "access-point" ? `
+    `,
+    bind(selected) {
+      // Static assignments drive the host's CLI: each committed field (on blur /
+      // Enter) runs the matching command in the device's terminal, flagged as
+      // simulator-issued. No client-side clipping — an invalid value runs the
+      // real command and shows its failure; the panel then re-renders to the
+      // device's actual config. (Commands themselves push undo + re-sync.)
+      const commitField = (id: string, toCommand: (value: string) => string | null) => {
+        const input = document.getElementById(id) as HTMLInputElement | null;
+        if (!input) return;
+        input.addEventListener("change", () => {
+          const command = toCommand(input.value.trim());
+          if (command) runDeviceCommand(selected, command);
+        });
+        input.addEventListener("keydown", (event: any) => { if (event.key === "Enter") input.blur(); });
+      };
+      commitField("selectedIpv4", v => v ? `ip addr add ${v} dev eth0` : "ip addr flush dev eth0");
+      commitField("selectedGateway", v => v ? `ip route add default via ${v}` : "ip route del default");
+      commitField("selectedDns", v => v ? `echo nameserver ${v} > /etc/resolv.conf` : "rm /etc/resolv.conf");
+      commitField("selectedMac", v => v ? `ip link set dev eth0 address ${v}` : null);
+
+      // The clear (×) and random-MAC buttons run their commands too.
+      const runOnClick = (id: string, command: string | (() => string)) => {
+        const btn = document.getElementById(id);
+        if (btn) btn.addEventListener("click", () => runDeviceCommand(selected, typeof command === "function" ? command() : command));
+      };
+      runOnClick("clearIpv4", "ip addr flush dev eth0");
+      runOnClick("clearGateway", "ip route del default");
+      runOnClick("clearDns", "rm /etc/resolv.conf");
+      runOnClick("randomMac", () => `ip link set dev eth0 address ${randomMac()}`);
+      if (selected.type === "server") bindDnsmasqControls(selected);
+      if (selected.type === "laptop") {
+        bindWifiControls(selected);
+        document.getElementById("associateLaptop")?.addEventListener("click", () => {
+          const busy = animatedRunBlockReason();
+          if (busy) { dom.modeLabel.textContent = busy; return; }
+          const setup = buildAssociationEvents(selected);
+          if (typeof setup === "string") { dom.modeLabel.textContent = setup; return; }
+          startSimulation(setup, selected.id, selected.config?.ssid || "", "associate");
+        });
+      }
+    },
+  },
+  {
+    id: "access-point",
+    applies: device => device.type === "access-point",
+    render: selected => `
       <p class="field-note">A transparent bridge: it joins its wireless clients to the wired uplink (no MAC learning shown — it forwards like an unmanaged switch).</p>
       <div style="height: 10px"></div>
       ${renderWifiFields(selected.config, "The network this access point broadcasts. A laptop joins only if its SSID — and password, if set — match.")}
-    ` : "";
-    const switchConfigFields = selected.type === "switch" ? `
+    `,
+    bind: bindWifiControls,
+  },
+  {
+    id: "switch",
+    applies: device => device.type === "switch",
+    render: selected => `
       <div class="field">
         <label for="selectedManaged">Managed switch</label>
         <input id="selectedManaged" type="checkbox" ${selected.config?.managed ? "checked" : ""}>
@@ -1181,8 +1355,24 @@ export function syncPanel(): void {
         <label>MAC Address Table</label>
         ${renderMacAddressTable(selected)}
       </div>
-    ` : "";
-    const routerConfigFields = selected.type === "router" ? `
+    `,
+    bind(selected) {
+      const managedInput = document.getElementById("selectedManaged") as HTMLInputElement;
+      if (managedInput) {
+        managedInput.addEventListener("change", (event: any) => {
+          dom.modeLabel.textContent = mutationText(setSwitchManaged(selected, event.target.checked));
+        });
+      }
+      bindPortCountField(selected);
+      bindSwitchPortControls(selected);
+      bindStpControls(selected);
+      bindMirrorControl(selected);
+    },
+  },
+  {
+    id: "router",
+    applies: device => device.type === "router",
+    render: selected => `
       <div class="field">
         <label for="selectedRouterRole">Role</label>
         <select id="selectedRouterRole">
@@ -1215,8 +1405,48 @@ export function syncPanel(): void {
         <label>NAT translations</label>
         <p class="empty-state">${selected.config.natTranslations.length} active flow(s) — see <code>show ip nat translations</code>.</p>
       </div>` : ""}
-    ` : "";
-    const firewallConfigFields = selected.type === "firewall" ? `
+    `,
+    bind(selected) {
+      const routerRole = document.getElementById("selectedRouterRole") as HTMLSelectElement | null;
+      if (routerRole) {
+        routerRole.addEventListener("change", (event: any) => {
+          pushUndo();
+          ensureConfig(selected);
+          if (event.target.value === "border") selected.config.role = "border";
+          else delete selected.config.role; // internal is the plain default
+          syncPanel();
+          sync().render(); // redraw the border badge
+        });
+      }
+      const routerEthernetPorts = document.getElementById("selectedRouterEthernetPorts") as HTMLInputElement;
+      const routerSerialPorts = document.getElementById("selectedRouterSerialPorts") as HTMLInputElement;
+      [routerEthernetPorts, routerSerialPorts].filter(Boolean).forEach(input => {
+        captureUndoOnFocus(input);
+        input.addEventListener("input", (event: any) => {
+          const value = Number(event.target.value);
+          if (!Number.isInteger(value) || value < 0 || value > 12) {
+            event.target.setCustomValidity("Enter a port count from 0 to 12.");
+            return;
+          }
+          event.target.setCustomValidity("");
+          ensureConfig(selected);
+          if (event.target.id === "selectedRouterEthernetPorts") {
+            selected.config.ethernetPorts = value;
+          } else {
+            selected.config.serialPorts = value;
+          }
+          // Delegated on the list (bindRouterInterfaceList): the new rows are live.
+          document.getElementById("routerInterfaceList")!.innerHTML = renderRouterInterfaces(selected);
+        });
+      });
+      bindRouterInterfaceList(selected);
+      bindFirewallControls(selected, ["forward", "input"]);
+    },
+  },
+  {
+    id: "firewall",
+    applies: device => device.type === "firewall",
+    render: selected => `
       <div class="field">
         <label for="selectedFwPorts">Ethernet ports</label>
         <input id="selectedFwPorts" type="number" min="${FIREWALL_PORT_RANGE.min}" max="${FIREWALL_PORT_RANGE.max}" step="1" value="${escapeHtml(selected.config?.ethernetPorts ?? defaultPortCount(selected.type))}">
@@ -1225,10 +1455,42 @@ export function syncPanel(): void {
         <label>Netfilter (iptables FORWARD)</label>
         ${renderFirewallControls(selected, ["forward"])}
       </div>
-    ` : "";
-    const idsConfigFields = selected.type === "ids" ? renderIdsSection(selected) : "";
-    const attackerConfigFields = selected.type === "attacker" ? renderAttackerSection(selected) : "";
-    const hubConfigFields = selected.type === "hub" ? `
+    `,
+    bind(selected) {
+      const fwPortsInput = document.getElementById("selectedFwPorts") as HTMLInputElement;
+      if (fwPortsInput) {
+        captureUndoOnFocus(fwPortsInput);
+        fwPortsInput.addEventListener("input", (event: any) => {
+          const value = Number(event.target.value);
+          if (clampFirewallPortCount(value) !== value) {
+            event.target.setCustomValidity(`Enter a port count from ${FIREWALL_PORT_RANGE.min} to ${FIREWALL_PORT_RANGE.max}.`);
+          } else {
+            event.target.setCustomValidity("");
+            ensureConfig(selected);
+            selected.config.ethernetPorts = value;
+            sync().render();
+          }
+        });
+      }
+      bindFirewallControls(selected, ["forward"]);
+    },
+  },
+  {
+    id: "ids",
+    applies: device => device.type === "ids",
+    render: renderIdsSection,
+    bind: bindIdsControls,
+  },
+  {
+    id: "red-team",  // the autonomous actor's plan (a Kali PC is driven from its terminal)
+    applies: device => device.type === "attacker",
+    render: renderAttackerSection,
+    bind: bindAttackerControls,
+  },
+  {
+    id: "hub",
+    applies: device => device.type === "hub",
+    render: selected => `
       <p class="field-note">A hub is a layer-1 repeater: it copies every frame out all other ports (no MAC learning, one collision domain).</p>
       <div style="height: 10px"></div>
       <div class="field">
@@ -1241,243 +1503,75 @@ export function syncPanel(): void {
           ${renderSwitchPorts(selected)}
         </div>
       </div>
-    ` : "";
-    dom.detailsPanel.innerHTML = `
-      ${panelHeading(isConfiguring ? "Configure" : "Selection")}
-      <div class="field">
-        <label for="selectedName">${hasHostname(selected) ? "Hostname" : "Name"}</label>
-        <input id="selectedName" value="${escapeHtml(selected.name)}" autocomplete="off">
-      </div>
-      ${selected.type === "switch" ? `
-        <button class="wide-button" id="collapseSelectedLan">
-          <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M6 9h12"></path><path d="M9 6l-3 3l3 3"></path><path d="M15 6l3 3l-3 3"></path><path d="M8 17h8"></path></svg>
-          Collapse LAN
-        </button>
-        <div style="height: 10px"></div>
-      ` : ""}
-      ${selected.type === "lan" ? `
-        <button class="wide-button" id="expandSelectedLan">
-          <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 9h16"></path><path d="M7 6l-3 3l3 3"></path><path d="M17 6l3 3l-3 3"></path><path d="M8 17h8"></path></svg>
-          Expand LAN
-        </button>
-        <div style="height: 10px"></div>
-      ` : ""}
-      ${offersTerminal(selected) ? `
-        <button class="wide-button" id="openSelectedTerminal">
-          <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 17l6 -6l-6 -6"></path><path d="M12 19h8"></path></svg>
-          Terminal
-        </button>
-        <div style="height: 10px"></div>
-      ` : ""}
-      ${selected.type !== "lan" ? `
-        <div class="button-row">
-          <button class="row-button ${selected.poweredOff ? "" : "danger"}" id="togglePower">
-            <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M7 6a7.75 7.75 0 1 0 10 0"></path><path d="M12 2v6"></path></svg>
-            ${selected.poweredOff ? "Power On" : "Power Off"}
-          </button>
-          <button class="row-button danger" id="deleteSelected">
-            <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M3 6h18"></path><path d="M8 6V4h8v2"></path><path d="M19 6l-1 14H6L5 6"></path></svg>
-            Delete
-          </button>
-        </div>
-        <div style="height: 14px"></div>
-      ` : ""}
-      ${pcConfigFields}
-      ${apConfigFields}
-      ${switchConfigFields}
-      ${routerConfigFields}
-      ${firewallConfigFields}
-      ${idsConfigFields}
-      ${attackerConfigFields}
-      ${hubConfigFields}
-      <div class="pill-row">
+    `,
+    bind(selected) {
+      bindPortCountField(selected);
+      bindSwitchPortControls(selected);
+    },
+  },
+  {
+    id: "summary",   // the type and link-count pills
+    applies: () => true,
+    render(selected) {
+      const neighbors = connectedIds(selected.id).map((id: string) => getDevice(id)).filter(isVisibleDevice);
+      const selectedType = DEVICE_SPECS[selected.type]?.label ?? "Device";
+      return `      <div class="pill-row">
         <span class="pill">${selectedType}</span>
         <span class="pill">${neighbors.length} links</span>
       </div>
     `;
+    },
+  },
+];
 
-    const nameInput = document.getElementById("selectedName") as HTMLInputElement;
-    if (hasHostname(selected)) {
-      // For these types the field is labelled Hostname and the name IS the
-      // hostname — the terminal prompt, the DNS auto-zone, the script export —
-      // so it must satisfy the same RFC-1123 rule the CLIs enforce rather than
-      // accept free text. Commit on change/Enter like the other device fields
-      // (validating each keystroke would reject every prefix of a valid name),
-      // and route through applyHostname so the CLI and the panel agree.
-      // No captureUndoOnFocus here: applyHostname pushes undo itself, and
-      // pairing the two would stack a second entry on every rename.
-      nameInput.addEventListener("change", () => {
-        const problem = applyHostname(selected, nameInput.value);
-        if (problem) {
-          nameInput.setCustomValidity(problem);
-          nameInput.reportValidity();
-          nameInput.value = selected.name;      // revert to the device's actual name
-          return;
-        }
-        nameInput.setCustomValidity("");
-      });
-      nameInput.addEventListener("keydown", (event: any) => { if (event.key === "Enter") nameInput.blur(); });
+// The sections a device's panel is made of, in order.
+export function inspectorSectionsFor(device: Device): InspectorSection[] {
+  return INSPECTOR_SECTIONS.filter(section => section.applies(device));
+}
+
+// Commit whatever the learner is still typing before the panel is rebuilt.
+// A rebuild replaces the panel's HTML; Firefox and Safari fire neither `blur`
+// nor `change` on a focused field removed that way, so an address typed into
+// PC-A and followed by a click on PC-B (or by a run finishing) was silently
+// discarded, and the undo snapshot taken on focus was orphaned. Blurring first
+// fires both, in every browser, so the field commits through its own handler.
+function commitFocusedField(): void {
+  const active = (typeof document !== "undefined" ? document.activeElement : null) as HTMLElement | null;
+  if (!active || typeof active.blur !== "function") return;
+  if (!dom.detailsPanel.contains?.(active)) return;
+  active.blur();
+}
+
+export function syncPanel(): void {
+  commitFocusedField();
+  sync().syncCoordReadout();
+  if (state.inspectedFrame) {
+    renderFramePanel(state.inspectedFrame);
+    return;
+  }
+  const selected = getDevice(state.selectedId);
+  const isConfiguring = selected && state.configuringId === selected.id;
+
+  if (!selected && state.selectedLinkId) {
+    const link = state.links.find(l => l.id === state.selectedLinkId);
+    if (link) {
+      renderLinkPanel(link);
     } else {
-      // Everything else (LAN, hub, unmanaged switch, AP, cloud) keeps a plain
-      // label with no hostname semantics, so free text stays fine.
-      captureUndoOnFocus(nameInput);
-      nameInput.addEventListener("input", (event: any) => {
-        selected.name = event.target.value || selected.name;
-        syncDeviceList();
-        syncTerminal();
-        sync().render();
-      });
+      dom.detailsPanel.innerHTML = `
+        ${panelHeading("Selection")}
+        <p class="empty-state">No device selected.</p>
+      `;
     }
-    // Static assignments drive the host's CLI: each committed field (on blur /
-    // Enter) runs the matching command in the device's terminal, flagged as
-    // simulator-issued. No client-side clipping — an invalid value runs the
-    // real command and shows its failure; the panel then re-renders to the
-    // device's actual config. (Commands themselves push undo + re-sync.)
-    const commitField = (id: string, toCommand: (value: string) => string | null) => {
-      const input = document.getElementById(id) as HTMLInputElement | null;
-      if (!input) return;
-      input.addEventListener("change", () => {
-        const command = toCommand(input.value.trim());
-        if (command) runDeviceCommand(selected, command);
-      });
-      input.addEventListener("keydown", (event: any) => { if (event.key === "Enter") input.blur(); });
-    };
-    commitField("selectedIpv4", v => v ? `ip addr add ${v} dev eth0` : "ip addr flush dev eth0");
-    commitField("selectedGateway", v => v ? `ip route add default via ${v}` : "ip route del default");
-    commitField("selectedDns", v => v ? `echo nameserver ${v} > /etc/resolv.conf` : "rm /etc/resolv.conf");
-    commitField("selectedMac", v => v ? `ip link set dev eth0 address ${v}` : null);
-
-    // The clear (×) and random-MAC buttons run their commands too.
-    const runOnClick = (id: string, command: string | (() => string)) => {
-      const btn = document.getElementById(id);
-      if (btn) btn.addEventListener("click", () => runDeviceCommand(selected, typeof command === "function" ? command() : command));
-    };
-    runOnClick("clearIpv4", "ip addr flush dev eth0");
-    runOnClick("clearGateway", "ip route del default");
-    runOnClick("clearDns", "rm /etc/resolv.conf");
-    runOnClick("randomMac", () => `ip link set dev eth0 address ${randomMac()}`);
-    bindDnsmasqControls(selected);
-    // WiFi SSID / password (laptop joins, access point broadcasts). Set directly
-    // on the config — these aren't terminal-driven — committing on change so the
-    // normalised value (and any association the canvas draws) re-renders.
-    const bindWifiField = (id: string, field: "ssid" | "wifiPassword", normalise: (v: string) => string) => {
-      const input = document.getElementById(id) as HTMLInputElement | null;
-      if (!input) return;
-      captureUndoOnFocus(input);
-      input.addEventListener("change", (event: any) => {
-        ensureConfig(selected);
-        selected.config[field] = normalise(event.target.value);
-        syncPanel();
-        sync().render();
-      });
-      input.addEventListener("keydown", (event: any) => { if (event.key === "Enter") input.blur(); });
-    };
-    bindWifiField("selectedSsid", "ssid", normaliseSsid);
-    bindWifiField("selectedWifiPassword", "wifiPassword", normaliseWifiPassword);
-    document.getElementById("associateLaptop")?.addEventListener("click", () => {
-      const busy = animatedRunBlockReason();
-      if (busy) { dom.modeLabel.textContent = busy; return; }
-      const setup = buildAssociationEvents(selected);
-      if (typeof setup === "string") { dom.modeLabel.textContent = setup; return; }
-      startSimulation(setup, selected.id, selected.config?.ssid || "", "associate");
-    });
-    document.getElementById("clearWifiPassword")?.addEventListener("click", () => {
-      pushUndo();
-      ensureConfig(selected);
-      selected.config.wifiPassword = "";
-      syncPanel();
-      sync().render();
-    });
-    const managedInput = document.getElementById("selectedManaged") as HTMLInputElement;
-    if (managedInput) {
-      managedInput.addEventListener("change", (event: any) => {
-        dom.modeLabel.textContent = mutationText(setSwitchManaged(selected, event.target.checked));
-      });
-    }
-    const portsInput = document.getElementById("selectedPorts") as HTMLInputElement;
-    if (portsInput) {
-      captureUndoOnFocus(portsInput);
-      portsInput.addEventListener("input", (event: any) => {
-        const value = Number(event.target.value);
-        if (!Number.isInteger(value) || value < 4 || value > 24) {
-          event.target.setCustomValidity("Enter a port count from 4 to 24.");
-        } else {
-          event.target.setCustomValidity("");
-          ensureConfig(selected);
-          selected.config.ethernetPorts = value;
-          // The rows' listeners are delegated on the list (bindSwitchPortControls),
-          // so re-rendering them needs no rebind — and must not stack one.
-          document.getElementById("switchPortList")!.innerHTML = renderSwitchPorts(selected);
-        }
-      });
-    }
-    const fwPortsInput = document.getElementById("selectedFwPorts") as HTMLInputElement;
-    if (fwPortsInput) {
-      captureUndoOnFocus(fwPortsInput);
-      fwPortsInput.addEventListener("input", (event: any) => {
-        const value = Number(event.target.value);
-        if (clampFirewallPortCount(value) !== value) {
-          event.target.setCustomValidity(`Enter a port count from ${FIREWALL_PORT_RANGE.min} to ${FIREWALL_PORT_RANGE.max}.`);
-        } else {
-          event.target.setCustomValidity("");
-          ensureConfig(selected);
-          selected.config.ethernetPorts = value;
-          sync().render();
-        }
-      });
-    }
-    const routerRole = document.getElementById("selectedRouterRole") as HTMLSelectElement | null;
-    if (routerRole) {
-      routerRole.addEventListener("change", (event: any) => {
-        pushUndo();
-        ensureConfig(selected);
-        if (event.target.value === "border") selected.config.role = "border";
-        else delete selected.config.role; // internal is the plain default
-        syncPanel();
-        sync().render(); // redraw the border badge
-      });
-    }
-    const routerEthernetPorts = document.getElementById("selectedRouterEthernetPorts") as HTMLInputElement;
-    const routerSerialPorts = document.getElementById("selectedRouterSerialPorts") as HTMLInputElement;
-    [routerEthernetPorts, routerSerialPorts].filter(Boolean).forEach(input => {
-      captureUndoOnFocus(input);
-      input.addEventListener("input", (event: any) => {
-        const value = Number(event.target.value);
-        if (!Number.isInteger(value) || value < 0 || value > 12) {
-          event.target.setCustomValidity("Enter a port count from 0 to 12.");
-          return;
-        }
-        event.target.setCustomValidity("");
-        ensureConfig(selected);
-        if (event.target.id === "selectedRouterEthernetPorts") {
-          selected.config.ethernetPorts = value;
-        } else {
-          selected.config.serialPorts = value;
-        }
-        // Delegated on the list (bindRouterInterfaceList): the new rows are live.
-        document.getElementById("routerInterfaceList")!.innerHTML = renderRouterInterfaces(selected);
-      });
-    });
-    bindSwitchPortControls(selected);
-    if (selected.type === "router") bindRouterInterfaceList(selected);
-    bindStpControls(selected);
-    bindMirrorControl(selected);
-    if (selected.type === "ids") bindIdsControls(selected);
-    if (selected.type === "attacker") bindAttackerControls(selected);
-    if (selected.type === "router") bindFirewallControls(selected, ["forward", "input"]);
-    if (selected.type === "firewall") bindFirewallControls(selected, ["forward"]);
-    const terminalButton = document.getElementById("openSelectedTerminal");
-    if (terminalButton) terminalButton.addEventListener("click", () => openTerminalFor(selected));
-    const powerButton = document.getElementById("togglePower");
-    if (powerButton) powerButton.addEventListener("click", () => {
-      dom.modeLabel.textContent = mutationText(setDevicePower(selected, !!selected.poweredOff));
-    });
-    const collapseButton = document.getElementById("collapseSelectedLan");
-    if (collapseButton) collapseButton.addEventListener("click", () => { dom.modeLabel.textContent = mutationText(collapseLan(selected)); });
-    const expandButton = document.getElementById("expandSelectedLan");
-    if (expandButton) expandButton.addEventListener("click", () => { dom.modeLabel.textContent = mutationText(expandLan(selected)); });
-    const deleteButton = document.getElementById("deleteSelected");
-    if (deleteButton) deleteButton.addEventListener("click", deleteSelection);
+  } else if (!selected) {
+    dom.detailsPanel.innerHTML = `
+      ${panelHeading("Selection")}
+      <p class="empty-state">No device selected.</p>
+    `;
+  } else {
+    const sections = inspectorSectionsFor(selected);
+    dom.detailsPanel.innerHTML = `
+      ${panelHeading(isConfiguring ? "Configure" : "Selection")}${sections.map(section => section.render(selected)).join("")}`;
+    for (const section of sections) section.bind?.(selected);
   }
 
   syncDeviceList();

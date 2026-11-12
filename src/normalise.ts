@@ -387,6 +387,7 @@ export function normaliseDeviceConfig(device: any): DeviceConfig {
       ...(ripConfig.enabled ? { rip: ripConfig } : {}),
       ...(rules.length ? { rules } : {}),
       ...(Object.keys(policy).length ? { policy } : {}),
+      ...(device.config?.ruleLang === "nftables" ? { ruleLang: "nftables" as const } : {}),
       ...(Array.isArray(device.config?.natTranslations) && device.config.natTranslations.length
         ? { natTranslations: device.config.natTranslations } : {}),
       ...((pf => pf.length ? { portForwards: pf } : {})(normalisePortForwards(device.config?.portForwards)))
@@ -398,7 +399,8 @@ export function normaliseDeviceConfig(device: any): DeviceConfig {
     return {
       ethernetPorts,
       rules: normaliseFirewallRules(device.config?.rules || device.rules || []),
-      policy: { forward: rawPolicy.forward === "drop" ? "drop" : "accept" }
+      policy: { forward: rawPolicy.forward === "drop" ? "drop" : "accept" },
+      ...(device.config?.ruleLang === "nftables" ? { ruleLang: "nftables" as const } : {}),
     };
   }
   if (device.type === "ids") {

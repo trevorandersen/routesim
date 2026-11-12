@@ -13,7 +13,8 @@ import {
 import {
   openTerminalFor, syncTerminal, runDeviceCommand, openDock,
   addSwitchVlan, removeSwitchVlan, setSwitchPortVlan, setSwitchPortMode, setSwitchTrunkNative, setSwitchStp, setSwitchMirror,
-  setDhcpRange, setDhcpRouterOption, setListeningPorts, stpPriorityError, appendFirewallRule
+  setDhcpRange, setDhcpRouterOption, setListeningPorts, stpPriorityError, appendFirewallRule,
+  showFirewallRules, showNftRuleset, ruleLangOf, ruleToNft
 } from "./terminal";
 import { resizeCanvas } from "./canvas";
 import { startSimulation, animatedRunBlockReason } from "./engine";
@@ -239,7 +240,14 @@ function panelHeading(title: string): string {
 export function renderFirewallRules(device: any): string {
   const rules = (device.config?.rules || []);
   if (!rules.length) return `<p class="empty-state">No rules — the default policy applies to all traffic.</p>`;
+  const nft = ruleLangOf(device) === "nftables";
+  const del = (index: number) => `<button class="inline-button fw-rule-del" type="button" data-fw-del="${index}" title="Delete this rule" aria-label="Delete rule">&times;</button>`;
+  // In nftables mode the whole rule is one statement (verdict last), coloured on
+  // the device's chosen class; in iptables mode the TARGET leads, as `-L` shows.
   return `<ol class="fw-rule-list">${rules.map((r: any, index: number) => {
+    if (nft) {
+      return `<li class="fw-nft-row fw-${escapeHtml(r.target)}">${escapeHtml(String(r.chain || "forward"))} ${escapeHtml(ruleToNft(r))}${del(index)}</li>`;
+    }
     const match = [
       r.protocol ? `-p ${escapeHtml(r.protocol)}` : "",
       r.src ? `-s ${escapeHtml(r.src)}` : "",
@@ -249,7 +257,7 @@ export function renderFirewallRules(device: any): string {
       r.states?.length ? `--state ${escapeHtml(r.states.map((s: string) => s.toUpperCase()).join(","))}` : "",
       r.rejectWith ? `--reject-with ${escapeHtml(r.rejectWith)}` : "",
     ].filter(Boolean).join(" ");
-    return `<li><span class="fw-target fw-${escapeHtml(r.target)}">${escapeHtml(String(r.target).toUpperCase())}</span> ${escapeHtml(String(r.chain || "forward").toUpperCase())} ${match || "(any)"}<button class="inline-button fw-rule-del" type="button" data-fw-del="${index}" title="Delete this rule" aria-label="Delete rule">&times;</button></li>`;
+    return `<li><span class="fw-target fw-${escapeHtml(r.target)}">${escapeHtml(String(r.target).toUpperCase())}</span> ${escapeHtml(String(r.chain || "forward").toUpperCase())} ${match || "(any)"}${del(index)}</li>`;
   }).join("")}</ol>`;
 }
 
@@ -259,6 +267,23 @@ export function renderFirewallRules(device: any): string {
 // the same `config.rules`/`config.policy` the iptables CLI does.
 export function renderFirewallControls(device: any, chains: string[]): string {
   const policy = device.config?.policy || {};
+  const lang = ruleLangOf(device);
+  // Language selector + the native ruleset view it picks. Both front doors parse
+  // into one model, so this only switches the dialect the device presents its
+  // rules in (and that the script export speaks). See docs/src/firewall.md.
+  const langRow = `
+      <div class="field-row fw-policy-row">
+        <label for="fwRuleLang">Rule language</label>
+        <select id="fwRuleLang" class="fw-select" data-fw-rulelang>
+          ${[["iptables", "iptables"], ["nftables", "nftables"]].map(([v, l]) => `<option value="${v}"${lang === v ? " selected" : ""}>${l}</option>`).join("")}
+        </select>
+      </div>`;
+  const native = lang === "nftables" ? showNftRuleset(device, chains) : showFirewallRules(device, false, chains);
+  const nativeView = `
+      <details class="fw-native-view">
+        <summary>${lang === "nftables" ? "nft list ruleset" : "iptables-save"}</summary>
+        <pre class="fw-native">${escapeHtml(native)}</pre>
+      </details>`;
   const policyRows = chains.map(chain => `
       <div class="field-row fw-policy-row">
         <label for="fwPolicy-${chain}">${escapeHtml(chain.toUpperCase())} policy</label>
@@ -271,9 +296,11 @@ export function renderFirewallControls(device: any, chains: string[]): string {
           ${chains.map(c => `<option value="${c}">${escapeHtml(c.toUpperCase())}</option>`).join("")}
         </select>` : "";
   return `
+      ${langRow}
       ${policyRows}
       <label>Rules</label>
       ${renderFirewallRules(device)}
+      ${nativeView}
       <div class="fw-add-form">
         <select id="fwAddTarget" class="fw-select" title="Target">
           ${["accept", "drop", "reject"].map(t => `<option value="${t}">${t.toUpperCase()}</option>`).join("")}
@@ -826,6 +853,14 @@ export function bindRouterInterfaceList(device: Device): void {
 // config.rules / config.policy as the iptables CLI, with the same validation
 // (a --dport needs -p tcp; src/dst must be a valid IPv4 or CIDR).
 export function bindFirewallControls(device: any, chains: string[]): void {
+  const langSel = document.querySelector("[data-fw-rulelang]") as HTMLSelectElement | null;
+  langSel?.addEventListener("change", () => {
+    pushUndo();
+    ensureConfig(device);
+    if (langSel.value === "nftables") device.config.ruleLang = "nftables";
+    else delete device.config.ruleLang;   // iptables is the plain default
+    syncPanel();   // re-renders the native view and (re-labels) the form
+  });
   document.querySelectorAll("[data-fw-policy]").forEach(el => {
     el.addEventListener("change", (event: any) => {
       pushUndo();
@@ -1391,7 +1426,7 @@ export const INSPECTOR_SECTIONS: InspectorSection[] = [
         </div>
       </div>
       <div class="field">
-        <label>Netfilter (iptables INPUT + FORWARD)</label>
+        <label>Netfilter (${ruleLangOf(selected)} INPUT + FORWARD)</label>
         ${renderFirewallControls(selected, ["forward", "input"])}
       </div>
       ${(selected.config?.natTranslations?.length) ? `
@@ -1446,7 +1481,7 @@ export const INSPECTOR_SECTIONS: InspectorSection[] = [
         <input id="selectedFwPorts" type="number" min="${FIREWALL_PORT_RANGE.min}" max="${FIREWALL_PORT_RANGE.max}" step="1" value="${escapeHtml(selected.config?.ethernetPorts ?? defaultPortCount(selected.type))}">
       </div>
       <div class="field">
-        <label>Netfilter (iptables FORWARD)</label>
+        <label>Netfilter (${ruleLangOf(selected)} FORWARD)</label>
         ${renderFirewallControls(selected, ["forward"])}
       </div>
     `,

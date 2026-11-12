@@ -877,3 +877,45 @@ describe("the firewall Add rule form and `iptables -A` are one parser (R114)", (
     expect(r1.config!.rules).toEqual([{ chain: "input", target: "drop", protocol: "icmp" }]);
   });
 });
+
+describe("the firewall panel's rule-language toggle (issue #1)", () => {
+  let mini: ReturnType<typeof installMiniDom>;
+  beforeEach(() => { resetState(); mini = installMiniDom(); });
+  afterEach(() => mini.uninstall());
+  const el = (id: string): MiniElement => mini.panel.getElementById(id)!;
+  const fw = () => state.devices.find(d => d.name === "FW")!;
+
+  function selectFw() {
+    runConsoleScript("add firewall FW at 100 100");
+    exec("cli FW iptables -A FORWARD -p tcp --dport 22 -j ACCEPT");
+    state.selectedId = fw().id; state.configuringId = fw().id; syncPanel();
+  }
+
+  it("defaults to iptables and shows the iptables-save native view", () => {
+    selectFw();
+    expect(el("fwRuleLang").value).toBe("iptables");
+    const view = mini.panel.getElementById("fwRuleLang")!; // exists
+    expect(view).toBeTruthy();
+    expect(fw().config!.ruleLang).toBeUndefined();
+  });
+
+  it("switching to nftables sets the toggle and re-renders the nft native view", () => {
+    selectFw();
+    el("fwRuleLang").value = "nftables";
+    el("fwRuleLang").dispatchEvent(new MiniEvent("change"));
+    expect(fw().config!.ruleLang).toBe("nftables");
+    // The native view now prints nft syntax for the same rule.
+    const pre = [...mini.panel.querySelectorAll(".fw-native")][0];
+    expect(pre?.textContent || "").toContain("table inet filter {");
+    expect(pre?.textContent || "").toContain("tcp dport 22 accept");
+  });
+
+  it("switching back to iptables clears the stored toggle", () => {
+    selectFw();
+    el("fwRuleLang").value = "nftables";
+    el("fwRuleLang").dispatchEvent(new MiniEvent("change"));
+    el("fwRuleLang").value = "iptables";
+    el("fwRuleLang").dispatchEvent(new MiniEvent("change"));
+    expect(fw().config!.ruleLang).toBeUndefined();
+  });
+});

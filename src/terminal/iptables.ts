@@ -7,10 +7,17 @@
  * and `policy` (chain → accept|drop). Evaluation lives in engine.ts
  * (`evaluateFirewall`).
  */
-import type { Device, FirewallRule, MutationResult } from "../types";
+import type { Device, FirewallRule, MutationResult, RuleLang } from "../types";
 import { state, sync, pushUndo } from "../state";
 import { ensureConfig } from "../normalise";
 import { isValidIpv4 } from "../utils";
+
+// The rule language a device presents its one netfilter ruleset in (native
+// view, add-rule form, script export). Both the `iptables` and `nft` shells
+// always parse into the same model regardless; this only picks the dialect.
+export function ruleLangOf(device: Device): RuleLang {
+  return device.config?.ruleLang === "nftables" ? "nftables" : "iptables";
+}
 
 // An IPv4 address or CIDR, as iptables accepts for -s/-d. Anything else used to
 // be stored verbatim — listed, persisted, and never matching any packet.

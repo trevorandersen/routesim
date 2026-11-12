@@ -11,6 +11,7 @@ import { routerInterfacesWithNames, routerInterfaceFor, routerInterfaceByName, a
 import { buildRoutingTable, runRipConvergence } from "../engine";
 import { terminalLine, terminalLineFor, closeSession } from "./core";
 import { runIptablesCommand } from "./iptables";
+import { runNftCommand } from "./nftables";
 
 export function showRouterInterfaceBrief(router: Device): string {
   const interfaces = routerInterfacesWithNames(router);
@@ -432,14 +433,21 @@ export function runRouterTerminalCommand(router: Device, rawCommand: string): vo
     }
     return;
   }
-  // netfilter lives in the router's shell: INPUT + FORWARD chains.
-  if (command.trim().toLowerCase().startsWith("iptables")) {
-    if (mode !== "privileged" && mode !== "config") {   // what the registry (and `?`) advertise
-      terminalLine("error", mode === "exec" ? "% Privileged mode required. Enter enable first." : "% Leave the sub-mode first (exit) — iptables runs in privileged or config mode.");
+  // netfilter lives in the router's shell: INPUT + FORWARD chains. Both the
+  // iptables and nft front doors drive the one ruleset (netfilter is always
+  // present on a Linux router, an empty ruleset is a pass-through).
+  {
+    const nf = command.trim().toLowerCase();
+    if (nf.startsWith("iptables") || nf.startsWith("nft")) {
+      if (mode !== "privileged" && mode !== "config") {   // what the registry (and `?`) advertise
+        const tool = nf.startsWith("nft") ? "nft" : "iptables";
+        terminalLine("error", mode === "exec" ? "% Privileged mode required. Enter enable first." : `% Leave the sub-mode first (exit) — ${tool} runs in privileged or config mode.`);
+        return;
+      }
+      if (nf.startsWith("nft")) runNftCommand(router, command, ["input", "forward"]);
+      else runIptablesCommand(router, command, ["input", "forward"]);
       return;
     }
-    runIptablesCommand(router, command, ["input", "forward"]);
-    return;
   }
   // The neighbour (ARP) cache lives in the router's Linux kernel too: `ip neigh
   // flush all` clears every interface's entries, so each next hop ARPs afresh —

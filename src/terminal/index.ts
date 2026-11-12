@@ -8,3 +8,4 @@ export * from "./firewall";
 export * from "./ids";
 export * from "./attacker";
 export * from "./iptables";
+export * from "./nftables";

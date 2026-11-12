@@ -127,6 +127,51 @@ per-chain default-policy select, and an add-rule form — target / protocol /
 iptables CLI does. Powered-off firewalls drop everything.
 
 
+## nftables — the second front door (issue #1)
+
+nftables has replaced iptables on current Linux and is the cleaner syntax to
+learn first. `terminal/nftables.ts` is a second parser + printer over the **same**
+`config.rules`/`config.policy` model, so a rule written in either language yields
+an identical `FirewallRule` and the two native views can never disagree.
+
+- **One model, two parsers.** An `nft` match clause is translated to the
+  equivalent iptables match flags and handed to the **same `parseFirewallRule`**
+  the `iptables` shell uses (`nftClauseToFlags`), so every field check (`dport`
+  needs `tcp`, port range, `--icmp-type` needs `icmp`, …) lives in one place. A
+  ruleset written with `nft` reads back under `iptables-save` and vice versa —
+  proven both ways in `tests/nftables.test.ts`.
+- **Both shells always accept either language.** `runNftCommand` and
+  `runIptablesCommand` both run on the firewall (FORWARD) and the router (INPUT +
+  FORWARD, privileged/config mode). The toggle below is presentation only, not a
+  gate — a learner pasting either syntax works.
+- **The toggle** `config.ruleLang` (`"iptables"` default, or `"nftables"`) picks
+  the dialect the device *presents* its ruleset in: the inspector's native view
+  (`nft list ruleset` ⇄ `iptables-save`/`-L`) and rule rows, and the script
+  export. Set it with the console `rulelang <device> iptables|nftables`, the
+  inspector's **Rule language** select, or on import; it round-trips via
+  `buildConfigPayload` + `normaliseDeviceConfig`.
+- **Printer.** `ruleToNft(rule)` is the inverse of the parser (one FirewallRule
+  as its nft statement); `showNftRuleset(device, chains)` prints the whole
+  `table inet filter { chain … { type … policy …; <statements> } }` exactly as
+  `nft list ruleset` would, and the script export replays through it.
+
+First cut (matching the engine's reach): family `inet`, table `filter`, the
+`forward`/`input` chains, matches on `ip saddr`/`ip daddr`, `ip protocol` /
+`tcp dport` / `icmp type`, `ct state`, the accept/drop/reject verdicts (with
+`reject with …`), and per-chain `policy` (via `nft add chain … { policy … ; }`).
+nft **handles** are modelled as 1-based rule positions (`delete rule … handle N`).
+Sets, maps, named tables and other families come later.
+
+```
+nft list ruleset
+nft add rule inet filter forward tcp dport 22 accept
+nft add rule inet filter forward ct state established,related accept
+nft insert rule inet filter forward index 1 ip saddr 10.0.0.5 accept
+nft delete rule inet filter forward handle 2
+nft add chain inet filter forward { policy drop ; }
+nft flush ruleset
+```
+
 ## `ruleToIptables` — the parser's inverse
 
 `terminal/iptables.ts` also exports **`ruleToIptables(rule)`**, which renders one `FirewallRule` as an `iptables -A CHAIN … -j TARGET` line that `runIptablesCommand` re-parses to the same rule (`-p`, `-s`, `-d`, `--icmp-type`, `--dport`, `-m state --state A,B`, `--reject-with`). The script export replays a device's netfilter state through it, `iptables-save`-style — a DROP policy and its allow-list used to be dropped from the export entirely, so a replayed firewall came back as an empty ACCEPT. The formatter and the parser live in the same module so they stay in step; `tests/firewall.test.ts` round-trips every field through both.

@@ -6,7 +6,8 @@
 import type { Device } from "../types";
 import { state } from "../state";
 import { terminalLine } from "./core";
-import { runIptablesCommand, iptablesHelpLines } from "./iptables";
+import { runIptablesCommand, iptablesHelpLines, ruleLangOf } from "./iptables";
+import { runNftCommand, nftHelpLines } from "./nftables";
 
 const FIREWALL_CHAINS = ["forward"];
 
@@ -14,13 +15,21 @@ export function runFirewallTerminalCommand(device: Device, command: string): voi
   const lower = command.toLowerCase().trim();
   if (lower === "clear") { state.terminal.lines = []; return; }
   if (lower === "help" || lower === "?") {
+    // Both front doors always work; lead with the device's chosen language.
+    const nftFirst = ruleLangOf(device) === "nftables";
+    const ipt = [...iptablesHelpLines(FIREWALL_CHAINS)];
+    const nft = [...nftHelpLines(FIREWALL_CHAINS)];
     terminalLine("muted", [
-      ...iptablesHelpLines(FIREWALL_CHAINS),
+      ...(nftFirst ? nft : ipt),
+      "",
+      `  Or ${nftFirst ? "iptables" : "nft"} (same ruleset): ${nftFirst ? "iptables -L" : "nft list ruleset"}`,
       "  Note: transparent mode filters the FORWARD chain only.",
       "clear",
     ].join("\n"));
     return;
   }
+  // nft and iptables are two front doors onto one ruleset — accept either.
+  if (runNftCommand(device, command, FIREWALL_CHAINS)) return;
   if (runIptablesCommand(device, command, FIREWALL_CHAINS)) return;
-  terminalLine("error", `${command}: command not found (try "iptables ..." or "help")`);
+  terminalLine("error", `${command}: command not found (try "nft ..." / "iptables ..." or "help")`);
 }

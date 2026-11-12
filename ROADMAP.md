@@ -135,22 +135,20 @@ The four still open:
    prefer the selected flow), and must not carry meaning by colour alone. This
    is the canvas half of the **"Why?" affordance** below — build them together.
    Effort: moderate–high.
-3. **nftables alongside iptables**
-   ([#1](https://github.com/trevorandersen/routesim/issues/1)) — nftables has
-   replaced iptables on current Linux, and is the cleaner syntax to learn
-   first. A **per-device rule-language toggle** (iptables | nftables) on routers
-   and the firewall that switches three things together: the shell accepts
-   `nft add rule inet filter forward tcp dport 22 accept` / `nft list ruleset`
-   (or `iptables …` / `iptables-save`), the inspector's add-rule form follows
-   the chosen language's vocabulary, and a **native ruleset view** shows the
-   device's rules exactly as `nft list ruleset` or `iptables-save` would print
-   them. One rule model underneath (`config.rules`/`config.policy`, the shared
-   netfilter engine) — nftables is a second parser and printer over it, so the
-   two views can never disagree, and a ruleset written in one reads back in the
-   other. Scope the first cut to what the engine already matches (chain,
-   protocol, addresses, `dport`, `ct state`, accept/drop/reject, policy); sets,
-   maps and named tables come later. Scenarios and the script export need a
-   decision on which language they speak by default. Effort: moderate–high.
+> **nftables alongside iptables — shipped (2026-11)**
+> ([#1](https://github.com/trevorandersen/routesim/issues/1)). `terminal/nftables.ts`
+> is a second parser + printer over the one netfilter model (`config.rules` /
+> `config.policy`): both the `iptables` and `nft` shells always parse into the
+> same `FirewallRule`, so a ruleset written in either language reads back in the
+> other (proven both ways in `tests/nftables.test.ts`). A per-device
+> `config.ruleLang` toggle (`rulelang <device> …` / the inspector's **Rule
+> language** select) picks the dialect the native view, the inspector rule rows
+> and the script export speak; it round-trips. First cut covers family `inet`,
+> table `filter`, the forward/input chains, `ip saddr`/`daddr`, `ip protocol` /
+> `tcp dport` / `icmp type`, `ct state`, accept/drop/reject (with `reject
+> with …`), and per-chain policy. **Later:** sets, maps, named tables, other
+> families; and deciding which language scenarios speak by default (they stay
+> iptables for now).
 
 ## Later
 

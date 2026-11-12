@@ -1635,6 +1635,33 @@
     }
     .fw-select:focus, .fw-add-form input:focus { border-color: var(--accent); outline: none; }
 
+    /* The native ruleset view (iptables-save / nft list ruleset), collapsible. */
+        .fw-nft-row { display: flex; align-items: center; gap: 6px; font-family: var(--mono, ui-monospace, Menlo, monospace); font-size: 10.5px; }
+    .fw-nft-row.fw-accept { color: var(--ok, #16794b); }
+    .fw-nft-row.fw-drop { color: var(--muted); }
+    .fw-nft-row.fw-reject { color: var(--danger, #b4232a); }
+    .fw-native-view { margin-top: 8px; }
+    .fw-native-view summary {
+      font-size: 11px;
+      color: var(--muted);
+      font-weight: 600;
+      cursor: pointer;
+      font-family: var(--mono, ui-monospace, SFMono-Regular, Menlo, monospace);
+    }
+    .fw-native {
+      margin: 6px 0 0;
+      padding: 8px;
+      border-radius: 6px;
+      border: 1px solid var(--line);
+      background: var(--panel);
+      color: var(--text);
+      font-family: var(--mono, ui-monospace, SFMono-Regular, Menlo, monospace);
+      font-size: 10.5px;
+      line-height: 1.5;
+      white-space: pre;
+      overflow-x: auto;
+    }
+
     .wide-button {
       width: 100%;
       height: 40px;

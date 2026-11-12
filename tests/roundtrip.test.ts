@@ -122,6 +122,29 @@ describe("export → replay: the awkward corners", () => {
     expect(dev("My PC").config!.dot1x).toEqual({ identity: "alice", password: "" });
   });
 
+  it("nftables: the language toggle, a drop policy and its rules replay (issue #1)", () => {
+    runConsoleScript(`
+      add firewall FW at 100 100
+      add computer A at 300 100
+      add computer B at 500 100
+      link A FW
+      link FW B
+      rulelang FW nftables
+      cli FW nft add chain inet filter forward { policy drop ; }
+      cli FW nft add rule inet filter forward ct state established,related accept
+      cli FW nft add rule inet filter forward ip saddr 10.0.0.5 tcp dport 22 accept
+      cli FW nft add rule inet filter forward tcp dport 23 reject with tcp reset
+    `);
+    expect(dev("FW").config!.ruleLang).toBe("nftables");
+    expect(dev("FW").config!.policy!.forward).toBe("drop");
+    expect(dev("FW").config!.rules!.length).toBe(3);
+    const { rejected, diffs, script } = roundTrip();
+    expect(script).toContain("rulelang FW nftables");
+    expect(script).toContain("nft add rule inet filter forward ip saddr 10.0.0.5 tcp dport 22 accept");
+    expect(rejected).toEqual([]);
+    expect(diffs).toEqual([]);
+  });
+
   it("VLAN names survive (R79)", () => {
     runConsoleScript(`
       add switch SW at 100 100

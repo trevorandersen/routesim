@@ -36,7 +36,8 @@ import { SPEED_MIN, SPEED_MAX } from "./settings-url";
 import { setSeedOverride, getSeedOverride, currentSimSeed } from "./prng";
 import { parseSnortRule } from "./snort";
 import { tokenizeCommand, quoteArg } from "./tokenize";
-import { ruleToIptables } from "./terminal/iptables";
+import { ruleToIptables, ruleLangOf } from "./terminal/iptables";
+import { ruleToNft } from "./terminal/nftables";
 import { diagnoseState } from "./diagnostics";
 import { DEFAULT_STRESS_SEED, DEFAULT_STRESS_STEPS, MAX_STRESS_STEPS, runStressTest } from "./stress";
 
@@ -585,6 +586,20 @@ function cmdWeb(args: string[]): CommandResult {
 // Set a router's placement archetype: `role <router> border|internal`. A border
 // router faces the outside (pair it with NAT + a firewall); internal is the
 // plain default (interior forwarding).
+function cmdRuleLang(args: string[]): CommandResult {
+  const device = resolveDevice(args[0]);
+  if (typeof device === "string") return err(device);
+  if (device.type !== "firewall" && device.type !== "router") return err(`${device.name} has no netfilter ruleset.`);
+  const lang = (args[1] || "").toLowerCase();
+  if (lang !== "iptables" && lang !== "nftables") return err(`rulelang: expected "rulelang <device> iptables|nftables".`);
+  pushUndo();
+  ensureConfig(device);
+  if (lang === "nftables") (device.config as any).ruleLang = "nftables";
+  else delete (device.config as any).ruleLang; // iptables is the plain default
+  sync().syncPanel();
+  return ok(`${device.name} now speaks ${lang}.`);
+}
+
 function cmdRole(args: string[]): CommandResult {
   const router = resolveDevice(args[0]);
   if (typeof router === "string") return err(router);
@@ -1127,7 +1142,7 @@ const COMMANDS: Record<string, Handler> = {
   move: cmdMove, rename: cmdRename, clear: cmdClear, collapse: cmdCollapse, expand: cmdExpand,
   ip: cmdIp, gateway: cmdGateway, nameserver: cmdNameserver, mac: cmdMac, ssid: cmdSsid, interface: cmdInterface, route: cmdRoute,
   supplicant: cmdSupplicant, portauth: cmdPortAuth, radius: cmdRadius, ports: cmdPorts, dot1x: cmdDot1x, macsec: cmdMacsec,
-  vlan: cmdVlan, port: cmdPort, managed: cmdManaged, role: cmdRole, stp: cmdStp, mirror: cmdMirror, web: cmdWeb, idsrule: cmdIdsRule, attack: cmdAttack, redteam: cmdRedteam, cli: cmdCli,
+  vlan: cmdVlan, port: cmdPort, managed: cmdManaged, role: cmdRole, rulelang: cmdRuleLang, stp: cmdStp, mirror: cmdMirror, web: cmdWeb, idsrule: cmdIdsRule, attack: cmdAttack, redteam: cmdRedteam, cli: cmdCli,
   ping: cmdPing, dhcp: cmdDhcp, connect: cmdConnect, http: cmdHttp, associate: cmdAssociate, run: cmdRun, traceroute: cmdTraceroute, tracert: cmdTraceroute,
   play: cmdPlay, pause: cmdPause, step: cmdStep,
   stop: cmdStop, speed: cmdSpeed, seed: cmdSeed,
@@ -1159,6 +1174,7 @@ const HELP: Record<string, string> = {
   vlan: "vlan <switch> add <id> [name] | vlan <switch> del <id>", port: "port <switch> <EthN> vlan|mode|native|allowed ...",
   managed: "managed <switch> [on|off] (enable the switch's management plane: VLANs, STP, port security)",
   role: "role <router> border|internal (set the router's placement archetype — border faces the outside)",
+  rulelang: "rulelang <firewall|router> iptables|nftables (which language its view / add-rule form / export speak; both shells always parse either)",
   stp: "stp (animate the BPDU exchange) | stp <switch> on|off | stp <switch> priority <n> (default on for managed switches)",
   mirror: "mirror <switch> <dst-port> [src-port…] | mirror <switch> off (SPAN: copy traffic to a monitor port for an IDS)",
   web: "web <server> on|off [title] (enable/disable the server's HTTP service)",
@@ -1380,18 +1396,36 @@ export function exportTopologyScript(): string {
         cfg.push(`interface ${entry.name}`, `ip nat ${i.natRole}`, "exit");
       }
       for (const r of (c.portForwards || [])) cfg.push(`ip nat inside source static tcp ${r.insideIp} ${r.insidePort} ${r.outsideIp} ${r.outsidePort}`);
+      // netfilter replays in the device's chosen language (round-tripping the
+      // `rulelang` toggle too) — both shells parse either, so the rules are the
+      // same model whichever is emitted.
+      const nft = ruleLangOf(d) === "nftables";
       const priv: string[] = [];
-      for (const [chain, pol] of Object.entries(c.policy || {})) if (pol === "drop") priv.push(`iptables -P ${String(chain).toUpperCase()} DROP`);
-      for (const r of (c.rules || [])) priv.push(ruleToIptables(r));
+      if (nft) {
+        for (const [chain, pol] of Object.entries(c.policy || {})) if (pol === "drop") priv.push(`nft add chain inet filter ${chain} { policy drop ; }`);
+        for (const r of (c.rules || [])) priv.push(`nft add rule inet filter ${r.chain || "forward"} ${ruleToNft(r)}`);
+      } else {
+        for (const [chain, pol] of Object.entries(c.policy || {})) if (pol === "drop") priv.push(`iptables -P ${String(chain).toUpperCase()} DROP`);
+        for (const r of (c.rules || [])) priv.push(ruleToIptables(r));
+      }
+      if (nft) lines.push(`rulelang ${quoteArg(d.name)} nftables`);
       if (cfg.length || priv.length) lines.push(cli("enable"));
       if (cfg.length) lines.push(cli("configure terminal"), ...cfg.map(cli), cli("end"));
       lines.push(...priv.map(cli));
     } else if (d.type === "firewall") {
       // The transparent filter had NO export branch — a DROP policy with an
-      // allow-list replayed as an empty ACCEPT firewall. Same iptables-save
-      // shape as the router, minus the mode dance (the firewall shell is flat).
-      if (c.policy?.forward === "drop") lines.push(`cli ${quoteArg(d.name)} iptables -P FORWARD DROP`);
-      for (const r of (c.rules || [])) lines.push(`cli ${quoteArg(d.name)} ${ruleToIptables(r)}`);
+      // allow-list replayed as an empty ACCEPT firewall. Same shape as the
+      // router, minus the mode dance (the firewall shell is flat), and in the
+      // device's chosen language (round-tripping the `rulelang` toggle).
+      const nft = ruleLangOf(d) === "nftables";
+      if (nft) lines.push(`rulelang ${quoteArg(d.name)} nftables`);
+      if (nft) {
+        if (c.policy?.forward === "drop") lines.push(`cli ${quoteArg(d.name)} nft add chain inet filter forward { policy drop ; }`);
+        for (const r of (c.rules || [])) lines.push(`cli ${quoteArg(d.name)} nft add rule inet filter ${r.chain || "forward"} ${ruleToNft(r)}`);
+      } else {
+        if (c.policy?.forward === "drop") lines.push(`cli ${quoteArg(d.name)} iptables -P FORWARD DROP`);
+        for (const r of (c.rules || [])) lines.push(`cli ${quoteArg(d.name)} ${ruleToIptables(r)}`);
+      }
     } else if (d.type === "access-point") {
       lines.push(`ssid ${quoteArg(d.name)} ${quoteArg(c.ssid || "")}${c.wifiPassword ? ` ${quoteArg(c.wifiPassword)}` : ""}`);
     }

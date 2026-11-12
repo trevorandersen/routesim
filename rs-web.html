@@ -1644,6 +1644,33 @@
     }
     .fw-select:focus, .fw-add-form input:focus { border-color: var(--accent); outline: none; }
 
+    /* The native ruleset view (iptables-save / nft list ruleset), collapsible. */
+        .fw-nft-row { display: flex; align-items: center; gap: 6px; font-family: var(--mono, ui-monospace, Menlo, monospace); font-size: 10.5px; }
+    .fw-nft-row.fw-accept { color: var(--ok, #16794b); }
+    .fw-nft-row.fw-drop { color: var(--muted); }
+    .fw-nft-row.fw-reject { color: var(--danger, #b4232a); }
+    .fw-native-view { margin-top: 8px; }
+    .fw-native-view summary {
+      font-size: 11px;
+      color: var(--muted);
+      font-weight: 600;
+      cursor: pointer;
+      font-family: var(--mono, ui-monospace, SFMono-Regular, Menlo, monospace);
+    }
+    .fw-native {
+      margin: 6px 0 0;
+      padding: 8px;
+      border-radius: 6px;
+      border: 1px solid var(--line);
+      background: var(--panel);
+      color: var(--text);
+      font-family: var(--mono, ui-monospace, SFMono-Regular, Menlo, monospace);
+      font-size: 10.5px;
+      line-height: 1.5;
+      white-space: pre;
+      overflow-x: auto;
+    }
+
     .wide-button {
       width: 100%;
       height: 40px;
@@ -3718,6 +3745,7 @@ Full legal text: https://creativecommons.org/publicdomain/zero/1.0/legalcode</pr
         ...ripConfig.enabled ? { rip: ripConfig } : {},
         ...rules.length ? { rules } : {},
         ...Object.keys(policy).length ? { policy } : {},
+        ...device.config?.ruleLang === "nftables" ? { ruleLang: "nftables" } : {},
         ...Array.isArray(device.config?.natTranslations) && device.config.natTranslations.length ? { natTranslations: device.config.natTranslations } : {},
         ...((pf) => pf.length ? { portForwards: pf } : {})(normalisePortForwards(device.config?.portForwards))
       };
@@ -3728,7 +3756,8 @@ Full legal text: https://creativecommons.org/publicdomain/zero/1.0/legalcode</pr
       return {
         ethernetPorts,
         rules: normaliseFirewallRules(device.config?.rules || device.rules || []),
-        policy: { forward: rawPolicy.forward === "drop" ? "drop" : "accept" }
+        policy: { forward: rawPolicy.forward === "drop" ? "drop" : "accept" },
+        ...device.config?.ruleLang === "nftables" ? { ruleLang: "nftables" } : {}
       };
     }
     if (device.type === "ids") {
@@ -10384,6 +10413,9 @@ ${body}
   }
 
   // src/terminal/iptables.ts
+  function ruleLangOf(device) {
+    return device.config?.ruleLang === "nftables" ? "nftables" : "iptables";
+  }
   function isAddressOrCidr(v) {
     const m = v.match(/^([^/]+)(?:\/(\d{1,2}))?$/);
     if (!m || !isValidIpv4(m[1])) return false;
@@ -10629,6 +10661,269 @@ ${body}
       return true;
     }
     terminalLine("error", `iptables: unknown operation "${args[0] || ""}". Try "iptables -h".`);
+    return true;
+  }
+
+  // src/terminal/nftables.ts
+  var TABLE = "inet filter";
+  var CHAIN_HOOK = { forward: "forward", input: "input", output: "output" };
+  var NFT_REJECT_TO_IPT = {
+    "tcp reset": "tcp-reset",
+    "icmp type port-unreachable": "icmp-port-unreachable",
+    "icmp type host-unreachable": "icmp-host-unreachable",
+    "icmp type net-unreachable": "icmp-net-unreachable",
+    "icmp type prot-unreachable": "icmp-proto-unreachable",
+    "icmp type admin-prohibited": "icmp-admin-prohibited"
+  };
+  var IPT_REJECT_TO_NFT = Object.fromEntries(
+    Object.entries(NFT_REJECT_TO_IPT).map(([nft, ipt]) => [ipt, nft])
+  );
+  function nftClauseToFlags(toks) {
+    const flags = [];
+    let verdict = null;
+    for (let i = 0; i < toks.length; i++) {
+      const t = toks[i];
+      const next = toks[i + 1];
+      if (t === "ip" && next === "saddr") {
+        if (!toks[i + 2]) return "nft: ip saddr needs an address";
+        flags.push("-s", toks[i + 2]);
+        i += 2;
+      } else if (t === "ip" && next === "daddr") {
+        if (!toks[i + 2]) return "nft: ip daddr needs an address";
+        flags.push("-d", toks[i + 2]);
+        i += 2;
+      } else if (t === "ip" && next === "protocol") {
+        if (!toks[i + 2]) return "nft: ip protocol needs a value";
+        flags.push("-p", toks[i + 2]);
+        i += 2;
+      } else if (t === "tcp" && next === "dport") {
+        if (!toks[i + 2]) return "nft: tcp dport needs a port";
+        flags.push("-p", "tcp", "--dport", toks[i + 2]);
+        i += 2;
+      } else if (t === "udp" && next === "dport") {
+        if (!toks[i + 2]) return "nft: udp dport needs a port";
+        flags.push("-p", "udp", "--dport", toks[i + 2]);
+        i += 2;
+      } else if (t === "icmp" && next === "type") {
+        if (!toks[i + 2]) return "nft: icmp type needs a value";
+        flags.push("-p", "icmp", "--icmp-type", toks[i + 2]);
+        i += 2;
+      } else if (t === "ct" && next === "state") {
+        if (!toks[i + 2]) return "nft: ct state needs a state list";
+        flags.push("-m", "state", "--state", toks[i + 2]);
+        i += 2;
+      } else if (t === "accept" || t === "drop") {
+        verdict = t;
+      } else if (t === "reject") {
+        verdict = "reject";
+        if (next === "with") {
+          const spelling = toks.slice(i + 2).join(" ");
+          const ipt = NFT_REJECT_TO_IPT[spelling];
+          if (!ipt) return `nft: unknown reject spelling "${spelling}"`;
+          flags.push("--reject-with", ipt);
+          i = toks.length;
+        }
+      } else return `nft: unexpected token "${t}"`;
+    }
+    if (!verdict) return "nft: rule needs a verdict (accept | drop | reject)";
+    flags.push("-j", verdict.toUpperCase());
+    const rwAt = flags.indexOf("--reject-with");
+    if (rwAt !== -1 && rwAt < flags.indexOf("-j")) {
+      const rw = flags.splice(rwAt, 2);
+      flags.push(...rw);
+    }
+    return flags;
+  }
+  function ruleToNft(rule) {
+    const parts = [];
+    if (rule.src) parts.push(`ip saddr ${rule.src}`);
+    if (rule.dst) parts.push(`ip daddr ${rule.dst}`);
+    if (rule.protocol === "tcp" && rule.dport != null) parts.push(`tcp dport ${rule.dport}`);
+    else if (rule.protocol === "icmp" && rule.icmpType) parts.push(`icmp type ${rule.icmpType}`);
+    else if (rule.protocol && rule.protocol !== "all") parts.push(`ip protocol ${rule.protocol}`);
+    if (rule.states?.length) parts.push(`ct state ${rule.states.join(",")}`);
+    if (rule.target === "reject" && rule.rejectWith) {
+      parts.push(`reject with ${IPT_REJECT_TO_NFT[rule.rejectWith] ?? "icmp type port-unreachable"}`);
+    } else {
+      parts.push(rule.target);
+    }
+    return parts.join(" ");
+  }
+  function showNftRuleset(device, chains = ["forward"]) {
+    const lines = ["table inet filter {"];
+    for (const chain of chains) {
+      const policy = (device.config?.policy || {})[chain] || "accept";
+      const rules = (device.config?.rules || []).filter((r) => (r.chain || "forward") === chain);
+      lines.push(`	chain ${chain} {`);
+      lines.push(`		type filter hook ${CHAIN_HOOK[chain] ?? chain} priority 0; policy ${policy};`);
+      for (const r of rules) lines.push(`		${ruleToNft(r)}`);
+      lines.push("	}");
+    }
+    lines.push("}");
+    return lines.join("\n");
+  }
+  function nftHelpLines(allowed) {
+    const C = allowed.join(" | ");
+    return [
+      `nft list ruleset                                  show the ${TABLE} table`,
+      `nft add rule inet filter <chain> <match...> <verdict>     append a rule`,
+      `nft insert rule inet filter <chain> [index N] <match...> <verdict>   insert`,
+      `nft delete rule inet filter <chain> handle N      delete rule N (1-based)`,
+      `nft add chain inet filter <chain> { policy accept | drop ; }   set the policy`,
+      `nft flush chain inet filter <chain>               flush a chain`,
+      `nft flush ruleset                                 flush everything`,
+      "  matches: ip saddr <ip/cidr>  ip daddr <ip/cidr>  ip protocol icmp|tcp|udp",
+      "           tcp dport <port>  icmp type <t>  ct state established,related",
+      "  verdicts: accept  drop  reject [with tcp reset | icmp type port-unreachable]",
+      `  chains: ${C}`
+    ];
+  }
+  function takeTableChain(args, allowed) {
+    let a = args;
+    if (a[0] === "inet" && a[1] === "filter") a = a.slice(2);
+    else if (a[0] === "ip" && a[1] === "filter") a = a.slice(2);
+    const chainName = (a[0] || "").toLowerCase();
+    if (!allowed.includes(chainName)) {
+      return `nft: chain must be ${allowed.join(" | ")} (in table ${TABLE}).`;
+    }
+    return { chain: chainName, rest: a.slice(1) };
+  }
+  function runNftCommand(device, command, allowed) {
+    const tokens = command.trim().split(/\s+/);
+    if (tokens[0]?.toLowerCase() !== "nft") return false;
+    const lower = command.toLowerCase().trim();
+    if (lower === "nft -h" || lower === "nft --help" || lower === "nft help") {
+      terminalLine("muted", nftHelpLines(allowed).join("\n"));
+      return true;
+    }
+    ensureConfig(device);
+    const cfg = device.config;
+    const rulesOf = () => cfg.rules = cfg.rules || [];
+    const policyOf = () => cfg.policy = cfg.policy || {};
+    const chainRules = (chain) => (cfg.rules || []).filter((r) => (r.chain || "forward") === chain);
+    const verb = (tokens[1] || "").toLowerCase();
+    const object = (tokens[2] || "").toLowerCase();
+    const rest = tokens.slice(3);
+    if (verb === "list") {
+      if (object === "ruleset" || object === "table") {
+        terminalLine("", showNftRuleset(device, allowed));
+        return true;
+      }
+      if (object === "chain") {
+        const tc = takeTableChain(rest, allowed);
+        if (typeof tc === "string") {
+          terminalLine("error", tc);
+          return true;
+        }
+        terminalLine("", showNftRuleset(device, [tc.chain]));
+        return true;
+      }
+      terminalLine("error", `nft: list what? Try "nft list ruleset".`);
+      return true;
+    }
+    if (verb === "flush") {
+      if (object === "ruleset" || object === "table") {
+        pushUndo();
+        cfg.rules = rulesOf().filter((r) => !allowed.includes(r.chain || "forward"));
+        sync().syncPanel();
+        terminalLine("", object === "ruleset" ? "Flushed the ruleset." : `Flushed table ${TABLE}.`);
+        return true;
+      }
+      if (object === "chain") {
+        const tc = takeTableChain(rest, allowed);
+        if (typeof tc === "string") {
+          terminalLine("error", tc);
+          return true;
+        }
+        pushUndo();
+        cfg.rules = rulesOf().filter((r) => (r.chain || "forward") !== tc.chain);
+        sync().syncPanel();
+        terminalLine("", `Flushed chain ${tc.chain}.`);
+        return true;
+      }
+      terminalLine("error", `nft: flush what? Try "nft flush ruleset".`);
+      return true;
+    }
+    if ((verb === "add" || verb === "create") && object === "chain") {
+      const tc = takeTableChain(rest, allowed);
+      if (typeof tc === "string") {
+        terminalLine("error", tc);
+        return true;
+      }
+      const body = command.slice(command.indexOf("{") + 1, command.lastIndexOf("}"));
+      const m = command.includes("{") ? body.match(/policy\s+(accept|drop)/i) : null;
+      if (!m) {
+        terminalLine("error", `nft: add chain needs a { policy accept|drop ; } body.`);
+        return true;
+      }
+      pushUndo();
+      policyOf()[tc.chain] = m[1].toLowerCase();
+      sync().syncPanel();
+      terminalLine("", `Set chain ${tc.chain} policy to ${m[1].toLowerCase()}.`);
+      return true;
+    }
+    if ((verb === "add" || verb === "insert") && object === "rule") {
+      const tc = takeTableChain(rest, allowed);
+      if (typeof tc === "string") {
+        terminalLine("error", tc);
+        return true;
+      }
+      let clause = tc.rest;
+      let pos = -1;
+      const inserting = verb === "insert";
+      if (inserting && (clause[0] === "index" || clause[0] === "position") && /^\d+$/.test(clause[1] || "")) {
+        pos = parseInt(clause[1], 10);
+        clause = clause.slice(2);
+      }
+      const flags = nftClauseToFlags(clause);
+      if (typeof flags === "string") {
+        terminalLine("error", flags);
+        return true;
+      }
+      if (!inserting) {
+        const result = appendFirewallRule(device, tc.chain, flags, allowed);
+        terminalLine(result.ok ? "" : "error", result.ok ? result.message : result.error);
+        return true;
+      }
+      const probe = appendFirewallRule(device, tc.chain, flags, allowed);
+      if (!probe.ok) {
+        terminalLine("error", probe.error);
+        return true;
+      }
+      const all = rulesOf();
+      const parsed = all[all.length - 1];
+      all.pop();
+      const existing = chainRules(tc.chain);
+      const insertAt = pos >= 1 ? Math.min(pos - 1, existing.length) : 0;
+      const anchor = existing[insertAt];
+      const idx = anchor ? all.indexOf(anchor) : all.length;
+      all.splice(idx, 0, parsed);
+      sync().syncPanel();
+      terminalLine("", `Inserted ${tc.chain} rule (${parsed.target}).`);
+      return true;
+    }
+    if (verb === "delete" && object === "rule") {
+      const tc = takeTableChain(rest, allowed);
+      if (typeof tc === "string") {
+        terminalLine("error", tc);
+        return true;
+      }
+      let clause = tc.rest;
+      if (clause[0] === "handle") clause = clause.slice(1);
+      const n = parseInt(clause[0], 10);
+      const rules = chainRules(tc.chain);
+      if (!Number.isInteger(n) || n < 1 || n > rules.length) {
+        terminalLine("error", `nft: no rule with handle ${clause[0] ?? ""} in chain ${tc.chain}.`);
+        return true;
+      }
+      pushUndo();
+      const victim = rules[n - 1];
+      cfg.rules = rulesOf().filter((r) => r !== victim);
+      sync().syncPanel();
+      terminalLine("", `Deleted ${tc.chain} rule ${n}.`);
+      return true;
+    }
+    terminalLine("error", `nft: unsupported command. Try "nft -h".`);
     return true;
   }
 
@@ -10998,13 +11293,18 @@ ${body}
       }
       return;
     }
-    if (command.trim().toLowerCase().startsWith("iptables")) {
-      if (mode !== "privileged" && mode !== "config") {
-        terminalLine("error", mode === "exec" ? "% Privileged mode required. Enter enable first." : "% Leave the sub-mode first (exit) \u2014 iptables runs in privileged or config mode.");
+    {
+      const nf = command.trim().toLowerCase();
+      if (nf.startsWith("iptables") || nf.startsWith("nft")) {
+        if (mode !== "privileged" && mode !== "config") {
+          const tool = nf.startsWith("nft") ? "nft" : "iptables";
+          terminalLine("error", mode === "exec" ? "% Privileged mode required. Enter enable first." : `% Leave the sub-mode first (exit) \u2014 ${tool} runs in privileged or config mode.`);
+          return;
+        }
+        if (nf.startsWith("nft")) runNftCommand(router, command, ["input", "forward"]);
+        else runIptablesCommand(router, command, ["input", "forward"]);
         return;
       }
-      runIptablesCommand(router, command, ["input", "forward"]);
-      return;
     }
     if (/^ip\s+(?:neigh|neighbour|neighbor)\s+flush\s+all$/i.test(command.trim())) {
       if (mode !== "privileged" && mode !== "config") {
@@ -11905,15 +12205,21 @@ ${body}
       return;
     }
     if (lower === "help" || lower === "?") {
+      const nftFirst = ruleLangOf(device) === "nftables";
+      const ipt = [...iptablesHelpLines(FIREWALL_CHAINS)];
+      const nft = [...nftHelpLines(FIREWALL_CHAINS)];
       terminalLine("muted", [
-        ...iptablesHelpLines(FIREWALL_CHAINS),
+        ...nftFirst ? nft : ipt,
+        "",
+        `  Or ${nftFirst ? "iptables" : "nft"} (same ruleset): ${nftFirst ? "iptables -L" : "nft list ruleset"}`,
         "  Note: transparent mode filters the FORWARD chain only.",
         "clear"
       ].join("\n"));
       return;
     }
+    if (runNftCommand(device, command, FIREWALL_CHAINS)) return;
     if (runIptablesCommand(device, command, FIREWALL_CHAINS)) return;
-    terminalLine("error", `${command}: command not found (try "iptables ..." or "help")`);
+    terminalLine("error", `${command}: command not found (try "nft ..." / "iptables ..." or "help")`);
   }
 
   // src/terminal/ids.ts
@@ -13171,7 +13477,12 @@ Snort successfully validated the configuration${bad ? " (with errors)" : "."}`);
   function renderFirewallRules(device) {
     const rules = device.config?.rules || [];
     if (!rules.length) return `<p class="empty-state">No rules \u2014 the default policy applies to all traffic.</p>`;
+    const nft = ruleLangOf(device) === "nftables";
+    const del = (index) => `<button class="inline-button fw-rule-del" type="button" data-fw-del="${index}" title="Delete this rule" aria-label="Delete rule">&times;</button>`;
     return `<ol class="fw-rule-list">${rules.map((r, index) => {
+      if (nft) {
+        return `<li class="fw-nft-row fw-${escapeHtml(r.target)}">${escapeHtml(String(r.chain || "forward"))} ${escapeHtml(ruleToNft(r))}${del(index)}</li>`;
+      }
       const match = [
         r.protocol ? `-p ${escapeHtml(r.protocol)}` : "",
         r.src ? `-s ${escapeHtml(r.src)}` : "",
@@ -13181,11 +13492,25 @@ Snort successfully validated the configuration${bad ? " (with errors)" : "."}`);
         r.states?.length ? `--state ${escapeHtml(r.states.map((s) => s.toUpperCase()).join(","))}` : "",
         r.rejectWith ? `--reject-with ${escapeHtml(r.rejectWith)}` : ""
       ].filter(Boolean).join(" ");
-      return `<li><span class="fw-target fw-${escapeHtml(r.target)}">${escapeHtml(String(r.target).toUpperCase())}</span> ${escapeHtml(String(r.chain || "forward").toUpperCase())} ${match || "(any)"}<button class="inline-button fw-rule-del" type="button" data-fw-del="${index}" title="Delete this rule" aria-label="Delete rule">&times;</button></li>`;
+      return `<li><span class="fw-target fw-${escapeHtml(r.target)}">${escapeHtml(String(r.target).toUpperCase())}</span> ${escapeHtml(String(r.chain || "forward").toUpperCase())} ${match || "(any)"}${del(index)}</li>`;
     }).join("")}</ol>`;
   }
   function renderFirewallControls(device, chains) {
     const policy = device.config?.policy || {};
+    const lang = ruleLangOf(device);
+    const langRow = `
+      <div class="field-row fw-policy-row">
+        <label for="fwRuleLang">Rule language</label>
+        <select id="fwRuleLang" class="fw-select" data-fw-rulelang>
+          ${[["iptables", "iptables"], ["nftables", "nftables"]].map(([v, l]) => `<option value="${v}"${lang === v ? " selected" : ""}>${l}</option>`).join("")}
+        </select>
+      </div>`;
+    const native = lang === "nftables" ? showNftRuleset(device, chains) : showFirewallRules(device, false, chains);
+    const nativeView = `
+      <details class="fw-native-view">
+        <summary>${lang === "nftables" ? "nft list ruleset" : "iptables-save"}</summary>
+        <pre class="fw-native">${escapeHtml(native)}</pre>
+      </details>`;
     const policyRows = chains.map((chain) => `
       <div class="field-row fw-policy-row">
         <label for="fwPolicy-${chain}">${escapeHtml(chain.toUpperCase())} policy</label>
@@ -13198,9 +13523,11 @@ Snort successfully validated the configuration${bad ? " (with errors)" : "."}`);
           ${chains.map((c) => `<option value="${c}">${escapeHtml(c.toUpperCase())}</option>`).join("")}
         </select>` : "";
     return `
+      ${langRow}
       ${policyRows}
       <label>Rules</label>
       ${renderFirewallRules(device)}
+      ${nativeView}
       <div class="fw-add-form">
         <select id="fwAddTarget" class="fw-select" title="Target">
           ${["accept", "drop", "reject"].map((t) => `<option value="${t}">${t.toUpperCase()}</option>`).join("")}
@@ -13696,6 +14023,14 @@ Snort successfully validated the configuration${bad ? " (with errors)" : "."}`);
     });
   }
   function bindFirewallControls(device, chains) {
+    const langSel = document.querySelector("[data-fw-rulelang]");
+    langSel?.addEventListener("change", () => {
+      pushUndo();
+      ensureConfig(device);
+      if (langSel.value === "nftables") device.config.ruleLang = "nftables";
+      else delete device.config.ruleLang;
+      syncPanel();
+    });
     document.querySelectorAll("[data-fw-policy]").forEach((el) => {
       el.addEventListener("change", (event) => {
         pushUndo();
@@ -14243,7 +14578,7 @@ Snort successfully validated the configuration${bad ? " (with errors)" : "."}`);
         </div>
       </div>
       <div class="field">
-        <label>Netfilter (iptables INPUT + FORWARD)</label>
+        <label>Netfilter (${ruleLangOf(selected)} INPUT + FORWARD)</label>
         ${renderFirewallControls(selected, ["forward", "input"])}
       </div>
       ${selected.config?.natTranslations?.length ? `
@@ -14297,7 +14632,7 @@ Snort successfully validated the configuration${bad ? " (with errors)" : "."}`);
         <input id="selectedFwPorts" type="number" min="${FIREWALL_PORT_RANGE.min}" max="${FIREWALL_PORT_RANGE.max}" step="1" value="${escapeHtml(selected.config?.ethernetPorts ?? defaultPortCount(selected.type))}">
       </div>
       <div class="field">
-        <label>Netfilter (iptables FORWARD)</label>
+        <label>Netfilter (${ruleLangOf(selected)} FORWARD)</label>
         ${renderFirewallControls(selected, ["forward"])}
       </div>
     `,
@@ -16654,6 +16989,7 @@ Snort successfully validated the configuration${bad ? " (with errors)" : "."}`);
             ...config?.rip?.enabled ? { rip: { enabled: true, networks: config.rip.networks || [], passiveInterfaces: config.rip.passiveInterfaces || [] } } : {},
             ...config?.rules?.length ? { rules: normaliseFirewallRules(config.rules) } : {},
             ...config?.policy && Object.keys(config.policy).length ? { policy: config.policy } : {},
+            ...config?.ruleLang === "nftables" ? { ruleLang: "nftables" } : {},
             ...config?.natTranslations?.length ? { natTranslations: config.natTranslations } : {},
             ...((pf) => pf.length ? { portForwards: pf } : {})(normalisePortForwards(config?.portForwards)),
             ...macsecPayload(config)
@@ -16664,6 +17000,7 @@ Snort successfully validated the configuration${bad ? " (with errors)" : "."}`);
             ethernetPorts: config?.ethernetPorts ?? defaultPortCount(type),
             rules: normaliseFirewallRules(config?.rules || []),
             policy: { forward: config?.policy?.forward === "drop" ? "drop" : "accept" },
+            ...config?.ruleLang === "nftables" ? { ruleLang: "nftables" } : {},
             ...macsecPayload(config)
           }
         } : {},
@@ -17516,6 +17853,19 @@ Snort successfully validated the configuration${bad ? " (with errors)" : "."}`);
     sync().syncPanel();
     return ok(`Web service enabled on ${dev.name}${title ? ` ("${title}")` : ""}.`);
   }
+  function cmdRuleLang(args) {
+    const device = resolveDevice(args[0]);
+    if (typeof device === "string") return err(device);
+    if (device.type !== "firewall" && device.type !== "router") return err(`${device.name} has no netfilter ruleset.`);
+    const lang = (args[1] || "").toLowerCase();
+    if (lang !== "iptables" && lang !== "nftables") return err(`rulelang: expected "rulelang <device> iptables|nftables".`);
+    pushUndo();
+    ensureConfig(device);
+    if (lang === "nftables") device.config.ruleLang = "nftables";
+    else delete device.config.ruleLang;
+    sync().syncPanel();
+    return ok(`${device.name} now speaks ${lang}.`);
+  }
   function cmdRole(args) {
     const router = resolveDevice(args[0]);
     if (typeof router === "string") return err(router);
@@ -18064,6 +18414,7 @@ Snort successfully validated the configuration${bad ? " (with errors)" : "."}`);
     port: cmdPort,
     managed: cmdManaged,
     role: cmdRole,
+    rulelang: cmdRuleLang,
     stp: cmdStp,
     mirror: cmdMirror,
     web: cmdWeb,
@@ -18136,6 +18487,7 @@ Snort successfully validated the configuration${bad ? " (with errors)" : "."}`);
     port: "port <switch> <EthN> vlan|mode|native|allowed ...",
     managed: "managed <switch> [on|off] (enable the switch's management plane: VLANs, STP, port security)",
     role: "role <router> border|internal (set the router's placement archetype \u2014 border faces the outside)",
+    rulelang: "rulelang <firewall|router> iptables|nftables (which language its view / add-rule form / export speak; both shells always parse either)",
     stp: "stp (animate the BPDU exchange) | stp <switch> on|off | stp <switch> priority <n> (default on for managed switches)",
     mirror: "mirror <switch> <dst-port> [src-port\u2026] | mirror <switch> off (SPAN: copy traffic to a monitor port for an IDS)",
     web: "web <server> on|off [title] (enable/disable the server's HTTP service)",
@@ -18311,15 +18663,29 @@ Snort successfully validated the configuration${bad ? " (with errors)" : "."}`);
           cfg.push(`interface ${entry.name}`, `ip nat ${i.natRole}`, "exit");
         }
         for (const r of c.portForwards || []) cfg.push(`ip nat inside source static tcp ${r.insideIp} ${r.insidePort} ${r.outsideIp} ${r.outsidePort}`);
+        const nft = ruleLangOf(d) === "nftables";
         const priv = [];
-        for (const [chain, pol] of Object.entries(c.policy || {})) if (pol === "drop") priv.push(`iptables -P ${String(chain).toUpperCase()} DROP`);
-        for (const r of c.rules || []) priv.push(ruleToIptables(r));
+        if (nft) {
+          for (const [chain, pol] of Object.entries(c.policy || {})) if (pol === "drop") priv.push(`nft add chain inet filter ${chain} { policy drop ; }`);
+          for (const r of c.rules || []) priv.push(`nft add rule inet filter ${r.chain || "forward"} ${ruleToNft(r)}`);
+        } else {
+          for (const [chain, pol] of Object.entries(c.policy || {})) if (pol === "drop") priv.push(`iptables -P ${String(chain).toUpperCase()} DROP`);
+          for (const r of c.rules || []) priv.push(ruleToIptables(r));
+        }
+        if (nft) lines.push(`rulelang ${quoteArg(d.name)} nftables`);
         if (cfg.length || priv.length) lines.push(cli("enable"));
         if (cfg.length) lines.push(cli("configure terminal"), ...cfg.map(cli), cli("end"));
         lines.push(...priv.map(cli));
       } else if (d.type === "firewall") {
-        if (c.policy?.forward === "drop") lines.push(`cli ${quoteArg(d.name)} iptables -P FORWARD DROP`);
-        for (const r of c.rules || []) lines.push(`cli ${quoteArg(d.name)} ${ruleToIptables(r)}`);
+        const nft = ruleLangOf(d) === "nftables";
+        if (nft) lines.push(`rulelang ${quoteArg(d.name)} nftables`);
+        if (nft) {
+          if (c.policy?.forward === "drop") lines.push(`cli ${quoteArg(d.name)} nft add chain inet filter forward { policy drop ; }`);
+          for (const r of c.rules || []) lines.push(`cli ${quoteArg(d.name)} nft add rule inet filter ${r.chain || "forward"} ${ruleToNft(r)}`);
+        } else {
+          if (c.policy?.forward === "drop") lines.push(`cli ${quoteArg(d.name)} iptables -P FORWARD DROP`);
+          for (const r of c.rules || []) lines.push(`cli ${quoteArg(d.name)} ${ruleToIptables(r)}`);
+        }
       } else if (d.type === "access-point") {
         lines.push(`ssid ${quoteArg(d.name)} ${quoteArg(c.ssid || "")}${c.wifiPassword ? ` ${quoteArg(c.wifiPassword)}` : ""}`);
       }

@@ -93,6 +93,7 @@ export function buildConfigPayload(): SerialisedTopology {
           ...(config?.rip?.enabled ? { rip: { enabled: true, networks: config.rip.networks || [], passiveInterfaces: config.rip.passiveInterfaces || [] } } : {}),
           ...(config?.rules?.length ? { rules: normaliseFirewallRules(config.rules) } : {}),
           ...(config?.policy && Object.keys(config.policy).length ? { policy: config.policy } : {}),
+          ...(config?.ruleLang === "nftables" ? { ruleLang: "nftables" } : {}),
           ...(config?.natTranslations?.length ? { natTranslations: config.natTranslations } : {}),
           ...((pf => pf.length ? { portForwards: pf } : {})(normalisePortForwards(config?.portForwards))),
           ...macsecPayload(config)
@@ -103,6 +104,7 @@ export function buildConfigPayload(): SerialisedTopology {
           ethernetPorts: config?.ethernetPorts ?? defaultPortCount(type),
           rules: normaliseFirewallRules(config?.rules || []),
           policy: { forward: config?.policy?.forward === "drop" ? "drop" : "accept" },
+          ...(config?.ruleLang === "nftables" ? { ruleLang: "nftables" } : {}),
           ...macsecPayload(config)
         }
       } : {}),

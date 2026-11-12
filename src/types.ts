@@ -344,6 +344,7 @@ export interface RouterConfig {
   portForwards?: PortForward[];   // static destination-NAT (port-forwarding) rules
   rules?: FirewallRule[];         // netfilter INPUT/FORWARD rules (always available)
   policy?: Record<string, "accept" | "drop">;
+  ruleLang?: RuleLang;            // which language the shell view / form / export speak
 }
 
 export interface LanConfig {
@@ -357,6 +358,11 @@ export interface LanConfig {
 // L3 fields plus TCP destination ports (`-p tcp --dport`). See
 // docs/src/firewall.md.
 export type FirewallTarget = "accept" | "drop" | "reject";
+// The rule language a firewall/router presents its one netfilter ruleset in.
+// Both front doors (the `iptables` and `nft` shells) always parse into the same
+// FirewallRule model; this only picks the native-view, add-rule-form and script
+// export dialect. Default (absent) is iptables. See docs/src/firewall.md.
+export type RuleLang = "iptables" | "nftables";
 // Connection-tracking state (netfilter conntrack). The model assigns only "new"
 // (first packet of a flow) and "established" (return traffic of a flow we let
 // out); "related"/"invalid" parse in a rule but are never assigned (a documented
@@ -385,6 +391,7 @@ export interface FirewallConfig {
   ethernetPorts: number;
   rules: FirewallRule[];
   policy: Record<string, "accept" | "drop">;  // chain → default policy
+  ruleLang?: RuleLang;                         // native-view / form / export dialect
 }
 
 // A hub is a layer-1 repeater — a "legacy" device. No MAC table, no VLANs, no

@@ -40,6 +40,7 @@ bun test                        # all tests
 bun test tests/engine.test.ts   # specific file
 bun test tests/bench.test.ts    # benchmark suite (p99 budgets in µs)
 bun test tests/stress.test.ts   # deterministic command/invariant stress suite
+bun test tests/bundle.test.ts   # builds the real bundle with esbuild, evaluates it, drives window.routesim
 bunx tsc --noEmit               # type-check src (the codebase is kept tsc-clean)
 bunx tsc --noEmit -p tsconfig.tests.json   # ALSO type-check the tests
 ```
@@ -83,7 +84,7 @@ Single-page canvas app. All state lives in one `AppState` object (`state.ts`). N
 
 **[docs/architecture.md](docs/architecture.md) is the map of the whole codebase**: every source file by layer (foundation → model → network logic → engine and CLIs → presentation → application → entry), the state-mutation rules, both callback bridges, the four front doors that converge on one set of mutators, the simulation pipeline, the topology lifecycle, and extension recipes. Keep it current when adding, removing, or re-layering a module.
 
-**Import cycles exist and are tolerated.** The model layer (`state`, `devices`, `normalise`) and **the engine** stay out of them via the callback bridges below — `engine.ts` imports no view and no device shell: it reports a run's result with `sessionFor`/`appendSessionLine`, opens the Sim Log with `showDock` (all `state.ts`) and redraws through `sync()`; the sim-log pane is `simlog-view.ts`. Two cycles remain: the device shells (`terminal/core` ↔ each shell) and the application layer (`ui` ↔ `config`/`commands`/`console`/`io`/`scenarios`). `tests/architecture.test.ts` pins all of this from the real import statements. The rule that keeps this safe: **inside a cycle, call imported functions only from function bodies, never at module top level** — a top-level use hits a temporal-dead-zone error in the bundle that unit tests (which import modules individually) will not catch.
+**Import cycles exist and are tolerated.** The model layer (`state`, `devices`, `normalise`) and **the engine** stay out of them via the callback bridges below — `engine.ts` imports no view and no device shell: it reports a run's result with `sessionFor`/`appendSessionLine`, opens the Sim Log with `showDock` (all `state.ts`) and redraws through `sync()`; the sim-log pane is `simlog-view.ts`. Two cycles remain: the device shells (`terminal/core` ↔ each shell) and the application layer (`ui` ↔ `config`/`commands`/`console`/`io`/`scenarios`). `tests/architecture.test.ts` pins all of this from the real import statements. The rule that keeps this safe: **inside a cycle, call imported functions only from function bodies, never at module top level.** Break it and the failure is quiet: esbuild's IIFE lowers every top-level `const` to `var`, so a use of a not-yet-evaluated import is not a temporal-dead-zone error in the shipped file — it is silently `undefined`, and fails later, far from its cause. Unit tests import modules one at a time, in other orders, so they may never see it. **`tests/bundle.test.ts` builds the bundle the way `build.sh` does, evaluates it, and drives `window.routesim`** (boot, a routed ping, the device shells, a scenario) — it is the only test that runs what ships, and it is part of the default `bun test`.
 
 ### Callback bridges
 

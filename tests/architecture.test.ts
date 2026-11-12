@@ -1,8 +1,8 @@
 /**
  * Import-graph guards. The layering in docs/architecture.md is a convention the
- * bundler does not enforce, and a cycle only bites as a temporal-dead-zone error
- * in the built bundle — which unit tests, importing modules one at a time, never
- * see. These tests read the real import statements and pin the parts that were
+ * bundler does not enforce, and a cycle misused at module top level bites in the
+ * built bundle as a silent `undefined` (see tests/bundle.test.ts) — which unit
+ * tests, importing modules one at a time in other orders, may never see. These tests read the real import statements and pin the parts that were
  * hard-won:
  *   - engine.ts is in no import cycle and imports no presentation module (it sat
  *     at the centre of an 11-module cycle and rendered the sim log itself —

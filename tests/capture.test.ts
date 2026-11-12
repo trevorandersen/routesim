@@ -223,7 +223,7 @@ describe("capture — frames recorded per wire traversal", () => {
       expect(protocols).not.toContain("ARP");  // …it just isn't shown
       expect(protocols).toContain("ICMP");      // the ping itself still animates + captures
     } finally {
-      state.options.silentArp = false; // resetState() does not touch options
+      state.options.silentArp = false;
     }
   });
 });

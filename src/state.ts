@@ -41,48 +41,17 @@ export function sync(): SyncCallbacks {
   return _cb;
 }
 
-export const state: AppState = {
-  tool: "select",
-  devices: [],
-  links: [],
-  selectedId: null,
-  selectedLinkId: null,
-  configuringId: null,
-  linkStartId: null,
-  pointer: null,
-  drag: null,
-  panDrag: null,
-  pan: { x: 0, y: 0 },
-  scale: 1,
-  theme: DEFAULT_THEME,
-  inspectorWidth: 320,
-  inspectorResize: null,
-  terminal: {
-    deviceId: null,
-    mode: "exec",
-    interfacePeerId: null,
-    interfaceVlanTag: null,
-    lines: [],
-    history: [],
-    historyIndex: -1
-  },
-  terminalSessions: [],
-  dock: {
-    open: false,
-    activeTab: "terminal",
-    height: 280,
-    logView: "packets",
-    logFilter: { protocols: [], device: "", expr: "" },
-    captureView: "live",
-    compareBaseId: ""
-  },
-  console: {
-    lines: [],
-    history: [],
-    historyIndex: -1
-  },
-  activeScenarioId: null,
-  options: {
+// ── Fresh pieces of state ─────────────────────────────────────────────────────
+// The app's initial state is built from these, and so is the tests' baseline
+// (tests/helpers.ts resetState) — one definition of "default". The test reset
+// used to carry its own hand-written copy of the simulation literal, cast `as
+// any`, which had drifted from the real one (a different autoPlay, a dozen
+// missing fields), and it left options, name counters and the pinned seed
+// alone, so one test file's settings leaked into the next (review R113).
+// Function declarations (hoisted), because `state` below is built from them.
+
+export function freshOptions(): AppState["options"] {
+  return {
     showDeviceNames: true,
     showIpAddresses: true,
     showMacAddresses: true,
@@ -95,17 +64,23 @@ export const state: AppState = {
     silentWifi: false,
     silentStp: false,
     instantDns: true
-  },
-  nameCounters: freshNameCounters(),
-  configStore: { version: 1, configs: {} },
-  undoStack: [],
-  redoStack: [],
-  inspectedFrame: null,
-  inspectedCapture: null,
-  savedCaptures: [],
-  isApplyingCompositeChange: false,
-  tutorialActive: false,
-  simulation: {
+  };
+}
+
+export function freshDockState(): AppState["dock"] {
+  return {
+    open: false,
+    activeTab: "terminal",
+    height: 280,
+    logView: "packets",
+    logFilter: { protocols: [], device: "", expr: "" },
+    captureView: "live",
+    compareBaseId: ""
+  };
+}
+
+export function freshSimulationState(): AppState["simulation"] {
+  return {
     status: "idle",
     mode: "ping",
     events: [],
@@ -152,7 +127,53 @@ export const state: AppState = {
     dnatSessions: {},
     loopTrace: new Set(),
     wireSteps: 0
+  };
+}
+
+export const state: AppState = {
+  tool: "select",
+  devices: [],
+  links: [],
+  selectedId: null,
+  selectedLinkId: null,
+  configuringId: null,
+  linkStartId: null,
+  pointer: null,
+  drag: null,
+  panDrag: null,
+  pan: { x: 0, y: 0 },
+  scale: 1,
+  theme: DEFAULT_THEME,
+  inspectorWidth: 320,
+  inspectorResize: null,
+  terminal: {
+    deviceId: null,
+    mode: "exec",
+    interfacePeerId: null,
+    interfaceVlanTag: null,
+    lines: [],
+    history: [],
+    historyIndex: -1
   },
+  terminalSessions: [],
+  dock: freshDockState(),
+  console: {
+    lines: [],
+    history: [],
+    historyIndex: -1
+  },
+  activeScenarioId: null,
+  options: freshOptions(),
+  nameCounters: freshNameCounters(),
+  configStore: { version: 1, configs: {} },
+  undoStack: [],
+  redoStack: [],
+  inspectedFrame: null,
+  inspectedCapture: null,
+  savedCaptures: [],
+  isApplyingCompositeChange: false,
+  tutorialActive: false,
+  simulation: freshSimulationState(),
   portSelection: null
 };
 

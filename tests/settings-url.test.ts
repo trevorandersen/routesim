@@ -5,6 +5,7 @@
 import { describe, it, expect, beforeEach, afterEach } from "bun:test";
 import { state, DEFAULT_THEME } from "../src/state";
 import { parseSettingsFromUrl, buildSettingsQuery, SPEED_MIN, SPEED_MAX } from "../src/settings-url";
+import { resetState } from "./helpers";
 
 describe("parseSettingsFromUrl", () => {
   it("returns an empty patch for an empty / blank query", () => {
@@ -80,23 +81,13 @@ describe("parseSettingsFromUrl", () => {
 });
 
 describe("buildSettingsQuery", () => {
-  // Pin the relevant slice of state to defaults, restore afterwards (bun shares
-  // module state across files and resetState() does not touch options/theme).
+  // Every setting starts at the app's default: resetState restores the options
+  // (all of them — the hand-written list here had fallen behind and missed
+  // silentStp), the theme and the simulation speed.
   let saved: any;
   beforeEach(() => {
     saved = { options: { ...state.options }, theme: state.theme, speed: state.simulation.speed };
-    state.options.showDeviceNames = true;
-    state.options.showIpAddresses = true;
-    state.options.showMacAddresses = true;
-    state.options.autoDhcp = false;
-    state.options.apipaFallback = false;
-    state.options.silentArp = false;
-    state.options.silentDhcp = false;
-    state.options.silentDns = false;
-    state.options.silentWifi = false;
-    state.options.instantDns = true;
-    state.theme = DEFAULT_THEME;
-    state.simulation.speed = 1000;
+    resetState();
   });
   afterEach(() => {
     state.options = saved.options;

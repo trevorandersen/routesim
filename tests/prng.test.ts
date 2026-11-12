@@ -237,18 +237,20 @@ describe("prng — link loss is seeded (animated runs)", () => {
 // no run and therefore no reseed — the address depended on whatever the previous
 // run had left in the stream.
 describe("prng — direct APIPA boot honours the pinned seed", () => {
-  const options = { ...state.options };
-  beforeEach(() => { resetState(); state.options.autoDhcp = false; state.options.apipaFallback = true; });
-  afterEach(() => { Object.assign(state.options, options); });
+  afterEach(() => resetState());   // clears the pinned seed and the boot toggles for whoever runs next
 
   const ipOf = (name: string) => state.devices.find(d => d.name === name)!.config!.ipv4Address;
+  // A fresh two-host LAN with APIPA on, Auto-DHCP off, and the seed pinned.
+  // (resetState restores every setting and clears the pin, so both are set after it.)
   function twoHosts() {
     resetState();
+    state.options.autoDhcp = false;
+    state.options.apipaFallback = true;
+    setSeedOverride(99);
     runConsoleScript(`add computer PC1 at 0 0\nadd computer PC2 at 0 200\nadd switch SW at 200 0\nlink PC1 SW\nlink PC2 SW`);
   }
 
   it("the same pinned seed gives the same link-local addresses, whatever ran before", () => {
-    setSeedOverride(99);
     twoHosts();
     startNetworkBoot();
     const first = [ipOf("PC1"), ipOf("PC2")];
@@ -260,7 +262,6 @@ describe("prng — direct APIPA boot honours the pinned seed", () => {
   });
 
   it("two hosts never claim the same address, even across separate Play presses", () => {
-    setSeedOverride(99);
     twoHosts();
     startNetworkBoot();
     expect(ipOf("PC1")).not.toBe(ipOf("PC2"));

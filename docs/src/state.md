@@ -44,6 +44,10 @@ Almost every module imports `state`. Mutations are made directly on `state.*`; t
 
 `SyncCallbacks` carries **`stopSimulation`** — the engine's own run teardown (animation loop, boot queue, transport pill, queues, conntrack), bridged because `state.ts` cannot import `engine.ts`. **`undo()` and `redo()`** call it first when a run is running or paused (`cancelActiveRun`). The hand-rolled block `undo` used to carry stopped the *status* but not the animation loop, the boot queue, or the transport pill — and `redo` had no guard at all (reproduced: redo mid-run left a transit in flight over a replaced topology). Note that starting an animated run pushes an undo entry of its own (so the tables a run learns can be undone — except a network-boot run: `startNetworkBoot` pushes one entry for the whole Play press, not one per booted host) and, like any push, clears the redo stack — so redo-during-a-run is unreachable through the UI; the guard is defence.
 
+## Fresh state factories
+
+`freshOptions()`, `freshDockState()`, `freshSimulationState()` and `freshTerminalSession()` each return a new default object. The initial `state` is built from them, and so is the tests' baseline (`resetState` in `tests/helpers.ts`) — one definition of "default", so the test reset cannot drift from the app (it used to carry its own copy of the simulation literal, cast `as any`, with a different `autoPlay` and a dozen fields missing; review R113). They are function declarations so the `state` literal can call them.
+
 ## Sessions and the dock, as data
 
 `sessionFor(deviceId)`, `appendSessionLine(session, line)` (capped at 120 lines) and `showDock(tab)` live here so that any layer can write to a terminal session or open a dock pane without importing the terminal UI — the engine uses them to report a run's result and to open the Sim Log when a run starts. `showDock` redraws the dock chrome through the optional `syncDock` callback. `terminal/core.ts` re-exports `sessionFor` and builds `terminalLineFor`/`openDock` on the same state.

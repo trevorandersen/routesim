@@ -5,7 +5,7 @@
  * *animated* DHCP exchange, self-assigning APIPA only after the simulated DHCP
  * times out. These tests drive the animated boot via the rAF-stub harness.
  */
-import { describe, it, expect, beforeAll, beforeEach, afterEach } from "bun:test";
+import { describe, it, expect, beforeAll, afterAll, beforeEach, afterEach } from "bun:test";
 import { state } from "../src/state";
 import { startNetworkBoot, unconfiguredBootableHosts, stepOnce, launchRedTeam } from "../src/engine";
 import { dom } from "../src/dom";
@@ -22,10 +22,11 @@ const realRaf = (globalThis as any).requestAnimationFrame;
 beforeEach(() => {
   resetState();
   state.options.autoDhcp = true;        // global toggles now default off; turn them on for the boot tests
-  state.options.apipaFallback = true;   // (resetState doesn't touch options)
+  state.options.apipaFallback = true;   // (resetState restores both to off)
   (globalThis as any).requestAnimationFrame = () => 0;
 });
 afterEach(() => { (globalThis as any).requestAnimationFrame = realRaf; });
+afterAll(() => resetState());   // do not hand Auto-DHCP / APIPA on to the next file
 
 function runBoot(): boolean {
   const started = startNetworkBoot();

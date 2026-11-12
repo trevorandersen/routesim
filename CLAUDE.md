@@ -52,7 +52,7 @@ Test infrastructure:
 | File | Purpose |
 |------|---------|
 | `tests/preload.ts` | DOM mocking (runs before every test via bunfig.toml) |
-| `tests/helpers.ts` | `registerNoopCallbacks()`, `resetState()` |
+| `tests/helpers.ts` | `registerNoopCallbacks(real?)` (pass the real implementation of any view a suite asserts on), `resetState()` — restores the **whole** app default from `state.ts`'s factories (`freshOptions`/`freshSimulationState`/`freshDockState`…), including settings, name counters and the pinned seed, so nothing leaks between test files; set what a test needs *after* calling it |
 | `tests/fixtures.ts` | `basicTopology()`, `routedTopology()`, `vlanTopology()`, `trunkTopology()` |
 | `tests/mini-dom.ts` | A small parsed element tree (`installMiniDom()`, mounted behind `dom.detailsPanel`) for driving real inspector wiring — `syncPanel()`, type into a field, assert on the config |
 | `tests/bench-harness.ts` | Benchmark timing (sub-µs batching, a GC before each pass, best-of-3 re-measure of an over-budget pass), p99 budgets, results formatting |

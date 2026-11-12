@@ -1,7 +1,9 @@
 /**
  * Shared test helpers — state management and callback registration.
  */
-import { state, registerCallbacks, type SyncCallbacks } from "../src/state";
+import { state, registerCallbacks, freshOptions, freshDockState, freshSimulationState, freshTerminalSession, DEFAULT_THEME, type SyncCallbacks } from "../src/state";
+import { freshNameCounters } from "../src/device-registry";
+import { setSeedOverride } from "../src/prng";
 
 /**
  * Register no-op callbacks so sync() never crashes.
@@ -45,38 +47,24 @@ export function resetState(): void {
   state.pointer = null;
   state.pan = { x: 0, y: 0 };
   state.scale = 1;
-  state.simulation = {
-    status: "idle",
-    mode: "ping",
-    events: [],
-    log: [],
-    capture: [],
-    transits: [],
-    pendingArp: {},
-    speed: 1000,
-    autoPlay: false,
-    stepIndex: 0,
-    stepTimer: null,
-    animFrame: null,
-    conntrack: {},
-    dnatSessions: {},
-  } as any;
-  state.terminal = {
-    deviceId: null,
-    mode: "exec",
-    interfacePeerId: null,
-    interfaceVlanTag: null,
-    lines: [],
-    history: [],
-    historyIndex: -1,
-  };
+  state.portSelection = null;
+  state.inspectedFrame = null;
+  state.inspectedCapture = null;
+  // The pieces below come from the app's own factories (state.ts), so the test
+  // baseline IS the app's default and cannot drift from it.
+  state.simulation = freshSimulationState();
+  state.terminal = freshTerminalSession();
   state.terminalSessions = [];
-  state.dock = { open: false, activeTab: "terminal", height: 280, logView: "packets", logFilter: { protocols: [], device: "", expr: "" }, captureView: "live", compareBaseId: "" };
+  state.dock = freshDockState();
   state.savedCaptures = [];
   state.console = { lines: [], history: [], historyIndex: -1 };
   state.activeScenarioId = null;
-  // resetState leaves display options alone (tests save/restore them), but
-  // instantDns is special: it defaults on yet loadScenario flips it off, so a
-  // scenario test would silently pollute later suites. Restore its default here.
-  state.options.instantDns = true;
+  // Settings, auto-name counters, the config store and the pinned PRNG seed are
+  // process-wide: a suite that turned on Auto-DHCP, added fifteen switches or
+  // pinned a seed used to hand all of that to whichever file ran next.
+  state.options = freshOptions();
+  state.nameCounters = freshNameCounters();
+  state.configStore = { version: 1, configs: {} };
+  state.theme = DEFAULT_THEME;
+  setSeedOverride(null);
 }

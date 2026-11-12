@@ -3902,48 +3902,8 @@ Full legal text: https://creativecommons.org/publicdomain/zero/1.0/legalcode</pr
   function sync() {
     return _cb;
   }
-  var state = {
-    tool: "select",
-    devices: [],
-    links: [],
-    selectedId: null,
-    selectedLinkId: null,
-    configuringId: null,
-    linkStartId: null,
-    pointer: null,
-    drag: null,
-    panDrag: null,
-    pan: { x: 0, y: 0 },
-    scale: 1,
-    theme: DEFAULT_THEME,
-    inspectorWidth: 320,
-    inspectorResize: null,
-    terminal: {
-      deviceId: null,
-      mode: "exec",
-      interfacePeerId: null,
-      interfaceVlanTag: null,
-      lines: [],
-      history: [],
-      historyIndex: -1
-    },
-    terminalSessions: [],
-    dock: {
-      open: false,
-      activeTab: "terminal",
-      height: 280,
-      logView: "packets",
-      logFilter: { protocols: [], device: "", expr: "" },
-      captureView: "live",
-      compareBaseId: ""
-    },
-    console: {
-      lines: [],
-      history: [],
-      historyIndex: -1
-    },
-    activeScenarioId: null,
-    options: {
+  function freshOptions() {
+    return {
       showDeviceNames: true,
       showIpAddresses: true,
       showMacAddresses: true,
@@ -3956,17 +3916,21 @@ Full legal text: https://creativecommons.org/publicdomain/zero/1.0/legalcode</pr
       silentWifi: false,
       silentStp: false,
       instantDns: true
-    },
-    nameCounters: freshNameCounters(),
-    configStore: { version: 1, configs: {} },
-    undoStack: [],
-    redoStack: [],
-    inspectedFrame: null,
-    inspectedCapture: null,
-    savedCaptures: [],
-    isApplyingCompositeChange: false,
-    tutorialActive: false,
-    simulation: {
+    };
+  }
+  function freshDockState() {
+    return {
+      open: false,
+      activeTab: "terminal",
+      height: 280,
+      logView: "packets",
+      logFilter: { protocols: [], device: "", expr: "" },
+      captureView: "live",
+      compareBaseId: ""
+    };
+  }
+  function freshSimulationState() {
+    return {
       status: "idle",
       mode: "ping",
       events: [],
@@ -4013,7 +3977,52 @@ Full legal text: https://creativecommons.org/publicdomain/zero/1.0/legalcode</pr
       dnatSessions: {},
       loopTrace: /* @__PURE__ */ new Set(),
       wireSteps: 0
+    };
+  }
+  var state = {
+    tool: "select",
+    devices: [],
+    links: [],
+    selectedId: null,
+    selectedLinkId: null,
+    configuringId: null,
+    linkStartId: null,
+    pointer: null,
+    drag: null,
+    panDrag: null,
+    pan: { x: 0, y: 0 },
+    scale: 1,
+    theme: DEFAULT_THEME,
+    inspectorWidth: 320,
+    inspectorResize: null,
+    terminal: {
+      deviceId: null,
+      mode: "exec",
+      interfacePeerId: null,
+      interfaceVlanTag: null,
+      lines: [],
+      history: [],
+      historyIndex: -1
     },
+    terminalSessions: [],
+    dock: freshDockState(),
+    console: {
+      lines: [],
+      history: [],
+      historyIndex: -1
+    },
+    activeScenarioId: null,
+    options: freshOptions(),
+    nameCounters: freshNameCounters(),
+    configStore: { version: 1, configs: {} },
+    undoStack: [],
+    redoStack: [],
+    inspectedFrame: null,
+    inspectedCapture: null,
+    savedCaptures: [],
+    isApplyingCompositeChange: false,
+    tutorialActive: false,
+    simulation: freshSimulationState(),
     portSelection: null
   };
   function freshTerminalSession(deviceId = null) {

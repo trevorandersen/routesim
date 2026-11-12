@@ -256,7 +256,7 @@ describe("wifi — 802.11 association handshake", () => {
   beforeEach(() => { resetState(); (globalThis as any).requestAnimationFrame = () => 0; });
   afterEach(() => {
     (globalThis as any).requestAnimationFrame = realRaf;
-    state.options.silentWifi = false; // resetState() does not touch options
+    state.options.silentWifi = false;
   });
 
   function associate(scriptExtra = "") {

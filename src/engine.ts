@@ -307,6 +307,12 @@ export function stopSimulation(): void {
 export function pauseSimulation(): void {
   if (state.simulation.status === "running") {
     state.simulation.status = "paused";
+    // Freeze: stop the rAF loop so in-flight dots neither advance nor get
+    // delivered while paused (their current position is already on screen). The
+    // loop restarts on resume. Without this, pausing to inspect a dot (which
+    // calls this) let the frame keep moving, get delivered and get captured
+    // while the run read "paused" (review R10).
+    stopAnimationLoop();
     updateSimControls();
     sync().syncTerminal();   // the busy shell's placeholder says "paused"
   }
@@ -315,9 +321,18 @@ export function pauseSimulation(): void {
 export function resumeSimulation(): void {
   if (state.simulation.status === "paused") {
     state.simulation.status = "running";
+    // Rebase each frozen dot's startTime onto the resume instant so it carries
+    // on from the progress it held, rather than jumping forward by the whole
+    // paused interval (progress = (now - startTime) / span).
+    const now = performance.now();
+    for (const t of state.simulation.transits) {
+      t.startTime = now - t.progress * (state.simulation.speed * (t.latencyFactor ?? 1));
+    }
     updateSimControls();
     sync().syncTerminal();
     if (state.simulation.transits.length === 0) processNextStep();
+    // processNextStep may have ended the run (no events left → finishSimulation).
+    if (state.simulation.status === "running") startAnimationLoop();
   }
 }
 
@@ -334,6 +349,9 @@ export function stepOnce(): void {
   }
   processNextStep();
   updateSimControls();
+  // The paused loop no longer spins to draw the frames this step produced, so
+  // render them here (frozen at their source until the next step) — review R10.
+  sync().render();
 }
 
 export interface SimResult {
@@ -648,8 +666,16 @@ export function isSilentFrame(frame: EthernetFrame): boolean {
   return false;
 }
 
-function animationTick(now: number): void {
+export function animationTick(now: number): void {
   const sim = state.simulation;
+
+  // Only a running simulation advances. While paused the whole visible state is
+  // frozen: no progress, no delivery, no capture (review R10). A step (stepOnce)
+  // advances the run by its own synchronous path, not through this loop.
+  if (sim.status !== "running") {
+    animFrameId = null;
+    return;
+  }
 
   // Update transit progress (per-link latency stretches a dot's crossing time).
   // Silent frames jump straight to delivered — no visible crossing.
@@ -662,16 +688,17 @@ function animationTick(now: number): void {
   // Check if all transits completed
   if (sim.transits.length > 0 && sim.transits.every(t => t.progress >= 1)) {
     deliverCompletedTransits();
-    if (sim.status === "running" && sim.autoPlay) {
+    if (sim.autoPlay) {
       processNextStep();
     }
-  } else if (sim.transits.length === 0 && sim.events.length > 0 && sim.status === "running" && sim.autoPlay) {
+  } else if (sim.transits.length === 0 && sim.events.length > 0 && sim.autoPlay) {
     // No transits in flight but events queued (from a step that produced no outgoing)
     processNextStep();
   }
 
-  // Keep looping if simulation is active
-  if (sim.status === "running" || sim.status === "paused" || sim.transits.length > 0) {
+  // Keep looping while the run is still active. processNextStep may have ended
+  // it (finishSimulation sets "done" and stops the loop); re-check status.
+  if (sim.status === "running") {
     animFrameId = requestAnimationFrame(animationTick);
   } else {
     animFrameId = null;

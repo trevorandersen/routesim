@@ -7795,6 +7795,7 @@ Full legal text: https://creativecommons.org/publicdomain/zero/1.0/legalcode</pr
   function pauseSimulation() {
     if (state.simulation.status === "running") {
       state.simulation.status = "paused";
+      stopAnimationLoop();
       updateSimControls();
       sync().syncTerminal();
     }
@@ -7802,9 +7803,14 @@ Full legal text: https://creativecommons.org/publicdomain/zero/1.0/legalcode</pr
   function resumeSimulation() {
     if (state.simulation.status === "paused") {
       state.simulation.status = "running";
+      const now = performance.now();
+      for (const t of state.simulation.transits) {
+        t.startTime = now - t.progress * (state.simulation.speed * (t.latencyFactor ?? 1));
+      }
       updateSimControls();
       sync().syncTerminal();
       if (state.simulation.transits.length === 0) processNextStep();
+      if (state.simulation.status === "running") startAnimationLoop();
     }
   }
   function stepOnce() {
@@ -7819,6 +7825,7 @@ Full legal text: https://creativecommons.org/publicdomain/zero/1.0/legalcode</pr
     }
     processNextStep();
     updateSimControls();
+    sync().render();
   }
   function runSimulationHeadless(setup, originDeviceId, targetIp, mode = "ping", targetPort = null, purpose) {
     beginRun(setup, originDeviceId, targetIp, mode, targetPort, true, purpose);
@@ -8021,19 +8028,23 @@ Full legal text: https://creativecommons.org/publicdomain/zero/1.0/legalcode</pr
   }
   function animationTick(now) {
     const sim = state.simulation;
+    if (sim.status !== "running") {
+      animFrameId = null;
+      return;
+    }
     for (const t of sim.transits) {
       t.progress = t.silent ? 1 : Math.min(1, (now - t.startTime) / (sim.speed * (t.latencyFactor ?? 1)));
     }
     sync().render();
     if (sim.transits.length > 0 && sim.transits.every((t) => t.progress >= 1)) {
       deliverCompletedTransits();
-      if (sim.status === "running" && sim.autoPlay) {
+      if (sim.autoPlay) {
         processNextStep();
       }
-    } else if (sim.transits.length === 0 && sim.events.length > 0 && sim.status === "running" && sim.autoPlay) {
+    } else if (sim.transits.length === 0 && sim.events.length > 0 && sim.autoPlay) {
       processNextStep();
     }
-    if (sim.status === "running" || sim.status === "paused" || sim.transits.length > 0) {
+    if (sim.status === "running") {
       animFrameId = requestAnimationFrame(animationTick);
     } else {
       animFrameId = null;
@@ -15600,9 +15611,40 @@ Snort successfully validated the configuration${bad ? " (with errors)" : "."}`);
     }
     return { label: check.label, passed: evaluate(check) };
   }
+  function saveGradingState() {
+    return {
+      // Serialise each config: a check mutates it in place (e.g. DHCP sets the
+      // address), so a shallow copy of the object would still be the mutated one.
+      configs: state.devices.map((d) => ({ device: d, data: JSON.stringify(d.config ?? {}) })),
+      // A headless run appends to link.frameHistory (pushes onto the same array),
+      // so keep a copy of the array as it stood, not the live reference.
+      frameHistories: state.links.map((l) => ({ link: l, copy: l.frameHistory ? [...l.frameHistory] : void 0 }))
+    };
+  }
+  function restoreGradingState(saved) {
+    for (const { device, data } of saved.configs) {
+      const cfg = device.config;
+      const restored = JSON.parse(data);
+      if (!cfg) {
+        device.config = restored;
+        continue;
+      }
+      for (const k of Object.keys(cfg)) delete cfg[k];
+      Object.assign(cfg, restored);
+    }
+    for (const { link, copy } of saved.frameHistories) {
+      if (copy === void 0) delete link.frameHistory;
+      else link.frameHistory = copy;
+    }
+  }
   function checkScenario(scenario) {
-    const checks = scenario.checks.map(evaluateCheck);
-    return { id: scenario.id, name: scenario.name, passed: checks.every((c) => c.passed), checks };
+    const saved = saveGradingState();
+    try {
+      const checks = scenario.checks.map(evaluateCheck);
+      return { id: scenario.id, name: scenario.name, passed: checks.every((c) => c.passed), checks };
+    } finally {
+      restoreGradingState(saved);
+    }
   }
 
   // src/scenario-ui.ts

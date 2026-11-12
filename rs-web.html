@@ -10516,6 +10516,26 @@ ${body}
     sync().syncPanel();
     return `Flushed ${count} ARP ${count === 1 ? "entry" : "entries"} from eth0.`;
   }
+  function setListeningPorts(device, ports) {
+    if (!isHost(device.type)) return { ok: false, error: `${device.name} is not a host (only hosts listen on ports).`, warnings: [] };
+    if (ports && !ports.every((p) => Number.isInteger(p) && p >= 1 && p <= 65535)) {
+      return { ok: false, error: "ports: each port must be an integer 1\u201365535.", warnings: [] };
+    }
+    pushUndo();
+    ensureConfig(device);
+    if (ports === null) {
+      delete device.config.openPorts;
+      sync().syncPanel();
+      return { ok: true, message: `${device.name}: listening ports cleared (accepts on any port).`, warnings: [] };
+    }
+    device.config.openPorts = [...new Set(ports)];
+    sync().syncPanel();
+    return {
+      ok: true,
+      warnings: [],
+      message: ports.length ? `${device.name} listening on ${device.config.openPorts.join(", ")}.` : `${device.name}: no listening ports (refuses every connection).`
+    };
+  }
   function setHostGateway(device, address) {
     const parsed = parseIpv4Token(address);
     if (!parsed) return `Invalid IPv4 address: ${address}`;
@@ -10789,6 +10809,39 @@ ${body}
     if (config.dhcpRouterIp) lines.push(`dhcp-option=option:router,${config.dhcpRouterIp}`);
     return lines.join("\n");
   }
+  function setDhcpRange(device, startText, endText) {
+    const start = String(startText ?? "").trim();
+    const end = String(endText ?? "").trim();
+    if (!start && !end) {
+      if (!device.config?.dhcpRangeStart && !device.config?.dhcpRangeEnd) return { ok: true, message: "DHCP is already off (no range).", warnings: [] };
+      pushUndo();
+      ensureConfig(device);
+      delete device.config.dhcpRangeStart;
+      delete device.config.dhcpRangeEnd;
+      sync().syncPanel();
+      return { ok: true, message: `${device.name}: DHCP range cleared \u2014 DHCP is off.`, warnings: [] };
+    }
+    if (!start || !end) return { ok: false, error: `A DHCP range needs both a start and an end address (got ${start ? "no end" : "no start"}).`, warnings: [] };
+    if (!isValidIpv4(start)) return { ok: false, error: `bad dhcp-range: ${start} is not an IPv4 address`, warnings: [] };
+    if (!isValidIpv4(end)) return { ok: false, error: `bad dhcp-range: ${end} is not an IPv4 address`, warnings: [] };
+    if (ipv4ToInt(end) < ipv4ToInt(start)) return { ok: false, error: `dhcp-range end ${end} is before start ${start}`, warnings: [] };
+    pushUndo();
+    ensureConfig(device);
+    device.config.dhcpRangeStart = start;
+    device.config.dhcpRangeEnd = end;
+    sync().syncPanel();
+    return { ok: true, message: `${device.name}: DHCP range ${start} \u2013 ${end}.`, warnings: [] };
+  }
+  function setDhcpRouterOption(device, ipText) {
+    const ip = String(ipText ?? "").trim();
+    if (ip && !isValidIpv4(ip)) return { ok: false, error: `bad dhcp-option: ${ip} is not an IPv4 address`, warnings: [] };
+    pushUndo();
+    ensureConfig(device);
+    if (ip) device.config.dhcpRouterIp = ip;
+    else delete device.config.dhcpRouterIp;
+    sync().syncPanel();
+    return { ok: true, message: ip ? `${device.name}: DHCP router option ${ip}.` : `${device.name}: DHCP router option cleared (clients get this server).`, warnings: [] };
+  }
   function applyDnsmasqConfLine(device, line) {
     const trimmed = line.trim();
     const addressMatch = trimmed.match(/^address=\/([^/]+)\/(\S+)$/i);
@@ -10808,26 +10861,13 @@ ${body}
     }
     const rangeMatch = trimmed.match(/^dhcp-range=(\S+?),(\S+?)(?:,\S+)?$/i);
     if (rangeMatch) {
-      const start = rangeMatch[1].trim();
-      const end = rangeMatch[2].trim();
-      if (!isValidIpv4(start) || !isValidIpv4(end)) return `dnsmasq: bad dhcp-range at line: ${trimmed}`;
-      if (ipv4ToInt(end) < ipv4ToInt(start)) return `dnsmasq: dhcp-range end ${end} is before start ${start}`;
-      pushUndo();
-      ensureConfig(device);
-      device.config.dhcpRangeStart = start;
-      device.config.dhcpRangeEnd = end;
-      sync().syncPanel();
-      return "";
+      const result = setDhcpRange(device, rangeMatch[1], rangeMatch[2]);
+      return result.ok ? "" : `dnsmasq: ${result.error} (at line: ${trimmed})`;
     }
     const routerMatch = trimmed.match(/^dhcp-option=option:router,(\S+)$/i);
     if (routerMatch) {
-      const ip = routerMatch[1].trim();
-      if (!isValidIpv4(ip)) return `dnsmasq: bad dhcp-option at line: ${trimmed}`;
-      pushUndo();
-      ensureConfig(device);
-      device.config.dhcpRouterIp = ip;
-      sync().syncPanel();
-      return "";
+      const result = setDhcpRouterOption(device, routerMatch[1]);
+      return result.ok ? "" : `dnsmasq: ${result.error} (at line: ${trimmed})`;
     }
     return `dnsmasq: unsupported directive: ${trimmed} (use address=/name/ip, dhcp-range=start,end, dhcp-option=option:router,ip)`;
   }
@@ -13210,24 +13250,26 @@ Snort successfully validated the configuration${bad ? " (with errors)" : "."}`);
         syncPanel();
       });
     });
-    const bindIpField = (id, field) => {
-      const input = document.getElementById(id);
-      if (!input) return;
-      captureUndoOnFocus(input);
-      input.addEventListener("input", (event) => {
-        const value = event.target.value.trim();
-        if (!isValidIpv4(value) && value !== "") {
-          event.target.setCustomValidity("Enter a valid IPv4 address.");
-        } else {
-          event.target.setCustomValidity("");
-          ensureConfig(selected);
-          selected.config[field] = value;
-        }
-      });
+    const commitField = (input, result) => {
+      input.setCustomValidity(result.ok ? "" : result.error || "Invalid value.");
+      if (!result.ok) input.reportValidity?.();
+      dom.modeLabel.textContent = mutationText(result);
     };
-    bindIpField("dhcpRangeStart", "dhcpRangeStart");
-    bindIpField("dhcpRangeEnd", "dhcpRangeEnd");
-    bindIpField("dhcpRouterIp", "dhcpRouterIp");
+    const rangeStart = document.getElementById("dhcpRangeStart");
+    const rangeEnd = document.getElementById("dhcpRangeEnd");
+    if (rangeStart && rangeEnd) {
+      const commitRange = (edited) => {
+        const start = rangeStart.value.trim(), end = rangeEnd.value.trim();
+        rangeStart.setCustomValidity("");
+        rangeEnd.setCustomValidity("");
+        if (!!start !== !!end && !selected.config?.dhcpRangeStart) return;
+        commitField(edited, setDhcpRange(selected, start, end));
+      };
+      rangeStart.addEventListener("change", () => commitRange(rangeStart));
+      rangeEnd.addEventListener("change", () => commitRange(rangeEnd));
+    }
+    const routerOption = document.getElementById("dhcpRouterIp");
+    if (routerOption) routerOption.addEventListener("change", () => commitField(routerOption, setDhcpRouterOption(selected, routerOption.value)));
     const radiusAdd = document.getElementById("radiusUserAdd");
     if (radiusAdd) {
       radiusAdd.addEventListener("click", () => {
@@ -13264,20 +13306,12 @@ Snort successfully validated the configuration${bad ? " (with errors)" : "."}`);
     });
     const portsInput = document.getElementById("listenPorts");
     if (portsInput) {
-      captureUndoOnFocus(portsInput);
-      portsInput.addEventListener("input", (event) => {
-        const raw = event.target.value.trim();
-        const parts = raw ? raw.split(",").map((s) => s.trim()).filter(Boolean) : [];
-        const ports = parts.map(Number);
-        const valid = ports.every((p) => Number.isInteger(p) && p >= 1 && p <= 65535);
-        if (!valid) {
-          event.target.setCustomValidity("Enter comma-separated ports (1\u201365535).");
-          return;
-        }
-        event.target.setCustomValidity("");
-        ensureConfig(selected);
-        if (parts.length === 0) delete selected.config.openPorts;
-        else selected.config.openPorts = [...new Set(ports)];
+      portsInput.addEventListener("change", () => {
+        const parts = portsInput.value.split(",").map((text) => text.trim()).filter(Boolean);
+        const result = setListeningPorts(selected, parts.length ? parts.map(Number) : null);
+        portsInput.setCustomValidity(result.ok ? "" : "Enter comma-separated ports (1\u201365535).");
+        if (!result.ok) portsInput.reportValidity?.();
+        dom.modeLabel.textContent = mutationText(result);
       });
     }
   }
@@ -17183,29 +17217,10 @@ Snort successfully validated the configuration${bad ? " (with errors)" : "."}`);
   function cmdPorts(args) {
     const host = resolveDevice(args[0]);
     if (typeof host === "string") return err(host);
-    if (!isHost(host.type)) return err(`${host.name} is not a host (only hosts listen on ports).`);
     const spec = args.slice(1).join(" ").trim();
-    if (!spec || /^(none|off|clear)$/i.test(spec)) {
-      pushUndo();
-      ensureConfig(host);
-      delete host.config.openPorts;
-      sync().syncPanel();
-      return ok(`${host.name}: listening ports cleared (accepts on any port).`);
-    }
-    if (/^closed$/i.test(spec)) {
-      pushUndo();
-      ensureConfig(host);
-      host.config.openPorts = [];
-      sync().syncPanel();
-      return ok(`${host.name}: no listening ports (refuses every connection).`);
-    }
-    const ports = spec.split(/[\s,]+/).filter(Boolean).map(Number);
-    if (!ports.every((p) => Number.isInteger(p) && p >= 1 && p <= 65535)) return err("ports: each port must be an integer 1\u201365535.");
-    pushUndo();
-    ensureConfig(host);
-    host.config.openPorts = [...new Set(ports)];
-    sync().syncPanel();
-    return ok(`${host.name} listening on ${host.config.openPorts.join(", ")}.`);
+    const ports = !spec || /^(none|off|clear)$/i.test(spec) ? null : /^closed$/i.test(spec) ? [] : spec.split(/[\s,]+/).filter(Boolean).map(Number);
+    const result = setListeningPorts(host, ports);
+    return result.ok ? ok(mutationText(result)) : err(mutationText(result));
   }
   function cmdMacsec(args) {
     const dev = resolveDevice(args[0]);

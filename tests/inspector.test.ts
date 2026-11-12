@@ -8,6 +8,8 @@ import { renderSwitchPorts, renderSwitchVlans, renderRouterInterfaces, renderFra
 import { findTransitAt } from "../src/canvas";
 import { createIcmpEchoRequest, createTcpSegment } from "../src/frame";
 import { dom } from "../src/dom";
+import { runConsoleScript, runConsoleCommand as exec, exportTopologyScript } from "../src/commands";
+import { setDhcpRange, setDhcpRouterOption, setListeningPorts } from "../src/terminal";
 import { registerNoopCallbacks, resetState } from "./helpers";
 import { installMiniDom, typeInto, MiniEvent, type MiniElement } from "./mini-dom";
 import { basicTopology, routedTopology, vlanTopology } from "./fixtures";
@@ -235,5 +237,136 @@ describe("inspector wiring survives a port-count re-render", () => {
     const linkId = one(".port-remove").dataset.linkId!;
     removeIcon.click();
     expect(state.links.some(l => l.id === linkId)).toBe(false);
+  });
+});
+
+// R57: the inspector wrote the DHCP range one field and one keystroke at a time
+// with its own (weaker) check, so it could store an inverted range the dnsmasq
+// shell refuses — the engine then reported "no addresses available", and the
+// exported script would not replay. The ports field re-implemented `ports`.
+describe("server fields commit through the shell's mutators (R57)", () => {
+  let mini: ReturnType<typeof installMiniDom>;
+  beforeEach(() => {
+    resetState();
+    mini = installMiniDom();
+    runConsoleScript("add server SRV at 100 100\nadd switch SW at 300 100\nadd computer PC at 500 100\nlink SRV SW\nlink PC SW\nip SRV 192.168.1.2/24");
+    state.selectedId = srv().id;
+    state.configuringId = srv().id;
+    syncPanel();
+  });
+  afterEach(() => mini.uninstall());
+
+  const srv = () => state.devices.find(d => d.name === "SRV")!;
+  const field = (id: string): MiniElement => {
+    const el = mini.panel.getElementById(id);
+    if (!el) throw new Error(`#${id} not rendered`);
+    return el;
+  };
+  // What a user does: type, then leave the field (or press Enter).
+  const commit = (id: string, text: string) => {
+    const input = field(id);
+    input.focus();
+    input.value = text;
+    input.dispatchEvent(new MiniEvent("input"));
+    input.dispatchEvent(new MiniEvent("change"));
+  };
+
+  it("the range is stored only once both bounds are in, and in one undo step", () => {
+    const undoPoints = state.undoStack.length;
+    commit("dhcpRangeStart", "192.168.1.100");
+    expect(srv().config!.dhcpRangeStart).toBeUndefined();        // half a range is not stored
+    expect(state.undoStack.length).toBe(undoPoints);
+    commit("dhcpRangeEnd", "192.168.1.200");
+    expect(srv().config!.dhcpRangeStart).toBe("192.168.1.100");
+    expect(srv().config!.dhcpRangeEnd).toBe("192.168.1.200");
+    expect(state.undoStack.length).toBe(undoPoints + 1);
+    undo();
+    expect(srv().config!.dhcpRangeStart).toBeUndefined();
+  });
+
+  it("typing does not write the config; only committing does", () => {
+    setDhcpRange(srv(), "192.168.1.100", "192.168.1.200"); syncPanel();
+    typeInto(field("dhcpRangeEnd"), "192.168.1.1");               // input events only
+    expect(srv().config!.dhcpRangeEnd).toBe("192.168.1.200");
+  });
+
+  it("the review's case: an inverted range is refused, with the shell's reason, and nothing is stored", () => {
+    setDhcpRange(srv(), "192.168.1.100", "192.168.1.200"); syncPanel();
+    const undoPoints = state.undoStack.length;
+    commit("dhcpRangeEnd", "192.168.1.50");
+    expect(srv().config!.dhcpRangeEnd).toBe("192.168.1.200");
+    expect(field("dhcpRangeEnd").validationMessage).toBe("dhcp-range end 192.168.1.50 is before start 192.168.1.100");
+    expect(dom.modeLabel.textContent).toContain("is before start");
+    expect(state.undoStack.length).toBe(undoPoints);
+  });
+
+  it("a bad address is refused the same way", () => {
+    setDhcpRange(srv(), "192.168.1.100", "192.168.1.200"); syncPanel();
+    commit("dhcpRangeStart", "192.168.1.999");
+    expect(srv().config!.dhcpRangeStart).toBe("192.168.1.100");
+    expect(field("dhcpRangeStart").validationMessage).toContain("is not an IPv4 address");
+  });
+
+  it("emptying both fields turns DHCP off; emptying one of a stored range is refused", () => {
+    setDhcpRange(srv(), "192.168.1.100", "192.168.1.200"); syncPanel();
+    commit("dhcpRangeEnd", "");
+    expect(srv().config!.dhcpRangeEnd).toBe("192.168.1.200");
+    expect(field("dhcpRangeEnd").validationMessage).toContain("needs both a start and an end");
+    field("dhcpRangeStart").value = "";
+    commit("dhcpRangeEnd", "");
+    expect(srv().config!.dhcpRangeStart).toBeUndefined();
+    expect(srv().config!.dhcpRangeEnd).toBeUndefined();
+  });
+
+  it("a range set in the inspector leases, exports, and replays", () => {
+    commit("dhcpRangeStart", "192.168.1.100");
+    commit("dhcpRangeEnd", "192.168.1.200");
+    expect(exec("run dhcp PC").ok).toBe(true);
+    const script = exportTopologyScript();
+    expect(script).toContain("dhcp-range=192.168.1.100,192.168.1.200");
+    expect(runConsoleScript(script).filter(r => !r.ok)).toEqual([]);
+  });
+
+  it("the router option validates and clears through its mutator", () => {
+    commit("dhcpRouterIp", "192.168.1.1");
+    expect(srv().config!.dhcpRouterIp).toBe("192.168.1.1");
+    commit("dhcpRouterIp", "gateway");
+    expect(srv().config!.dhcpRouterIp).toBe("192.168.1.1");
+    expect(field("dhcpRouterIp").validationMessage).toContain("is not an IPv4 address");
+    commit("dhcpRouterIp", "");
+    expect(srv().config!.dhcpRouterIp).toBeUndefined();
+  });
+
+  it("the ports field uses the `ports` command's mutator: list, de-duplicate, validate, clear", () => {
+    commit("listenPorts", "80, 443, 80");
+    expect(srv().config!.openPorts).toEqual([80, 443]);
+    expect(dom.modeLabel.textContent).toBe("SRV listening on 80, 443.");
+    commit("listenPorts", "80, 70000");
+    expect(srv().config!.openPorts).toEqual([80, 443]);
+    expect(field("listenPorts").validationMessage).toContain("1–65535");
+    commit("listenPorts", "");
+    expect(srv().config!.openPorts).toBeUndefined();              // cleared = accept on any port, not []
+  });
+
+  it("the shell and the console reach the same mutators", () => {
+    expect(exec("cli SRV echo dhcp-range=192.168.1.200,192.168.1.100 >> /etc/dnsmasq.conf").output.join(" "))
+      .toContain("dnsmasq: dhcp-range end 192.168.1.100 is before start 192.168.1.200");
+    expect(exec("cli SRV echo dhcp-range=192.168.1.x,192.168.1.100 >> /etc/dnsmasq.conf").output.join(" ")).toContain("dnsmasq: bad dhcp-range");
+    expect(exec("cli SRV echo dhcp-option=option:router,nope >> /etc/dnsmasq.conf").output.join(" ")).toContain("dnsmasq: bad dhcp-option");
+    expect(exec("ports SRV 22 8080").output).toEqual(["SRV listening on 22, 8080."]);
+    expect(exec("ports SRV closed").output).toEqual(["SRV: no listening ports (refuses every connection)."]);
+    expect(srv().config!.openPorts).toEqual([]);
+    expect(exec("ports SRV 0").ok).toBe(false);
+    expect(exec("ports SW 80").output.join(" ")).toContain("not a host");
+  });
+
+  it("the mutators report through results, with no undo point for a refusal", () => {
+    const undoPoints = state.undoStack.length;
+    expect(setDhcpRange(srv(), "10.0.0.9", "10.0.0.1")).toMatchObject({ ok: false });
+    expect(setDhcpRouterOption(srv(), "x")).toMatchObject({ ok: false });
+    expect(setListeningPorts(srv(), [1.5])).toMatchObject({ ok: false });
+    expect(setDhcpRange(srv(), "", "")).toMatchObject({ ok: true });     // already off: nothing to do
+    expect(state.undoStack.length).toBe(undoPoints);
+    expect(setDhcpRange(srv(), "10.0.0.1", "10.0.0.9")).toMatchObject({ ok: true, message: "SRV: DHCP range 10.0.0.1 – 10.0.0.9." });
   });
 });

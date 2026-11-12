@@ -11,7 +11,8 @@ import {
 } from "./devices";
 import {
   openTerminalFor, syncTerminal, runDeviceCommand, openDock,
-  addSwitchVlan, removeSwitchVlan, setSwitchPortVlan, setSwitchPortMode, setSwitchTrunkNative, setSwitchStp, setSwitchMirror
+  addSwitchVlan, removeSwitchVlan, setSwitchPortVlan, setSwitchPortMode, setSwitchTrunkNative, setSwitchStp, setSwitchMirror,
+  setDhcpRange, setDhcpRouterOption, setListeningPorts
 } from "./terminal";
 import { resizeCanvas } from "./canvas";
 import { syncSimLog, startSimulation, animatedRunBlockReason } from "./engine";
@@ -444,24 +445,32 @@ function bindDnsmasqControls(selected: any): void {
       syncPanel();
     });
   });
-  const bindIpField = (id: string, field: string) => {
-    const input = document.getElementById(id) as HTMLInputElement | null;
-    if (!input) return;
-    captureUndoOnFocus(input);
-    input.addEventListener("input", (event: any) => {
-      const value = event.target.value.trim();
-      if (!isValidIpv4(value) && value !== "") {
-        event.target.setCustomValidity("Enter a valid IPv4 address.");
-      } else {
-        event.target.setCustomValidity("");
-        ensureConfig(selected);
-        (selected.config as any)[field] = value;
-      }
-    });
+  // The DHCP range and router option commit through the dnsmasq mutators the
+  // shell uses (setDhcpRange / setDhcpRouterOption), on change — not per
+  // keystroke and per field, which could store half a range or an inverted one
+  // the shell refuses. Both bounds are committed together; a rejected value
+  // stays in the field with the reason on it and on the status line.
+  const commitField = (input: HTMLInputElement, result: { ok: boolean; error?: string; message?: string; warnings: string[] }) => {
+    input.setCustomValidity(result.ok ? "" : (result.error || "Invalid value."));
+    if (!result.ok) input.reportValidity?.();
+    dom.modeLabel.textContent = mutationText(result);
   };
-  bindIpField("dhcpRangeStart", "dhcpRangeStart");
-  bindIpField("dhcpRangeEnd", "dhcpRangeEnd");
-  bindIpField("dhcpRouterIp", "dhcpRouterIp");
+  const rangeStart = document.getElementById("dhcpRangeStart") as HTMLInputElement | null;
+  const rangeEnd = document.getElementById("dhcpRangeEnd") as HTMLInputElement | null;
+  if (rangeStart && rangeEnd) {
+    const commitRange = (edited: HTMLInputElement) => {
+      const start = rangeStart.value.trim(), end = rangeEnd.value.trim();
+      rangeStart.setCustomValidity(""); rangeEnd.setCustomValidity("");
+      // One bound typed, the other still empty: the learner is mid-edit — wait
+      // for the second field rather than rejecting (or storing) half a range.
+      if (!!start !== !!end && !selected.config?.dhcpRangeStart) return;
+      commitField(edited, setDhcpRange(selected, start, end));
+    };
+    rangeStart.addEventListener("change", () => commitRange(rangeStart));
+    rangeEnd.addEventListener("change", () => commitRange(rangeEnd));
+  }
+  const routerOption = document.getElementById("dhcpRouterIp") as HTMLInputElement | null;
+  if (routerOption) routerOption.addEventListener("change", () => commitField(routerOption, setDhcpRouterOption(selected, routerOption.value)));
 
   const radiusAdd = document.getElementById("radiusUserAdd");
   if (radiusAdd) {
@@ -494,21 +503,17 @@ function bindDnsmasqControls(selected: any): void {
     });
   });
 
+  // Listening ports commit through setListeningPorts, the `ports` command's
+  // mutator. An empty field clears the list (accept on any port) — NOT an empty
+  // list, which means "listen on nothing" and refuses everything.
   const portsInput = document.getElementById("listenPorts") as HTMLInputElement | null;
   if (portsInput) {
-    captureUndoOnFocus(portsInput);
-    portsInput.addEventListener("input", (event: any) => {
-      const raw = event.target.value.trim();
-      const parts = raw ? raw.split(",").map((s: string) => s.trim()).filter(Boolean) : [];
-      const ports = parts.map(Number);
-      const valid = ports.every((p: number) => Number.isInteger(p) && p >= 1 && p <= 65535);
-      if (!valid) { event.target.setCustomValidity("Enter comma-separated ports (1–65535)."); return; }
-      event.target.setCustomValidity("");
-      ensureConfig(selected);
-      // Empty field = clear the listener list (accept on any port), NOT an empty
-      // array — an empty openPorts means "listen on nothing" and RSTs everything.
-      if (parts.length === 0) delete (selected.config as any).openPorts;
-      else selected.config.openPorts = [...new Set(ports)];
+    portsInput.addEventListener("change", () => {
+      const parts = portsInput.value.split(",").map(text => text.trim()).filter(Boolean);
+      const result = setListeningPorts(selected, parts.length ? parts.map(Number) : null);
+      portsInput.setCustomValidity(result.ok ? "" : "Enter comma-separated ports (1–65535).");
+      if (!result.ok) portsInput.reportValidity?.();
+      dom.modeLabel.textContent = mutationText(result);
     });
   }
 }

@@ -11,7 +11,7 @@
  * One simplification, noted in docs/src/dns.md: conf lines take effect
  * immediately (the real daemon needs a restart to re-read its config).
  */
-import type { Device, DnsRecord } from "../types";
+import type { Device, DnsRecord, MutationResult } from "../types";
 import { sync, pushUndo } from "../state";
 import { isValidIpv4, ipv4ToInt } from "../utils";
 import { ensureConfig, normaliseDnsRecords } from "../normalise";
@@ -31,6 +31,49 @@ export function showDnsmasqConf(device: Device): string {
   }
   if (config.dhcpRouterIp) lines.push(`dhcp-option=option:router,${config.dhcpRouterIp}`);
   return lines.join("\n");
+}
+
+// ── Mutators shared by the dnsmasq shell and the inspector ────────────────────
+// One validation for both front doors: the inspector used to write the range
+// one field and one keystroke at a time with its own (weaker) check, so it
+// could store an inverted range the shell refuses — the engine then reported
+// "no addresses available", and the exported script would not replay.
+
+// Set the DHCP pool. Both bounds are committed together; empty + empty turns
+// DHCP off. An inverted range is refused, as real dnsmasq refuses it.
+export function setDhcpRange(device: Device, startText: string, endText: string): MutationResult {
+  const start = String(startText ?? "").trim();
+  const end = String(endText ?? "").trim();
+  if (!start && !end) {
+    if (!device.config?.dhcpRangeStart && !device.config?.dhcpRangeEnd) return { ok: true, message: "DHCP is already off (no range).", warnings: [] };
+    pushUndo();
+    ensureConfig(device);
+    delete device.config.dhcpRangeStart;
+    delete device.config.dhcpRangeEnd;
+    sync().syncPanel();
+    return { ok: true, message: `${device.name}: DHCP range cleared — DHCP is off.`, warnings: [] };
+  }
+  if (!start || !end) return { ok: false, error: `A DHCP range needs both a start and an end address (got ${start ? "no end" : "no start"}).`, warnings: [] };
+  if (!isValidIpv4(start)) return { ok: false, error: `bad dhcp-range: ${start} is not an IPv4 address`, warnings: [] };
+  if (!isValidIpv4(end)) return { ok: false, error: `bad dhcp-range: ${end} is not an IPv4 address`, warnings: [] };
+  if (ipv4ToInt(end) < ipv4ToInt(start)) return { ok: false, error: `dhcp-range end ${end} is before start ${start}`, warnings: [] };
+  pushUndo();
+  ensureConfig(device);
+  device.config.dhcpRangeStart = start;
+  device.config.dhcpRangeEnd = end;
+  sync().syncPanel();
+  return { ok: true, message: `${device.name}: DHCP range ${start} – ${end}.`, warnings: [] };
+}
+
+// Set (or, with an empty value, clear) the router option handed to DHCP clients.
+export function setDhcpRouterOption(device: Device, ipText: string): MutationResult {
+  const ip = String(ipText ?? "").trim();
+  if (ip && !isValidIpv4(ip)) return { ok: false, error: `bad dhcp-option: ${ip} is not an IPv4 address`, warnings: [] };
+  pushUndo();
+  ensureConfig(device);
+  if (ip) device.config.dhcpRouterIp = ip; else delete device.config.dhcpRouterIp;
+  sync().syncPanel();
+  return { ok: true, message: ip ? `${device.name}: DHCP router option ${ip}.` : `${device.name}: DHCP router option cleared (clients get this server).`, warnings: [] };
 }
 
 // Applies one dnsmasq.conf directive. Returns an error string, or "" when the
@@ -56,29 +99,16 @@ export function applyDnsmasqConfLine(device: Device, line: string): string {
 
   const rangeMatch = trimmed.match(/^dhcp-range=(\S+?),(\S+?)(?:,\S+)?$/i);
   if (rangeMatch) {
-    const start = rangeMatch[1].trim();
-    const end = rangeMatch[2].trim();
-    if (!isValidIpv4(start) || !isValidIpv4(end)) return `dnsmasq: bad dhcp-range at line: ${trimmed}`;
-    // Reject an inverted range at read time (as real dnsmasq does) rather than
-    // accepting it and silently handing out no leases at allocation time.
-    if (ipv4ToInt(end) < ipv4ToInt(start)) return `dnsmasq: dhcp-range end ${end} is before start ${start}`;
-    pushUndo();
-    ensureConfig(device);
-    device.config.dhcpRangeStart = start;
-    device.config.dhcpRangeEnd = end;
-    sync().syncPanel();
-    return "";
+    // An inverted range is rejected at read time (as real dnsmasq does) rather
+    // than accepted and silently handing out no leases at allocation time.
+    const result = setDhcpRange(device, rangeMatch[1], rangeMatch[2]);
+    return result.ok ? "" : `dnsmasq: ${result.error} (at line: ${trimmed})`;
   }
 
   const routerMatch = trimmed.match(/^dhcp-option=option:router,(\S+)$/i);
   if (routerMatch) {
-    const ip = routerMatch[1].trim();
-    if (!isValidIpv4(ip)) return `dnsmasq: bad dhcp-option at line: ${trimmed}`;
-    pushUndo();
-    ensureConfig(device);
-    device.config.dhcpRouterIp = ip;
-    sync().syncPanel();
-    return "";
+    const result = setDhcpRouterOption(device, routerMatch[1]);
+    return result.ok ? "" : `dnsmasq: ${result.error} (at line: ${trimmed})`;
   }
 
   return `dnsmasq: unsupported directive: ${trimmed} (use address=/name/ip, dhcp-range=start,end, dhcp-option=option:router,ip)`;

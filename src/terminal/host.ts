@@ -2,13 +2,14 @@
  * Host (PC) terminal — a Linux-ish shell: ip addr/route, arp, ping, traceroute,
  * dhcp. Display/mutator helpers are shared with the inspector GUI.
  */
-import type { Device } from "../types";
+import type { Device, MutationResult } from "../types";
 import { state, sync, pushUndo } from "../state";
 import { isValidIpv4, isValidMac, normaliseMacAddress, parseIpv4Token, prefixOf, clampPrefixLength } from "../utils";
 import { normaliseArpTable, ensureConfig } from "../normalise";
 import { buildPingEvents, buildDhcpEvents, buildConnectEvents, buildResolveEvents, buildHttpEvents, parseHttpTarget, findPingTarget, hostnameToIp } from "../simulation";
 import { startSimulation, runTraceroute, animatedRunBlockReason, STORM_DIAGNOSIS } from "../engine";
 import { applyHostname } from "../devices";
+import { isHost } from "../device-registry";
 import { terminalLine } from "./core";
 
 export function showHostIp(device: Device): string {
@@ -75,6 +76,30 @@ export function flushHostArp(device: Device): string {
   device.config.arpTable = [];
   sync().syncPanel();
   return `Flushed ${count} ARP ${count === 1 ? "entry" : "entries"} from eth0.`;
+}
+
+// The TCP ports a host listens on — shared by the `ports` console command and
+// the inspector's Listening ports field (which re-implemented it). `null` = no
+// list (accept on any port); `[]` = listen on nothing (every SYN is refused);
+// otherwise the given ports, each 1–65535.
+export function setListeningPorts(device: Device, ports: number[] | null): MutationResult {
+  if (!isHost(device.type)) return { ok: false, error: `${device.name} is not a host (only hosts listen on ports).`, warnings: [] };
+  if (ports && !ports.every(p => Number.isInteger(p) && p >= 1 && p <= 65535)) {
+    return { ok: false, error: "ports: each port must be an integer 1–65535.", warnings: [] };
+  }
+  pushUndo();   // AFTER validation — a rejected port list must not push undo / wipe redo
+  ensureConfig(device);
+  if (ports === null) {
+    delete device.config.openPorts;
+    sync().syncPanel();
+    return { ok: true, message: `${device.name}: listening ports cleared (accepts on any port).`, warnings: [] };
+  }
+  device.config.openPorts = [...new Set(ports)];
+  sync().syncPanel();
+  return {
+    ok: true, warnings: [],
+    message: ports.length ? `${device.name} listening on ${device.config.openPorts.join(", ")}.` : `${device.name}: no listening ports (refuses every connection).`,
+  };
 }
 
 export function setHostGateway(device: Device, address: string): string {

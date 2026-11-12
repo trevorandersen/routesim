@@ -23,7 +23,7 @@ import { DEFAULT_BRIDGE_PRIORITY } from "./stp";
 import {
   setHostIp, setHostGateway, setHostDns, setRouterInterfaceIp, addSwitchVlan, removeSwitchVlan,
   setSwitchPortVlan, setSwitchPortMode, setSwitchTrunkNative, modifySwitchTrunkAllowed, setSwitchMirror, addIdsRule,
-  runTerminalCommand, ensureSession,
+  runTerminalCommand, ensureSession, setListeningPorts,
 } from "./terminal";
 import { buildConfigPayload, applyConfig, loadTopology } from "./config";
 import { normaliseConfig, normaliseStaticRoutes, ensureConfig } from "./normalise";
@@ -492,32 +492,15 @@ function cmdRadius(args: string[]): CommandResult {
 function cmdPorts(args: string[]): CommandResult {
   const host = resolveDevice(args[0]);
   if (typeof host === "string") return err(host);
-  if (!isHost(host.type)) return err(`${host.name} is not a host (only hosts listen on ports).`);
   const spec = args.slice(1).join(" ").trim();
-  if (!spec || /^(none|off|clear)$/i.test(spec)) {
-    pushUndo();
-    ensureConfig(host);
-    delete (host.config as any).openPorts;
-    sync().syncPanel();
-    return ok(`${host.name}: listening ports cleared (accepts on any port).`);
-  }
-  // `closed` is the OTHER empty state: an explicit empty list = listen on
-  // nothing (every SYN is RST). Distinct from "cleared" (no list = accept any),
-  // and the script export needs to say which one it means.
-  if (/^closed$/i.test(spec)) {
-    pushUndo();
-    ensureConfig(host);
-    (host.config as any).openPorts = [];
-    sync().syncPanel();
-    return ok(`${host.name}: no listening ports (refuses every connection).`);
-  }
-  const ports = spec.split(/[\s,]+/).filter(Boolean).map(Number);
-  if (!ports.every(p => Number.isInteger(p) && p >= 1 && p <= 65535)) return err("ports: each port must be an integer 1–65535.");
-  pushUndo();   // AFTER validation — a rejected port list must not push undo / wipe redo
-  ensureConfig(host);
-  (host.config as any).openPorts = [...new Set(ports)];
-  sync().syncPanel();
-  return ok(`${host.name} listening on ${(host.config as any).openPorts.join(", ")}.`);
+  // No list (or none/off/clear) = accept on any port. `closed` is the OTHER
+  // empty state: an explicit empty list = listen on nothing (every SYN is RST) —
+  // distinct, and the script export needs to say which one it means.
+  const ports = !spec || /^(none|off|clear)$/i.test(spec) ? null
+    : /^closed$/i.test(spec) ? []
+    : spec.split(/[\s,]+/).filter(Boolean).map(Number);
+  const result = setListeningPorts(host, ports);
+  return result.ok ? ok(mutationText(result)) : err(mutationText(result));
 }
 
 // MACsec: set (or clear, with "off") the pre-shared key for the link to a peer.

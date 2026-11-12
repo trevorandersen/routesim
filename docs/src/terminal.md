@@ -22,7 +22,8 @@ The current mode and interface selection live on the **session** (`state.termina
 ## State mutators
 Pure-ish functions that change device config, `pushUndo`, and re-sync — shared across the terminal, the inspector GUI, and the console scripting engine (`commands.ts`):
 - Host: `setHostIp`, `flushHostIp`, `setHostGateway`, `setHostDns` (the resolver).
-- Server: `applyDnsmasqConfLine` (parses/applies one conf directive), `showDnsmasqConf`.
+- Server: `applyDnsmasqConfLine` (parses/applies one conf directive), `showDnsmasqConf`, and the mutators it and the inspector share — **`setDhcpRange(device, start, end)`** (both bounds committed together; empty + empty turns DHCP off; a bad address or an inverted range is refused, as real dnsmasq refuses it) and **`setDhcpRouterOption(device, ip)`** (empty clears). Both return a `MutationResult`; the shell prints the reason as `dnsmasq: <reason> (at line: …)`.
+- Host: **`setListeningPorts(device, ports | null)`** — `null` = no list (accept on any port), `[]` = listen on nothing, otherwise the ports (each 1–65535, de-duplicated). Shared by the console's `ports` command and the inspector's Listening ports field.
 - Router: `setRouterInterfaceIp`, `clearRouterInterfaceIp`.
 - Switch: `addSwitchVlan`, `removeSwitchVlan`, `setSwitchPortVlan`, `setSwitchPortMode`, `setSwitchTrunkNative`, `modifySwitchTrunkAllowed` (the inspector + console use these directly; the SONiC switch terminal applies membership via `sonicVlanMemberAdd`/`Del`).
 

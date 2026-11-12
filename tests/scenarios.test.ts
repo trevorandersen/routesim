@@ -175,6 +175,44 @@ describe("scenario import validates every check before registering (F12)", () =>
   });
 });
 
+// R34: grading runs real headless simulations against live state. A `dhcp`
+// check used to leave the learner's host permanently re-addressed by the lease
+// it obtained during the grade, with no undo; later checks silently depended on
+// that side effect. Grading must now leave the network exactly as it found it.
+describe("checkScenario leaves the graded network untouched (R34)", () => {
+  beforeEach(() => resetState());
+
+  const pcA = () => state.devices.find(d => d.name === "PC-A")!;
+
+  it("a dhcp check does not re-address the host it grades", () => {
+    loadScenario("dhcp-service");
+    exec("link PC-A SW-1");
+    exec("link SW-1 R1");
+    const host = pcA();
+    // The learner never statically addresses PC-A — it relies on DHCP.
+    expect(host.config!.ipv4Address || "").toBe("");
+    const before = JSON.stringify(host.config);
+
+    const result = checkScenario(getScenario("dhcp-service")!);
+    expect(result.passed).toBe(true);                  // the dependency still works mid-grade
+    expect(host.config!.ipv4Address || "").toBe("");   // but the lease did not stick
+    expect(JSON.stringify(host.config)).toBe(before);  // nothing else moved either
+  });
+
+  it("grading twice gives the same verdict and no accumulated state", () => {
+    loadScenario("dhcp-service");
+    exec("link PC-A SW-1");
+    exec("link SW-1 R1");
+    const snapshot = networkSnapshot();
+    const first = checkScenario(getScenario("dhcp-service")!);
+    const second = checkScenario(getScenario("dhcp-service")!);
+    expect(first.passed).toBe(true);
+    expect(second.passed).toBe(true);
+    // The whole network — every device config and the cabling — is unchanged.
+    expect(networkSnapshot()).toBe(snapshot);
+  });
+});
+
 // R35: an isolation check used to pass on ANY failure, so three scenarios could
 // be "solved" without the concept they teach. A fail-check can now name the
 // device that must do the blocking (`blockedBy`), and passes only if the same

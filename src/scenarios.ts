@@ -299,7 +299,51 @@ function evaluateCheck(check: ScenarioCheck): CheckResult {
   return { label: check.label, passed: evaluate(check) };
 }
 
+// Grading runs real headless simulations against live state (DHCP, ping, TCP,
+// DNS, HTTP, scans), so a check can mutate the very network it grades — most
+// visibly a `dhcp` check re-addresses the learner's host through a real lease,
+// and every check appends to the wires' frame history. None of that should
+// outlive the grade (review R34). We clone the mutable state, run the whole
+// check set against it — so one check still sees another's side effects, e.g. a
+// `dns` check reading the address a `dhcp` check just assigned — then restore.
+interface GradingState {
+  configs: Array<{ device: Device; data: string }>;
+  frameHistories: Array<{ link: any; copy: any[] | undefined }>;
+}
+
+function saveGradingState(): GradingState {
+  return {
+    // Serialise each config: a check mutates it in place (e.g. DHCP sets the
+    // address), so a shallow copy of the object would still be the mutated one.
+    configs: state.devices.map(d => ({ device: d, data: JSON.stringify(d.config ?? {}) })),
+    // A headless run appends to link.frameHistory (pushes onto the same array),
+    // so keep a copy of the array as it stood, not the live reference.
+    frameHistories: state.links.map(l => ({ link: l, copy: l.frameHistory ? [...l.frameHistory] : undefined })),
+  };
+}
+
+function restoreGradingState(saved: GradingState): void {
+  for (const { device, data } of saved.configs) {
+    const cfg = device.config as any;
+    const restored = JSON.parse(data);
+    if (!cfg) { device.config = restored; continue; }
+    // Rewrite the existing config object in place so its identity survives — the
+    // per-frame port-mode/VLAN memoisation keys on it (normalise.ts).
+    for (const k of Object.keys(cfg)) delete cfg[k];
+    Object.assign(cfg, restored);
+  }
+  for (const { link, copy } of saved.frameHistories) {
+    if (copy === undefined) delete link.frameHistory;
+    else link.frameHistory = copy;
+  }
+}
+
 export function checkScenario(scenario: Scenario): ScenarioResult {
-  const checks = scenario.checks.map(evaluateCheck);
-  return { id: scenario.id, name: scenario.name, passed: checks.every(c => c.passed), checks };
+  const saved = saveGradingState();
+  try {
+    const checks = scenario.checks.map(evaluateCheck);
+    return { id: scenario.id, name: scenario.name, passed: checks.every(c => c.passed), checks };
+  } finally {
+    restoreGradingState(saved);
+  }
 }

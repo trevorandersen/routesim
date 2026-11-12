@@ -31,7 +31,7 @@ There is no dedicated `firewall.ts`; the device is spread across the standard
 ```ts
 ConnState = "new" | "established" | "related" | "invalid"
 FirewallRule  = { chain, target: accept|drop|reject, protocol?, src?, dst?, icmpType?, dport?, states?: ConnState[], rejectWith? }
-FirewallConfig = { ethernetPorts, rules: FirewallRule[], policy: { forward: accept|drop } }
+FirewallConfig = { ethernetPorts, rules: FirewallRule[], policy: { forward: accept|drop } }   // ethernetPorts: 2–8 (clampFirewallPortCount), default 2
 ConntrackEntry = { proto, srcIp, dstIp, srcPort, dstPort, established }   // runtime, per device, on SimulationState.conntrack
 ```
 

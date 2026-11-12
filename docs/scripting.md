@@ -78,7 +78,7 @@ Param keys and boolean values are case-insensitive. Adding a setting is a one-ro
 | `radius <server> <identity> <password>` | Add/update a RADIUS user on a server (enables the authentication back end). |
 | `ports <host> <port[,port…]>` | Set a host's listening TCP ports (what `nc`/`connect` find open); comma- or space-separated. `ports <host> none` clears the list (accept on **any** port); `ports <host> closed` sets an explicitly **empty** list (refuse every connection). Different states — the export preserves which you meant. |
 | `power <device> on\|off` | Power a device on or off (the canvas power state). |
-| `portcount <device> [serial] <n>` | Set a device's physical port capacity (each type keeps its own range; `serial` is routers only). |
+| `portcount <device> [serial] <n>` | Set a device's physical port capacity (each type keeps its own range — switch, hub and internet cloud 4–24, router 0–12 per media, access point 1–4, firewall 2–8; `serial` is routers only). A value outside the range is refused. |
 | `macsec <device> <peer> <key\|dot1x> [must\|should]` | Set MACsec (802.1AE) for the link to a peer (`off` clears it). A literal key is a static pre-shared CAK (both ends must match); `dot1x` instead **derives** the key from a successful 802.1X exchange on the link (MKA) — it secures only after the port authenticates. `must` drops traffic when it can't secure, `should` falls back to plaintext. |
 | `interface <router> <peer> ip <addr> [vlan <tag>]` | Set a router interface IP (by connected peer; optional sub-interface VLAN). |
 | `route <router> <net/prefix> <nextHop>` | Add a static route. |

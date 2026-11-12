@@ -9,7 +9,7 @@ Small, dependency-free utility functions used everywhere. All are pure except th
 - **`normaliseMacAddress`** — canonicalises MAC casing/separators.
 - **`parseIpv4Token`** — parses `"192.168.1.10/24"` into `{ address, prefixLength }` (used by host/router IP commands).
 - **`normaliseVlanId`** — parses/validates a VLAN id (1–4094) or returns null.
-- **`clampPortCount`, `clampRouterPortCount`** — clamp port counts to allowed ranges.
+- **`clampPortCount`, `clampRouterPortCount`, `clampApPortCount`, `clampFirewallPortCount`** — clamp port counts to allowed ranges (switch-like 4–24, router 0–12, access point 1–4, firewall 2–8 — `FIREWALL_PORT_RANGE`). The firewall's is the one clamp the inspector, the `portcount` command, the normaliser and `wiredPortCapacity` share: they used to allow 2–8, 1–8 and the switch's 4–24 respectively, so a default two-port firewall came back from a save with four ports (review R92).
 
 ### IPv4 maths
 - **`ipv4ToInt`, `intToIpv4`** — IPv4 ↔ integer conversion, the basis of the subnet maths below.

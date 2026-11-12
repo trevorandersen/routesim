@@ -2,7 +2,7 @@ import type { Device, Link, DeviceType } from "./types";
 import { state, sync, pushUndo, captureUndoOnFocus, captureUndoOnFocusWithin, linksChanged } from "./state";
 import { DEVICE_SPECS, isHost, offersTerminal, defaultPortCount } from "./device-registry";
 import { dom } from "./dom";
-import { escapeHtml, isValidIpv4, isValidMac, normaliseMacAddress, randomMac, parseIpv4Token, prefixOf, networkOf, normaliseSsid, normaliseWifiPassword, mutationText } from "./utils";
+import { escapeHtml, isValidIpv4, isValidMac, normaliseMacAddress, randomMac, parseIpv4Token, prefixOf, networkOf, normaliseSsid, normaliseWifiPassword, mutationText, clampFirewallPortCount, FIREWALL_PORT_RANGE } from "./utils";
 import { ensureConfig, normaliseVlans, normaliseDnsRecords, normaliseDhcpLeases, normaliseRadiusUsers } from "./normalise";
 import {
   getDevice, isVisibleDevice, connectedIds, linkedPortsFor, linksFor, wifiLinkAuthenticated,
@@ -13,7 +13,7 @@ import {
 import {
   openTerminalFor, syncTerminal, runDeviceCommand, openDock,
   addSwitchVlan, removeSwitchVlan, setSwitchPortVlan, setSwitchPortMode, setSwitchTrunkNative, setSwitchStp, setSwitchMirror,
-  setDhcpRange, setDhcpRouterOption, setListeningPorts
+  setDhcpRange, setDhcpRouterOption, setListeningPorts, stpPriorityError
 } from "./terminal";
 import { resizeCanvas } from "./canvas";
 import { syncSimLog, startSimulation, animatedRunBlockReason } from "./engine";
@@ -667,6 +667,8 @@ export function bindAttackerControls(device: any): void {
     target.addEventListener("change", () => { device.config.attackTarget = target.value.trim(); });
   }
   document.querySelectorAll(".attack-check").forEach(el => el.addEventListener("change", () => {
+    pushUndo();   // ticking an attack is an edit like any other — it had no undo point
+    ensureConfig(device);
     device.config.attacks = Array.from(document.querySelectorAll<HTMLInputElement>(".attack-check"))
       .filter(c => c.checked).map(c => c.dataset.attack);
   }));
@@ -710,9 +712,12 @@ export function bindStpControls(device: any): void {
   if (prio) {
     captureUndoOnFocus(prio);
     prio.addEventListener("change", () => {
-      const n = Number(prio.value);
-      if (!Number.isInteger(n) || n < 0 || n > 61440 || n % 4096 !== 0) { sync().syncPanel(); return; }
-      setSwitchStp(device, { priority: n });
+      // A bad priority used to snap back to the old value without a word. It
+      // now stays in the field with the reason on it and on the status line.
+      const bad = stpPriorityError(prio.value);
+      prio.setCustomValidity(bad || "");
+      if (bad) { prio.reportValidity?.(); dom.modeLabel.textContent = bad; return; }
+      dom.modeLabel.textContent = setSwitchStp(device, { priority: Number(prio.value) });
     });
   }
 }
@@ -755,7 +760,13 @@ export function bindSwitchPortControls(device: Device): void {
   const add = () => {
     const addVlanId = document.getElementById("addVlanId") as HTMLInputElement | null;
     if (!addVlanId || !addVlanId.value.trim()) return;
-    addSwitchVlan(device, addVlanId.value);
+    // The mutator's answer goes on the status line; "Invalid VLAN ID: …" was
+    // discarded, so a bad id looked like a button that did nothing.
+    const message = addSwitchVlan(device, addVlanId.value);
+    const invalid = message.startsWith("Invalid");
+    addVlanId.setCustomValidity(invalid ? `${message} — a VLAN id is a whole number from 1 to 4094.` : "");
+    if (invalid) addVlanId.reportValidity?.();
+    dom.modeLabel.textContent = invalid ? `${message} — a VLAN id is a whole number from 1 to 4094.` : message;
   };
   vlanList.addEventListener("click", event => {
     if (delegateTarget(event, "#addVlanBtn")) { add(); return; }
@@ -1207,7 +1218,7 @@ export function syncPanel(): void {
     const firewallConfigFields = selected.type === "firewall" ? `
       <div class="field">
         <label for="selectedFwPorts">Ethernet ports</label>
-        <input id="selectedFwPorts" type="number" min="2" max="8" step="1" value="${escapeHtml(selected.config?.ethernetPorts ?? defaultPortCount(selected.type))}">
+        <input id="selectedFwPorts" type="number" min="${FIREWALL_PORT_RANGE.min}" max="${FIREWALL_PORT_RANGE.max}" step="1" value="${escapeHtml(selected.config?.ethernetPorts ?? defaultPortCount(selected.type))}">
       </div>
       <div class="field">
         <label>Netfilter (iptables FORWARD)</label>
@@ -1404,8 +1415,8 @@ export function syncPanel(): void {
       captureUndoOnFocus(fwPortsInput);
       fwPortsInput.addEventListener("input", (event: any) => {
         const value = Number(event.target.value);
-        if (!Number.isInteger(value) || value < 2 || value > 8) {
-          event.target.setCustomValidity("Enter a port count from 2 to 8.");
+        if (clampFirewallPortCount(value) !== value) {
+          event.target.setCustomValidity(`Enter a port count from ${FIREWALL_PORT_RANGE.min} to ${FIREWALL_PORT_RANGE.max}.`);
         } else {
           event.target.setCustomValidity("");
           ensureConfig(selected);

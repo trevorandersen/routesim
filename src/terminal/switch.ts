@@ -147,6 +147,16 @@ export function setSwitchMirror(device: Device, change: { name?: string; dest: s
   return `Mirroring ${srcLabel} to ${cfg.mirror.dest}.`;
 }
 
+// Why a bridge priority is not valid, or null when it is: 802.1D priorities are
+// multiples of 4096 from 0 to 61440. The one rule for the switch shell, the
+// console's `stp` and the inspector field (which used to revert a bad value
+// without a word).
+export function stpPriorityError(value: unknown): string | null {
+  const n = Number(value);
+  return Number.isInteger(n) && n >= 0 && n <= 61440 && n % 4096 === 0 ? null
+    : `Bridge priority must be 0–61440 in steps of 4096 (got ${String(value).trim() || "nothing"}).`;
+}
+
 // Enable/disable spanning tree or set the bridge priority (shared by the CLI and
 // the console `stp` command). Re-converges so blocked ports update live.
 export function setSwitchStp(device: Device, change: { enabled?: boolean; priority?: number }): string {
@@ -451,7 +461,8 @@ export function runSwitchTerminalCommand(device: Device, command: string): void 
   const stpPriorityMatch = command.match(/^(?:sudo\s+)?config\s+spanning_tree\s+priority\s+(\d+)$/i);
   if (stpPriorityMatch) {
     const n = Number(stpPriorityMatch[1]);
-    if (n < 0 || n > 61440 || n % 4096 !== 0) { terminalLine("error", "% Priority must be 0-61440 in steps of 4096."); return; }
+    const bad = stpPriorityError(n);
+    if (bad) { terminalLine("error", `% ${bad}`); return; }
     terminalLine("", setSwitchStp(device, { priority: n }));
     return;
   }

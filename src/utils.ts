@@ -220,6 +220,17 @@ export function clampPortCount(value: any): number {
   return Math.min(24, Math.max(4, portCount));
 }
 
+// A firewall is a bump in the wire: two ports by default (inside, outside), up
+// to eight. The ONE clamp for it — the inspector allowed 2–8, the console 1–8,
+// and the normaliser applied the switch's 4–24, so a default two-port firewall
+// came back from a save with four ports.
+export const FIREWALL_PORT_RANGE = { min: 2, max: 8 } as const;
+export function clampFirewallPortCount(value: any): number {
+  const portCount = Number(value);
+  if (!Number.isInteger(portCount)) return FIREWALL_PORT_RANGE.min;
+  return Math.min(FIREWALL_PORT_RANGE.max, Math.max(FIREWALL_PORT_RANGE.min, portCount));
+}
+
 export function clampRouterPortCount(value: any): number {
   const portCount = Number(value);
   if (!Number.isInteger(portCount)) return 4;

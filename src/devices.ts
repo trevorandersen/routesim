@@ -2,7 +2,7 @@ import type { PortOption, Device, Link, DeviceType, DeviceConfig, NamedRouterIfa
 import { state, sync, pushUndo, networkSnapshot, dropTerminalSessions, resetCaptureState, linksChanged } from "./state";
 import { dom } from "./dom";
 import { deviceSize, defaultDeviceConfig, ensureConfig, normaliseRouterInterfaces, normalisePortVlans, normalisePortModes } from "./normalise";
-import { clampPortCount, clampApPortCount, clampRouterPortCount, escapeHtml, randomMac, isValidHostname, MAX_PHYSICAL_PORT, deriveMac, normaliseMacAddress } from "./utils";
+import { clampPortCount, clampApPortCount, clampRouterPortCount, escapeHtml, randomMac, isValidHostname, MAX_PHYSICAL_PORT, deriveMac, normaliseMacAddress, clampFirewallPortCount } from "./utils";
 import { quoteArg } from "./tokenize";
 import { DEVICE_SPECS, USER_ADDABLE_TYPES, freshNameCounters, hasSingleNic, isHost, isDot1xSupplicant, defaultPortCount } from "./device-registry";
 
@@ -1222,7 +1222,7 @@ export function wiredPortCapacity(device: any): number {
   const n = device.config?.ethernetPorts;
   switch (device.type) {
     case "access-point": return clampApPortCount(n ?? 1);
-    case "firewall":     return Math.min(8, Math.max(1, Number.isInteger(n) ? n : 2));
+    case "firewall":     return clampFirewallPortCount(n ?? 2);
     case "hub":          return clampPortCount(n ?? 4);
     case "internet":     return clampPortCount(n ?? 8);
     default:             return clampPortCount(n ?? 8);

@@ -12,6 +12,9 @@ import { createIcmpEchoRequest, createTcpSegment } from "../src/frame";
 import { dom } from "../src/dom";
 import { runConsoleScript, runConsoleCommand as exec, exportTopologyScript } from "../src/commands";
 import { setDhcpRange, setDhcpRouterOption, setListeningPorts } from "../src/terminal";
+import { buildConfigPayload, parseConfig } from "../src/config";
+import { wiredPortCapacity } from "../src/devices";
+import { clampFirewallPortCount } from "../src/utils";
 import { registerNoopCallbacks, resetState } from "./helpers";
 import { installMiniDom, typeInto, MiniEvent, type MiniElement } from "./mini-dom";
 import { basicTopology, routedTopology, vlanTopology } from "./fixtures";
@@ -575,5 +578,95 @@ describe("a panel rebuild commits the field still being edited (R45)", () => {
     outside.focus();
     syncPanel();
     expect(mini.document.activeElement).toBe(outside);
+  });
+});
+
+// R92: four inspector edits skipped the undo point or swallowed the mutator's
+// error, and the firewall's port count had three different ranges.
+describe("inspector edits take an undo point and surface their errors (R92)", () => {
+  let mini: ReturnType<typeof installMiniDom>;
+  beforeEach(() => { resetState(); mini = installMiniDom(); });
+  afterEach(() => mini.uninstall());
+
+  const dev = (name: string) => state.devices.find(d => d.name === name)!;
+  const el = (id: string): MiniElement => {
+    const found = mini.panel.getElementById(id);
+    if (!found) throw new Error(`#${id} not rendered`);
+    return found;
+  };
+  const configure = (name: string) => { state.selectedLinkId = null; state.selectedId = dev(name).id; state.configuringId = dev(name).id; syncPanel(); };
+  const commit = (id: string, text: string) => { const input = el(id); input.focus(); input.value = text; input.dispatchEvent(new MiniEvent("input")); input.dispatchEvent(new MiniEvent("change")); };
+
+  it("ticking a Red Team attack is undoable", () => {
+    runConsoleScript("add attacker RT at 100 100");
+    dev("RT").config!.attacks = ["scan"];
+    configure("RT");
+    const boxes = mini.panel.querySelectorAll(".attack-check");
+    const sweep = boxes.find(b => b.dataset.attack === "sweep")!;
+    const undoPoints = state.undoStack.length;
+    sweep.checked = true;
+    sweep.dispatchEvent(new MiniEvent("change"));
+    expect([...dev("RT").config!.attacks!].sort()).toEqual(["scan", "sweep"]);
+    expect(state.undoStack.length).toBe(undoPoints + 1);
+    undo();
+    expect(dev("RT").config!.attacks).toEqual(["scan"]);
+  });
+
+  it("Add VLAN reports an invalid id instead of doing nothing", () => {
+    runConsoleScript("add switch SW at 100 100\nmanaged SW on");
+    configure("SW");
+    const undoPoints = state.undoStack.length;
+    el("addVlanId").value = "5000";
+    el("addVlanBtn").click();
+    expect(dom.modeLabel.textContent).toBe("Invalid VLAN ID: 5000 — a VLAN id is a whole number from 1 to 4094.");
+    expect(el("addVlanId").validationMessage).toContain("Invalid VLAN ID: 5000");
+    expect(state.undoStack.length).toBe(undoPoints);
+    el("addVlanId").value = "30";
+    el("addVlanBtn").click();
+    expect(dom.modeLabel.textContent).toBe("Added VLAN 30.");
+    expect(dev("SW").config!.vlans!.some(v => v.id === 30)).toBe(true);
+  });
+
+  it("a bad STP priority stays in the field with its reason; a good one is applied and reported", () => {
+    runConsoleScript("add switch SW at 100 100\nmanaged SW on");
+    configure("SW");
+    commit("selectedStpPriority", "5000");
+    expect(dev("SW").config!.stp?.priority).toBeUndefined();
+    expect(el("selectedStpPriority").value).toBe("5000");         // not silently reverted
+    expect(el("selectedStpPriority").validationMessage).toBe("Bridge priority must be 0–61440 in steps of 4096 (got 5000).");
+    expect(dom.modeLabel.textContent).toBe("Bridge priority must be 0–61440 in steps of 4096 (got 5000).");
+    commit("selectedStpPriority", "4096");
+    expect(dev("SW").config!.stp!.priority).toBe(4096);
+    expect(dom.modeLabel.textContent).toBe("Bridge priority set to 4096.");
+  });
+
+  it("the console and the switch shell state the same priority rule", () => {
+    runConsoleScript("add switch SW at 100 100\nmanaged SW on");
+    expect(exec("stp SW priority 5000").output.join(" ")).toContain("Bridge priority must be 0–61440 in steps of 4096 (got 5000).");
+    expect(exec("cli SW config spanning_tree priority 5000").output.join(" ")).toContain("% Bridge priority must be 0–61440 in steps of 4096 (got 5000).");
+    expect(exec("stp SW priority 8192").ok).toBe(true);
+  });
+
+  it("the firewall's port count has one range everywhere: 2 to 8", () => {
+    runConsoleScript("add firewall FW at 100 100");
+    expect([1, 2, 5, 8, 9, 2.5, "x"].map(clampFirewallPortCount)).toEqual([2, 2, 5, 8, 8, 2, 2]);
+    expect(wiredPortCapacity(dev("FW"))).toBe(2);
+    expect(exec("portcount FW 1").ok).toBe(false);                 // the console used to accept 1
+    expect(exec("portcount FW 9").ok).toBe(false);
+    expect(exec("portcount FW 3").ok).toBe(true);
+    configure("FW");
+    expect(el("selectedFwPorts").getAttribute("min")).toBe("2");
+    expect(el("selectedFwPorts").getAttribute("max")).toBe("8");
+    typeInto(el("selectedFwPorts"), "1");
+    expect(el("selectedFwPorts").validationMessage).toBe("Enter a port count from 2 to 8.");
+    expect(dev("FW").config!.ethernetPorts).toBe(3);
+    typeInto(el("selectedFwPorts"), "6");
+    expect(dev("FW").config!.ethernetPorts).toBe(6);
+  });
+
+  it("a default two-port firewall keeps two ports through a save and load", () => {
+    runConsoleScript("add firewall FW at 100 100");
+    const loaded = parseConfig(JSON.stringify(buildConfigPayload()));
+    expect(loaded.devices.find((d: any) => d.name === "FW")!.config.ethernetPorts).toBe(2);   // the normaliser used to make it 4
   });
 });

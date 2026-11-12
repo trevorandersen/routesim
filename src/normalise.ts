@@ -2,7 +2,7 @@ import type {
   PortMode, ArpEntry, DhcpLease, MacTableEntry, Vlan, RouterInterface,
   RipConfig, StaticRoute, DeviceConfig, DeviceType, Device, Link, FirewallRule, DnsRecord
 } from "./types";
-import { normaliseMacAddress, isValidMac, isValidIpv4, clampPortCount, clampApPortCount, clampRouterPortCount, clampPrefixLength, normaliseVlanId, normaliseSsid, normaliseWifiPassword, normalisePortNumber } from "./utils";
+import { normaliseMacAddress, isValidMac, isValidIpv4, clampPortCount, clampApPortCount, clampRouterPortCount, clampPrefixLength, normaliseVlanId, normaliseSsid, normaliseWifiPassword, normalisePortNumber, clampFirewallPortCount } from "./utils";
 import { DEVICE_SPECS, DEVICE_TYPES, DEFAULT_SSID, defaultConfigFor, defaultPortCount } from "./device-registry";
 
 // Each element is coerced to an object before use: imported JSON may carry a
@@ -393,7 +393,7 @@ export function normaliseDeviceConfig(device: any): DeviceConfig {
     };
   }
   if (device.type === "firewall") {
-    const ethernetPorts = clampPortCount(device.config?.ethernetPorts ?? device.ethernetPorts ?? defaultPortCount("firewall"));
+    const ethernetPorts = clampFirewallPortCount(device.config?.ethernetPorts ?? device.ethernetPorts ?? defaultPortCount("firewall"));
     const rawPolicy = device.config?.policy || {};
     return {
       ethernetPorts,

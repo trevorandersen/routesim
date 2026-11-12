@@ -23,13 +23,13 @@ import { DEFAULT_BRIDGE_PRIORITY } from "./stp";
 import {
   setHostIp, setHostGateway, setHostDns, setRouterInterfaceIp, addSwitchVlan, removeSwitchVlan,
   setSwitchPortVlan, setSwitchPortMode, setSwitchTrunkNative, modifySwitchTrunkAllowed, setSwitchMirror, addIdsRule,
-  runTerminalCommand, ensureSession, setListeningPorts,
+  runTerminalCommand, ensureSession, setListeningPorts, stpPriorityError,
 } from "./terminal";
 import { buildConfigPayload, applyConfig, loadTopology } from "./config";
 import { normaliseConfig, normaliseStaticRoutes, ensureConfig } from "./normalise";
 import { setTool, setTheme } from "./ui";
 import { setZoom, fitNetwork } from "./canvas";
-import { isValidMac, normaliseMacAddress, prefixOf, networkOf, normaliseSsid, normaliseWifiPassword, clampPortCount, clampRouterPortCount, clampApPortCount, mutationText } from "./utils";
+import { isValidMac, normaliseMacAddress, prefixOf, networkOf, normaliseSsid, normaliseWifiPassword, clampPortCount, clampRouterPortCount, clampApPortCount, mutationText, clampFirewallPortCount } from "./utils";
 import { SCENARIOS, getScenario, loadScenario, checkScenario } from "./scenarios";
 import { SCENARIO_GROUPS } from "./scenario-library";
 import { SPEED_MIN, SPEED_MAX } from "./settings-url";
@@ -685,8 +685,8 @@ function cmdStp(args: string[]): CommandResult {
     return err(`stp: expected "<switch> on|off" or "<switch> priority <n>".`);
   }
   if (sub === "priority") {
-    const n = Number(args[2]);
-    if (!Number.isInteger(n) || n < 0 || n > 61440 || n % 4096 !== 0) return err("stp priority: an integer 0–61440 in steps of 4096.");
+    const bad = stpPriorityError(args[2]);
+    if (bad) return err(`stp priority: ${bad}`);
   }
   pushUndo();
   ensureConfig(sw);
@@ -1061,7 +1061,7 @@ function cmdPortCount(args: string[]): CommandResult {
   const clamp: Record<string, (v: number) => number> = {
     switch: clampPortCount, hub: clampPortCount, internet: clampPortCount,
     router: clampRouterPortCount, "access-point": clampApPortCount,
-    firewall: v => Math.min(8, Math.max(1, v)),
+    firewall: clampFirewallPortCount,
   };
   const fn = clamp[dev.type];
   if (!fn) return err(`portcount: ${dev.name} (${dev.type}) has no configurable port count.`);

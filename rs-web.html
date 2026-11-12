@@ -3025,6 +3025,12 @@ Full legal text: https://creativecommons.org/publicdomain/zero/1.0/legalcode</pr
     if (!Number.isInteger(portCount)) return 8;
     return Math.min(24, Math.max(4, portCount));
   }
+  var FIREWALL_PORT_RANGE = { min: 2, max: 8 };
+  function clampFirewallPortCount(value) {
+    const portCount = Number(value);
+    if (!Number.isInteger(portCount)) return FIREWALL_PORT_RANGE.min;
+    return Math.min(FIREWALL_PORT_RANGE.max, Math.max(FIREWALL_PORT_RANGE.min, portCount));
+  }
   function clampRouterPortCount(value) {
     const portCount = Number(value);
     if (!Number.isInteger(portCount)) return 4;
@@ -3717,7 +3723,7 @@ Full legal text: https://creativecommons.org/publicdomain/zero/1.0/legalcode</pr
       };
     }
     if (device.type === "firewall") {
-      const ethernetPorts = clampPortCount(device.config?.ethernetPorts ?? device.ethernetPorts ?? defaultPortCount("firewall"));
+      const ethernetPorts = clampFirewallPortCount(device.config?.ethernetPorts ?? device.ethernetPorts ?? defaultPortCount("firewall"));
       const rawPolicy = device.config?.policy || {};
       return {
         ethernetPorts,
@@ -5519,7 +5525,7 @@ Full legal text: https://creativecommons.org/publicdomain/zero/1.0/legalcode</pr
       case "access-point":
         return clampApPortCount(n ?? 1);
       case "firewall":
-        return Math.min(8, Math.max(1, Number.isInteger(n) ? n : 2));
+        return clampFirewallPortCount(n ?? 2);
       case "hub":
         return clampPortCount(n ?? 4);
       case "internet":
@@ -12106,6 +12112,10 @@ ${body}
     const srcLabel = sources.length ? sources.join(",") : "all ports";
     return `Mirroring ${srcLabel} to ${cfg.mirror.dest}.`;
   }
+  function stpPriorityError(value) {
+    const n = Number(value);
+    return Number.isInteger(n) && n >= 0 && n <= 61440 && n % 4096 === 0 ? null : `Bridge priority must be 0\u201361440 in steps of 4096 (got ${String(value).trim() || "nothing"}).`;
+  }
   function setSwitchStp(device, change) {
     pushUndo();
     ensureConfig(device);
@@ -12387,8 +12397,9 @@ ${body}
     const stpPriorityMatch = command.match(/^(?:sudo\s+)?config\s+spanning_tree\s+priority\s+(\d+)$/i);
     if (stpPriorityMatch) {
       const n = Number(stpPriorityMatch[1]);
-      if (n < 0 || n > 61440 || n % 4096 !== 0) {
-        terminalLine("error", "% Priority must be 0-61440 in steps of 4096.");
+      const bad = stpPriorityError(n);
+      if (bad) {
+        terminalLine("error", `% ${bad}`);
         return;
       }
       terminalLine("", setSwitchStp(device, { priority: n }));
@@ -13474,6 +13485,8 @@ Snort successfully validated the configuration${bad ? " (with errors)" : "."}`);
       });
     }
     document.querySelectorAll(".attack-check").forEach((el) => el.addEventListener("change", () => {
+      pushUndo();
+      ensureConfig(device);
       device.config.attacks = Array.from(document.querySelectorAll(".attack-check")).filter((c) => c.checked).map((c) => c.dataset.attack);
     }));
     document.getElementById("launchAttack")?.addEventListener("click", () => {
@@ -13514,12 +13527,14 @@ Snort successfully validated the configuration${bad ? " (with errors)" : "."}`);
     if (prio) {
       captureUndoOnFocus(prio);
       prio.addEventListener("change", () => {
-        const n = Number(prio.value);
-        if (!Number.isInteger(n) || n < 0 || n > 61440 || n % 4096 !== 0) {
-          sync().syncPanel();
+        const bad = stpPriorityError(prio.value);
+        prio.setCustomValidity(bad || "");
+        if (bad) {
+          prio.reportValidity?.();
+          dom.modeLabel.textContent = bad;
           return;
         }
-        setSwitchStp(device, { priority: n });
+        dom.modeLabel.textContent = setSwitchStp(device, { priority: Number(prio.value) });
       });
     }
   }
@@ -13547,7 +13562,11 @@ Snort successfully validated the configuration${bad ? " (with errors)" : "."}`);
     const add = () => {
       const addVlanId = document.getElementById("addVlanId");
       if (!addVlanId || !addVlanId.value.trim()) return;
-      addSwitchVlan(device, addVlanId.value);
+      const message = addSwitchVlan(device, addVlanId.value);
+      const invalid = message.startsWith("Invalid");
+      addVlanId.setCustomValidity(invalid ? `${message} \u2014 a VLAN id is a whole number from 1 to 4094.` : "");
+      if (invalid) addVlanId.reportValidity?.();
+      dom.modeLabel.textContent = invalid ? `${message} \u2014 a VLAN id is a whole number from 1 to 4094.` : message;
     };
     vlanList.addEventListener("click", (event) => {
       if (delegateTarget(event, "#addVlanBtn")) {
@@ -13991,7 +14010,7 @@ Snort successfully validated the configuration${bad ? " (with errors)" : "."}`);
       const firewallConfigFields = selected.type === "firewall" ? `
       <div class="field">
         <label for="selectedFwPorts">Ethernet ports</label>
-        <input id="selectedFwPorts" type="number" min="2" max="8" step="1" value="${escapeHtml(selected.config?.ethernetPorts ?? defaultPortCount(selected.type))}">
+        <input id="selectedFwPorts" type="number" min="${FIREWALL_PORT_RANGE.min}" max="${FIREWALL_PORT_RANGE.max}" step="1" value="${escapeHtml(selected.config?.ethernetPorts ?? defaultPortCount(selected.type))}">
       </div>
       <div class="field">
         <label>Netfilter (iptables FORWARD)</label>
@@ -14177,8 +14196,8 @@ Snort successfully validated the configuration${bad ? " (with errors)" : "."}`);
         captureUndoOnFocus(fwPortsInput);
         fwPortsInput.addEventListener("input", (event) => {
           const value = Number(event.target.value);
-          if (!Number.isInteger(value) || value < 2 || value > 8) {
-            event.target.setCustomValidity("Enter a port count from 2 to 8.");
+          if (clampFirewallPortCount(value) !== value) {
+            event.target.setCustomValidity(`Enter a port count from ${FIREWALL_PORT_RANGE.min} to ${FIREWALL_PORT_RANGE.max}.`);
           } else {
             event.target.setCustomValidity("");
             ensureConfig(selected);
@@ -17409,8 +17428,8 @@ Snort successfully validated the configuration${bad ? " (with errors)" : "."}`);
       return err(`stp: expected "<switch> on|off" or "<switch> priority <n>".`);
     }
     if (sub === "priority") {
-      const n = Number(args[2]);
-      if (!Number.isInteger(n) || n < 0 || n > 61440 || n % 4096 !== 0) return err("stp priority: an integer 0\u201361440 in steps of 4096.");
+      const bad = stpPriorityError(args[2]);
+      if (bad) return err(`stp priority: ${bad}`);
     }
     pushUndo();
     ensureConfig(sw);
@@ -17775,7 +17794,7 @@ Snort successfully validated the configuration${bad ? " (with errors)" : "."}`);
       internet: clampPortCount,
       router: clampRouterPortCount,
       "access-point": clampApPortCount,
-      firewall: (v) => Math.min(8, Math.max(1, v))
+      firewall: clampFirewallPortCount
     };
     const fn = clamp[dev.type];
     if (!fn) return err(`portcount: ${dev.name} (${dev.type}) has no configurable port count.`);

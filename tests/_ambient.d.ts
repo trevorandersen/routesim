@@ -9,7 +9,7 @@
 declare module "bun:test" {
   type Hook = () => void | Promise<void>;
   export function describe(name: string, fn: () => void): void;
-  export function it(name: string, fn: Hook): void;
+  export function it(name: string, fn: Hook, timeoutMs?: number): void;
   export const test: typeof it;
   export function beforeAll(fn: Hook): void;
   export function beforeEach(fn: Hook): void;

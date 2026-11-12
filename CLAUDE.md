@@ -55,7 +55,7 @@ Test infrastructure:
 | `tests/helpers.ts` | `registerNoopCallbacks(real?)` (pass the real implementation of any view a suite asserts on), `resetState()` — restores the **whole** app default from `state.ts`'s factories (`freshOptions`/`freshSimulationState`/`freshDockState`…), including settings, name counters and the pinned seed, so nothing leaks between test files; set what a test needs *after* calling it |
 | `tests/fixtures.ts` | `basicTopology()`, `routedTopology()`, `vlanTopology()`, `trunkTopology()` |
 | `tests/mini-dom.ts` | A small parsed element tree (`installMiniDom()`, mounted behind `dom.detailsPanel`) for driving real inspector wiring — `syncPanel()`, type into a field, assert on the config |
-| `tests/bench-harness.ts` | Benchmark timing (sub-µs batching, a GC before each pass, best-of-3 re-measure of an over-budget pass), p99 budgets, results formatting |
+| `tests/bench-harness.ts` | Benchmark timing (sub-µs batching, a GC before each pass, a 200,000-sample cap per pass, best-of-3 re-measure of an over-budget pass), p99 budgets, results formatting; pinned by `tests/bench-harness.test.ts` |
 | `tests/bench-fixtures.ts` | Scalable topology generators for benchmarks |
 
 **Benchmark new additions.** Performance is a project goal — any new hot-path code (engine handlers, lookups, routing, convergence) should get a matching `bench:` case in `tests/bench.test.ts` with a realistic p99 budget. Run `bun test tests/bench.test.ts` before and after a change to confirm no regression.

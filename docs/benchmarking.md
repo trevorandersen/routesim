@@ -28,10 +28,12 @@ Budgets are calibrated for a ~2 GHz CPU with headroom, so they pass on modest ha
 
 1. **Warm up**, then **calibrate** (20 timed calls). A function whose median call is under 1 µs is timed in **batches** of K calls per sample (per-op time = sample / K, K ≤ 1000) — otherwise the sample is mostly the cost of reading the clock, and a 500 ms run of a 50 ns function builds a 10-million-entry sample array whose garbage then lands in the *next* benchmark's tail.
 2. **Collect garbage** (`Bun.gc(true)`) before each pass, so a p99 reflects the function's own allocation rather than heap debt left by earlier groups or test files (the full `bun test` used to fail more budgets than the file alone).
-3. **Measure** for at least `minTime` and take p50/p99.
+3. **Measure** for at least `minTime` — or until the pass has `MAX_SAMPLES` (200,000) samples, which bounds the sample array a fast function used to fill with millions of entries — and take p50/p99.
 4. **Re-measure an over-budget pass** (up to `attempts`, default 3) and keep the best. For a few-µs function the p99 is one sample in a hundred, so a single collector pause landing there used to fail the suite; a real regression is slower on *every* pass and still fails. A retried pass is printed `(best of N)` — surfaced, never silent.
 
-The budget is still a **p99** — the gate didn't move to p50.
+The budget is still a **p99** — the gate didn't move to p50. Stated exactly, the gate is *the best p99 of up to three passes is within budget*. The minimum over repeated passes is the standard robust estimator for a timing: outside interference (another process, a collector pause) can only make a pass slower, never faster, so the best pass is the one closest to the function's own cost. A regression is slower on every pass and still fails.
+
+`tests/bench-harness.test.ts` pins the harness itself (review R111): nearest-rank percentiles, batching of a sub-µs function, no batching of a slow one, the sample cap, an over-budget pass being re-measured and the best reported, a function slow on every pass failing after all its attempts, and `printResults` reporting both.
 
 ## Current cases
 

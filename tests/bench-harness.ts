@@ -30,6 +30,10 @@ export interface BenchOptions {
 // rather than the cost of reading the clock around it.
 const MIN_SAMPLE_US = 1;
 const MAX_BATCH = 1000;
+// A pass stops at this many samples even if minTime has not elapsed: enough
+// for a stable p99 (the slowest 1% is still 2,000 samples), and it bounds the
+// sample array — a fast function used to push millions of entries in 500 ms.
+export const MAX_SAMPLES = 200_000;
 
 /**
  * Benchmark a synchronous function.
@@ -46,6 +50,13 @@ const MAX_BATCH = 1000;
  *    the best pass is reported. One unlucky collector pause landing in the 1%
  *    tail no longer fails the suite, while a real regression — slower on every
  *    pass — still does.
+ *
+ * The gate is therefore "the best p99 of up to three passes is within budget".
+ * Taking the minimum over repeated passes is the standard robust estimator for
+ * a timing: outside interference (another process, a collector pause) can only
+ * make a pass slower, never faster, so the best pass is the one closest to the
+ * function's own cost. It keeps the budgets meaning what they say (a p99, the
+ * tail) rather than loosening them to a median.
  */
 export function bench(name: string, fn: () => void, opts: BenchOptions = {}): BenchResult {
   const budget = opts.budget ?? 1000;
@@ -87,7 +98,7 @@ function measure(name: string, fn: () => void, batch: number, minTime: number, m
   const samples: number[] = [];
   const deadline = performance.now() + minTime;
 
-  while (samples.length < minIters || performance.now() < deadline) {
+  while (samples.length < minIters || (performance.now() < deadline && samples.length < MAX_SAMPLES)) {
     const t0 = performance.now();
     for (let i = 0; i < batch; i++) fn();
     samples.push((performance.now() - t0) * 1000 / batch); // µs per op
@@ -114,7 +125,8 @@ function measure(name: string, fn: () => void, batch: number, minTime: number, m
   };
 }
 
-function percentile(sorted: number[], p: number): number {
+// The p-th percentile of an ascending array (nearest-rank).
+export function percentile(sorted: number[], p: number): number {
   if (sorted.length === 0) return 0;
   const idx = Math.ceil(p * sorted.length) - 1;
   return sorted[Math.max(0, idx)];

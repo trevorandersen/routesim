@@ -368,21 +368,72 @@ describe("commands — state-changing commands are undoable", () => {
 describe("commands — a rejected command pushes no spurious undo entry", () => {
   beforeEach(reset);
 
-  it("rejected linkset / ports / idsrule leave the undo stack untouched", () => {
+  // Each command must be rejected for the REASON under test — by its own value
+  // validation, after the device resolved. The first version of this test
+  // renamed PC-A to EDGE and then kept addressing "PC-A", so every command
+  // failed with "No device named PC-A" before reaching the code it was meant to
+  // exercise: it would have passed even if each one pushed undo first (R115).
+  const rejections: [string, string][] = [
+    ["linkset EDGE SW bogus 5", "linkset: expected"],
+    ["linkset EDGE SW latency abc", "must be a non-negative number"],
+    ["linkset EDGE SW loss -1", "must be a non-negative number"],
+    ["ports EDGE 99999", "each port must be an integer 1–65535"],
+    ["ports SW 80", "not a host"],
+    ["idsrule IDS not a valid rule", "bad rule"],
+    ["portauth SW Ethernet1 sometimes", "portauth mode"],
+    ["stp SW priority 5000", "Bridge priority must be"],
+    ["portcount SW 99", "outside the switch's supported range"],
+    ["vlan SW add 5000", "Invalid VLAN ID"],
+    ["ip EDGE 10.0.0.999/24", "Invalid IPv4 address"],
+    ["gateway EDGE nope", "Invalid IPv4 address"],
+    ["power EDGE sideways", "Usage: power"],
+    ["collapse EDGE", "is not a switch"],
+    ["expand SW", "is not a collapsed LAN"],
+    ["link EDGE EDGE", "Cannot link a device to itself"],
+    ["link EDGE IDS", "single NIC"],
+    ["unlink EDGE IDS", "No link between"],
+  ];
+
+  function build() {
     runConsoleScript(`
       add computer PC-A at 0 0
       add switch SW at 100 0
       add ids IDS at 200 0
       link PC-A SW
+      managed SW on
     `);
     const id = state.devices.find(d => d.name === "PC-A")!.id;
     exec("rename PC-A EDGE");                                    // one real, undoable edit
-    expect(exec("linkset PC-A SW bogus 5").ok).toBe(false);      // rejected — no mutation
-    expect(exec("linkset PC-A SW latency abc").ok).toBe(false);  // rejected value
-    expect(exec("ports PC-A 99999").ok).toBe(false);             // rejected value
-    expect(exec("idsrule IDS not a valid rule").ok).toBe(false); // rejected rule
+    return id;
+  }
+
+  for (const [command, reason] of rejections) {
+    it(`\`${command}\` is rejected for its own reason and pushes no undo`, () => {
+      build();
+      const before = state.undoStack.length;
+      const redo = state.redoStack.length;
+      const result = exec(command);
+      expect(result.ok).toBe(false);
+      expect(result.output.join(" ")).toContain(reason);          // rejected where it should be …
+      expect(result.output.join(" ")).not.toContain("No device named");   // … not for a mistyped name
+      expect(state.undoStack.length).toBe(before);
+      expect(state.redoStack.length).toBe(redo);
+    });
+  }
+
+  it("after all of them, one undo still reverts the last real edit", () => {
+    const id = build();
+    for (const [command] of rejections) exec(command);
     undo();                                                      // must revert the rename, not a no-op
     expect(state.devices.find(d => d.id === id)!.name).toBe("PC-A");
+  });
+
+  it("a rejected command does not wipe the redo branch", () => {
+    build();
+    undo();                                                      // the rename is now redoable
+    expect(state.redoStack.length).toBe(1);
+    for (const [command] of rejections) exec(command.replace(/EDGE/g, "PC-A"));
+    expect(state.redoStack.length).toBe(1);
   });
 });
 

@@ -43,7 +43,7 @@ describe("an explicit port never lands on a cabled port (R28)", () => {
       add computer PC3 at 500 100
       link SW1 PC1
       link SW1 PC2
-      vlan SW1 10
+      vlan SW1 add 10
       port SW1 Ethernet1 access 10
     `);
   }

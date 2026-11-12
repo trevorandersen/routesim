@@ -12794,17 +12794,20 @@ Snort successfully validated the configuration${bad ? " (with errors)" : "."}`);
     const run = host ? CLI_DISPATCH[host.type] : void 0;
     if (!host || !run) {
       terminalLine("error", "No device is attached to this terminal.");
-      return;
+      return { ok: false, lines: state.terminal.lines.slice(-1) };
     }
-    if (!command) return;
+    if (!command) return { ok: true, lines: [] };
     if (host.type === "router") reconcileRouterSession(state.terminal, host);
     terminalLine("command", `${terminalPromptText(host)} ${command}`);
     takePreemptionNote();
     const session = state.terminal;
-    const at = session.lines.length;
+    const echo = session.lines[session.lines.length - 1];
     run(host, command);
+    const at = session.lines.indexOf(echo) + 1;
+    const printed = session.lines.slice(at);
     const note = takePreemptionNote();
-    if (note && !session.lines.slice(at).some((l) => l.text === note)) session.lines.splice(at, 0, { kind: "error", text: note });
+    if (note && !printed.some((l) => l.text === note)) session.lines.splice(at, 0, { kind: "error", text: note });
+    return { ok: !printed.some((l) => l.kind === "error"), lines: printed };
   }
   function terminalBusy() {
     return animatedRunBlockReason() !== null && state.terminal.deviceId === state.simulation.originDeviceId;
@@ -17045,9 +17048,9 @@ Snort successfully validated the configuration${bad ? " (with errors)" : "."}`);
     }
     const session = state.terminal;
     const before = session.lines.length;
-    runTerminalCommand(line);
+    const result = runTerminalCommand(line);
     sync().syncTerminal();
-    return ok(...session.lines.slice(before).map((l) => l.text));
+    return { ok: result.ok, output: session.lines.slice(before).map((l) => l.text) };
   }
   function cmdPing(args) {
     const src = resolveDevice(args[0]);

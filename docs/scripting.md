@@ -93,7 +93,7 @@ Param keys and boolean values are case-insensitive. Adding a setting is a one-ro
 | `mirror <switch> <dst-port> [src…]` / `mirror <switch> off` | Set/clear a SPAN session on a managed switch: mirror ingress frames to the `dst-port` monitor port (no `src…` = all ports). Realistic equivalent `config mirror_session span add <name> <dst> [src]`. |
 | `idsrule <ids> <snort rule>` / `idsrule <ids> clear` | Append a raw Snort rule to an IDS sensor's `local.rules` / remove every rule. |
 | `redteam <node> target <ip>` / `attacks <scan,sweep,arp-spoof>` / `spoof <ip>` | Configure a **Red Team actor**'s (`type: "attacker"`) stored plan: `target` sets the scan/sweep target, `attacks` sets the enabled-attack list (comma-separated; invalid kinds are filtered out), `spoof` sets the ARP-spoof IP to impersonate. A Kali PC (`type: "kali"`) is hand-driven and carries no stored plan, so it has nothing to configure here. |
-| `cli <ref> <raw CLI…>` | Run a raw per-device CLI command (the device terminal language; mode persists across `cli` calls to the same device). |
+| `cli <ref> <raw CLI…>` | Run a raw per-device CLI command (the device terminal language; mode persists across `cli` calls to the same device). The result is the shell's: `ok` is false when the device printed an error (`% Enter router rip mode first.`, a rejected `iptables` rule, a bad `dhcp-range`), so a script import reports those lines as rejected. A command that starts an animation (`ping`) is ok once it has started. |
 
 ### Simulation
 | Command | Effect |

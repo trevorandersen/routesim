@@ -367,9 +367,12 @@ function cmdCli(args: string[], _rest: string, tail: (n: number) => string): Com
   // output still lives on the closed session's buffer.
   const session = state.terminal;
   const before = session.lines.length;
-  runTerminalCommand(line);
+  const result = runTerminalCommand(line);
   sync().syncTerminal(); // keep the dock's terminal pane/prompt in step
-  return ok(...session.lines.slice(before).map(l => l.text));
+  // The shell's verdict is the command's verdict: `cli` used to return ok
+  // whatever the device printed, so a script whose RIP, NAT, iptables or
+  // dnsmasq lines were all rejected still imported "cleanly".
+  return { ok: result.ok, output: session.lines.slice(before).map(l => l.text) };
 }
 
 // ── Simulation ───────────────────────────────────────────────────────────────

@@ -4,6 +4,8 @@
 import { describe, it, expect, beforeAll, beforeEach } from "bun:test";
 import { state, undo } from "../src/state";
 import { runConsoleCommand as exec, runConsoleScript, exportTopologyScript } from "../src/commands";
+import { runImportedScript } from "../src/io";
+import { runTerminalCommand } from "../src/terminal";
 import { registerNoopCallbacks, resetState } from "./helpers";
 import { routedTopology } from "./fixtures";
 import { freshNameCounters } from "../src/device-registry";
@@ -514,5 +516,76 @@ describe("export — operational configuration survives the script round-trip (F
     expect(exec("portcount PC1 4").ok).toBe(false);
     expect(exec("portcount SW1 12").ok).toBe(true);
     expect(dev("SW1").config!.ethernetPorts).toBe(12);
+  });
+});
+
+// R56: the console's `cli` verb returned ok whatever the device shell printed, so
+// a script whose RIP, NAT, iptables or dnsmasq lines were all rejected still
+// imported "cleanly" — and the export routes exactly those through `cli`.
+describe("cli — the shell's verdict is the command's verdict (R56)", () => {
+  beforeEach(() => {
+    resetState();
+    runConsoleScript("add router R1 at 0 0\nadd switch SW at 200 0\nadd server SRV at 400 0\nlink R1 SW\nlink SRV SW\ninterface R1 SW ip 10.0.0.1/24\nip SRV 10.0.0.5/24");
+  });
+
+  it("a command the shell rejects is not ok, and its error is in the output", () => {
+    const r = exec("cli R1 network 10.0.0.0/24");           // exec mode: not in router rip
+    expect(r.ok).toBe(false);
+    expect(r.output.join(" ")).toContain("Enter router rip mode first");
+  });
+
+  it("a command the shell accepts is ok", () => {
+    expect(exec("cli R1 enable").ok).toBe(true);
+    expect(exec("cli R1 configure terminal").ok).toBe(true);
+    expect(exec("cli R1 router rip").ok).toBe(true);
+    expect(exec("cli R1 network 10.0.0.0/24").ok).toBe(true);
+    expect(exec("cli R1 do show ip route").ok).toBe(true);
+  });
+
+  it("covers every shell the export writes through: iptables, static routes, dnsmasq", () => {
+    exec("cli R1 enable");
+    expect(exec("cli R1 iptables -A FORWARD -p tcp --dport 99999 -j DROP").ok).toBe(false);
+    expect(exec("cli R1 iptables -A FORWARD -p tcp --dport 22 -j ACCEPT").ok).toBe(true);
+    exec("cli R1 configure terminal");
+    expect(exec("cli R1 ip route 10.9.0.0/24 not-an-ip").ok).toBe(false);
+    expect(exec("cli SRV echo dhcp-range=10.0.0.200,10.0.0.100 >> /etc/dnsmasq.conf").ok).toBe(false);   // inverted
+    expect(exec("cli SRV echo dhcp-range=10.0.0.100,10.0.0.200 >> /etc/dnsmasq.conf").ok).toBe(true);
+  });
+
+  it("a script import counts the rejected shell lines instead of reporting a clean run", () => {
+    const report = runImportedScript("cli R1 enable\ncli R1 configure terminal\ncli R1 network 10.0.0.0/24\ncli SRV echo dhcp-range=10.0.0.200,10.0.0.100 >> /etc/dnsmasq.conf");
+    expect(report).toContain("2 of 4 lines rejected");
+    expect(report).toContain("router rip");
+  });
+
+  it("an export of a working network replays with every line accepted", () => {
+    runConsoleScript("cli R1 enable\ncli R1 configure terminal\ncli R1 router rip\ncli R1 network 10.0.0.0/24\ncli R1 end\ncli R1 iptables -A FORWARD -p tcp --dport 22 -j ACCEPT\ncli SRV echo dhcp-range=10.0.0.100,10.0.0.200 >> /etc/dnsmasq.conf");
+    const results = runConsoleScript(exportTopologyScript());
+    expect(results.filter(r => !r.ok).map(r => r.output.join(" "))).toEqual([]);
+  });
+
+  it("runTerminalCommand returns the lines the command printed, without the echo", () => {
+    exec("cli R1 enable");                                   // attaches the session
+    const r = runTerminalCommand("show ip route");
+    expect(r.ok).toBe(true);
+    expect(r.lines.length).toBe(1);
+    expect(r.lines[0].text).toContain("is directly connected");
+    const bad = runTerminalCommand("bogus command");
+    expect(bad.ok).toBe(false);
+    expect(bad.lines.every(l => l.kind === "error")).toBe(true);
+  });
+
+  it("a detached terminal is a failure, an empty line is not", () => {
+    state.terminal = { deviceId: null, mode: "exec", interfacePeerId: null, interfaceVlanTag: null, lines: [], history: [], historyIndex: -1 };
+    expect(runTerminalCommand("show ip route").ok).toBe(false);
+    exec("cli R1 enable");
+    expect(runTerminalCommand("   ").ok).toBe(true);
+  });
+
+  it("a long output that trims the scrollback is still attributed to its command", () => {
+    exec("cli R1 enable");
+    for (let i = 0; i < 130; i++) state.terminal.lines.push({ kind: "", text: `filler ${i}` });
+    const r = runTerminalCommand("bogus command");
+    expect(r.ok).toBe(false);
   });
 });

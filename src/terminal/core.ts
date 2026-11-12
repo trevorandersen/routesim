@@ -9,7 +9,7 @@
  * are the dock's tabs; `state.terminal` always points at the session shown in
  * the terminal pane.
  */
-import type { Device, DeviceType, DockTab, TerminalSession } from "../types";
+import type { Device, DeviceType, DockTab, TerminalSession, TerminalLine } from "../types";
 import { state, sync, freshTerminalSession } from "../state";
 import { dom } from "../dom";
 import { escapeHtml } from "../utils";
@@ -260,15 +260,22 @@ export function canOpenTerminal(device: Device | undefined): boolean {
   return hasTerminal(device) && !device!.poweredOff && offersTerminal(device!);
 }
 
-export function runTerminalCommand(rawCommand: string): void {
+// What a shell command did, for callers that must know whether it worked (the
+// console's `cli` verb, and through it script import and the exported replay):
+// the lines the command itself printed, and `ok` = none of them was an error.
+// Only lines printed synchronously count — an animated ping's verdict arrives
+// later, in its own run.
+export interface TerminalCommandResult { ok: boolean; lines: TerminalLine[] }
+
+export function runTerminalCommand(rawCommand: string): TerminalCommandResult {
   const host = getDevice(state.terminal.deviceId);
   const command = rawCommand.trim();
   const run = host ? CLI_DISPATCH[host.type] : undefined;
   if (!host || !run) {
     terminalLine("error", "No device is attached to this terminal.");
-    return;
+    return { ok: false, lines: state.terminal.lines.slice(-1) };
   }
-  if (!command) return;
+  if (!command) return { ok: true, lines: [] };
   if (host.type === "router") reconcileRouterSession(state.terminal, host);   // before the echo, so it shows the real prompt
   terminalLine("command", `${terminalPromptText(host)} ${command}`);
   // A command here can stop another run (a ping preempting a network boot, a
@@ -277,10 +284,17 @@ export function runTerminalCommand(rawCommand: string): void {
   // device's own, whose session engine already wrote the note to.
   takePreemptionNote();   // drop a note left by a run this command didn't start
   const session = state.terminal;
-  const at = session.lines.length;
+  const echo = session.lines[session.lines.length - 1];
   run(host, command);
+  // The scrollback is capped, so find the command's output by its echo line,
+  // not by a remembered index (a long output trims lines off the front).
+  const at = session.lines.indexOf(echo) + 1;
+  const printed = session.lines.slice(at);
   const note = takePreemptionNote();
-  if (note && !session.lines.slice(at).some(l => l.text === note)) session.lines.splice(at, 0, { kind: "error", text: note });
+  // The preemption note says another run was stopped — information, not a
+  // failure of this command — so it is added after `ok` is decided.
+  if (note && !printed.some(l => l.text === note)) session.lines.splice(at, 0, { kind: "error", text: note });
+  return { ok: !printed.some(l => l.kind === "error"), lines: printed };
 }
 
 // Whether the active session is the busy shell: the one whose device started

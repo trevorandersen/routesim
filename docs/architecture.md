@@ -110,7 +110,7 @@ Every source file, grouped by layer. Line counts are approximate and indicate we
 |---|---:|---|---|---|
 | `state.ts` | 630 | The `state` singleton, the `sync()` callback registry, undo and redo, terminal-session helpers, themes, built-in topologies. | `state`, `sync`, `registerCallbacks`, `pushUndo`, `undo`, `redo`, `networkSnapshot` | [state.md](src/state.md) |
 | `normalise.ts` | 600 | Turns untrusted or partial config into a valid shape. Defaults, router MAC generation, memoised port maps. The implicit import schema. | `normaliseConfig`, `ensureConfig`, `defaultDeviceConfig`, `memoPortModes` | [normalise.md](src/normalise.md) |
-| `devices.ts` | 1,120 | Device and link CRUD, hit testing, O(1) lookup indexes, interface naming, port allocation, LAN collapse, the port picker, and its own callback bridge. | `addDevice`, `addLink`, `getDevice`, `linksFor`, `routerInterfacesWithNames`, `registerDeviceCallbacks` | [devices.md](src/devices.md) |
+| `devices.ts` | 1,270 | Device and link CRUD, hit testing, O(1) lookup indexes, interface naming, port occupancy and the picker's port list, LAN collapse, and its own callback bridge. | `addDevice`, `addLink`, `getDevice`, `linksFor`, `routerInterfacesWithNames`, `registerDeviceCallbacks` | [devices.md](src/devices.md) |
 | `diagnostics.ts` | 90 | Read-only structural invariants: dangling links, stale selections, orphaned sessions, a run over a missing link. Empty array means healthy. | `diagnoseState`, `diagnoseRuntimeState` | [testing.md](testing.md) |
 
 ### L2 Network logic
@@ -143,6 +143,7 @@ Every source file, grouped by layer. Line counts are approximate and indicate we
 |---|---:|---|---|---|
 | `canvas.ts` | 600 | All canvas drawing: grid, links, devices, badges, transit dots; pan and zoom; hit-testing transits. Reads `state`, never mutates the network. | `render`, `resizeCanvas`, `screenToWorld`, `fitNetwork`, `findTransitAt` | [canvas.md](src/canvas.md) |
 | `inspector.ts` | 1,470 | The right panel: per-type config forms, link details, the clicked-frame field view, display options. Host edits are replayed as visible terminal commands. | `syncPanel`, `renderFramePanel`, `syncOptionControls`, `setNetworkPanel` | [inspector.md](src/inspector.md) |
+| `port-picker.ts` | 120 | The port-picker dialog the Connect tool opens on Shift-click: renders each end's ports and makes the cable with the chosen pair. Rows come from `buildPortList`; the cable from `addLink`. | `openPortSelectionModal`, `confirmPortSelection`, `cancelPortSelection` | [ui.md](src/ui.md) |
 
 ### L5 Application
 

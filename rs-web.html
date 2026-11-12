@@ -5534,94 +5534,6 @@ Full legal text: https://creativecommons.org/publicdomain/zero/1.0/legalcode</pr
     }
     return [];
   }
-  function openPortSelectionModal(fromId, toId) {
-    const fromDevice = getDevice(fromId);
-    const toDevice = getDevice(toId);
-    if (!fromDevice || !toDevice) return;
-    const { reject, wireless } = classifyLink(fromId, toId);
-    if (reject || wireless) {
-      addLink(fromId, toId);
-      return;
-    }
-    const showFromPicker = !hasSingleNic(fromDevice.type);
-    const showToPicker = !hasSingleNic(toDevice.type);
-    if (!showFromPicker && !showToPicker) {
-      addLink(fromId, toId, 1, 1);
-      return;
-    }
-    const fromPorts = buildPortList(fromId, toId);
-    const toPorts = buildPortList(toId, fromId);
-    state.portSelection = {
-      fromId,
-      toId,
-      fromPorts,
-      toPorts,
-      selectedFrom: showFromPicker ? null : 1,
-      selectedTo: showToPicker ? null : 1,
-      showFromPicker,
-      showToPicker
-    };
-    syncPortSelectionModal();
-    dom.portSelectionOverlay.classList.add("open");
-  }
-  function syncPortSelectionModal() {
-    const ps = state.portSelection;
-    if (!ps) return;
-    const fromDevice = getDevice(ps.fromId);
-    const toDevice = getDevice(ps.toId);
-    if (!fromDevice || !toDevice) return;
-    const columns = [];
-    if (ps.showFromPicker) {
-      columns.push(renderPortColumn(fromDevice.name, ps.fromPorts, ps.selectedFrom, "from"));
-    }
-    if (ps.showToPicker) {
-      columns.push(renderPortColumn(toDevice.name, ps.toPorts, ps.selectedTo, "to"));
-    }
-    const singleColumn = !ps.showFromPicker || !ps.showToPicker;
-    dom.portSelectionBody.className = `port-selection-body${singleColumn ? " single-column" : ""}`;
-    dom.portSelectionBody.innerHTML = columns.join("");
-    dom.portSelectionBody.querySelectorAll(".port-option:not(.occupied)").forEach((btn) => {
-      btn.addEventListener("click", () => {
-        const side = btn.dataset.side;
-        const port = Number(btn.dataset.port);
-        if (side === "from") {
-          state.portSelection.selectedFrom = port;
-        } else {
-          state.portSelection.selectedTo = port;
-        }
-        syncPortSelectionModal();
-      });
-    });
-    const canConfirm = ps.selectedFrom != null && ps.selectedTo != null;
-    dom.portSelectionConfirm.disabled = !canConfirm;
-  }
-  function renderPortColumn(deviceName, ports, selected, side) {
-    return `<div class="port-column">
-    <div class="port-column-header">${escapeHtml(deviceName)}</div>
-    ${ports.map((p) => {
-      const classes = ["port-option"];
-      if (!p.available) classes.push("occupied");
-      if (p.port === selected) classes.push("selected");
-      const status = p.connectedTo ? `Connected to ${escapeHtml(p.connectedTo)}` : "Available";
-      return `<button class="${classes.join(" ")}" data-side="${side}" data-port="${p.port}">
-        <span class="port-name">${escapeHtml(p.name)}</span>
-        <span class="port-status">${status}</span>
-      </button>`;
-    }).join("")}
-  </div>`;
-  }
-  function confirmPortSelection() {
-    const ps = state.portSelection;
-    if (!ps || ps.selectedFrom == null || ps.selectedTo == null) return;
-    addLink(ps.fromId, ps.toId, ps.selectedFrom, ps.selectedTo);
-    cancelPortSelection();
-  }
-  function cancelPortSelection() {
-    state.portSelection = null;
-    dom.portSelectionOverlay.classList.remove("open");
-    state.linkStartId = null;
-    sync().render();
-  }
   var _setTool = null;
   var _setNetworkPanel = null;
   var _linkUp = null;
@@ -14268,6 +14180,96 @@ Snort successfully validated the configuration${bad ? " (with errors)" : "."}`);
         sync().render();
       });
     });
+  }
+
+  // src/port-picker.ts
+  function openPortSelectionModal(fromId, toId) {
+    const fromDevice = getDevice(fromId);
+    const toDevice = getDevice(toId);
+    if (!fromDevice || !toDevice) return;
+    const { reject, wireless } = classifyLink(fromId, toId);
+    if (reject || wireless) {
+      addLink(fromId, toId);
+      return;
+    }
+    const showFromPicker = !hasSingleNic(fromDevice.type);
+    const showToPicker = !hasSingleNic(toDevice.type);
+    if (!showFromPicker && !showToPicker) {
+      addLink(fromId, toId, 1, 1);
+      return;
+    }
+    const fromPorts = buildPortList(fromId, toId);
+    const toPorts = buildPortList(toId, fromId);
+    state.portSelection = {
+      fromId,
+      toId,
+      fromPorts,
+      toPorts,
+      selectedFrom: showFromPicker ? null : 1,
+      selectedTo: showToPicker ? null : 1,
+      showFromPicker,
+      showToPicker
+    };
+    syncPortSelectionModal();
+    dom.portSelectionOverlay.classList.add("open");
+  }
+  function syncPortSelectionModal() {
+    const ps = state.portSelection;
+    if (!ps) return;
+    const fromDevice = getDevice(ps.fromId);
+    const toDevice = getDevice(ps.toId);
+    if (!fromDevice || !toDevice) return;
+    const columns = [];
+    if (ps.showFromPicker) {
+      columns.push(renderPortColumn(fromDevice.name, ps.fromPorts, ps.selectedFrom, "from"));
+    }
+    if (ps.showToPicker) {
+      columns.push(renderPortColumn(toDevice.name, ps.toPorts, ps.selectedTo, "to"));
+    }
+    const singleColumn = !ps.showFromPicker || !ps.showToPicker;
+    dom.portSelectionBody.className = `port-selection-body${singleColumn ? " single-column" : ""}`;
+    dom.portSelectionBody.innerHTML = columns.join("");
+    dom.portSelectionBody.querySelectorAll(".port-option:not(.occupied)").forEach((btn) => {
+      btn.addEventListener("click", () => {
+        const side = btn.dataset.side;
+        const port = Number(btn.dataset.port);
+        if (side === "from") {
+          state.portSelection.selectedFrom = port;
+        } else {
+          state.portSelection.selectedTo = port;
+        }
+        syncPortSelectionModal();
+      });
+    });
+    const canConfirm = ps.selectedFrom != null && ps.selectedTo != null;
+    dom.portSelectionConfirm.disabled = !canConfirm;
+  }
+  function renderPortColumn(deviceName, ports, selected, side) {
+    return `<div class="port-column">
+    <div class="port-column-header">${escapeHtml(deviceName)}</div>
+    ${ports.map((p) => {
+      const classes = ["port-option"];
+      if (!p.available) classes.push("occupied");
+      if (p.port === selected) classes.push("selected");
+      const status = p.connectedTo ? `Connected to ${escapeHtml(p.connectedTo)}` : "Available";
+      return `<button class="${classes.join(" ")}" data-side="${side}" data-port="${p.port}">
+        <span class="port-name">${escapeHtml(p.name)}</span>
+        <span class="port-status">${status}</span>
+      </button>`;
+    }).join("")}
+  </div>`;
+  }
+  function confirmPortSelection() {
+    const ps = state.portSelection;
+    if (!ps || ps.selectedFrom == null || ps.selectedTo == null) return;
+    addLink(ps.fromId, ps.toId, ps.selectedFrom, ps.selectedTo);
+    cancelPortSelection();
+  }
+  function cancelPortSelection() {
+    state.portSelection = null;
+    dom.portSelectionOverlay.classList.remove("open");
+    state.linkStartId = null;
+    sync().render();
   }
 
   // src/help.ts

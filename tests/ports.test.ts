@@ -13,8 +13,9 @@ import { describe, it, expect, beforeAll, beforeEach } from "bun:test";
 import { state, defaultConfig, vlanRoasConfig, routerMeshConfig, wifiVlanConfig } from "../src/state";
 import {
   addDevice, addLink, buildPortList, getDevice, linkedPortsFor, linkPortName, occupiedPorts, portBlockReason,
-  portMediaFor, routerInterfacesWithNames, switchInterfacesWithNames, openPortSelectionModal,
+  portMediaFor, routerInterfacesWithNames, switchInterfacesWithNames,
 } from "../src/devices";
+import { openPortSelectionModal } from "../src/port-picker";
 import { runConsoleScript, runConsoleCommand as exec, exportTopologyScript } from "../src/commands";
 import { applyConfigWithoutUndo, buildConfigPayload, parseConfig } from "../src/config";
 import { normaliseConfig } from "../src/normalise";

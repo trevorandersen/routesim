@@ -23,6 +23,7 @@ It is a single-page app with **no framework and no runtime dependencies** — it
 | `src/types.ts` | [types.md](src/types.md) | Every TypeScript interface |
 | `src/dom.ts` | [dom.md](src/dom.md) | Cached `getElementById` references |
 | `src/ui.ts` | [ui.md](src/ui.md) | Event wiring, tool switching, theme, keyboard shortcuts |
+| `src/port-picker.ts` | [ui.md](src/ui.md) | The Shift-click port-picker dialog (rows from `devices.buildPortList`) |
 | `src/canvas.ts` | [canvas.md](src/canvas.md) | All `<canvas>` drawing, pan/zoom, the render loop |
 | `src/inspector.ts` | [inspector.md](src/inspector.md) | Right panel: device config + link history |
 | `src/terminal/` | [terminal.md](src/terminal.md) | Per-device CLI: core dispatch/UI + host/server/router/switch/firewall modules |

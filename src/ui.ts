@@ -1,7 +1,8 @@
 import { state, toolCopy, networkSnapshot, pushUndoSnapshot, pushUndo, undo, redo, undoBlockReason, THEMES, DEFAULT_THEME } from "./state";
 import type { DisplayOptions } from "./types";
 import { dom } from "./dom";
-import { addLink, deleteSelection, clearNetwork, findDeviceAt, findLinkAt, getDevice, configureDevice, openPortSelectionModal, confirmPortSelection, cancelPortSelection, placeToolDevice, PLACEMENT_TOOLS, toggleLinkShutdown, linkName } from "./devices";
+import { addLink, deleteSelection, clearNetwork, findDeviceAt, findLinkAt, getDevice, configureDevice, placeToolDevice, PLACEMENT_TOOLS, toggleLinkShutdown, linkName } from "./devices";
+import { openPortSelectionModal, confirmPortSelection, cancelPortSelection } from "./port-picker";
 import { render, resizeCanvas, screenToWorld, setZoom, syncZoomLevel, fitNetwork, findTransitAt } from "./canvas";
 import { clearCssColorCache, escapeHtml } from "./utils";
 import { syncPanel, syncOptionControls, syncNetworkPanel, setNetworkPanel, setInspectorWidth, startInspectorResize, moveInspectorResize, stopInspectorResize } from "./inspector";

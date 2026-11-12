@@ -2890,6 +2890,9 @@ Full legal text: https://creativecommons.org/publicdomain/zero/1.0/legalcode</pr
 "use strict";
 (() => {
   // src/utils.ts
+  function mutationText(result) {
+    return result.ok ? [result.message, ...result.warnings].filter(Boolean).join(" ") : result.error || "";
+  }
   function escapeHtml(value) {
     return String(value).replaceAll("&", "&amp;").replaceAll("<", "&lt;").replaceAll(">", "&gt;").replaceAll('"', "&quot;").replaceAll("'", "&#39;");
   }
@@ -4868,40 +4871,60 @@ Full legal text: https://creativecommons.org/publicdomain/zero/1.0/legalcode</pr
     return null;
   }
   function addLink(fromId, toId, fromPort, toPort) {
-    if (fromId === toId) return;
-    const exists = state.links.some(
-      (link) => link.from === fromId && link.to === toId || link.from === toId && link.to === fromId
+    const from = getDevice(fromId), to = getDevice(toId);
+    if (fromId === toId) return { ok: false, error: "Cannot link a device to itself.", warnings: [], created: false };
+    if (!from || !to) return { ok: false, error: "No such device.", warnings: [], created: false };
+    const existing = state.links.find(
+      (link2) => link2.from === fromId && link2.to === toId || link2.from === toId && link2.to === fromId
     );
-    if (!exists) {
-      const reason = linkBlockReason(fromId, toId);
-      if (reason) {
-        state.linkStartId = null;
-        dom.modeLabel.textContent = reason;
-        sync().render();
-        return;
-      }
-      const { wireless } = classifyLink(fromId, toId);
-      pushUndo();
-      const keepFrom = fromPort != null && portBlockReason(fromId, toId, fromPort) === null;
-      const keepTo = toPort != null && portBlockReason(toId, fromId, toPort) === null;
-      const link = {
-        id: crypto.randomUUID ? crypto.randomUUID() : `${Date.now()}-${Math.random()}`,
-        from: fromId,
-        to: toId,
-        ...keepFrom ? { fromPort } : {},
-        ...keepTo ? { toPort } : {},
-        ...wireless ? { wireless: true } : {}
+    if (existing) {
+      state.linkStartId = null;
+      linksChanged([]);
+      sync().syncPanel();
+      const warnings2 = [];
+      const differs = (deviceId, requested) => {
+        if (requested == null) return false;
+        const name = linkPortName(existing, deviceId);
+        return !name || Number(name.replace(/\D+/g, "") || 1) !== requested;
       };
-      state.links.push(link);
-      if (wireless && !wifiLinkAuthenticated(link)) {
-        const laptop = getDevice(fromId)?.type === "laptop" ? getDevice(fromId) : getDevice(toId);
-        dom.modeLabel.textContent = `${laptop?.name} associated but not authenticated \u2014 wrong WiFi password.`;
+      if (differs(fromId, fromPort) || differs(toId, toPort)) {
+        const at = (device) => `${device.name} ${linkPortName(existing, device.id) ?? "?"}`;
+        warnings2.push(`The requested ports were not applied: the cable stays on ${at(from)} \u2194 ${at(to)} (unlink it first to move it).`);
       }
-      if (_linkUp) _linkUp(fromId, toId);
+      return { ok: true, message: `${from.name} \u2194 ${to.name} are already linked.`, warnings: warnings2, link: existing, created: false };
     }
+    const reason = linkBlockReason(fromId, toId);
+    if (reason) {
+      state.linkStartId = null;
+      sync().render();
+      return { ok: false, error: reason, warnings: [], created: false };
+    }
+    const { wireless } = classifyLink(fromId, toId);
+    pushUndo();
+    const refusedFrom = fromPort != null ? portBlockReason(fromId, toId, fromPort) : null;
+    const refusedTo = toPort != null ? portBlockReason(toId, fromId, toPort) : null;
+    const link = {
+      id: crypto.randomUUID ? crypto.randomUUID() : `${Date.now()}-${Math.random()}`,
+      from: fromId,
+      to: toId,
+      ...fromPort != null && !refusedFrom ? { fromPort } : {},
+      ...toPort != null && !refusedTo ? { toPort } : {},
+      ...wireless ? { wireless: true } : {}
+    };
+    state.links.push(link);
+    const warnings = [];
+    const landed = (device) => `${device.name} ${linkPortName(link, device.id) ?? "the next free port"}`;
+    if (refusedFrom) warnings.push(`${refusedFrom}, so the cable went to ${landed(from)} instead.`);
+    if (refusedTo) warnings.push(`${refusedTo}, so the cable went to ${landed(to)} instead.`);
+    if (wireless && !wifiLinkAuthenticated(link)) {
+      const laptop = from.type === "laptop" ? from : to;
+      warnings.push(`${laptop.name} associated but not authenticated \u2014 wrong WiFi password.`);
+    }
+    if (_linkUp) _linkUp(fromId, toId);
     state.linkStartId = null;
-    linksChanged(exists ? [] : [fromId, toId]);
+    linksChanged([fromId, toId]);
     sync().syncPanel();
+    return { ok: true, message: `Linked ${from.name} \u2194 ${to.name}.`, warnings, link, created: true };
   }
   function portMediaFor(deviceId, peerId) {
     return getDevice(deviceId)?.type === "router" && getDevice(peerId)?.type === "router" ? "serial" : "ethernet";
@@ -5249,11 +5272,12 @@ Full legal text: https://creativecommons.org/publicdomain/zero/1.0/legalcode</pr
     };
   }
   function collapseLan(anchor) {
-    if (!anchor || anchor.type !== "switch") return;
+    if (!anchor) return { ok: false, error: "No such device.", warnings: [] };
+    if (anchor.type !== "switch") return { ok: false, error: `${anchor.name} is not a switch \u2014 a LAN is collapsed around its switch.`, warnings: [] };
+    if (anchor.hidden) return { ok: false, error: `${anchor.name} is already inside a collapsed LAN.`, warnings: [] };
     const { members, absorbedLans } = collectLanMembers(anchor.id);
     if (members.length < 2) {
-      dom.modeLabel.textContent = "Collapse LAN needs a switch with at least one attached LAN device.";
-      return;
+      return { ok: false, error: `Collapse LAN needs a switch with at least one attached LAN device \u2014 ${anchor.name} has none.`, warnings: [] };
     }
     pushUndo();
     const memberSet = new Set(members);
@@ -5318,10 +5342,11 @@ Full legal text: https://creativecommons.org/publicdomain/zero/1.0/legalcode</pr
     state.linkStartId = null;
     sync().syncPanel();
     sync().render();
-    dom.modeLabel.textContent = `Collapsed ${members.length} devices into ${lan.name}.`;
+    return { ok: true, message: `Collapsed ${members.length} devices into ${lan.name}.`, warnings: [] };
   }
   function expandLan(lan) {
-    if (!lan || lan.type !== "lan") return;
+    if (!lan) return { ok: false, error: "No such device.", warnings: [] };
+    if (lan.type !== "lan") return { ok: false, error: `${lan.name} is not a collapsed LAN \u2014 there is nothing to expand.`, warnings: [] };
     pushUndo();
     const lanId = lan.id;
     const absorbedLanSet = new Set(lan.config?.absorbedLans || []);
@@ -5349,7 +5374,7 @@ Full legal text: https://creativecommons.org/publicdomain/zero/1.0/legalcode</pr
     state.linkStartId = null;
     sync().syncPanel();
     sync().render();
-    dom.modeLabel.textContent = `Expanded ${lan.name}.`;
+    return { ok: true, message: `Expanded ${lan.name}.`, warnings: [] };
   }
   function routerInterfaceFor(router, peerId, vlanTag) {
     ensureConfig(router);
@@ -14150,9 +14175,13 @@ Snort successfully validated the configuration${bad ? " (with errors)" : "."}`);
         sync().render();
       });
       const collapseButton = document.getElementById("collapseSelectedLan");
-      if (collapseButton) collapseButton.addEventListener("click", () => collapseLan(selected));
+      if (collapseButton) collapseButton.addEventListener("click", () => {
+        dom.modeLabel.textContent = mutationText(collapseLan(selected));
+      });
       const expandButton = document.getElementById("expandSelectedLan");
-      if (expandButton) expandButton.addEventListener("click", () => expandLan(selected));
+      if (expandButton) expandButton.addEventListener("click", () => {
+        dom.modeLabel.textContent = mutationText(expandLan(selected));
+      });
       const deleteButton = document.getElementById("deleteSelected");
       if (deleteButton) deleteButton.addEventListener("click", deleteSelection);
     }
@@ -14189,13 +14218,13 @@ Snort successfully validated the configuration${bad ? " (with errors)" : "."}`);
     if (!fromDevice || !toDevice) return;
     const { reject, wireless } = classifyLink(fromId, toId);
     if (reject || wireless) {
-      addLink(fromId, toId);
+      dom.modeLabel.textContent = mutationText(addLink(fromId, toId));
       return;
     }
     const showFromPicker = !hasSingleNic(fromDevice.type);
     const showToPicker = !hasSingleNic(toDevice.type);
     if (!showFromPicker && !showToPicker) {
-      addLink(fromId, toId, 1, 1);
+      dom.modeLabel.textContent = mutationText(addLink(fromId, toId, 1, 1));
       return;
     }
     const fromPorts = buildPortList(fromId, toId);
@@ -14262,8 +14291,9 @@ Snort successfully validated the configuration${bad ? " (with errors)" : "."}`);
   function confirmPortSelection() {
     const ps = state.portSelection;
     if (!ps || ps.selectedFrom == null || ps.selectedTo == null) return;
-    addLink(ps.fromId, ps.toId, ps.selectedFrom, ps.selectedTo);
+    const result = addLink(ps.fromId, ps.toId, ps.selectedFrom, ps.selectedTo);
     cancelPortSelection();
+    dom.modeLabel.textContent = mutationText(result);
   }
   function cancelPortSelection() {
     state.portSelection = null;
@@ -15893,10 +15923,7 @@ Snort successfully validated the configuration${bad ? " (with errors)" : "."}`);
           openPortSelectionModal(state.linkStartId, device.id);
           dom.modeLabel.textContent = toolCopy.connect[1];
         } else {
-          const from = getDevice(state.linkStartId);
-          const before = state.links.length;
-          addLink(state.linkStartId, device.id);
-          if (state.links.length > before) dom.modeLabel.textContent = `Linked ${from?.name} \u2194 ${device.name}.`;
+          dom.modeLabel.textContent = mutationText(addLink(state.linkStartId, device.id));
         }
         syncPanel();
         render();
@@ -16826,18 +16853,8 @@ Snort successfully validated the configuration${bad ? " (with errors)" : "."}`);
     const toPort = portArg(args[3]);
     const badPort = (p) => p !== void 0 && !(Number.isInteger(p) && p >= 1);
     if (badPort(fromPort) || badPort(toPort)) return err("link: ports must be positive whole numbers (or auto).");
-    const reason = linkBlockReason(a.id, b.id);
-    if (reason) return err(reason);
-    const existing = state.links.some((l) => l.from === a.id && l.to === b.id || l.from === b.id && l.to === a.id);
-    const refusedFrom = !existing && fromPort != null ? portBlockReason(a.id, b.id, fromPort) : null;
-    const refusedTo = !existing && toPort != null ? portBlockReason(b.id, a.id, toPort) : null;
-    addLink(a.id, b.id, fromPort, toPort);
-    const notes = [];
-    const link = state.links.find((l) => l.from === a.id && l.to === b.id || l.from === b.id && l.to === a.id);
-    const landed = (id) => link && linkPortName(link, id) || "the next free port";
-    if (refusedFrom) notes.push(`${refusedFrom}, so the cable went to ${a.name} ${landed(a.id)} instead.`);
-    if (refusedTo) notes.push(`${refusedTo}, so the cable went to ${b.name} ${landed(b.id)} instead.`);
-    return ok([`Linked ${a.name} \u2194 ${b.name}.`, ...notes].join(" "));
+    const result = addLink(a.id, b.id, fromPort, toPort);
+    return result.ok ? ok(mutationText(result)) : err(mutationText(result));
   }
   function cmdUnlink(args) {
     const a = resolveDevice(args[0]);
@@ -16928,14 +16945,14 @@ Snort successfully validated the configuration${bad ? " (with errors)" : "."}`);
   function cmdCollapse(args) {
     const device = resolveDevice(args[0]);
     if (typeof device === "string") return err(device);
-    collapseLan(device);
-    return ok(`Collapsed LAN at ${device.name}.`);
+    const result = collapseLan(device);
+    return result.ok ? ok(mutationText(result)) : err(mutationText(result));
   }
   function cmdExpand(args) {
     const device = resolveDevice(args[0]);
     if (typeof device === "string") return err(device);
-    expandLan(device);
-    return ok(`Expanded ${device.name}.`);
+    const result = expandLan(device);
+    return result.ok ? ok(mutationText(result)) : err(mutationText(result));
   }
   function hostMutator(args, fn) {
     const device = resolveDevice(args[0]);

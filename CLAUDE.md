@@ -94,6 +94,8 @@ Two registration patterns break circular dependencies:
 
 Both are wired in `app.ts` at startup.
 
+**Mutators return results, surfaces show them.** A model-layer mutator (`addLink`, `collapseLan`/`expandLan`; `runTerminalCommand` for a shell line) returns a `MutationResult` — `{ ok, error?, message?, warnings[] }` — and does **not** write the status line: the canvas shows `mutationText(result)` on `#modeLabel`, the console returns it, a script import counts a refusal. So a refusal, a warning (a port that could not be honoured, a WiFi association that cannot authenticate) and a no-op read the same from every front door. New mutators follow this; never report through `dom.modeLabel` from `devices.ts`.
+
 **Sync convention after a mutation:** call `sync().syncPanel()` when inspector
 content changes; additionally call `sync().render()` only when the change
 affects the canvas (device/link add/remove/move, power, port mode/trunk

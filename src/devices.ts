@@ -1,4 +1,4 @@
-import type { PortOption, Device, Link, DeviceType, DeviceConfig, NamedRouterIface } from "./types";
+import type { PortOption, Device, Link, DeviceType, DeviceConfig, NamedRouterIface, MutationResult, LinkResult } from "./types";
 import { state, sync, pushUndo, networkSnapshot, dropTerminalSessions, resetCaptureState, linksChanged } from "./state";
 import { dom } from "./dom";
 import { deviceSize, defaultDeviceConfig, ensureConfig, normaliseRouterInterfaces, normalisePortVlans, normalisePortModes } from "./normalise";
@@ -334,56 +334,83 @@ export function linkBlockReason(fromId: string, toId: string): string | null {
   return null;
 }
 
-export function addLink(fromId: string, toId: string, fromPort?: number, toPort?: number): void {
-  if (fromId === toId) return;
-  const exists = state.links.some(link =>
+// Cable two devices. Returns what happened instead of writing it to the status
+// line: refused (and why), already linked, or made — with a warning for each
+// requested port that could not be honoured (which, why, and where the cable
+// went) and for a WiFi association that formed but cannot authenticate. Every
+// front door (the Connect tool, the port picker, the `link` command, scripts,
+// the API) shows the same result.
+export function addLink(fromId: string, toId: string, fromPort?: number, toPort?: number): LinkResult {
+  const from = getDevice(fromId), to = getDevice(toId);
+  if (fromId === toId) return { ok: false, error: "Cannot link a device to itself.", warnings: [], created: false };
+  if (!from || !to) return { ok: false, error: "No such device.", warnings: [], created: false };
+  const existing = state.links.find(link =>
     (link.from === fromId && link.to === toId) || (link.from === toId && link.to === fromId)
   );
-  if (!exists) {
-    const reason = linkBlockReason(fromId, toId);
-    if (reason) {
-      state.linkStartId = null;
-      dom.modeLabel.textContent = reason;
-      sync().render();
-      return;
-    }
-    const { wireless } = classifyLink(fromId, toId);
-    pushUndo();
-    // Persist a port number only when the caller CHOSE it and it can be
-    // honoured (the picker or `link A B 4 1`) — portBlockReason is the one
-    // answer to "is this port free?". An auto-assigned cable stays implicit —
-    // it fills the lowest free slot and names densely per media (Ethernet1,
-    // Serial1, …) — whereas a chosen port is pinned to its number in every
-    // view. Storing the auto slot made every cable "explicit" in one shared
-    // numbering space, so a router's first serial cable came out as Serial2.
-    const keepFrom = fromPort != null && portBlockReason(fromId, toId, fromPort) === null;
-    const keepTo = toPort != null && portBlockReason(toId, fromId, toPort) === null;
-    const link: any = {
-      id: crypto.randomUUID ? crypto.randomUUID() : `${Date.now()}-${Math.random()}`,
-      from: fromId,
-      to: toId,
-      ...(keepFrom ? { fromPort } : {}),
-      ...(keepTo ? { toPort } : {}),
-      ...(wireless ? { wireless: true } : {})
+  if (existing) {
+    // Re-linking is an idempotent no-op — but say so, and say when ports were
+    // asked for that the existing cable does not sit on (they are not applied).
+    state.linkStartId = null;
+    linksChanged([]);
+    sync().syncPanel();
+    const warnings: string[] = [];
+    const differs = (deviceId: string, requested: number | undefined) => {
+      if (requested == null) return false;
+      const name = linkPortName(existing, deviceId);
+      return !name || Number(name.replace(/\D+/g, "") || 1) !== requested;
     };
-    state.links.push(link);
-    // A wireless association with a wrong password forms but can't authenticate —
-    // flag it so the user knows why traffic won't pass (the join handshake will fail).
-    if (wireless && !wifiLinkAuthenticated(link)) {
-      const laptop = getDevice(fromId)?.type === "laptop" ? getDevice(fromId) : getDevice(toId);
-      dom.modeLabel.textContent = `${laptop?.name} associated but not authenticated — wrong WiFi password.`;
+    if (differs(fromId, fromPort) || differs(toId, toPort)) {
+      const at = (device: Device) => `${device.name} ${linkPortName(existing, device.id) ?? "?"}`;
+      warnings.push(`The requested ports were not applied: the cable stays on ${at(from)} ↔ ${at(to)} (unlink it first to move it).`);
     }
-    // The cable just came up: unconfigured hosts on either end boot their
-    // network config (DHCP, then APIPA) — wired to the engine in app.ts.
-    if (_linkUp) _linkUp(fromId, toId);
+    return { ok: true, message: `${from.name} ↔ ${to.name} are already linked.`, warnings, link: existing, created: false };
   }
+  const reason = linkBlockReason(fromId, toId);
+  if (reason) {
+    state.linkStartId = null;
+    sync().render();
+    return { ok: false, error: reason, warnings: [], created: false };
+  }
+  const { wireless } = classifyLink(fromId, toId);
+  pushUndo();
+  // Persist a port number only when the caller CHOSE it and it can be
+  // honoured (the picker or `link A B 4 1`) — portBlockReason is the one
+  // answer to "is this port free?". An auto-assigned cable stays implicit —
+  // it fills the lowest free slot and names densely per media (Ethernet1,
+  // Serial1, …) — whereas a chosen port is pinned to its number in every
+  // view. Storing the auto slot made every cable "explicit" in one shared
+  // numbering space, so a router's first serial cable came out as Serial2.
+  const refusedFrom = fromPort != null ? portBlockReason(fromId, toId, fromPort) : null;
+  const refusedTo = toPort != null ? portBlockReason(toId, fromId, toPort) : null;
+  const link: any = {
+    id: crypto.randomUUID ? crypto.randomUUID() : `${Date.now()}-${Math.random()}`,
+    from: fromId,
+    to: toId,
+    ...(fromPort != null && !refusedFrom ? { fromPort } : {}),
+    ...(toPort != null && !refusedTo ? { toPort } : {}),
+    ...(wireless ? { wireless: true } : {})
+  };
+  state.links.push(link);
+  const warnings: string[] = [];
+  const landed = (device: Device) => `${device.name} ${linkPortName(link, device.id) ?? "the next free port"}`;
+  if (refusedFrom) warnings.push(`${refusedFrom}, so the cable went to ${landed(from)} instead.`);
+  if (refusedTo) warnings.push(`${refusedTo}, so the cable went to ${landed(to)} instead.`);
+  // A wireless association with a wrong password forms but can't authenticate —
+  // say so, so the learner knows why traffic won't pass (the join handshake will fail).
+  if (wireless && !wifiLinkAuthenticated(link)) {
+    const laptop = from.type === "laptop" ? from : to;
+    warnings.push(`${laptop.name} associated but not authenticated — wrong WiFi password.`);
+  }
+  // The cable just came up: unconfigured hosts on either end boot their
+  // network config (DHCP, then APIPA) — wired to the engine in app.ts.
+  if (_linkUp) _linkUp(fromId, toId);
   state.linkStartId = null;
   // A new cable renumbers implicit ports (flush the learnt MACs on its L2
   // domain) and can open or close a loop — recompute the spanning tree so any
-  // newly blocked/unblocked port shows live (also re-renders). A re-link of an
-  // existing cable changed nothing to flush.
-  linksChanged(exists ? [] : [fromId, toId]);
+  // newly blocked/unblocked port shows live (also re-renders).
+  linksChanged([fromId, toId]);
   sync().syncPanel();
+  return { ok: true, message: `Linked ${from.name} ↔ ${to.name}.`, warnings, link, created: true };
 }
 
 // ─── Port occupancy ───────────────────────────────────────────────────────────
@@ -890,12 +917,16 @@ export function collectLanMembers(anchorId: string): { members: string[]; absorb
   };
 }
 
-export function collapseLan(anchor: any): void {
-  if (!anchor || anchor.type !== "switch") return;
+// Collapse the LAN around a switch into one LAN node. Returns why it did not
+// (a non-switch, a switch with nothing attached, one already inside a collapsed
+// LAN) — the `collapse` command used to report success for all of those.
+export function collapseLan(anchor: any): MutationResult {
+  if (!anchor) return { ok: false, error: "No such device.", warnings: [] };
+  if (anchor.type !== "switch") return { ok: false, error: `${anchor.name} is not a switch — a LAN is collapsed around its switch.`, warnings: [] };
+  if (anchor.hidden) return { ok: false, error: `${anchor.name} is already inside a collapsed LAN.`, warnings: [] };
   const { members, absorbedLans } = collectLanMembers(anchor.id);
   if (members.length < 2) {
-    dom.modeLabel.textContent = "Collapse LAN needs a switch with at least one attached LAN device.";
-    return;
+    return { ok: false, error: `Collapse LAN needs a switch with at least one attached LAN device — ${anchor.name} has none.`, warnings: [] };
   }
   pushUndo();
   const memberSet = new Set(members);
@@ -963,11 +994,14 @@ export function collapseLan(anchor: any): void {
   // no port renumbers and nothing learnt from the cabling goes stale — there is
   // nothing to flush or reconverge, only the canvas to redraw.
   sync().render();
-  dom.modeLabel.textContent = `Collapsed ${members.length} devices into ${lan.name}.`;
+  return { ok: true, message: `Collapsed ${members.length} devices into ${lan.name}.`, warnings: [] };
 }
 
-export function expandLan(lan: any): void {
-  if (!lan || lan.type !== "lan") return;
+// Expand a collapsed LAN back into its devices. Returns why it did not (the
+// target is not a collapsed LAN).
+export function expandLan(lan: any): MutationResult {
+  if (!lan) return { ok: false, error: "No such device.", warnings: [] };
+  if (lan.type !== "lan") return { ok: false, error: `${lan.name} is not a collapsed LAN — there is nothing to expand.`, warnings: [] };
   pushUndo();
   const lanId = lan.id;
   const absorbedLanSet = new Set(lan.config?.absorbedLans || []);
@@ -995,7 +1029,7 @@ export function expandLan(lan: any): void {
   state.linkStartId = null;
   sync().syncPanel();
   sync().render();   // presentation only, like collapse — the cabling never changed
-  dom.modeLabel.textContent = `Expanded ${lan.name}.`;
+  return { ok: true, message: `Expanded ${lan.name}.`, warnings: [] };
 }
 
 export function routerInterfaceFor(router: any, peerId: string, vlanTag?: number | null): any {

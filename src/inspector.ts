@@ -2,7 +2,7 @@ import type { Device, Link, DeviceType } from "./types";
 import { state, sync, pushUndo, captureUndoOnFocus, captureUndoOnFocusWithin, linksChanged } from "./state";
 import { DEVICE_SPECS, isHost, offersTerminal, defaultPortCount } from "./device-registry";
 import { dom } from "./dom";
-import { escapeHtml, isValidIpv4, isValidMac, normaliseMacAddress, randomMac, parseIpv4Token, prefixOf, networkOf, normaliseSsid, normaliseWifiPassword } from "./utils";
+import { escapeHtml, isValidIpv4, isValidMac, normaliseMacAddress, randomMac, parseIpv4Token, prefixOf, networkOf, normaliseSsid, normaliseWifiPassword, mutationText } from "./utils";
 import { ensureConfig, normaliseVlans, normaliseDnsRecords, normaliseDhcpLeases, normaliseRadiusUsers } from "./normalise";
 import {
   getDevice, isVisibleDevice, connectedIds, linkedPortsFor, linksFor, wifiLinkAuthenticated,
@@ -1453,9 +1453,9 @@ export function syncPanel(): void {
       sync().render();
     });
     const collapseButton = document.getElementById("collapseSelectedLan");
-    if (collapseButton) collapseButton.addEventListener("click", () => collapseLan(selected));
+    if (collapseButton) collapseButton.addEventListener("click", () => { dom.modeLabel.textContent = mutationText(collapseLan(selected)); });
     const expandButton = document.getElementById("expandSelectedLan");
-    if (expandButton) expandButton.addEventListener("click", () => expandLan(selected));
+    if (expandButton) expandButton.addEventListener("click", () => { dom.modeLabel.textContent = mutationText(expandLan(selected)); });
     const deleteButton = document.getElementById("deleteSelected");
     if (deleteButton) deleteButton.addEventListener("click", deleteSelection);
   }

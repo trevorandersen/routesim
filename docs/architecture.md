@@ -226,7 +226,7 @@ The model layer (`state`, `devices`, `normalise`) is outside both cycles, and th
 
 ## 8. Four front doors, one set of actions
 
-A user can change the network through four surfaces. They all converge on the same mutators, which is why a GUI edit, a typed CLI command, a console verb and a replayed script produce identical results and identical undo behaviour.
+A user can change the network through four surfaces. They all converge on the same mutators, which is why a GUI edit, a typed CLI command, a console verb and a replayed script produce identical results and identical undo behaviour. A mutator **returns what happened** (`MutationResult`: `ok`, a reason or a message, warnings) and each surface shows it its own way — the canvas on the status line, the console as the command's output, a script import as a rejected-line count; `addLink`, `collapseLan`/`expandLan` and `runTerminalCommand` work this way, and a mutator must not write `dom.modeLabel` itself.
 
 ```mermaid
 flowchart LR

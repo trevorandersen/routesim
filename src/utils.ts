@@ -1,5 +1,11 @@
 import type { Cidr } from "./types";
 
+// A mutator's result as one line of text — the status line and the console both
+// show this: the reason it was refused, or what happened plus any warnings.
+export function mutationText(result: { ok: boolean; error?: string; message?: string; warnings: string[] }): string {
+  return result.ok ? [result.message, ...result.warnings].filter(Boolean).join(" ") : (result.error || "");
+}
+
 export function escapeHtml(value: any): string {
   return String(value)
     .replaceAll("&", "&amp;")

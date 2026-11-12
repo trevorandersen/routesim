@@ -8,7 +8,7 @@
 import type { PortOption } from "./types";
 import { state, sync } from "./state";
 import { dom } from "./dom";
-import { escapeHtml } from "./utils";
+import { escapeHtml, mutationText } from "./utils";
 import { hasSingleNic } from "./device-registry";
 import { addLink, buildPortList, classifyLink, getDevice } from "./devices";
 
@@ -20,14 +20,14 @@ export function openPortSelectionModal(fromId: string, toId: string): void {
   // A wireless association (laptop ↔ AP) auto-links with no port picker; an
   // invalid laptop pairing is rejected here (addLink surfaces the reason).
   const { reject, wireless } = classifyLink(fromId, toId);
-  if (reject || wireless) { addLink(fromId, toId); return; }
+  if (reject || wireless) { dom.modeLabel.textContent = mutationText(addLink(fromId, toId)); return; }
 
   const showFromPicker = !hasSingleNic(fromDevice.type);
   const showToPicker = !hasSingleNic(toDevice.type);
 
   // If both are single-port hosts, skip modal entirely
   if (!showFromPicker && !showToPicker) {
-    addLink(fromId, toId, 1, 1);
+    dom.modeLabel.textContent = mutationText(addLink(fromId, toId, 1, 1));
     return;
   }
 
@@ -109,8 +109,9 @@ function renderPortColumn(deviceName: string, ports: PortOption[], selected: num
 export function confirmPortSelection(): void {
   const ps = state.portSelection;
   if (!ps || ps.selectedFrom == null || ps.selectedTo == null) return;
-  addLink(ps.fromId, ps.toId, ps.selectedFrom, ps.selectedTo);
+  const result = addLink(ps.fromId, ps.toId, ps.selectedFrom, ps.selectedTo);
   cancelPortSelection();
+  dom.modeLabel.textContent = mutationText(result);
 }
 
 export function cancelPortSelection(): void {

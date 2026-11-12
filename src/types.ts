@@ -783,6 +783,24 @@ export interface SimulationState {
   wireSteps: number;
 }
 
+// What a model-layer mutator tells its caller. The model does not decide how a
+// result is shown: the canvas puts it on the status line, the console returns
+// it, a script import counts it. (Mutators used to write `dom.modeLabel`
+// themselves and return void, so console, script and API callers saw a bare
+// "Linked" whatever had actually happened.)
+export interface MutationResult {
+  ok: boolean;          // false = nothing was changed
+  error?: string;       // why not (when !ok)
+  message?: string;     // what happened, in the learner's words (when ok)
+  warnings: string[];   // it happened, but not quite as asked — each says what and why
+}
+
+// addLink's result: the cable (new or already there) and whether this call made it.
+export interface LinkResult extends MutationResult {
+  link?: Link;
+  created: boolean;
+}
+
 export interface PortOption {
   name: string;
   port: number;

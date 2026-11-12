@@ -11,8 +11,8 @@ import { state, undo, redo, undoBlockReason, sync, pushUndo, THEMES, linksChange
 import { USER_ADDABLE_TYPES, isHost, isDot1xSupplicant, defaultPortCount } from "./device-registry";
 import { dom } from "./dom";
 import {
-  addDevice, addLink, deleteLink, linkBlockReason, deleteSelection, clearNetwork, collapseLan, expandLan,
-  getDevice, moveDevice, linkName, routerInterfacesWithNames, isPhysicalLink, linkedPortsFor, portBlockReason, linkPortName } from "./devices";
+  addDevice, addLink, deleteLink, deleteSelection, clearNetwork, collapseLan, expandLan,
+  getDevice, moveDevice, linkName, routerInterfacesWithNames, isPhysicalLink, linkedPortsFor, linkPortName } from "./devices";
 import {
   startSimulation, stopSimulation, pauseSimulation, resumeSimulation, stepOnce, animatedRunBlockReason, takePreemptionNote,
   runSimulationHeadless, runTraceroute, STORM_DIAGNOSIS,
@@ -29,7 +29,7 @@ import { buildConfigPayload, applyConfig, loadTopology } from "./config";
 import { normaliseConfig, normaliseStaticRoutes, ensureConfig } from "./normalise";
 import { setTool, setTheme } from "./ui";
 import { setZoom, fitNetwork } from "./canvas";
-import { isValidMac, normaliseMacAddress, prefixOf, networkOf, normaliseSsid, normaliseWifiPassword, clampPortCount, clampRouterPortCount, clampApPortCount } from "./utils";
+import { isValidMac, normaliseMacAddress, prefixOf, networkOf, normaliseSsid, normaliseWifiPassword, clampPortCount, clampRouterPortCount, clampApPortCount, mutationText } from "./utils";
 import { SCENARIOS, getScenario, loadScenario, checkScenario } from "./scenarios";
 import { SCENARIO_GROUPS } from "./scenario-library";
 import { SPEED_MIN, SPEED_MAX } from "./settings-url";
@@ -118,21 +118,10 @@ function cmdLink(args: string[]): CommandResult {
   const toPort = portArg(args[3]);
   const badPort = (p: number | undefined) => p !== undefined && !(Number.isInteger(p) && p >= 1);
   if (badPort(fromPort) || badPort(toPort)) return err("link: ports must be positive whole numbers (or auto).");
-  const reason = linkBlockReason(a.id, b.id);
-  if (reason) return err(reason);
-  const existing = state.links.some(l => (l.from === a.id && l.to === b.id) || (l.from === b.id && l.to === a.id));
-  // A requested port that is taken (by ANY cable, pinned or not) or does not
-  // exist is not honoured: the cable is still made, on the next free port, and
-  // the output says which port was refused, why, and where the cable went.
-  const refusedFrom = !existing && fromPort != null ? portBlockReason(a.id, b.id, fromPort) : null;
-  const refusedTo = !existing && toPort != null ? portBlockReason(b.id, a.id, toPort) : null;
-  addLink(a.id, b.id, fromPort, toPort);
-  const notes: string[] = [];
-  const link = state.links.find(l => (l.from === a.id && l.to === b.id) || (l.from === b.id && l.to === a.id));
-  const landed = (id: string) => (link && linkPortName(link, id)) || "the next free port";
-  if (refusedFrom) notes.push(`${refusedFrom}, so the cable went to ${a.name} ${landed(a.id)} instead.`);
-  if (refusedTo) notes.push(`${refusedTo}, so the cable went to ${b.name} ${landed(b.id)} instead.`);
-  return ok([`Linked ${a.name} ↔ ${b.name}.`, ...notes].join(" "));
+  // addLink validates, links and reports — refused (why), already linked, or
+  // made, with a warning for each port it could not honour.
+  const result = addLink(a.id, b.id, fromPort, toPort);
+  return result.ok ? ok(mutationText(result)) : err(mutationText(result));
 }
 
 function cmdUnlink(args: string[]): CommandResult {
@@ -226,15 +215,15 @@ function cmdClear(): CommandResult { clearNetwork(); return ok("Cleared network.
 function cmdCollapse(args: string[]): CommandResult {
   const device = resolveDevice(args[0]);
   if (typeof device === "string") return err(device);
-  collapseLan(device);
-  return ok(`Collapsed LAN at ${device.name}.`);
+  const result = collapseLan(device);
+  return result.ok ? ok(mutationText(result)) : err(mutationText(result));
 }
 
 function cmdExpand(args: string[]): CommandResult {
   const device = resolveDevice(args[0]);
   if (typeof device === "string") return err(device);
-  expandLan(device);
-  return ok(`Expanded ${device.name}.`);
+  const result = expandLan(device);
+  return result.ok ? ok(mutationText(result)) : err(mutationText(result));
 }
 
 // ── Config verbs (call the exported mutators directly — no mode machine) ──────

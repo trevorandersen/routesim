@@ -55,14 +55,14 @@ Param keys and boolean values are case-insensitive. Adding a setting is a one-ro
 |---------|--------|
 | `add <computer\|laptop\|server\|switch\|router\|firewall\|hub\|access-point> [name] [at <x> <y>]` | Create a device (hosts get a random MAC). A `laptop` is a WiFi-only host; an `access-point` bridges laptops onto the wired LAN. |
 | `remove <ref>` / `delete <ref>` | Delete a device and its links. |
-| `link <a> <b> [portA portB]` | Connect two devices. A port number **pins** that end to the port (`link R1 SW 3 1` → R1 Ethernet3, SW Ethernet1); `auto` (or `-`) leaves an end to the next free port (`link R1 SW auto 4`). On a router the number counts within the cable's own kind of port — serial to another router, Ethernet otherwise. A port that is already cabled (by any cable, pinned or not) or does not exist is **not honoured**: the cable is still made on the next free port, and the output says which port was refused, why, and where the cable went. |
+| `link <a> <b> [portA portB]` | Connect two devices. A port number **pins** that end to the port (`link R1 SW 3 1` → R1 Ethernet3, SW Ethernet1); `auto` (or `-`) leaves an end to the next free port (`link R1 SW auto 4`). On a router the number counts within the cable's own kind of port — serial to another router, Ethernet otherwise. A port that is already cabled (by any cable, pinned or not) or does not exist is **not honoured**: the cable is still made on the next free port, and the output says which port was refused, why, and where the cable went. Linking a pair that is already linked is a no-op that says so (and says when the ports asked for were not applied); a WiFi association with the wrong password links with a warning. |
 | `linkset <a> <b> <name\|bandwidth\|latency\|loss> <value>` | Set a link attribute (`0` clears a numeric one). |
 | `unlink <a> <b>` | Remove the link between two devices. |
 | `shut <a> <b>` | Administratively down the link (stays in the topology, carries no traffic). |
 | `noshut <a> <b>` | Bring the link back up. |
 | `move <ref> <x> <y>` | Reposition a device. |
 | `rename <ref> <name>` | Rename a device. For a CLI device the name **is** its hostname (canvas label, prompt, and resolvable name) — the realistic equivalent is `cli <host> hostname <name>` / `hostnamectl set-hostname <name>`, `cli <router> hostname <name>` (config mode), or `cli <switch> config hostname <name>`. |
-| `collapse <switch>` / `expand <lan>` | Collapse a switch + hosts into a LAN node / undo. |
+| `collapse <switch>` / `expand <lan>` | Collapse a switch + hosts into a LAN node / undo. Each says what it did, and fails with the reason when there is nothing to do (not a switch, nothing attached, already collapsed, not a collapsed LAN). |
 | `clear` | Remove all devices and links. |
 
 ### Device config

@@ -4,7 +4,7 @@ import { dom } from "./dom";
 import { addLink, deleteSelection, clearNetwork, findDeviceAt, findLinkAt, getDevice, configureDevice, placeToolDevice, PLACEMENT_TOOLS, toggleLinkShutdown, linkName } from "./devices";
 import { openPortSelectionModal, confirmPortSelection, cancelPortSelection } from "./port-picker";
 import { render, resizeCanvas, screenToWorld, setZoom, syncZoomLevel, fitNetwork, findTransitAt } from "./canvas";
-import { clearCssColorCache, escapeHtml } from "./utils";
+import { clearCssColorCache, escapeHtml, mutationText } from "./utils";
 import { syncPanel, syncOptionControls, syncNetworkPanel, setNetworkPanel, setInspectorWidth, startInspectorResize, moveInspectorResize, stopInspectorResize } from "./inspector";
 import {
   openTerminalFor, syncTerminal, submitTerminalCommand, handleTerminalKeydown, terminalLine, canOpenTerminal,
@@ -377,11 +377,9 @@ export function setupUI(): void {
         dom.modeLabel.textContent = toolCopy.connect[1];
       } else {
         // Default: auto-pick the first available port on each end (addLink
-        // resolves them) — no dialog. A reject sets its own status message.
-        const from = getDevice(state.linkStartId);
-        const before = state.links.length;
-        addLink(state.linkStartId, device.id);
-        if (state.links.length > before) dom.modeLabel.textContent = `Linked ${from?.name} ↔ ${device.name}.`;
+        // resolves them) — no dialog. The status line shows what addLink
+        // reports: the cable made, a warning, or why it was refused.
+        dom.modeLabel.textContent = mutationText(addLink(state.linkStartId, device.id));
       }
       syncPanel();
       render();

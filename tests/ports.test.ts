@@ -13,9 +13,10 @@ import { describe, it, expect, beforeAll, beforeEach } from "bun:test";
 import { state, defaultConfig, vlanRoasConfig, routerMeshConfig, wifiVlanConfig } from "../src/state";
 import {
   addDevice, addLink, buildPortList, getDevice, linkedPortsFor, linkPortName, occupiedPorts, portBlockReason,
-  portMediaFor, routerInterfacesWithNames, switchInterfacesWithNames,
+  portMediaFor, routerInterfacesWithNames, switchInterfacesWithNames, collapseLan, expandLan,
 } from "../src/devices";
-import { openPortSelectionModal } from "../src/port-picker";
+import { openPortSelectionModal, confirmPortSelection } from "../src/port-picker";
+import { dom } from "../src/dom";
 import { runConsoleScript, runConsoleCommand as exec, exportTopologyScript } from "../src/commands";
 import { applyConfigWithoutUndo, buildConfigPayload, parseConfig } from "../src/config";
 import { normaliseConfig } from "../src/normalise";
@@ -103,9 +104,11 @@ describe("an explicit port never lands on a cabled port (R28)", () => {
     expect(portOf("SW1", "PC4")).toBe("Ethernet3");
   });
 
-  it("re-linking an existing cable is a quiet no-op (no false refusal)", () => {
+  it("re-linking an existing cable is a no-op that says so (no false refusal)", () => {
     lan();
-    expect(exec("link SW1 PC1 1").output).toEqual(["Linked SW1 ↔ PC1."]);
+    const r = exec("link SW1 PC1 1");                            // PC1 already sits on Ethernet1
+    expect(r.ok).toBe(true);
+    expect(r.output).toEqual(["SW1 ↔ PC1 are already linked."]);
     expect(state.links.length).toBe(2);
   });
 
@@ -309,4 +312,112 @@ describe("the script export never invents a port (R32)", () => {
       expect(cabling()).toEqual(before);
     });
   }
+});
+
+// R60 / R80: the model-layer mutators returned void and wrote the status line
+// themselves, so console, script and API callers saw a bare "Linked" (or
+// "Collapsed") whatever had actually happened.
+describe("mutators return what happened (R60, R80)", () => {
+  function lan(): void {
+    runConsoleScript(`
+      add switch SW1 at 300 100
+      add computer PC1 at 100 0
+      add computer PC2 at 100 200
+      add router R1 at 600 100
+      link SW1 PC1
+    `);
+  }
+
+  it("addLink reports a new cable, with the link it made", () => {
+    lan();
+    const r = addLink(dev("SW1").id, dev("PC2").id);
+    expect(r).toMatchObject({ ok: true, created: true, message: "Linked SW1 ↔ PC2.", warnings: [] });
+    expect(r.link).toBe(linkOf("SW1", "PC2"));
+  });
+
+  it("addLink returns the refusal instead of writing it to the status line", () => {
+    lan();
+    dom.modeLabel.textContent = "untouched";
+    const single = addLink(dev("PC1").id, dev("R1").id);
+    expect(single).toMatchObject({ ok: false, created: false });
+    expect(single.error).toContain("PC1 has a single NIC");
+    expect(addLink(dev("SW1").id, dev("SW1").id).error).toBe("Cannot link a device to itself.");
+    expect(dom.modeLabel.textContent).toBe("untouched");
+    expect(state.undoStack.length).toBe(5);                     // the five build lines; a refusal adds none
+  });
+
+  it("a port that cannot be honoured is a warning on the result, for every caller", () => {
+    lan();
+    const r = addLink(dev("SW1").id, dev("PC2").id, 1, undefined);
+    expect(r.ok).toBe(true);
+    expect(r.warnings).toEqual(["SW1 Ethernet1 is already cabled to PC1, so the cable went to SW1 Ethernet2 instead."]);
+  });
+
+  it("a WiFi association with the wrong password is a warning the console sees too", () => {
+    runConsoleScript("add access-point AP at 100 100\nadd laptop LT at 300 100\nssid AP Office secret123\nssid LT Office wrongpass");
+    const r = exec("link LT AP");
+    expect(r.ok).toBe(true);
+    expect(r.output.join(" ")).toContain("Linked LT ↔ AP.");
+    expect(r.output.join(" ")).toContain("LT associated but not authenticated — wrong WiFi password.");
+  });
+
+  it("re-linking with ports the cable is not on says they were not applied", () => {
+    lan();
+    const r = exec("link SW1 PC1 5");
+    expect(r.ok).toBe(true);
+    expect(r.output.join(" ")).toContain("already linked");
+    expect(r.output.join(" ")).toContain("The requested ports were not applied: the cable stays on SW1 Ethernet1 ↔ PC1 eth0");
+    expect(linkOf("SW1", "PC1").fromPort).toBeUndefined();
+    const quiet = addLink(dev("SW1").id, dev("PC1").id);
+    expect(quiet).toMatchObject({ ok: true, created: false, warnings: [] });
+  });
+
+  it("the `link` command's refusals come from addLink (one validation, not two)", () => {
+    lan();
+    const r = exec("link PC1 R1");
+    expect(r.ok).toBe(false);
+    expect(r.output.join(" ")).toContain("single NIC");
+  });
+
+  it("the Connect tool and the port picker show the same text the console returns", () => {
+    lan();
+    openPortSelectionModal(dev("PC1").id, dev("R1").id);         // PC1's one NIC is taken
+    state.portSelection!.selectedTo = 1;
+    confirmPortSelection();
+    expect(dom.modeLabel.textContent).toContain("PC1 has a single NIC");
+    expect(state.portSelection).toBeNull();
+    openPortSelectionModal(dev("SW1").id, dev("R1").id);
+    state.portSelection!.selectedFrom = 4; state.portSelection!.selectedTo = 2;
+    confirmPortSelection();
+    expect(dom.modeLabel.textContent).toBe("Linked SW1 ↔ R1.");
+    expect(portOf("SW1", "R1")).toBe("Ethernet4");
+    expect(portOf("R1", "SW1")).toBe("Ethernet2");
+  });
+
+  it("collapse reports what it did, and refuses each no-op with its reason (R80)", () => {
+    lan();
+    exec("link SW1 PC2"); exec("link SW1 R1");
+    expect(exec("collapse PC1")).toMatchObject({ ok: false });
+    expect(exec("collapse PC1").output.join(" ")).toContain("PC1 is not a switch");
+    runConsoleScript("add switch LONELY at 900 100");
+    expect(exec("collapse LONELY").output.join(" ")).toContain("LONELY has none");
+    const undoPoints = state.undoStack.length;
+    expect(exec("collapse LONELY").ok).toBe(false);
+    expect(state.undoStack.length).toBe(undoPoints);             // a refused collapse is no undo point
+    const done = exec("collapse SW1");
+    expect(done.ok).toBe(true);
+    expect(done.output).toEqual(["Collapsed 3 devices into SW1 LAN."]);
+    expect(collapseLan(dev("SW1")).error).toContain("already inside a collapsed LAN");
+  });
+
+  it("expand reports what it did, and refuses a target that is not a collapsed LAN (R80)", () => {
+    lan();
+    exec("link SW1 PC2");
+    expect(exec("expand SW1")).toMatchObject({ ok: false });
+    expect(exec("expand SW1").output.join(" ")).toContain("SW1 is not a collapsed LAN");
+    exec("collapse SW1");
+    const r = expandLan(dev("SW1 LAN"));
+    expect(r).toMatchObject({ ok: true, message: "Expanded SW1 LAN.", warnings: [] });
+    expect(state.devices.some(d => d.type === "lan")).toBe(false);
+  });
 });

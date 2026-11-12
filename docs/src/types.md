@@ -25,7 +25,7 @@ The single source of truth for the data model. No runtime code — only `interfa
 
 - **`AppState`** — the shape of the `state` singleton.
 - **`TerminalSession`** — one device CLI session (device id, mode machine, scrollback, history); **`DockState`/`DockTab`** — the bottom dock (`open`, `activeTab`, `height`, `logView`, `logFilter`, `captureView`, `compareBaseId`); **`LogFilter`** — the packet-list display filter (`protocols`/`device`/`expr`, see [packet-filter.md](packet-filter.md)); **`SavedCapture`** — an archived completed run's packet capture (for multi-run compare); **`ConsoleState`** — the command console's lines/history.
-- **`DisplayOptions`, `DragState`, `PanDragState`, `InspectorResizeState`, `PortSelectionState`, `PortOption`, `ConfigStore`, `FrameHistoryEntry`, `Link`, `Point`** — supporting state shapes (`Link` carries an optional `name`, `shutdown`, and `bandwidth`/`latency`/`loss`; `ActiveTransit` carries a `latencyFactor`).
+- **`DisplayOptions`, `DragState`, `PanDragState`, `InspectorResizeState`, `PortSelectionState`, `PortOption`, `MutationResult` / `LinkResult` (what a model-layer mutator returns — `{ ok, error?, message?, warnings[] }`, plus the link and `created` for `addLink`), `ConfigStore`, `FrameHistoryEntry`, `Link`, `Point`** — supporting state shapes (`Link` carries an optional `name`, `shutdown`, and `bandwidth`/`latency`/`loss`; `ActiveTransit` carries a `latencyFactor`).
 
 ## How it fits
 

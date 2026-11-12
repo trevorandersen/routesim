@@ -3,7 +3,7 @@ import { registerDeviceCallbacks } from "./devices";
 import { dom } from "./dom";
 import { render, resizeCanvas, syncZoomLevel } from "./canvas";
 import { syncPanel, syncOptionControls, syncNetworkPanel, setNetworkPanel, setInspectorWidth } from "./inspector";
-import { syncTerminal, openTerminalFor, canOpenTerminal } from "./terminal";
+import { syncTerminal, syncDock, openTerminalFor, canOpenTerminal } from "./terminal";
 import { syncConsole } from "./console";
 import { syncScenarioPanel } from "./scenario-ui";
 import { setupUI, setTool, setTheme, syncCoordReadout } from "./ui";
@@ -11,7 +11,8 @@ import { loadDefaultConfig } from "./config";
 import { runStpConvergence } from "./stp";
 import { setupTutorial } from "./tutorial";
 import { runConsoleCommand, runConsoleScript, exportTopologyScript } from "./commands";
-import { syncSimLog, stopSimulation } from "./engine";
+import { stopSimulation } from "./engine";
+import { syncSimLog } from "./simlog-view";
 import { parseSettingsFromUrl, buildSettingsQuery } from "./settings-url";
 import { diagnoseRuntimeState } from "./diagnostics";
 import * as io from "./io";
@@ -30,6 +31,7 @@ registerCallbacks({
   recomputeStp: () => { runStpConvergence(); render(); },
   syncSimLog,
   stopSimulation,
+  syncDock,
 });
 
 // Register UI callbacks that devices.ts needs without circular imports.

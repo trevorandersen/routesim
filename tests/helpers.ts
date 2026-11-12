@@ -1,13 +1,16 @@
 /**
  * Shared test helpers — state management and callback registration.
  */
-import { state, registerCallbacks } from "../src/state";
+import { state, registerCallbacks, type SyncCallbacks } from "../src/state";
 
 /**
  * Register no-op callbacks so sync() never crashes.
- * Call once in a top-level beforeAll.
+ * Call once in a top-level beforeAll. Pass the real implementation of any view
+ * a suite asserts on — e.g. `registerNoopCallbacks({ syncTerminal })` for tests
+ * of the terminal input lock: the engine reaches the views only through this
+ * bridge, exactly as in the app.
  */
-export function registerNoopCallbacks(): void {
+export function registerNoopCallbacks(real: Partial<SyncCallbacks> = {}): void {
   registerCallbacks({
     render: () => {},
     syncPanel: () => {},
@@ -18,6 +21,7 @@ export function registerNoopCallbacks(): void {
     syncOptionControls: () => {},
     recomputeStp: () => {},
     syncSimLog: () => {},
+    ...real,
   });
 }
 

@@ -9,7 +9,7 @@ import { buildConfigPayload, parseConfig, applyConfig } from "./config";
 import { exportTopologyScript, runConsoleScript } from "./commands";
 import { SCENARIOS, registerScenario, unregisterScenario, isValidScenarioCheck, loadScenario } from "./scenarios";
 import { normaliseConfig } from "./normalise";
-import { syncSimLog } from "./engine";
+import { syncSimLog } from "./simlog-view";
 import { openDock } from "./terminal";
 
 // ── Generic helpers ──────────────────────────────────────────────────────────

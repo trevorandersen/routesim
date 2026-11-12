@@ -23,11 +23,13 @@ declare module "bun:test" {
 declare module "fs" {
   export function readFileSync(path: string, encoding: string): string;
   export function readdirSync(path: string): string[];
+  export function readdirSync(path: string, options: { withFileTypes: true }): { name: string; isDirectory(): boolean }[];
   export function existsSync(path: string): boolean;
 }
 declare module "node:fs" {
   export function readFileSync(path: string, encoding: string): string;
   export function readdirSync(path: string): string[];
+  export function readdirSync(path: string, options: { withFileTypes: true }): { name: string; isDirectory(): boolean }[];
   export function existsSync(path: string): boolean;
 }
 declare module "node:path" {
@@ -35,6 +37,7 @@ declare module "node:path" {
   export function resolve(...parts: string[]): string;
   export function basename(p: string, ext?: string): string;
   export function dirname(p: string): string;
+  export function normalize(p: string): string;
 }
 
 // Bun's `import.meta.dir` (the module's directory) and `import.meta.main`

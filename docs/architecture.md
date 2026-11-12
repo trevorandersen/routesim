@@ -61,14 +61,14 @@ The modules fall into seven layers, L0 to L6. Arrows point from importer to impo
 flowchart TB
   L6["<b>L6 Entry</b><br/>app.ts"]
   L5["<b>L5 Application</b><br/>ui · commands · console · config · io · settings-url<br/>scenarios · scenario-library · scenario-ui · ribbon · tutorial"]
-  L4["<b>L4 Presentation</b><br/>canvas · inspector"]
+  L4["<b>L4 Presentation</b><br/>canvas · inspector · simlog-view · port-picker"]
   L3["<b>L3 Engine and device CLIs</b><br/>engine · terminal/*"]
   L2["<b>L2 Network logic</b><br/>simulation · routing · stp"]
   L1["<b>L1 Model</b><br/>state · devices · normalise · diagnostics"]
   L0["<b>L0 Foundation</b><br/>types · utils · dom · device-registry · frame · prng<br/>tokenize · snort · packet-filter · help · stress"]
   L6 --> L5 --> L4 --> L3 --> L2 --> L1 --> L0
-  L1 -.->|"sync(): render, syncPanel"| L4
-  L1 -.->|"stopSimulation, syncTerminal, syncSimLog"| L3
+  L1 -.->|"sync(): render, syncPanel, syncSimLog"| L4
+  L1 -.->|"stopSimulation, syncTerminal, syncDock"| L3
   L1 -.->|"setTool, syncScenarioPanel"| L5
 ```
 
@@ -125,7 +125,7 @@ Every source file, grouped by layer. Line counts are approximate and indicate we
 
 | File | Lines | Role | Key exports | Doc |
 |---|---:|---|---|---|
-| `engine.ts` | 2,760 | The run loop (process and animate), one `processAt<Type>` handler per device type, NAT, stateful firewalling, DHCP servers, the packet capture and its history, network boot, headless runs, traceroute, the sim-log pane. | `startSimulation`, `stopSimulation`, `stepOnce`, `runSimulationHeadless`, `runTraceroute`, `startNetworkBoot`, `syncSimLog` | [engine.md](src/engine.md), [nat.md](src/nat.md), [firewall.md](src/firewall.md), [red-team.md](src/red-team.md) |
+| `engine.ts` | 3,060 | The run loop (process and animate), one `processAt<Type>` handler per device type, NAT, stateful firewalling, DHCP servers, the packet capture and its history, network boot, headless runs, traceroute. Imports no view and no device shell: results reach the UI through `sync()` and the session/dock helpers in `state.ts`. | `startSimulation`, `stopSimulation`, `stepOnce`, `runSimulationHeadless`, `runTraceroute`, `startNetworkBoot`, `captureEntriesFor` | [engine.md](src/engine.md), [nat.md](src/nat.md), [firewall.md](src/firewall.md), [red-team.md](src/red-team.md) |
 | `terminal/core.ts` | 350 | Terminal sessions, the bottom dock (terminals, console, sim log), prompt and history, and `CLI_DISPATCH` by device type. | `runTerminalCommand`, `openTerminalFor`, `syncTerminal`, `terminalLineFor`, `runDeviceCommand` | [terminal.md](src/terminal.md) |
 | `terminal/host.ts` | 350 | Linux shell for PCs: `ip`, `arp`, `ping`, `traceroute`, `nslookup`, `nc`, `dhcp`. Host mutators shared with the inspector. | `runHostTerminalCommand`, `setHostIp`, `setHostGateway` | [terminal.md](src/terminal.md) |
 | `terminal/server.ts` | 135 | Host shell plus dnsmasq: conf directives and `systemctl`. | `runServerTerminalCommand`, `applyDnsmasqConfLine` | [dns.md](src/dns.md) |
@@ -144,6 +144,7 @@ Every source file, grouped by layer. Line counts are approximate and indicate we
 | `canvas.ts` | 600 | All canvas drawing: grid, links, devices, badges, transit dots; pan and zoom; hit-testing transits. Reads `state`, never mutates the network. | `render`, `resizeCanvas`, `screenToWorld`, `fitNetwork`, `findTransitAt` | [canvas.md](src/canvas.md) |
 | `inspector.ts` | 1,470 | The right panel: per-type config forms, link details, the clicked-frame field view, display options. Host edits are replayed as visible terminal commands. | `syncPanel`, `renderFramePanel`, `syncOptionControls`, `setNetworkPanel` | [inspector.md](src/inspector.md) |
 | `port-picker.ts` | 120 | The port-picker dialog the Connect tool opens on Shift-click: renders each end's ports and makes the cable with the chosen pair. Rows come from `buildPortList`; the cable from `addLink`. | `openPortSelectionModal`, `confirmPortSelection`, `cancelPortSelection` | [ui.md](src/ui.md) |
+| `simlog-view.ts` | 300 | The Sim Log pane: the packet list, the event log, the display-filter toolbar and the saved-capture bar. Reads the run's capture and log from `state` and the filter model from `packet-filter.ts`; registered as the `syncSimLog` callback. | `syncSimLog` | [engine.md](src/engine.md) |
 
 ### L5 Application
 
@@ -200,7 +201,8 @@ Low layers sometimes need to trigger high-layer work: an undo must repaint the c
 | `syncCoordReadout` | `ui.syncCoordReadout` | Selection changes |
 | `syncOptionControls` | `inspector.syncOptionControls` | Settings changes from console or URL |
 | `recomputeStp` | `stp.runStpConvergence` then `render` | STP config edits, and every link change through `state.linksChanged` (which first flushes learnt MAC tables), so blocked links show live |
-| `syncSimLog` | `engine.syncSimLog` | Capture view and filter changes |
+| `syncSimLog` | `simlog-view.syncSimLog` | The engine (each step, run start and finish), capture view and filter changes |
+| `syncDock` | `terminal/core.syncDock` | `showDock` in `state.ts` (the engine opening the Sim Log); optional in the type |
 | `stopSimulation` | `engine.stopSimulation` | `undo`, `redo`; optional in the type |
 
 **`registerDeviceCallbacks()` in `devices.ts`**:
@@ -215,9 +217,9 @@ Low layers sometimes need to trigger high-layer work: an undo must repaint the c
 
 ## 7. Import cycles: where they are and why they are safe
 
-The graph is **not** acyclic. A strongly-connected-components pass over the value imports finds two cycles:
+The graph is **not** acyclic. A strongly-connected-components pass over the value imports finds two cycles (`tests/architecture.test.ts` pins that there are exactly these two):
 
-- **Engine and terminals.** `engine.ts` imports `terminal/` to write run results into the origin device's session. `terminal/host.ts`, `router.ts` and `attacker.ts` import `engine.ts` to start runs and read routing. Inside `terminal/`, `core.ts` imports every shell for its dispatch table, and every shell imports `core.ts` to print.
+- **The device shells.** Inside `terminal/`, `core.ts` imports every shell for its dispatch table, and every shell imports `core.ts` to print. The engine is **not** part of this any more: `terminal/host.ts`, `router.ts` and `attacker.ts` import `engine.ts` to start runs and read routing, but `engine.ts` imports nothing from `terminal/` — it writes a run's result into the origin device's session with `sessionFor` / `appendSessionLine`, opens the Sim Log with `showDock`, and asks for redraws through `sync().syncTerminal()` / `sync().syncSimLog()` (all in `state.ts`). It used to import the terminal UI directly and render the sim log itself, which put it at the centre of an eleven-module cycle (review R106).
 - **Application layer.** `ui.ts` imports `config.ts`, `console.ts` and `io.ts`. `config.ts` and `commands.ts` import `setTool` and `setTheme` back from `ui.ts`. That upward pair closes a loop through `commands`, `console`, `config`, `io`, `scenarios`, `scenario-ui`, `ribbon` and `ui`.
 
 ES modules tolerate cycles provided no module **uses** a cross-cycle import while it is being evaluated. The rule in this codebase is therefore: **inside a cycle, imported functions are called only from function bodies, never at module top level.** Top-level code may use only acyclic imports. For example, `scenarios.ts` builds `SCENARIOS` at load from `scenario-library.ts` and `normalise.ts`, neither of which is in its cycle. Break that rule and esbuild's bundle will hit a temporal-dead-zone error at startup, which no unit test catches because tests import modules individually.
@@ -425,4 +427,4 @@ These are recorded rather than fixed. None is a correctness problem today.
 - **`terminal/router.ts` imports routing functions from `engine.ts`**, which only re-exports them from `routing.ts`. Importing `routing.ts` directly would take the router shell out of the engine's import set, though the engine-to-terminal cycle would remain.
 - **The `linkUp` device callback is vestigial.** `devices.addLink` still fires it, but nothing registers it.
 - **Interface references by name do not follow renumbering.** RIP passive interfaces and pre-cable interface config are stored by name. Peer-keyed state is preferred for new features.
-- **`engine.ts` is large.** At about 2,760 lines it holds the run loop, every device handler, NAT, firewalling and the sim-log UI. `routing.ts` and `stp.ts` have already been extracted; the per-device handlers are the natural next split.
+- **`engine.ts` is large.** At about 3,060 lines it holds the run loop, every device handler, NAT and firewalling. `routing.ts`, `stp.ts` and the sim-log view (`simlog-view.ts`) have been extracted, and it is out of every import cycle; the per-device handlers are the natural next split. It still writes a little chrome itself (`dom.modeLabel`, the transport pill in `updateSimControls`).

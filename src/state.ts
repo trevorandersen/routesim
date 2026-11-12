@@ -1,4 +1,4 @@
-import type { AppState, Device, TerminalSession } from "./types";
+import type { AppState, Device, DockTab, TerminalLine, TerminalSession } from "./types";
 import { shiftToPositive } from "./normalise";
 import { freshNameCounters } from "./device-registry";
 
@@ -16,6 +16,9 @@ export type SyncCallbacks = {
   // pill, queues, conntrack). Bridged because state.ts cannot import engine.ts;
   // every path that replaces the topology under a live run calls this first.
   stopSimulation?: () => void;
+  // Redraw the dock chrome (tab strip, pane visibility) after showDock changes
+  // it. Bridged so the engine can open the Sim Log without importing the dock.
+  syncDock?: () => void;
 };
 
 // Available colour themes. The id is written to `<html data-theme>` and matched
@@ -165,6 +168,32 @@ export function freshTerminalSession(deviceId: string | null = null): TerminalSe
     history: [],
     historyIndex: -1,
   };
+}
+
+// ── Terminal sessions and the dock, as data ───────────────────────────────────
+// A session's scrollback and the dock's open/active-tab are plain state. These
+// three helpers let any layer write to them — the engine reports a run's result
+// into the origin device's session and opens the Sim Log when a run starts —
+// without importing the terminal UI (which imports the engine: that pair was
+// the import cycle engine.ts sat in the middle of).
+
+// The session attached to a device, if one is open.
+export function sessionFor(deviceId: string | null | undefined): TerminalSession | undefined {
+  if (!deviceId) return undefined;
+  return state.terminalSessions.find(s => s.deviceId === deviceId);
+}
+
+// Append a line to a session's scrollback (capped at 120 lines).
+export function appendSessionLine(session: TerminalSession, line: TerminalLine): void {
+  session.lines.push(line);
+  if (session.lines.length > 120) session.lines.splice(0, session.lines.length - 120);
+}
+
+// Open the dock on a pane, then redraw its chrome through the bridge.
+export function showDock(tab: DockTab): void {
+  state.dock.open = true;
+  state.dock.activeTab = tab;
+  sync().syncDock?.();
 }
 
 // Drop terminal sessions (all of them, or those for the given device ids) and

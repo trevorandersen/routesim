@@ -8,7 +8,7 @@
  * that started the run. Before this, every one of these silently
  * replaced the in-flight run (review R5/R61).
  */
-import { describe, it, expect, beforeAll, beforeEach, afterEach } from "bun:test";
+import { describe, it, expect, beforeAll, afterAll, beforeEach, afterEach } from "bun:test";
 import { state } from "../src/state";
 import { dom } from "../src/dom";
 import { startNetworkBoot, stepOnce, stopSimulation, runSimulationHeadless, takePreemptionNote, RUN_BUSY } from "../src/engine";
@@ -19,7 +19,10 @@ import { runConsoleScript, runConsoleCommand as exec } from "../src/commands";
 import { diagnoseState } from "../src/diagnostics";
 import { registerNoopCallbacks, resetState } from "./helpers";
 
-beforeAll(() => registerNoopCallbacks());
+// The engine re-renders the terminal through the callback bridge (it no longer
+// imports the terminal UI), so the input-lock tests register the real view.
+beforeAll(() => registerNoopCallbacks({ syncTerminal }));
+afterAll(() => registerNoopCallbacks());
 
 // The preload's synchronous rAF would recurse through the animation loop, so
 // stub it to a no-op and pump animated runs with stepOnce().

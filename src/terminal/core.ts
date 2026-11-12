@@ -10,7 +10,7 @@
  * the terminal pane.
  */
 import type { Device, DeviceType, DockTab, TerminalSession, TerminalLine } from "../types";
-import { state, sync, freshTerminalSession } from "../state";
+import { state, sync, freshTerminalSession, sessionFor, appendSessionLine } from "../state";
 import { dom } from "../dom";
 import { escapeHtml } from "../utils";
 import { getDevice } from "../devices";
@@ -31,8 +31,7 @@ let injectedMode = false;
 // Write a line into a specific session (sim results target the session of the
 // device that started the run, even if another tab is active by then).
 export function terminalLineFor(session: TerminalSession, kind: string, text: string): void {
-  session.lines.push(injectedMode ? { kind, text, injected: true } : { kind, text });
-  if (session.lines.length > 120) session.lines.splice(0, session.lines.length - 120);
+  appendSessionLine(session, injectedMode ? { kind, text, injected: true } : { kind, text });
 }
 
 export function terminalLine(kind: string, text: string): void {
@@ -62,10 +61,8 @@ export function runDeviceCommand(device: Device, command: string): void {
 
 // ── Sessions ─────────────────────────────────────────────────────────────────
 
-export function sessionFor(deviceId: string | null | undefined): TerminalSession | undefined {
-  if (!deviceId) return undefined;
-  return state.terminalSessions.find(s => s.deviceId === deviceId);
-}
+// (sessionFor lives in state.ts — the engine needs it too — and is re-exported here.)
+export { sessionFor };
 
 // Find or create the session for a device. `greet` adds the connection banner
 // on creation (the console's `cli` command attaches silently).
@@ -106,7 +103,7 @@ export function closeSession(deviceId: string | null): void {
 export function openDock(tab: DockTab): void {
   state.dock.open = true;
   state.dock.activeTab = tab;
-  syncDock();
+  syncDock();   // direct, not through the bridge: the dock opens the same with or without callbacks registered
 }
 
 export function closeDock(): void {

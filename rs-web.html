@@ -4027,6 +4027,19 @@ Full legal text: https://creativecommons.org/publicdomain/zero/1.0/legalcode</pr
       historyIndex: -1
     };
   }
+  function sessionFor(deviceId) {
+    if (!deviceId) return void 0;
+    return state.terminalSessions.find((s) => s.deviceId === deviceId);
+  }
+  function appendSessionLine(session, line) {
+    session.lines.push(line);
+    if (session.lines.length > 120) session.lines.splice(0, session.lines.length - 120);
+  }
+  function showDock(tab) {
+    state.dock.open = true;
+    state.dock.activeTab = tab;
+    sync().syncDock?.();
+  }
   function dropTerminalSessions(deviceIds = null) {
     const doomed = deviceIds === null ? new Set(state.terminalSessions.map((s) => s.deviceId)) : new Set(deviceIds);
     state.terminalSessions = state.terminalSessions.filter((s) => !doomed.has(s.deviceId));
@@ -7510,427 +7523,6 @@ Full legal text: https://creativecommons.org/publicdomain/zero/1.0/legalcode</pr
     return out;
   }
 
-  // src/packet-filter.ts
-  var PROTOCOL_TOKENS = [
-    "arp",
-    "ip",
-    "ipv4",
-    "icmp",
-    "tcp",
-    "udp",
-    "dns",
-    "dhcp",
-    "stp",
-    "bpdu",
-    "wlan",
-    "dot11",
-    "dot1x",
-    "eapol",
-    "eap",
-    "radius",
-    "macsec"
-  ];
-  var PROTOCOL_SET = new Set(PROTOCOL_TOKENS);
-  var PROTOCOL_CHIPS = [
-    { label: "ARP", token: "arp" },
-    { label: "ICMP", token: "icmp" },
-    { label: "TCP", token: "tcp" },
-    { label: "DNS", token: "dns" },
-    { label: "DHCP", token: "dhcp" },
-    { label: "STP", token: "stp" },
-    { label: "802.1X", token: "dot1x" },
-    { label: "802.11", token: "wlan" },
-    { label: "MACsec", token: "macsec" }
-  ];
-  function frameMatchesToken(row, token) {
-    const p = row.frame.payload;
-    switch (token) {
-      case "arp":
-        return p.type === "arp";
-      case "ip":
-      case "ipv4":
-        return p.type === "ipv4";
-      case "macsec":
-        return row.macsec === true;
-      case "stp":
-      case "bpdu":
-        return p.type === "bpdu";
-      case "wlan":
-      case "dot11":
-        return p.type === "dot11";
-      case "dot1x":
-        return p.type === "dot1x";
-      case "eapol":
-        return p.type === "dot1x" && p.subtype.startsWith("eapol") || p.type === "dot11" && p.subtype.startsWith("eapol");
-      case "eap":
-        return p.type === "dot1x" && p.subtype.startsWith("eap-");
-      case "radius":
-        return p.type === "dot1x" && p.subtype.startsWith("radius");
-      case "icmp":
-        return p.type === "ipv4" && p.payload.type === "icmp";
-      case "tcp":
-        return p.type === "ipv4" && p.payload.type === "tcp";
-      case "dns":
-        return p.type === "ipv4" && p.payload.type === "dns";
-      case "dhcp":
-        return p.type === "ipv4" && p.payload.type === "dhcp";
-      case "udp":
-        return p.type === "ipv4" && (p.payload.type === "dns" || p.payload.type === "dhcp");
-      default:
-        return false;
-    }
-  }
-  function presentTokens(rows) {
-    const present = /* @__PURE__ */ new Set();
-    for (const row of rows) {
-      for (const chip of PROTOCOL_CHIPS) {
-        if (!present.has(chip.token) && frameMatchesToken(row, chip.token)) present.add(chip.token);
-      }
-    }
-    return present;
-  }
-  var FilterError = class extends Error {
-  };
-  var fail = (message) => {
-    throw new FilterError(message);
-  };
-  var NUMERIC_FIELDS = /* @__PURE__ */ new Set(["tcp.port", "tcp.srcport", "tcp.dstport", "ip.ttl", "frame.no", "no", "frame.step", "step"]);
-  var IP_FIELDS = /* @__PURE__ */ new Set(["ip.addr", "ip.src", "ip.dst"]);
-  var MAC_FIELDS = /* @__PURE__ */ new Set(["eth.addr", "eth.src", "eth.dst"]);
-  var STR_FIELDS = /* @__PURE__ */ new Set(["device", "dev"]);
-  function isField(word) {
-    return NUMERIC_FIELDS.has(word) || IP_FIELDS.has(word) || MAC_FIELDS.has(word) || STR_FIELDS.has(word);
-  }
-  var WORD_CHAR = /[A-Za-z0-9_.:/-]/;
-  function lex(input) {
-    const toks = [];
-    let i = 0;
-    const n = input.length;
-    while (i < n) {
-      const c = input[i];
-      if (c === " " || c === "	" || c === "\n" || c === "\r") {
-        i++;
-        continue;
-      }
-      if (c === "(") {
-        toks.push({ t: "lparen" });
-        i++;
-        continue;
-      }
-      if (c === ")") {
-        toks.push({ t: "rparen" });
-        i++;
-        continue;
-      }
-      if (c === "&") {
-        if (input[i + 1] === "&") {
-          toks.push({ t: "and" });
-          i += 2;
-          continue;
-        }
-        fail('expected "&&"');
-      }
-      if (c === "|") {
-        if (input[i + 1] === "|") {
-          toks.push({ t: "or" });
-          i += 2;
-          continue;
-        }
-        fail('expected "||"');
-      }
-      if (c === "!") {
-        if (input[i + 1] === "=") {
-          toks.push({ t: "op", v: "!=" });
-          i += 2;
-        } else {
-          toks.push({ t: "not" });
-          i++;
-        }
-        continue;
-      }
-      if (c === "=") {
-        if (input[i + 1] === "=") {
-          toks.push({ t: "op", v: "==" });
-          i += 2;
-          continue;
-        }
-        fail('use "==" for equality');
-      }
-      if (c === "<") {
-        if (input[i + 1] === "=") {
-          toks.push({ t: "op", v: "<=" });
-          i += 2;
-        } else {
-          toks.push({ t: "op", v: "<" });
-          i++;
-        }
-        continue;
-      }
-      if (c === ">") {
-        if (input[i + 1] === "=") {
-          toks.push({ t: "op", v: ">=" });
-          i += 2;
-        } else {
-          toks.push({ t: "op", v: ">" });
-          i++;
-        }
-        continue;
-      }
-      if (c === '"') {
-        let j = i + 1, s = "";
-        while (j < n && input[j] !== '"') {
-          s += input[j];
-          j++;
-        }
-        if (j >= n) fail("unterminated string");
-        toks.push({ t: "word", v: s });
-        i = j + 1;
-        continue;
-      }
-      if (WORD_CHAR.test(c)) {
-        let j = i, s = "";
-        while (j < n && WORD_CHAR.test(input[j])) {
-          s += input[j];
-          j++;
-        }
-        const lw = s.toLowerCase();
-        if (lw === "and") toks.push({ t: "and" });
-        else if (lw === "or") toks.push({ t: "or" });
-        else if (lw === "not") toks.push({ t: "not" });
-        else if (lw === "contains") toks.push({ t: "op", v: "contains" });
-        else toks.push({ t: "word", v: s });
-        i = j;
-        continue;
-      }
-      fail(`unexpected character "${c}"`);
-    }
-    return toks;
-  }
-  function ipValues(row, field) {
-    const p = row.frame.payload;
-    if (p.type !== "ipv4") return [];
-    if (field === "ip.src") return [p.srcIp];
-    if (field === "ip.dst") return [p.dstIp];
-    return [p.srcIp, p.dstIp];
-  }
-  function macValues(row, field) {
-    if (field === "eth.src") return [row.frame.srcMac];
-    if (field === "eth.dst") return [row.frame.dstMac];
-    return [row.frame.srcMac, row.frame.dstMac];
-  }
-  var numScratch = [0, 0];
-  function numValues(row, field) {
-    if (field === "frame.no" || field === "no") {
-      numScratch[0] = row.no;
-      return 1;
-    }
-    if (field === "frame.step" || field === "step") {
-      numScratch[0] = row.step;
-      return 1;
-    }
-    const p = row.frame.payload;
-    if (field === "ip.ttl") {
-      if (p.type !== "ipv4") return 0;
-      numScratch[0] = p.ttl;
-      return 1;
-    }
-    if (p.type !== "ipv4" || p.payload.type !== "tcp") return 0;
-    if (field === "tcp.srcport") {
-      numScratch[0] = p.payload.srcPort;
-      return 1;
-    }
-    if (field === "tcp.dstport") {
-      numScratch[0] = p.payload.dstPort;
-      return 1;
-    }
-    numScratch[0] = p.payload.srcPort;
-    numScratch[1] = p.payload.dstPort;
-    return 2;
-  }
-  function strValues(row) {
-    return [row.fromName, row.toName];
-  }
-  function matchNums(count, cmp, target) {
-    if (cmp === "!=") {
-      for (let i = 0; i < count; i++) if (numScratch[i] === target) return false;
-      return count > 0;
-    }
-    for (let i = 0; i < count; i++) {
-      const c = numScratch[i];
-      switch (cmp) {
-        case "==":
-          if (c === target) return true;
-          break;
-        case "<":
-          if (c < target) return true;
-          break;
-        case ">":
-          if (c > target) return true;
-          break;
-        case "<=":
-          if (c <= target) return true;
-          break;
-        case ">=":
-          if (c >= target) return true;
-          break;
-      }
-    }
-    return false;
-  }
-  function matchStrs(cands, cmp, target) {
-    const t = target.toLowerCase();
-    const cs = cands.map((c) => c.toLowerCase());
-    if (cmp === "!=") return cs.length > 0 && cs.every((c) => c !== t);
-    if (cmp === "contains") return cs.some((c) => c.includes(t));
-    return cs.some((c) => c === t);
-  }
-  function assertStringCmp(field, cmp) {
-    if (cmp !== "==" && cmp !== "!=" && cmp !== "contains") {
-      fail(`operator "${cmp}" is not valid for "${field}" (use ==, != or contains)`);
-    }
-  }
-  function buildFieldPred(field, cmp, value) {
-    if (NUMERIC_FIELDS.has(field)) {
-      if (!/^\d+$/.test(value)) fail(`"${field}" expects a whole number, got "${value}"`);
-      const target = Number(value);
-      return (row) => matchNums(numValues(row, field), cmp, target);
-    }
-    if (IP_FIELDS.has(field)) {
-      if (value.includes("/")) {
-        if (cmp !== "==" && cmp !== "!=") fail(`CIDR works only with == or != ("${field}")`);
-        return (row) => {
-          const cands = ipValues(row, field);
-          const inCidr = (ip) => cidrContains(value, ip);
-          return cmp === "==" ? cands.some(inCidr) : cands.length > 0 && cands.every((c) => !inCidr(c));
-        };
-      }
-      assertStringCmp(field, cmp);
-      return (row) => matchStrs(ipValues(row, field), cmp, value);
-    }
-    if (MAC_FIELDS.has(field)) {
-      assertStringCmp(field, cmp);
-      return (row) => matchStrs(macValues(row, field), cmp, value);
-    }
-    assertStringCmp(field, cmp);
-    return (row) => matchStrs(strValues(row), cmp, value);
-  }
-  var Parser = class {
-    constructor(toks) {
-      this.toks = toks;
-    }
-    toks;
-    pos = 0;
-    peek() {
-      return this.toks[this.pos];
-    }
-    next() {
-      return this.toks[this.pos++];
-    }
-    eof() {
-      return this.pos >= this.toks.length;
-    }
-    parse() {
-      if (this.eof()) return () => true;
-      const pred = this.parseOr();
-      if (!this.eof()) fail("unexpected text at end of filter");
-      return pred;
-    }
-    parseOr() {
-      let left = this.parseAnd();
-      while (this.peek()?.t === "or") {
-        this.next();
-        const right = this.parseAnd();
-        const l = left;
-        left = (row) => l(row) || right(row);
-      }
-      return left;
-    }
-    parseAnd() {
-      let left = this.parseNot();
-      while (this.peek()?.t === "and") {
-        this.next();
-        const right = this.parseNot();
-        const l = left;
-        left = (row) => l(row) && right(row);
-      }
-      return left;
-    }
-    parseNot() {
-      if (this.peek()?.t === "not") {
-        this.next();
-        const inner = this.parseNot();
-        return (row) => !inner(row);
-      }
-      return this.parsePrimary();
-    }
-    parsePrimary() {
-      const tk = this.peek();
-      if (!tk) return fail("unexpected end of filter");
-      if (tk.t === "lparen") {
-        this.next();
-        const pred = this.parseOr();
-        if (this.next()?.t !== "rparen") fail('missing ")"');
-        return pred;
-      }
-      if (tk.t !== "word") return fail("expected a protocol or field name");
-      this.next();
-      const lw = tk.v.toLowerCase();
-      if (isField(lw)) {
-        const opTok = this.next();
-        if (!opTok || opTok.t !== "op") return fail(`expected a comparison operator after "${tk.v}"`);
-        const valTok = this.next();
-        if (!valTok || valTok.t !== "word") return fail(`expected a value after "${tk.v} ${opTok.v}"`);
-        return buildFieldPred(lw, opTok.v, valTok.v);
-      }
-      if (PROTOCOL_SET.has(lw)) return (row) => frameMatchesToken(row, lw);
-      return fail(`unknown filter term "${tk.v}"`);
-    }
-  };
-  var cacheExpr = null;
-  var cacheResult = null;
-  function compileFilter(expr) {
-    const src = (expr || "").trim();
-    if (cacheExpr === src && cacheResult) return cacheResult;
-    let result;
-    try {
-      const pred = new Parser(lex(src)).parse();
-      result = { ok: true, test: pred };
-    } catch (e) {
-      result = { ok: false, error: e instanceof FilterError ? e.message : "invalid filter" };
-    }
-    cacheExpr = src;
-    cacheResult = result;
-    return result;
-  }
-  function applyLogFilter(rows, filter) {
-    const compiled = compileFilter(filter.expr);
-    const exprTest = compiled.ok ? compiled.test : null;
-    const protocols = filter.protocols;
-    const device = filter.device;
-    const link = filter.link;
-    try {
-      const out = [];
-      for (let i = 0; i < rows.length; i++) {
-        const row = rows[i];
-        if (protocols.length) {
-          let hit = false;
-          for (let j = 0; j < protocols.length && !hit; j++) hit = frameMatchesToken(row, protocols[j]);
-          if (!hit) continue;
-        }
-        if (device && row.fromId !== device && row.toId !== device) continue;
-        if (link && row.linkId !== link) continue;
-        if (exprTest && !exprTest(row)) continue;
-        out.push(row);
-      }
-      return { rows: out, error: compiled.ok ? null : compiled.error };
-    } catch (e) {
-      return { rows, error: e instanceof Error ? e.message : "invalid filter" };
-    }
-  }
-  function isFilterActive(filter) {
-    return filter.protocols.length > 0 || filter.device !== "" || !!filter.link || filter.expr.trim() !== "";
-  }
-
   // src/engine.ts
   var RUN_BUSY = "A simulation is already running (or paused) \u2014 wait for it to finish, or stop it first (Ctrl+C or Stop).";
   function runActive() {
@@ -7984,7 +7576,7 @@ Full legal text: https://creativecommons.org/publicdomain/zero/1.0/legalcode</pr
       note = `Simulation stopped before it finished \u2014 ${next} needed the simulator.`;
     }
     const session = sessionFor(sim.originDeviceId);
-    if (session) terminalLineFor(session, "error", note);
+    if (session) appendSessionLine(session, { kind: "error", text: note });
     stopSimulation();
     dom.modeLabel.textContent = note;
     preemptionNote = note;
@@ -8133,9 +7725,9 @@ Full legal text: https://creativecommons.org/publicdomain/zero/1.0/legalcode</pr
     }
     if (seeded) sim.stepIndex++;
     state.terminal.lines.push({ kind: "sim", text: runLabel(mode, setup.dns ? setup.dns.name : targetIp) });
-    if (!state.dock.open) openDock("simlog");
-    syncTerminal();
-    syncSimLog();
+    if (!state.dock.open) showDock("simlog");
+    sync().syncTerminal();
+    sync().syncSimLog();
     updateSimControls();
     startAnimationLoop();
     if (sim.autoPlay && sim.transits.length === 0) processNextStep();
@@ -8158,22 +7750,22 @@ Full legal text: https://creativecommons.org/publicdomain/zero/1.0/legalcode</pr
     if (state.dock.compareBaseId === state.dock.captureView) state.dock.compareBaseId = "";
     stopAnimationLoop();
     updateSimControls();
-    syncSimLog();
-    syncTerminal();
+    sync().syncSimLog();
+    sync().syncTerminal();
     sync().render();
   }
   function pauseSimulation() {
     if (state.simulation.status === "running") {
       state.simulation.status = "paused";
       updateSimControls();
-      syncTerminal();
+      sync().syncTerminal();
     }
   }
   function resumeSimulation() {
     if (state.simulation.status === "paused") {
       state.simulation.status = "running";
       updateSimControls();
-      syncTerminal();
+      sync().syncTerminal();
       if (state.simulation.transits.length === 0) processNextStep();
     }
   }
@@ -8182,7 +7774,7 @@ Full legal text: https://creativecommons.org/publicdomain/zero/1.0/legalcode</pr
     if (sim.status !== "paused" && sim.status !== "running") return;
     const wasRunning = sim.status === "running";
     sim.status = "paused";
-    if (wasRunning) syncTerminal();
+    if (wasRunning) sync().syncTerminal();
     if (sim.transits.length > 0) {
       for (const t of sim.transits) t.progress = 1;
       deliverCompletedTransits();
@@ -8508,7 +8100,7 @@ Full legal text: https://creativecommons.org/publicdomain/zero/1.0/legalcode</pr
       return;
     }
     if (!sim.headless) {
-      syncSimLog();
+      sync().syncSimLog();
       sync().render();
     }
     settleStep();
@@ -9944,85 +9536,10 @@ Full legal text: https://creativecommons.org/publicdomain/zero/1.0/legalcode</pr
     };
     sim.log.push(entry);
   }
-  var presentTokenCache = /* @__PURE__ */ new Set();
-  var presentDeviceIds = /* @__PURE__ */ new Set();
   var CAPTURE_HISTORY_CAP = 12;
   function captureEntriesFor(capId) {
     if (capId === "live") return state.simulation.capture;
     return state.savedCaptures.find((c) => c.id === capId)?.entries || [];
-  }
-  function paneFor(view) {
-    if (view && view !== "live") {
-      const saved = state.savedCaptures.find((c) => c.id === view);
-      if (saved) return { id: saved.id, label: saved.label, entries: saved.entries };
-    }
-    return { id: "live", label: "Live capture", entries: state.simulation.capture };
-  }
-  function healCaptureView() {
-    const sim = state.simulation;
-    if (sim.status === "running" || sim.status === "paused") return;
-    const saved = state.savedCaptures;
-    const view = state.dock.captureView;
-    if (view !== "live" && !saved.some((c) => c.id === view)) {
-      state.dock.captureView = saved.length ? saved[saved.length - 1].id : "live";
-    } else if (view === "live" && saved.length && sim.capture.length === 0) {
-      state.dock.captureView = saved[saved.length - 1].id;
-    }
-  }
-  function displayedPanes() {
-    const sim = state.simulation;
-    if (sim.status === "running" || sim.status === "paused") {
-      return [{ id: "live", label: "Live capture", entries: sim.capture }];
-    }
-    const main = paneFor(state.dock.captureView);
-    if (state.dock.compareBaseId) {
-      const base = state.savedCaptures.find((c) => c.id === state.dock.compareBaseId);
-      if (base && base.id !== main.id) return [{ id: base.id, label: base.label, entries: base.entries }, main];
-    }
-    return [main];
-  }
-  function syncSimLog() {
-    if (!state.dock.logFilter) state.dock.logFilter = { protocols: [], device: "", expr: "" };
-    syncSimLogBadge();
-    for (const btn of document.querySelectorAll("[data-logview]")) {
-      btn.classList.toggle("active", btn.dataset.logview === state.dock.logView);
-    }
-    const packets = state.dock.logView === "packets";
-    let html;
-    let stats = { shown: 0, total: 0, error: null };
-    if (packets) {
-      healCaptureView();
-      const panes = displayedPanes();
-      const totalEntries = panes.reduce((n, p) => n + p.entries.length, 0);
-      if (totalEntries === 0) {
-        presentTokenCache = /* @__PURE__ */ new Set();
-        presentDeviceIds = /* @__PURE__ */ new Set();
-        html = `<p class="sim-log-line sim-learn">No packets captured \u2014 run a simulation (headless checks don't capture). The Events view holds imported logs.</p>`;
-      } else {
-        const paneRows = panes.map((p) => buildFilterRows(p.entries));
-        const unionRows = paneRows.flat();
-        presentTokenCache = presentTokens(unionRows);
-        presentDeviceIds = new Set(unionRows.flatMap((r) => [r.fromId, r.toId]));
-        let firstError = null;
-        const cols = panes.map((p, i) => {
-          const rows = paneRows[i];
-          const result = applyLogFilter(rows, state.dock.logFilter);
-          stats.shown += result.rows.length;
-          stats.total += rows.length;
-          if (result.error && !firstError) firstError = result.error;
-          const table = result.rows.length ? renderPacketTable(result.rows, p.id) : `<p class="sim-log-line sim-learn">No packets match the filter. <button type="button" class="sim-log-clear" data-action="clear-log-filter">Clear filter</button></p>`;
-          return panes.length > 1 ? `<div class="pkt-pane"><div class="pkt-pane-title">${escapeHtml(p.label)}</div><div class="pkt-pane-body">${table}</div></div>` : table;
-        });
-        stats.error = firstError;
-        html = panes.length > 1 ? `<div class="pkt-compare">${cols.join("")}</div>` : cols[0];
-      }
-    } else {
-      html = renderEventLog();
-    }
-    syncSimLogCaptureBar(packets);
-    syncSimLogFilterBar(packets, stats);
-    dom.simLogOutput.innerHTML = html;
-    dom.simLogOutput.scrollTop = dom.simLogOutput.scrollHeight;
   }
   function captureLabel() {
     const sim = state.simulation;
@@ -10075,138 +9592,6 @@ Full legal text: https://creativecommons.org/publicdomain/zero/1.0/legalcode</pr
     if (state.dock.compareBaseId && !state.savedCaptures.some((c) => c.id === state.dock.compareBaseId)) {
       state.dock.compareBaseId = "";
     }
-  }
-  function renderEventLog() {
-    const sim = state.simulation;
-    if (sim.log.length === 0) {
-      return `<p class="sim-log-line sim-learn">No simulation running \u2014 start a ping, connect, or DHCP run to capture frames.</p>`;
-    }
-    return sim.log.map(
-      (entry) => `<p class="sim-log-line ${escapeHtml(entry.kind || "")}">${escapeHtml(entry.summary)}</p>`
-    ).join("");
-  }
-  function buildFilterRows(entries) {
-    return entries.map((entry) => ({
-      frame: entry.frame,
-      macsec: !!entry.macsec,
-      no: entry.no,
-      step: entry.step,
-      fromId: entry.fromDeviceId,
-      toId: entry.toDeviceId,
-      fromName: getDevice(entry.fromDeviceId)?.name ?? "?",
-      toName: getDevice(entry.toDeviceId)?.name ?? "?",
-      linkId: entry.linkId
-    }));
-  }
-  function renderPacketTable(rows, capId) {
-    const linkMap = new Map(state.links.map((l) => [l.id, l]));
-    const selectedEntry = state.inspectedCapture;
-    const selectInPane = !!selectedEntry && captureEntriesFor(capId).includes(selectedEntry);
-    const body = rows.map((row) => {
-      const inner = packetColumns(row.frame);
-      const cols = row.macsec ? { ...inner, protocol: "MACsec", info: `Encrypted ${inner.protocol} (SecTAG, ICV)`, tone: "macsec" } : inner;
-      const link = linkMap.get(row.linkId);
-      const wire = link ? linkName(link) : `${row.fromName} \u2194 ${row.toName}`;
-      const selected = (selectedEntry ? selectInPane && selectedEntry.no === row.no : state.inspectedFrame === row.frame) ? " selected" : "";
-      return `<tr class="pkt-row pkt-${escapeHtml(cols.tone)}${selected}" data-no="${row.no}" data-cap="${escapeHtml(capId)}">
-      <td class="pkt-num">${row.no}</td>
-      <td class="pkt-num">${row.step}</td>
-      <td>${escapeHtml(cols.src)}</td>
-      <td>${escapeHtml(cols.dst)}</td>
-      <td><span class="pkt-glyph" aria-hidden="true">${escapeHtml(toneGlyph(cols.tone))}</span>${escapeHtml(cols.protocol)}</td>
-      <td class="pkt-info">${escapeHtml(cols.info)}</td>
-      <td class="pkt-link">${escapeHtml(wire)}</td>
-    </tr>`;
-    }).join("");
-    return `<table class="pkt-table">
-    <thead><tr><th>No.</th><th>Step</th><th>Source</th><th>Destination</th><th>Protocol</th><th>Info</th><th>Link</th></tr></thead>
-    <tbody>${body}</tbody>
-  </table>`;
-  }
-  function syncSimLogCaptureBar(packets) {
-    const bar = dom.simLogCaptureBar;
-    if (!bar) return;
-    const sim = state.simulation;
-    const running = sim.status === "running" || sim.status === "paused";
-    const saved = state.savedCaptures;
-    const show = packets && !running && saved.length > 0;
-    bar.hidden = !show;
-    if (!show) return;
-    const sel = dom.simLogCaptureSelect;
-    if (!saved.some((c) => c.id === state.dock.captureView)) state.dock.captureView = saved[saved.length - 1].id;
-    if (state.dock.compareBaseId === state.dock.captureView) state.dock.compareBaseId = "";
-    if (document.activeElement !== sel) {
-      sel.innerHTML = saved.slice().reverse().map((c) => `<option value="${escapeHtml(c.id)}">${escapeHtml(c.label)}</option>`).join("");
-      sel.value = state.dock.captureView;
-    }
-    const compareOn = !!state.dock.compareBaseId;
-    const toggle = dom.simLogCompareToggle;
-    toggle.classList.toggle("active", compareOn);
-    toggle.disabled = saved.length < 2;
-    const base = dom.simLogCompareSelect;
-    base.hidden = !compareOn;
-    if (compareOn && document.activeElement !== base) {
-      const others = saved.filter((c) => c.id !== state.dock.captureView).slice().reverse();
-      if (!others.some((c) => c.id === state.dock.compareBaseId)) state.dock.compareBaseId = others[0]?.id || "";
-      base.innerHTML = others.map((c) => `<option value="${escapeHtml(c.id)}">${escapeHtml(c.label)}</option>`).join("");
-      base.value = state.dock.compareBaseId;
-    }
-  }
-  function syncSimLogFilterBar(packets, stats) {
-    const bar = dom.simLogFilterBar;
-    if (!bar) return;
-    bar.hidden = !packets;
-    if (!packets) return;
-    const filter = state.dock.logFilter;
-    const chipBox = dom.simLogChips;
-    if (chipBox && (chipBox.children?.length ?? 0) === 0) {
-      chipBox.innerHTML = PROTOCOL_CHIPS.map((c) => `<button class="simlog-chip" data-proto="${c.token}" type="button">${escapeHtml(c.label)}</button>`).join("");
-    }
-    for (const chip of chipBox.querySelectorAll("[data-proto]")) {
-      const tok = chip.dataset.proto || "";
-      chip.classList.toggle("active", filter.protocols.includes(tok));
-      chip.classList.toggle("empty", !presentTokenCache.has(tok));
-    }
-    const input = dom.simLogFilterInput;
-    if (document.activeElement !== input) input.value = filter.expr;
-    input.classList.toggle("invalid", !!stats.error);
-    input.title = stats.error ? `Filter error: ${stats.error}` : "Display filter \u2014 e.g. dns || icmp && !arp";
-    populateDeviceFilter(filter);
-    const linkPill = dom.simLogLinkFilter;
-    if (linkPill) {
-      const filteredLink = filter.link ? linkById(filter.link) : null;
-      if (filter.link && !filteredLink) filter.link = "";
-      if (filteredLink) {
-        linkPill.hidden = false;
-        linkPill.textContent = `Link: ${linkName(filteredLink)} \u2715`;
-      } else {
-        linkPill.hidden = true;
-      }
-    }
-    const status = dom.simLogFilterStatus;
-    if (status) {
-      status.textContent = stats.error ? stats.error : isFilterActive(filter) ? `Showing ${stats.shown} of ${stats.total}` : stats.total ? `${stats.total} packet${stats.total === 1 ? "" : "s"}` : "";
-      status.classList.toggle("error", !!stats.error);
-    }
-    dom.simLogFilterClear.disabled = !isFilterActive(filter);
-  }
-  var deviceFilterSig = "";
-  function populateDeviceFilter(filter) {
-    const sel = dom.simLogDeviceFilter;
-    if (!sel) return;
-    if (filter.device && !getDevice(filter.device)) filter.device = "";
-    if (document.activeElement === sel) return;
-    const devices = state.devices.filter((d) => presentDeviceIds.has(d.id)).sort((a, b) => a.name.localeCompare(b.name));
-    const extra = filter.device && !devices.some((d) => d.id === filter.device) ? getDevice(filter.device) : null;
-    const sig = devices.map((d) => d.id + "" + d.name).join("") + "" + (extra ? extra.id + "" + extra.name : "");
-    if (sig !== deviceFilterSig) {
-      const opts = [`<option value="">All devices</option>`];
-      for (const d of devices) opts.push(`<option value="${escapeHtml(d.id)}">${escapeHtml(d.name)}</option>`);
-      if (extra) opts.push(`<option value="${escapeHtml(extra.id)}">${escapeHtml(extra.name)}</option>`);
-      sel.innerHTML = opts.join("");
-      deviceFilterSig = sig;
-    }
-    sel.value = filter.device;
   }
   function findLinkBetween(a, b) {
     return linksFor(a).find(
@@ -10338,7 +9723,7 @@ Full legal text: https://creativecommons.org/publicdomain/zero/1.0/legalcode</pr
   function finishSimulation() {
     const sim = state.simulation;
     const originSession = sessionFor(sim.originDeviceId);
-    const out = (kind, text) => originSession ? terminalLineFor(originSession, kind, text) : terminalLine(kind, text);
+    const out = (kind, text) => appendSessionLine(originSession ?? state.terminal, { kind, text });
     const originArpUnanswered = Object.keys(sim.pendingArp).some((k) => sim.pendingArp[k].length > 0 && k.startsWith(`${sim.originDeviceId}:`));
     const succeeded = runSucceeded(sim.mode);
     sim.diagnosis = runPostMortem(succeeded);
@@ -10472,8 +9857,8 @@ ${body}
     sim.status = "done";
     if (sim.headless) return;
     if (!bootRunActive) saveCurrentCapture();
-    syncSimLog();
-    syncTerminal();
+    sync().syncSimLog();
+    sync().syncTerminal();
     sync().syncPanel();
     updateSimControls();
     stopAnimationLoop();
@@ -12630,8 +12015,7 @@ Snort successfully validated the configuration${bad ? " (with errors)" : "."}`);
   // src/terminal/core.ts
   var injectedMode = false;
   function terminalLineFor(session, kind, text) {
-    session.lines.push(injectedMode ? { kind, text, injected: true } : { kind, text });
-    if (session.lines.length > 120) session.lines.splice(0, session.lines.length - 120);
+    appendSessionLine(session, injectedMode ? { kind, text, injected: true } : { kind, text });
   }
   function terminalLine(kind, text) {
     terminalLineFor(state.terminal, kind, text);
@@ -12650,10 +12034,6 @@ Snort successfully validated the configuration${bad ? " (with errors)" : "."}`);
       injectedMode = false;
     }
     sync().syncTerminal();
-  }
-  function sessionFor(deviceId) {
-    if (!deviceId) return void 0;
-    return state.terminalSessions.find((s) => s.deviceId === deviceId);
   }
   function ensureSession(device, greet = false) {
     let session = sessionFor(device.id);
@@ -12909,6 +12289,636 @@ Snort successfully validated the configuration${bad ? " (with errors)" : "."}`);
         dom.terminalInput.value = "";
       }
     }
+  }
+
+  // src/packet-filter.ts
+  var PROTOCOL_TOKENS = [
+    "arp",
+    "ip",
+    "ipv4",
+    "icmp",
+    "tcp",
+    "udp",
+    "dns",
+    "dhcp",
+    "stp",
+    "bpdu",
+    "wlan",
+    "dot11",
+    "dot1x",
+    "eapol",
+    "eap",
+    "radius",
+    "macsec"
+  ];
+  var PROTOCOL_SET = new Set(PROTOCOL_TOKENS);
+  var PROTOCOL_CHIPS = [
+    { label: "ARP", token: "arp" },
+    { label: "ICMP", token: "icmp" },
+    { label: "TCP", token: "tcp" },
+    { label: "DNS", token: "dns" },
+    { label: "DHCP", token: "dhcp" },
+    { label: "STP", token: "stp" },
+    { label: "802.1X", token: "dot1x" },
+    { label: "802.11", token: "wlan" },
+    { label: "MACsec", token: "macsec" }
+  ];
+  function frameMatchesToken(row, token) {
+    const p = row.frame.payload;
+    switch (token) {
+      case "arp":
+        return p.type === "arp";
+      case "ip":
+      case "ipv4":
+        return p.type === "ipv4";
+      case "macsec":
+        return row.macsec === true;
+      case "stp":
+      case "bpdu":
+        return p.type === "bpdu";
+      case "wlan":
+      case "dot11":
+        return p.type === "dot11";
+      case "dot1x":
+        return p.type === "dot1x";
+      case "eapol":
+        return p.type === "dot1x" && p.subtype.startsWith("eapol") || p.type === "dot11" && p.subtype.startsWith("eapol");
+      case "eap":
+        return p.type === "dot1x" && p.subtype.startsWith("eap-");
+      case "radius":
+        return p.type === "dot1x" && p.subtype.startsWith("radius");
+      case "icmp":
+        return p.type === "ipv4" && p.payload.type === "icmp";
+      case "tcp":
+        return p.type === "ipv4" && p.payload.type === "tcp";
+      case "dns":
+        return p.type === "ipv4" && p.payload.type === "dns";
+      case "dhcp":
+        return p.type === "ipv4" && p.payload.type === "dhcp";
+      case "udp":
+        return p.type === "ipv4" && (p.payload.type === "dns" || p.payload.type === "dhcp");
+      default:
+        return false;
+    }
+  }
+  function presentTokens(rows) {
+    const present = /* @__PURE__ */ new Set();
+    for (const row of rows) {
+      for (const chip of PROTOCOL_CHIPS) {
+        if (!present.has(chip.token) && frameMatchesToken(row, chip.token)) present.add(chip.token);
+      }
+    }
+    return present;
+  }
+  var FilterError = class extends Error {
+  };
+  var fail = (message) => {
+    throw new FilterError(message);
+  };
+  var NUMERIC_FIELDS = /* @__PURE__ */ new Set(["tcp.port", "tcp.srcport", "tcp.dstport", "ip.ttl", "frame.no", "no", "frame.step", "step"]);
+  var IP_FIELDS = /* @__PURE__ */ new Set(["ip.addr", "ip.src", "ip.dst"]);
+  var MAC_FIELDS = /* @__PURE__ */ new Set(["eth.addr", "eth.src", "eth.dst"]);
+  var STR_FIELDS = /* @__PURE__ */ new Set(["device", "dev"]);
+  function isField(word) {
+    return NUMERIC_FIELDS.has(word) || IP_FIELDS.has(word) || MAC_FIELDS.has(word) || STR_FIELDS.has(word);
+  }
+  var WORD_CHAR = /[A-Za-z0-9_.:/-]/;
+  function lex(input) {
+    const toks = [];
+    let i = 0;
+    const n = input.length;
+    while (i < n) {
+      const c = input[i];
+      if (c === " " || c === "	" || c === "\n" || c === "\r") {
+        i++;
+        continue;
+      }
+      if (c === "(") {
+        toks.push({ t: "lparen" });
+        i++;
+        continue;
+      }
+      if (c === ")") {
+        toks.push({ t: "rparen" });
+        i++;
+        continue;
+      }
+      if (c === "&") {
+        if (input[i + 1] === "&") {
+          toks.push({ t: "and" });
+          i += 2;
+          continue;
+        }
+        fail('expected "&&"');
+      }
+      if (c === "|") {
+        if (input[i + 1] === "|") {
+          toks.push({ t: "or" });
+          i += 2;
+          continue;
+        }
+        fail('expected "||"');
+      }
+      if (c === "!") {
+        if (input[i + 1] === "=") {
+          toks.push({ t: "op", v: "!=" });
+          i += 2;
+        } else {
+          toks.push({ t: "not" });
+          i++;
+        }
+        continue;
+      }
+      if (c === "=") {
+        if (input[i + 1] === "=") {
+          toks.push({ t: "op", v: "==" });
+          i += 2;
+          continue;
+        }
+        fail('use "==" for equality');
+      }
+      if (c === "<") {
+        if (input[i + 1] === "=") {
+          toks.push({ t: "op", v: "<=" });
+          i += 2;
+        } else {
+          toks.push({ t: "op", v: "<" });
+          i++;
+        }
+        continue;
+      }
+      if (c === ">") {
+        if (input[i + 1] === "=") {
+          toks.push({ t: "op", v: ">=" });
+          i += 2;
+        } else {
+          toks.push({ t: "op", v: ">" });
+          i++;
+        }
+        continue;
+      }
+      if (c === '"') {
+        let j = i + 1, s = "";
+        while (j < n && input[j] !== '"') {
+          s += input[j];
+          j++;
+        }
+        if (j >= n) fail("unterminated string");
+        toks.push({ t: "word", v: s });
+        i = j + 1;
+        continue;
+      }
+      if (WORD_CHAR.test(c)) {
+        let j = i, s = "";
+        while (j < n && WORD_CHAR.test(input[j])) {
+          s += input[j];
+          j++;
+        }
+        const lw = s.toLowerCase();
+        if (lw === "and") toks.push({ t: "and" });
+        else if (lw === "or") toks.push({ t: "or" });
+        else if (lw === "not") toks.push({ t: "not" });
+        else if (lw === "contains") toks.push({ t: "op", v: "contains" });
+        else toks.push({ t: "word", v: s });
+        i = j;
+        continue;
+      }
+      fail(`unexpected character "${c}"`);
+    }
+    return toks;
+  }
+  function ipValues(row, field) {
+    const p = row.frame.payload;
+    if (p.type !== "ipv4") return [];
+    if (field === "ip.src") return [p.srcIp];
+    if (field === "ip.dst") return [p.dstIp];
+    return [p.srcIp, p.dstIp];
+  }
+  function macValues(row, field) {
+    if (field === "eth.src") return [row.frame.srcMac];
+    if (field === "eth.dst") return [row.frame.dstMac];
+    return [row.frame.srcMac, row.frame.dstMac];
+  }
+  var numScratch = [0, 0];
+  function numValues(row, field) {
+    if (field === "frame.no" || field === "no") {
+      numScratch[0] = row.no;
+      return 1;
+    }
+    if (field === "frame.step" || field === "step") {
+      numScratch[0] = row.step;
+      return 1;
+    }
+    const p = row.frame.payload;
+    if (field === "ip.ttl") {
+      if (p.type !== "ipv4") return 0;
+      numScratch[0] = p.ttl;
+      return 1;
+    }
+    if (p.type !== "ipv4" || p.payload.type !== "tcp") return 0;
+    if (field === "tcp.srcport") {
+      numScratch[0] = p.payload.srcPort;
+      return 1;
+    }
+    if (field === "tcp.dstport") {
+      numScratch[0] = p.payload.dstPort;
+      return 1;
+    }
+    numScratch[0] = p.payload.srcPort;
+    numScratch[1] = p.payload.dstPort;
+    return 2;
+  }
+  function strValues(row) {
+    return [row.fromName, row.toName];
+  }
+  function matchNums(count, cmp, target) {
+    if (cmp === "!=") {
+      for (let i = 0; i < count; i++) if (numScratch[i] === target) return false;
+      return count > 0;
+    }
+    for (let i = 0; i < count; i++) {
+      const c = numScratch[i];
+      switch (cmp) {
+        case "==":
+          if (c === target) return true;
+          break;
+        case "<":
+          if (c < target) return true;
+          break;
+        case ">":
+          if (c > target) return true;
+          break;
+        case "<=":
+          if (c <= target) return true;
+          break;
+        case ">=":
+          if (c >= target) return true;
+          break;
+      }
+    }
+    return false;
+  }
+  function matchStrs(cands, cmp, target) {
+    const t = target.toLowerCase();
+    const cs = cands.map((c) => c.toLowerCase());
+    if (cmp === "!=") return cs.length > 0 && cs.every((c) => c !== t);
+    if (cmp === "contains") return cs.some((c) => c.includes(t));
+    return cs.some((c) => c === t);
+  }
+  function assertStringCmp(field, cmp) {
+    if (cmp !== "==" && cmp !== "!=" && cmp !== "contains") {
+      fail(`operator "${cmp}" is not valid for "${field}" (use ==, != or contains)`);
+    }
+  }
+  function buildFieldPred(field, cmp, value) {
+    if (NUMERIC_FIELDS.has(field)) {
+      if (!/^\d+$/.test(value)) fail(`"${field}" expects a whole number, got "${value}"`);
+      const target = Number(value);
+      return (row) => matchNums(numValues(row, field), cmp, target);
+    }
+    if (IP_FIELDS.has(field)) {
+      if (value.includes("/")) {
+        if (cmp !== "==" && cmp !== "!=") fail(`CIDR works only with == or != ("${field}")`);
+        return (row) => {
+          const cands = ipValues(row, field);
+          const inCidr = (ip) => cidrContains(value, ip);
+          return cmp === "==" ? cands.some(inCidr) : cands.length > 0 && cands.every((c) => !inCidr(c));
+        };
+      }
+      assertStringCmp(field, cmp);
+      return (row) => matchStrs(ipValues(row, field), cmp, value);
+    }
+    if (MAC_FIELDS.has(field)) {
+      assertStringCmp(field, cmp);
+      return (row) => matchStrs(macValues(row, field), cmp, value);
+    }
+    assertStringCmp(field, cmp);
+    return (row) => matchStrs(strValues(row), cmp, value);
+  }
+  var Parser = class {
+    constructor(toks) {
+      this.toks = toks;
+    }
+    toks;
+    pos = 0;
+    peek() {
+      return this.toks[this.pos];
+    }
+    next() {
+      return this.toks[this.pos++];
+    }
+    eof() {
+      return this.pos >= this.toks.length;
+    }
+    parse() {
+      if (this.eof()) return () => true;
+      const pred = this.parseOr();
+      if (!this.eof()) fail("unexpected text at end of filter");
+      return pred;
+    }
+    parseOr() {
+      let left = this.parseAnd();
+      while (this.peek()?.t === "or") {
+        this.next();
+        const right = this.parseAnd();
+        const l = left;
+        left = (row) => l(row) || right(row);
+      }
+      return left;
+    }
+    parseAnd() {
+      let left = this.parseNot();
+      while (this.peek()?.t === "and") {
+        this.next();
+        const right = this.parseNot();
+        const l = left;
+        left = (row) => l(row) && right(row);
+      }
+      return left;
+    }
+    parseNot() {
+      if (this.peek()?.t === "not") {
+        this.next();
+        const inner = this.parseNot();
+        return (row) => !inner(row);
+      }
+      return this.parsePrimary();
+    }
+    parsePrimary() {
+      const tk = this.peek();
+      if (!tk) return fail("unexpected end of filter");
+      if (tk.t === "lparen") {
+        this.next();
+        const pred = this.parseOr();
+        if (this.next()?.t !== "rparen") fail('missing ")"');
+        return pred;
+      }
+      if (tk.t !== "word") return fail("expected a protocol or field name");
+      this.next();
+      const lw = tk.v.toLowerCase();
+      if (isField(lw)) {
+        const opTok = this.next();
+        if (!opTok || opTok.t !== "op") return fail(`expected a comparison operator after "${tk.v}"`);
+        const valTok = this.next();
+        if (!valTok || valTok.t !== "word") return fail(`expected a value after "${tk.v} ${opTok.v}"`);
+        return buildFieldPred(lw, opTok.v, valTok.v);
+      }
+      if (PROTOCOL_SET.has(lw)) return (row) => frameMatchesToken(row, lw);
+      return fail(`unknown filter term "${tk.v}"`);
+    }
+  };
+  var cacheExpr = null;
+  var cacheResult = null;
+  function compileFilter(expr) {
+    const src = (expr || "").trim();
+    if (cacheExpr === src && cacheResult) return cacheResult;
+    let result;
+    try {
+      const pred = new Parser(lex(src)).parse();
+      result = { ok: true, test: pred };
+    } catch (e) {
+      result = { ok: false, error: e instanceof FilterError ? e.message : "invalid filter" };
+    }
+    cacheExpr = src;
+    cacheResult = result;
+    return result;
+  }
+  function applyLogFilter(rows, filter) {
+    const compiled = compileFilter(filter.expr);
+    const exprTest = compiled.ok ? compiled.test : null;
+    const protocols = filter.protocols;
+    const device = filter.device;
+    const link = filter.link;
+    try {
+      const out = [];
+      for (let i = 0; i < rows.length; i++) {
+        const row = rows[i];
+        if (protocols.length) {
+          let hit = false;
+          for (let j = 0; j < protocols.length && !hit; j++) hit = frameMatchesToken(row, protocols[j]);
+          if (!hit) continue;
+        }
+        if (device && row.fromId !== device && row.toId !== device) continue;
+        if (link && row.linkId !== link) continue;
+        if (exprTest && !exprTest(row)) continue;
+        out.push(row);
+      }
+      return { rows: out, error: compiled.ok ? null : compiled.error };
+    } catch (e) {
+      return { rows, error: e instanceof Error ? e.message : "invalid filter" };
+    }
+  }
+  function isFilterActive(filter) {
+    return filter.protocols.length > 0 || filter.device !== "" || !!filter.link || filter.expr.trim() !== "";
+  }
+
+  // src/simlog-view.ts
+  var presentTokenCache = /* @__PURE__ */ new Set();
+  var presentDeviceIds = /* @__PURE__ */ new Set();
+  function paneFor(view) {
+    if (view && view !== "live") {
+      const saved = state.savedCaptures.find((c) => c.id === view);
+      if (saved) return { id: saved.id, label: saved.label, entries: saved.entries };
+    }
+    return { id: "live", label: "Live capture", entries: state.simulation.capture };
+  }
+  function healCaptureView() {
+    const sim = state.simulation;
+    if (sim.status === "running" || sim.status === "paused") return;
+    const saved = state.savedCaptures;
+    const view = state.dock.captureView;
+    if (view !== "live" && !saved.some((c) => c.id === view)) {
+      state.dock.captureView = saved.length ? saved[saved.length - 1].id : "live";
+    } else if (view === "live" && saved.length && sim.capture.length === 0) {
+      state.dock.captureView = saved[saved.length - 1].id;
+    }
+  }
+  function displayedPanes() {
+    const sim = state.simulation;
+    if (sim.status === "running" || sim.status === "paused") {
+      return [{ id: "live", label: "Live capture", entries: sim.capture }];
+    }
+    const main = paneFor(state.dock.captureView);
+    if (state.dock.compareBaseId) {
+      const base = state.savedCaptures.find((c) => c.id === state.dock.compareBaseId);
+      if (base && base.id !== main.id) return [{ id: base.id, label: base.label, entries: base.entries }, main];
+    }
+    return [main];
+  }
+  function syncSimLog() {
+    if (!state.dock.logFilter) state.dock.logFilter = { protocols: [], device: "", expr: "" };
+    syncSimLogBadge();
+    for (const btn of document.querySelectorAll("[data-logview]")) {
+      btn.classList.toggle("active", btn.dataset.logview === state.dock.logView);
+    }
+    const packets = state.dock.logView === "packets";
+    let html;
+    let stats = { shown: 0, total: 0, error: null };
+    if (packets) {
+      healCaptureView();
+      const panes = displayedPanes();
+      const totalEntries = panes.reduce((n, p) => n + p.entries.length, 0);
+      if (totalEntries === 0) {
+        presentTokenCache = /* @__PURE__ */ new Set();
+        presentDeviceIds = /* @__PURE__ */ new Set();
+        html = `<p class="sim-log-line sim-learn">No packets captured \u2014 run a simulation (headless checks don't capture). The Events view holds imported logs.</p>`;
+      } else {
+        const paneRows = panes.map((p) => buildFilterRows(p.entries));
+        const unionRows = paneRows.flat();
+        presentTokenCache = presentTokens(unionRows);
+        presentDeviceIds = new Set(unionRows.flatMap((r) => [r.fromId, r.toId]));
+        let firstError = null;
+        const cols = panes.map((p, i) => {
+          const rows = paneRows[i];
+          const result = applyLogFilter(rows, state.dock.logFilter);
+          stats.shown += result.rows.length;
+          stats.total += rows.length;
+          if (result.error && !firstError) firstError = result.error;
+          const table = result.rows.length ? renderPacketTable(result.rows, p.id) : `<p class="sim-log-line sim-learn">No packets match the filter. <button type="button" class="sim-log-clear" data-action="clear-log-filter">Clear filter</button></p>`;
+          return panes.length > 1 ? `<div class="pkt-pane"><div class="pkt-pane-title">${escapeHtml(p.label)}</div><div class="pkt-pane-body">${table}</div></div>` : table;
+        });
+        stats.error = firstError;
+        html = panes.length > 1 ? `<div class="pkt-compare">${cols.join("")}</div>` : cols[0];
+      }
+    } else {
+      html = renderEventLog();
+    }
+    syncSimLogCaptureBar(packets);
+    syncSimLogFilterBar(packets, stats);
+    dom.simLogOutput.innerHTML = html;
+    dom.simLogOutput.scrollTop = dom.simLogOutput.scrollHeight;
+  }
+  function renderEventLog() {
+    const sim = state.simulation;
+    if (sim.log.length === 0) {
+      return `<p class="sim-log-line sim-learn">No simulation running \u2014 start a ping, connect, or DHCP run to capture frames.</p>`;
+    }
+    return sim.log.map(
+      (entry) => `<p class="sim-log-line ${escapeHtml(entry.kind || "")}">${escapeHtml(entry.summary)}</p>`
+    ).join("");
+  }
+  function buildFilterRows(entries) {
+    return entries.map((entry) => ({
+      frame: entry.frame,
+      macsec: !!entry.macsec,
+      no: entry.no,
+      step: entry.step,
+      fromId: entry.fromDeviceId,
+      toId: entry.toDeviceId,
+      fromName: getDevice(entry.fromDeviceId)?.name ?? "?",
+      toName: getDevice(entry.toDeviceId)?.name ?? "?",
+      linkId: entry.linkId
+    }));
+  }
+  function renderPacketTable(rows, capId) {
+    const linkMap = new Map(state.links.map((l) => [l.id, l]));
+    const selectedEntry = state.inspectedCapture;
+    const selectInPane = !!selectedEntry && captureEntriesFor(capId).includes(selectedEntry);
+    const body = rows.map((row) => {
+      const inner = packetColumns(row.frame);
+      const cols = row.macsec ? { ...inner, protocol: "MACsec", info: `Encrypted ${inner.protocol} (SecTAG, ICV)`, tone: "macsec" } : inner;
+      const link = linkMap.get(row.linkId);
+      const wire = link ? linkName(link) : `${row.fromName} \u2194 ${row.toName}`;
+      const selected = (selectedEntry ? selectInPane && selectedEntry.no === row.no : state.inspectedFrame === row.frame) ? " selected" : "";
+      return `<tr class="pkt-row pkt-${escapeHtml(cols.tone)}${selected}" data-no="${row.no}" data-cap="${escapeHtml(capId)}">
+      <td class="pkt-num">${row.no}</td>
+      <td class="pkt-num">${row.step}</td>
+      <td>${escapeHtml(cols.src)}</td>
+      <td>${escapeHtml(cols.dst)}</td>
+      <td><span class="pkt-glyph" aria-hidden="true">${escapeHtml(toneGlyph(cols.tone))}</span>${escapeHtml(cols.protocol)}</td>
+      <td class="pkt-info">${escapeHtml(cols.info)}</td>
+      <td class="pkt-link">${escapeHtml(wire)}</td>
+    </tr>`;
+    }).join("");
+    return `<table class="pkt-table">
+    <thead><tr><th>No.</th><th>Step</th><th>Source</th><th>Destination</th><th>Protocol</th><th>Info</th><th>Link</th></tr></thead>
+    <tbody>${body}</tbody>
+  </table>`;
+  }
+  function syncSimLogCaptureBar(packets) {
+    const bar = dom.simLogCaptureBar;
+    if (!bar) return;
+    const sim = state.simulation;
+    const running = sim.status === "running" || sim.status === "paused";
+    const saved = state.savedCaptures;
+    const show = packets && !running && saved.length > 0;
+    bar.hidden = !show;
+    if (!show) return;
+    const sel = dom.simLogCaptureSelect;
+    if (!saved.some((c) => c.id === state.dock.captureView)) state.dock.captureView = saved[saved.length - 1].id;
+    if (state.dock.compareBaseId === state.dock.captureView) state.dock.compareBaseId = "";
+    if (document.activeElement !== sel) {
+      sel.innerHTML = saved.slice().reverse().map((c) => `<option value="${escapeHtml(c.id)}">${escapeHtml(c.label)}</option>`).join("");
+      sel.value = state.dock.captureView;
+    }
+    const compareOn = !!state.dock.compareBaseId;
+    const toggle = dom.simLogCompareToggle;
+    toggle.classList.toggle("active", compareOn);
+    toggle.disabled = saved.length < 2;
+    const base = dom.simLogCompareSelect;
+    base.hidden = !compareOn;
+    if (compareOn && document.activeElement !== base) {
+      const others = saved.filter((c) => c.id !== state.dock.captureView).slice().reverse();
+      if (!others.some((c) => c.id === state.dock.compareBaseId)) state.dock.compareBaseId = others[0]?.id || "";
+      base.innerHTML = others.map((c) => `<option value="${escapeHtml(c.id)}">${escapeHtml(c.label)}</option>`).join("");
+      base.value = state.dock.compareBaseId;
+    }
+  }
+  function syncSimLogFilterBar(packets, stats) {
+    const bar = dom.simLogFilterBar;
+    if (!bar) return;
+    bar.hidden = !packets;
+    if (!packets) return;
+    const filter = state.dock.logFilter;
+    const chipBox = dom.simLogChips;
+    if (chipBox && (chipBox.children?.length ?? 0) === 0) {
+      chipBox.innerHTML = PROTOCOL_CHIPS.map((c) => `<button class="simlog-chip" data-proto="${c.token}" type="button">${escapeHtml(c.label)}</button>`).join("");
+    }
+    for (const chip of chipBox.querySelectorAll("[data-proto]")) {
+      const tok = chip.dataset.proto || "";
+      chip.classList.toggle("active", filter.protocols.includes(tok));
+      chip.classList.toggle("empty", !presentTokenCache.has(tok));
+    }
+    const input = dom.simLogFilterInput;
+    if (document.activeElement !== input) input.value = filter.expr;
+    input.classList.toggle("invalid", !!stats.error);
+    input.title = stats.error ? `Filter error: ${stats.error}` : "Display filter \u2014 e.g. dns || icmp && !arp";
+    populateDeviceFilter(filter);
+    const linkPill = dom.simLogLinkFilter;
+    if (linkPill) {
+      const filteredLink = filter.link ? linkById(filter.link) : null;
+      if (filter.link && !filteredLink) filter.link = "";
+      if (filteredLink) {
+        linkPill.hidden = false;
+        linkPill.textContent = `Link: ${linkName(filteredLink)} \u2715`;
+      } else {
+        linkPill.hidden = true;
+      }
+    }
+    const status = dom.simLogFilterStatus;
+    if (status) {
+      status.textContent = stats.error ? stats.error : isFilterActive(filter) ? `Showing ${stats.shown} of ${stats.total}` : stats.total ? `${stats.total} packet${stats.total === 1 ? "" : "s"}` : "";
+      status.classList.toggle("error", !!stats.error);
+    }
+    dom.simLogFilterClear.disabled = !isFilterActive(filter);
+  }
+  var deviceFilterSig = "";
+  function populateDeviceFilter(filter) {
+    const sel = dom.simLogDeviceFilter;
+    if (!sel) return;
+    if (filter.device && !getDevice(filter.device)) filter.device = "";
+    if (document.activeElement === sel) return;
+    const devices = state.devices.filter((d) => presentDeviceIds.has(d.id)).sort((a, b) => a.name.localeCompare(b.name));
+    const extra = filter.device && !devices.some((d) => d.id === filter.device) ? getDevice(filter.device) : null;
+    const sig = devices.map((d) => d.id + "" + d.name).join("") + "" + (extra ? extra.id + "" + extra.name : "");
+    if (sig !== deviceFilterSig) {
+      const opts = [`<option value="">All devices</option>`];
+      for (const d of devices) opts.push(`<option value="${escapeHtml(d.id)}">${escapeHtml(d.name)}</option>`);
+      if (extra) opts.push(`<option value="${escapeHtml(extra.id)}">${escapeHtml(extra.name)}</option>`);
+      sel.innerHTML = opts.join("");
+      deviceFilterSig = sig;
+    }
+    sel.value = filter.device;
   }
 
   // src/inspector.ts
@@ -18524,7 +18534,8 @@ Snort successfully validated the configuration${bad ? " (with errors)" : "."}`);
       render();
     },
     syncSimLog,
-    stopSimulation
+    stopSimulation,
+    syncDock
   });
   registerDeviceCallbacks({
     setTool,

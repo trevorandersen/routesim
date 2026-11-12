@@ -15,7 +15,8 @@ import { buildHelpHtml } from "./help";
 import { loadScenario } from "./scenarios";
 import { runActiveScenarioCheck, dismissScenario, collapseScenario, expandScenario } from "./scenario-ui";
 import { loadTopology } from "./config";
-import { pauseSimulation, resumeSimulation, stepOnce, stopSimulation, syncSimLog, startNetworkBoot, launchRedTeam, captureEntriesFor } from "./engine";
+import { pauseSimulation, resumeSimulation, stepOnce, stopSimulation, startNetworkBoot, launchRedTeam, captureEntriesFor } from "./engine";
+import { syncSimLog } from "./simlog-view";
 import { setupRibbon, renderScenarioOptions } from "./ribbon";
 import * as io from "./io";
 

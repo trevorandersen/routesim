@@ -16,7 +16,8 @@ import {
   setDhcpRange, setDhcpRouterOption, setListeningPorts, stpPriorityError
 } from "./terminal";
 import { resizeCanvas } from "./canvas";
-import { syncSimLog, startSimulation, animatedRunBlockReason } from "./engine";
+import { startSimulation, animatedRunBlockReason } from "./engine";
+import { syncSimLog } from "./simlog-view";
 import { buildAssociationEvents, buildAttackEvents } from "./simulation";
 
 export function syncOptionControls(): void {

@@ -794,6 +794,7 @@ export function setupUI(): void {
   bindOptionToggle(dom.showDeviceNames, "showDeviceNames");
   bindOptionToggle(dom.showIpAddresses, "showIpAddresses");
   bindOptionToggle(dom.showMacAddresses, "showMacAddresses");
+  bindOptionToggle(dom.packetCallouts, "packetCallouts");
   bindOptionToggle(dom.optAutoDhcp, "autoDhcp");
   bindOptionToggle(dom.optApipa, "apipaFallback");
   bindOptionToggle(dom.optSilentArp, "silentArp");

@@ -25,6 +25,7 @@ export function syncOptionControls(): void {
   dom.showDeviceNames.checked = state.options.showDeviceNames;
   dom.showIpAddresses.checked = state.options.showIpAddresses;
   dom.showMacAddresses.checked = state.options.showMacAddresses;
+  dom.packetCallouts.checked = state.options.packetCallouts;
   dom.optAutoDhcp.checked = state.options.autoDhcp;
   dom.optApipa.checked = state.options.apipaFallback;
   dom.optSilentArp.checked = state.options.silentArp;

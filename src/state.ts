@@ -55,6 +55,7 @@ export function freshOptions(): AppState["options"] {
     showDeviceNames: true,
     showIpAddresses: true,
     showMacAddresses: true,
+    packetCallouts: false,
     networkPanelOpen: false,
     autoDhcp: false,
     apipaFallback: false,

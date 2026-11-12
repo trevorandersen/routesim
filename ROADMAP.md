@@ -117,24 +117,23 @@ The four still open:
    MACsec and 802.1X a visible payoff. Depends on review finding R3's router
    MAC admission (fixed) — the forwarding path must apply the same "frame is
    for my MAC" test. IPv6 forwarding waits for IPv6 (Reach). Effort: moderate.
-2. **Packet callouts during the animation**
-   ([#2](https://github.com/trevorandersen/routesim/issues/2)) — an optional
-   higher-detail view: each frame in flight carries a small **callout with its
-   most relevant fields** (ARP: who-has / is-at; IPv4: src → dst, plus the MAC
-   pair; TCP: flags and ports). A field that a device **rewrote flashes** as the
-   frame leaves it — the MAC pair at every router hop while the IP pair stays
-   put, the source address and port at a NAT router — and a field a reply
-   **echoes from its request** is tinted to match. The NAT part of the request
-   also asks for the translation table to be visible: the inspector shows only
-   a count today ("N active flows — see `show ip nat translations`"); list the
-   entries, and flash the one a frame just created or used. Leverages
-   `packetColumns`/the frame inspector's field breakdown (the same fields,
-   fewer of them), `ActiveTransit` (give it the previous hop's frame to diff
-   against) and `drawFrameTransits`. A View-tab toggle, off by default; must
-   stay legible at speed and with many frames in flight (cap the callouts,
-   prefer the selected flow), and must not carry meaning by colour alone. This
-   is the canvas half of the **"Why?" affordance** below — build them together.
-   Effort: moderate–high.
+> **Packet callouts — the canvas half shipped (2026-11)**
+> ([#2](https://github.com/trevorandersen/routesim/issues/2)). A View-tab
+> **Packet callouts** toggle (off by default, `state.options.packetCallouts`)
+> draws a small field callout beside each frame in flight (`frameCalloutLines`
+> in `frame.ts`, `drawPacketCallout` in `canvas.ts`): the network/transport line
+> (ARP who-has / is-at; IPv4 `src → dst`; TCP flags + ports; DNS/DHCP) then the
+> MAC pair. A field the **last hop rewrote** — diffed against the new
+> `ActiveTransit.prevFrame` — is underlined, marked `✎` (not colour alone) and
+> pulsed, so a router's MAC swap and a NAT router's source rewrite show at the
+> hop. Capped (`CALLOUT_CAP`, the inspected frame first) to stay legible. Proven
+> in `tests/callouts.test.ts`.
+>
+> **Still open on #2:** tinting a reply's **echoed** fields to match its request,
+> and making the **NAT translation table** visible in the inspector (list the
+> entries, flash the one a frame just created or used) — the inspector still
+> shows only a count. These are the next cut.
+
 > **nftables alongside iptables — shipped (2026-11)**
 > ([#1](https://github.com/trevorandersen/routesim/issues/1)). `terminal/nftables.ts`
 > is a second parser + printer over the one netfilter model (`config.rules` /

@@ -7,7 +7,7 @@ import { getDevice, isVisibleDevice, routerInterfacesWithNames, linkedPortsFor, 
 import { isRootBridge } from "./stp";
 import { memoPortModes } from "./normalise";
 import { getVlanForDevice } from "./simulation";
-import { frameLabel, frameColor, frameGlyph } from "./frame";
+import { frameLabel, frameColor, frameGlyph, frameCalloutLines, type CalloutToken } from "./frame";
 
 const VLAN_COLORS = [
   "#94a3b8",  // VLAN 1 — slate (default, muted)
@@ -567,9 +567,73 @@ export function findTransitAt(world: { x: number; y: number }): ActiveTransit | 
   return null;
 }
 
+// At most this many callouts are drawn at once (the inspected flow first), so a
+// busy run stays legible — issue #2 ("cap the callouts, prefer the selected flow").
+const CALLOUT_CAP = 6;
+
+// A field callout beside an in-flight frame: up to two lines (network/transport,
+// then the MAC pair), with each field the last hop rewrote underlined and marked
+// with a leading "✎" — a redundant, not-colour-only channel. The marked tokens
+// also pulse (alpha by progress) so a change catches the eye as the dot moves.
+function drawPacketCallout(transit: ActiveTransit, x: number, y: number, color: string): void {
+  const lines = frameCalloutLines(transit.frame, transit.prevFrame);
+  if (!lines.length) return;
+  ctx.save();
+  ctx.font = FONT_SMALL;
+  ctx.textBaseline = "middle";
+  const lineH = 13;
+  const padX = 6, padY = 4;
+  // Measure the widest line (a changed token carries a leading "✎ ").
+  const widthOf = (toks: CalloutToken[]) => toks.reduce((w, tk) => w + ctx.measureText((tk.changed ? "✎" : "") + tk.t).width, 0);
+  const boxW = Math.max(...lines.map(widthOf)) + padX * 2;
+  const boxH = lines.length * lineH + padY * 2;
+  // Sit to the lower-right of the dot, clear of the frameLabel drawn above it.
+  const bx = x + 12, by = y + 10;
+  ctx.globalAlpha = 0.92;
+  ctx.fillStyle = cssColor("--panel");
+  ctx.strokeStyle = color;
+  ctx.lineWidth = 1;
+  roundRect(bx, by, boxW, boxH, 5);
+  ctx.fill();
+  ctx.stroke();
+  // A changed token pulses between ~0.55 and 1 as the dot crosses.
+  const pulse = 0.55 + 0.45 * Math.abs(Math.sin(transit.progress * Math.PI * 3));
+  lines.forEach((toks, i) => {
+    const ly = by + padY + i * lineH + lineH / 2;
+    let lx = bx + padX;
+    for (const tk of toks) {
+      const text = (tk.changed ? "✎" : "") + tk.t;
+      ctx.globalAlpha = tk.changed ? pulse : 0.92;
+      ctx.fillStyle = cssColor(tk.changed ? "--label-primary" : "--muted");
+      ctx.textAlign = "left";
+      ctx.fillText(text, lx, ly);
+      const w = ctx.measureText(text).width;
+      if (tk.changed) {   // underline: the colour-independent marker
+        ctx.strokeStyle = cssColor("--label-primary");
+        ctx.lineWidth = 1;
+        ctx.beginPath();
+        ctx.moveTo(lx, ly + 6);
+        ctx.lineTo(lx + w, ly + 6);
+        ctx.stroke();
+      }
+      lx += w;
+    }
+  });
+  ctx.restore();
+}
+
 function drawFrameTransits(): void {
   const transits = state.simulation.transits;
   if (!transits || transits.length === 0) return;
+
+  // Callouts (issue #2): choose which transits get one — the inspected frame
+  // first, then the rest, capped so a busy run stays readable.
+  const calloutFor = new Set<ActiveTransit>();
+  if (state.options.packetCallouts) {
+    const drawable = transits.filter(tr => !tr.silent && transitEndpoints(tr));
+    drawable.sort((a, b) => Number(b.frame.id === state.inspectedFrame?.id) - Number(a.frame.id === state.inspectedFrame?.id));
+    for (const tr of drawable.slice(0, CALLOUT_CAP)) calloutFor.add(tr);
+  }
 
   for (const transit of transits) {
     if (transit.silent) continue; // resolved silently — delivered without a visible dot
@@ -626,6 +690,8 @@ function drawFrameTransits(): void {
     ctx.fillText(label, x, y - 13);
 
     ctx.restore();
+
+    if (calloutFor.has(transit)) drawPacketCallout(transit, x, y, color);
   }
 }
 

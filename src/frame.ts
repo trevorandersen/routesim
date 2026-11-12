@@ -470,3 +470,65 @@ export function frameColor(frame: EthernetFrame): string {
   if (ipv4.payload.type === "icmp" && (ipv4.payload.icmpType === 11 || ipv4.payload.icmpType === 3)) return "#ef4444"; // red (TTL exceeded / unreachable)
   return "#22c55e";                                        // green
 }
+
+// ─── Packet callouts (issue #2) ──────────────────────────────────────────────
+
+// One token of a callout line. `changed` marks a field the device at the last
+// hop rewrote (vs the frame it received), so the callout can flag it — with a
+// marker, never colour alone.
+export interface CalloutToken { t: string; changed?: boolean }
+
+// A MAC shown short: the last two octets (…:aa:bb), enough to tell hops apart
+// without widening the callout. Broadcast/zero stay recognisable.
+export function shortMac(mac: string): string {
+  if (!mac) return "—";
+  if (/^ff:ff:ff:ff:ff:ff$/i.test(mac)) return "bcast";
+  if (/^0{2}(:0{2}){5}$/.test(mac)) return "—";
+  const parts = mac.split(":");
+  return parts.length >= 2 ? `…${parts.slice(-2).join(":")}` : mac;
+}
+
+// A flat field map of a frame, for diffing one hop against the previous.
+function calloutFieldMap(frame: EthernetFrame): Record<string, string> {
+  const f: Record<string, string> = { srcMac: frame.srcMac || "", dstMac: frame.dstMac || "" };
+  const p: any = frame.payload;
+  if (p.type === "arp") { f.senderIp = p.senderIp; f.senderMac = p.senderMac; f.targetIp = p.targetIp; }
+  else if (p.type === "ipv4") {
+    f.srcIp = p.srcIp; f.dstIp = p.dstIp; f.ttl = String(p.ttl);
+    const inner = p.payload;
+    if (inner?.type === "tcp") { f.srcPort = String(inner.srcPort); f.dstPort = String(inner.dstPort); f.flags = inner.flags; }
+    else if (inner?.type === "dns") { f.dnsName = inner.name; }
+  }
+  return f;
+}
+
+// The callout for a frame in flight: up to two lines of tokens — the network/
+// transport summary, then the link (MAC) pair — with each field that the last
+// hop rewrote flagged `changed`. `prevFrame` is the frame the hop received; with
+// none (the first leg) nothing is flagged.
+export function frameCalloutLines(frame: EthernetFrame, prevFrame?: EthernetFrame): CalloutToken[][] {
+  const cur = calloutFieldMap(frame);
+  const old = prevFrame ? calloutFieldMap(prevFrame) : null;
+  const chg = (k: string) => !!old && k in old && k in cur && old[k] !== cur[k];
+  const lines: CalloutToken[][] = [];
+  const p: any = frame.payload;
+
+  if (p.type === "arp") {
+    if (p.operation === "request") lines.push([{ t: "who-has " }, { t: p.targetIp, changed: chg("targetIp") }]);
+    else lines.push([{ t: p.senderIp, changed: chg("senderIp") }, { t: " is-at " }, { t: shortMac(p.senderMac), changed: chg("senderMac") }]);
+  } else if (p.type === "ipv4") {
+    lines.push([{ t: p.srcIp, changed: chg("srcIp") }, { t: " → " }, { t: p.dstIp, changed: chg("dstIp") }]);
+    const inner = p.payload;
+    if (inner?.type === "tcp") lines.push([{ t: `${String(inner.flags).toUpperCase()} ` }, { t: `:${inner.dstPort}`, changed: chg("dstPort") }, { t: ` ←:${inner.srcPort}`, changed: chg("srcPort") }]);
+    else if (inner?.type === "dns") lines.push([{ t: `dns ${inner.name}${inner.address ? ` = ${inner.address}` : ""}` }]);
+    else if (inner?.type === "dhcp") lines.push([{ t: `dhcp ${inner.messageType}` }]);
+  } else if (p.type === "bpdu") {
+    lines.push([{ t: "BPDU" }]);
+  } else if (p.type === "dot11" || p.type === "dot1x") {
+    lines.push([{ t: String(p.subtype || p.type) }]);
+  }
+
+  // The link (MAC) pair — always, since it is what a router rewrites each hop.
+  lines.push([{ t: shortMac(frame.srcMac), changed: chg("srcMac") }, { t: " ▸ " }, { t: shortMac(frame.dstMac), changed: chg("dstMac") }]);
+  return lines;
+}

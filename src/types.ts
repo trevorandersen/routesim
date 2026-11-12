@@ -76,6 +76,7 @@ export interface DisplayOptions {
   showDeviceNames: boolean;
   showIpAddresses: boolean;
   showMacAddresses: boolean;
+  packetCallouts: boolean;   // draw a field callout beside each in-flight frame (off by default)
   networkPanelOpen: boolean;
   // Simulation-behaviour toggles (pedagogical): whether booting hosts attempt
   // DHCP, and whether a failed DHCP falls back to link-local APIPA.
@@ -686,6 +687,7 @@ export interface ActiveTransit {
   startTime: number;
   latencyFactor?: number;  // multiplies this dot's crossing time (per-link latency); 1 = normal
   silent?: boolean;        // a "silent" ARP/DHCP/DNS frame: delivered instantly, not drawn or captured
+  prevFrame?: EthernetFrame;  // the frame this hop was derived from — for the callout's rewrite diff (issue #2)
 }
 
 export interface SimLogEntry {

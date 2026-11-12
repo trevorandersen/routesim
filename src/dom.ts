@@ -8,6 +8,7 @@ export const dom = {
   showDeviceNames: document.getElementById("showDeviceNames") as HTMLInputElement,
   showIpAddresses: document.getElementById("showIpAddresses") as HTMLInputElement,
   showMacAddresses: document.getElementById("showMacAddresses") as HTMLInputElement,
+  packetCallouts: document.getElementById("packetCallouts") as HTMLInputElement,
   optAutoDhcp: document.getElementById("optAutoDhcp") as HTMLInputElement,
   optApipa: document.getElementById("optApipa") as HTMLInputElement,
   optSilentArp: document.getElementById("optSilentArp") as HTMLInputElement,

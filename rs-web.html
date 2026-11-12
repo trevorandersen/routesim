@@ -2651,6 +2651,7 @@
           <label class="ribbon-check"><input id="showDeviceNames" type="checkbox" checked><span>Names</span></label>
           <label class="ribbon-check"><input id="showIpAddresses" type="checkbox" checked><span>IP addresses</span></label>
           <label class="ribbon-check"><input id="showMacAddresses" type="checkbox" checked><span>MAC addresses</span></label>
+          <label class="ribbon-check"><input id="packetCallouts" type="checkbox"><span>Packet callouts</span></label>
         </div><span class="ribbon-label">Display</span></div>
         <div class="ribbon-group"><div class="ribbon-items">
           <button class="ribbon-btn" data-theme-id="warm-light" type="button" aria-pressed="false"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 3v1"></path><path d="M12 20v1"></path><path d="M3 12h1"></path><path d="M20 12h1"></path><path d="M5.6 5.6l.7 .7"></path><path d="M17.7 17.7l.7 .7"></path><path d="M18.4 5.6l-.7 .7"></path><path d="M6.3 17.7l-.7 .7"></path><path d="M12 8a4 4 0 1 0 0 8a4 4 0 0 0 0 -8"></path></svg><span>Warm Light</span></button>
@@ -3936,6 +3937,7 @@ Full legal text: https://creativecommons.org/publicdomain/zero/1.0/legalcode</pr
       showDeviceNames: true,
       showIpAddresses: true,
       showMacAddresses: true,
+      packetCallouts: false,
       networkPanelOpen: false,
       autoDhcp: false,
       apipaFallback: false,
@@ -4607,6 +4609,7 @@ Full legal text: https://creativecommons.org/publicdomain/zero/1.0/legalcode</pr
     showDeviceNames: document.getElementById("showDeviceNames"),
     showIpAddresses: document.getElementById("showIpAddresses"),
     showMacAddresses: document.getElementById("showMacAddresses"),
+    packetCallouts: document.getElementById("packetCallouts"),
     optAutoDhcp: document.getElementById("optAutoDhcp"),
     optApipa: document.getElementById("optApipa"),
     optSilentArp: document.getElementById("optSilentArp"),
@@ -6200,6 +6203,58 @@ Full legal text: https://creativecommons.org/publicdomain/zero/1.0/legalcode</pr
     if (ipv4.payload.type === "icmp" && (ipv4.payload.icmpType === 11 || ipv4.payload.icmpType === 3)) return "#ef4444";
     return "#22c55e";
   }
+  function shortMac(mac) {
+    if (!mac) return "\u2014";
+    if (/^ff:ff:ff:ff:ff:ff$/i.test(mac)) return "bcast";
+    if (/^0{2}(:0{2}){5}$/.test(mac)) return "\u2014";
+    const parts = mac.split(":");
+    return parts.length >= 2 ? `\u2026${parts.slice(-2).join(":")}` : mac;
+  }
+  function calloutFieldMap(frame) {
+    const f = { srcMac: frame.srcMac || "", dstMac: frame.dstMac || "" };
+    const p = frame.payload;
+    if (p.type === "arp") {
+      f.senderIp = p.senderIp;
+      f.senderMac = p.senderMac;
+      f.targetIp = p.targetIp;
+    } else if (p.type === "ipv4") {
+      f.srcIp = p.srcIp;
+      f.dstIp = p.dstIp;
+      f.ttl = String(p.ttl);
+      const inner = p.payload;
+      if (inner?.type === "tcp") {
+        f.srcPort = String(inner.srcPort);
+        f.dstPort = String(inner.dstPort);
+        f.flags = inner.flags;
+      } else if (inner?.type === "dns") {
+        f.dnsName = inner.name;
+      }
+    }
+    return f;
+  }
+  function frameCalloutLines(frame, prevFrame) {
+    const cur = calloutFieldMap(frame);
+    const old = prevFrame ? calloutFieldMap(prevFrame) : null;
+    const chg = (k) => !!old && k in old && k in cur && old[k] !== cur[k];
+    const lines = [];
+    const p = frame.payload;
+    if (p.type === "arp") {
+      if (p.operation === "request") lines.push([{ t: "who-has " }, { t: p.targetIp, changed: chg("targetIp") }]);
+      else lines.push([{ t: p.senderIp, changed: chg("senderIp") }, { t: " is-at " }, { t: shortMac(p.senderMac), changed: chg("senderMac") }]);
+    } else if (p.type === "ipv4") {
+      lines.push([{ t: p.srcIp, changed: chg("srcIp") }, { t: " \u2192 " }, { t: p.dstIp, changed: chg("dstIp") }]);
+      const inner = p.payload;
+      if (inner?.type === "tcp") lines.push([{ t: `${String(inner.flags).toUpperCase()} ` }, { t: `:${inner.dstPort}`, changed: chg("dstPort") }, { t: ` \u2190:${inner.srcPort}`, changed: chg("srcPort") }]);
+      else if (inner?.type === "dns") lines.push([{ t: `dns ${inner.name}${inner.address ? ` = ${inner.address}` : ""}` }]);
+      else if (inner?.type === "dhcp") lines.push([{ t: `dhcp ${inner.messageType}` }]);
+    } else if (p.type === "bpdu") {
+      lines.push([{ t: "BPDU" }]);
+    } else if (p.type === "dot11" || p.type === "dot1x") {
+      lines.push([{ t: String(p.subtype || p.type) }]);
+    }
+    lines.push([{ t: shortMac(frame.srcMac), changed: chg("srcMac") }, { t: " \u25B8 " }, { t: shortMac(frame.dstMac), changed: chg("dstMac") }]);
+    return lines;
+  }
 
   // src/prng.ts
   var override = null;
@@ -7146,9 +7201,59 @@ Full legal text: https://creativecommons.org/publicdomain/zero/1.0/legalcode</pr
     }
     return null;
   }
+  var CALLOUT_CAP = 6;
+  function drawPacketCallout(transit, x, y, color) {
+    const lines = frameCalloutLines(transit.frame, transit.prevFrame);
+    if (!lines.length) return;
+    ctx.save();
+    ctx.font = FONT_SMALL;
+    ctx.textBaseline = "middle";
+    const lineH = 13;
+    const padX = 6, padY = 4;
+    const widthOf = (toks) => toks.reduce((w, tk) => w + ctx.measureText((tk.changed ? "\u270E" : "") + tk.t).width, 0);
+    const boxW = Math.max(...lines.map(widthOf)) + padX * 2;
+    const boxH = lines.length * lineH + padY * 2;
+    const bx = x + 12, by = y + 10;
+    ctx.globalAlpha = 0.92;
+    ctx.fillStyle = cssColor("--panel");
+    ctx.strokeStyle = color;
+    ctx.lineWidth = 1;
+    roundRect(bx, by, boxW, boxH, 5);
+    ctx.fill();
+    ctx.stroke();
+    const pulse = 0.55 + 0.45 * Math.abs(Math.sin(transit.progress * Math.PI * 3));
+    lines.forEach((toks, i) => {
+      const ly = by + padY + i * lineH + lineH / 2;
+      let lx = bx + padX;
+      for (const tk of toks) {
+        const text = (tk.changed ? "\u270E" : "") + tk.t;
+        ctx.globalAlpha = tk.changed ? pulse : 0.92;
+        ctx.fillStyle = cssColor(tk.changed ? "--label-primary" : "--muted");
+        ctx.textAlign = "left";
+        ctx.fillText(text, lx, ly);
+        const w = ctx.measureText(text).width;
+        if (tk.changed) {
+          ctx.strokeStyle = cssColor("--label-primary");
+          ctx.lineWidth = 1;
+          ctx.beginPath();
+          ctx.moveTo(lx, ly + 6);
+          ctx.lineTo(lx + w, ly + 6);
+          ctx.stroke();
+        }
+        lx += w;
+      }
+    });
+    ctx.restore();
+  }
   function drawFrameTransits() {
     const transits = state.simulation.transits;
     if (!transits || transits.length === 0) return;
+    const calloutFor = /* @__PURE__ */ new Set();
+    if (state.options.packetCallouts) {
+      const drawable = transits.filter((tr) => !tr.silent && transitEndpoints(tr));
+      drawable.sort((a, b) => Number(b.frame.id === state.inspectedFrame?.id) - Number(a.frame.id === state.inspectedFrame?.id));
+      for (const tr of drawable.slice(0, CALLOUT_CAP)) calloutFor.add(tr);
+    }
     for (const transit of transits) {
       if (transit.silent) continue;
       const ends = transitEndpoints(transit);
@@ -7189,6 +7294,7 @@ Full legal text: https://creativecommons.org/publicdomain/zero/1.0/legalcode</pr
       ctx.textBaseline = "bottom";
       ctx.fillText(label, x, y - 13);
       ctx.restore();
+      if (calloutFor.has(transit)) drawPacketCallout(transit, x, y, color);
     }
   }
   function fitNetwork() {
@@ -8166,7 +8272,11 @@ Full legal text: https://creativecommons.org/publicdomain/zero/1.0/legalcode</pr
         progress: 0,
         startTime: now,
         latencyFactor: linkLatencyFactor(link),
-        silent: isSilentFrame(out.frame)
+        silent: isSilentFrame(out.frame),
+        // The frame this device received, so the callout can flash the fields the
+        // device rewrote on the way out (MACs at every hop, src IP/port at NAT) —
+        // issue #2. The first leg has none (nothing was rewritten yet).
+        prevFrame: event.frame
       });
     }
     if (!sim.stormDetected && sim.transits.length > 0 && ++sim.wireSteps > STORM_BACKSTOP_STEPS) {
@@ -13301,6 +13411,7 @@ Snort successfully validated the configuration${bad ? " (with errors)" : "."}`);
     dom.showDeviceNames.checked = state.options.showDeviceNames;
     dom.showIpAddresses.checked = state.options.showIpAddresses;
     dom.showMacAddresses.checked = state.options.showMacAddresses;
+    dom.packetCallouts.checked = state.options.packetCallouts;
     dom.optAutoDhcp.checked = state.options.autoDhcp;
     dom.optApipa.checked = state.options.apipaFallback;
     dom.optSilentArp.checked = state.options.silentArp;
@@ -16879,6 +16990,7 @@ Snort successfully validated the configuration${bad ? " (with errors)" : "."}`);
     bindOptionToggle(dom.showDeviceNames, "showDeviceNames");
     bindOptionToggle(dom.showIpAddresses, "showIpAddresses");
     bindOptionToggle(dom.showMacAddresses, "showMacAddresses");
+    bindOptionToggle(dom.packetCallouts, "packetCallouts");
     bindOptionToggle(dom.optAutoDhcp, "autoDhcp");
     bindOptionToggle(dom.optApipa, "apipaFallback");
     bindOptionToggle(dom.optSilentArp, "silentArp");

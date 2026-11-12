@@ -823,7 +823,11 @@ function processNextStep(): void {
       progress: 0,
       startTime: now,
       latencyFactor: linkLatencyFactor(link),
-      silent: isSilentFrame(out.frame)
+      silent: isSilentFrame(out.frame),
+      // The frame this device received, so the callout can flash the fields the
+      // device rewrote on the way out (MACs at every hop, src IP/port at NAT) —
+      // issue #2. The first leg has none (nothing was rewritten yet).
+      prevFrame: event.frame
     });
   }
 

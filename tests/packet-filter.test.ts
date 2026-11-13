@@ -256,6 +256,48 @@ describe("compileFilter — parse errors", () => {
   }
 });
 
+// R74: `/33` was read as a /24, `10.0.0.300` and `foo` compiled and matched
+// nothing, and a dash-form MAC never matched.
+describe("compileFilter — addresses are validated when the filter compiles (R74)", () => {
+  const error = (expr: string) => { const c = compileFilter(expr); return c.ok ? null : c.error; };
+
+  it("rejects a CIDR with a bad prefix or address, naming it", () => {
+    for (const expr of ["ip.addr == 10.0.0.0/33", "ip.src == 10.0.0.0/", "ip.dst != 10.0.0.0/2x", "ip.addr == 10.0.0.300/24", "ip.addr == 10.0.0.0/24/8", "ip.addr == foo/24"]) {
+      expect(error(expr)).toContain("is not a CIDR");
+    }
+    expect(error("ip.addr == 10.0.0.0/33")).toContain('"10.0.0.0/33"');
+  });
+
+  it("rejects a bare address that is not IPv4 for == and !=", () => {
+    for (const expr of ["ip.addr == 10.0.0.300", "ip.src == foo", "ip.dst != 10.0.0", "ip.addr == 10.0.0.1.2"]) {
+      expect(error(expr)).toContain("is not an IPv4 address");
+    }
+  });
+
+  it("still takes any fragment with contains, and every valid form", () => {
+    expect(passes("ip.addr contains 10.0.", row(icmpEcho))).toBe(true);
+    expect(passes("ip.addr == 10.0.0.0/24", row(icmpEcho))).toBe(true);
+    expect(passes("ip.addr == 10.0.0.1/32", row(icmpEcho))).toBe(true);
+    expect(passes("ip.addr == 0.0.0.0/0", row(icmpEcho))).toBe(true);
+    expect(passes("ip.dst == 10.0.0.2", row(icmpEcho))).toBe(true);
+    expect(passes("ip.src != 10.0.0.9", row(icmpEcho))).toBe(true);
+  });
+
+  it("a MAC matches in dash form, colon form and either case", () => {
+    const from = frame({ type: "arp", operation: "request", senderMac: "AA:AA:AA:AA:AA:01", senderIp: "10.0.0.1", targetMac: "00:00:00:00:00:00", targetIp: "10.0.0.2" }, "AA:AA:AA:AA:AA:01");
+    for (const expr of ["eth.src == aa-aa-aa-aa-aa-01", "eth.src == AA-AA-AA-AA-AA-01", "eth.src == aa:aa:aa:aa:aa:01", "eth.addr contains aa-aa-aa", "eth.src != aa-aa-aa-aa-aa-02"]) {
+      expect({ expr, ok: passes(expr, row(from)) }).toEqual({ expr, ok: true });
+    }
+    expect(passes("eth.src == aa-aa-aa-aa-aa-02", row(from))).toBe(false);
+  });
+
+  it("rejects something that is not a MAC for == and !=", () => {
+    for (const expr of ["eth.addr == aa:bb", "eth.src == zz:zz:zz:zz:zz:zz", "eth.dst != 10.0.0.1"]) {
+      expect(error(expr)).toContain("is not a MAC address");
+    }
+  });
+});
+
 describe("applyLogFilter — the ANDed dimensions", () => {
   const rows = [
     row(arpReq, { no: 1, fromName: "PC-A", toName: "SW-1", fromId: "pc", toId: "sw", linkId: "l-pc-sw" }),

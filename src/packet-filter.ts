@@ -15,7 +15,7 @@
  *                   `tcp.port == 22 && device contains PC`.
  */
 import { EthernetFrame, LogFilter } from "./types";
-import { cidrContains } from "./utils";
+import { cidrContains, isValidIpv4, isValidMac, normaliseMacAddress } from "./utils";
 
 // A captured frame plus the wire it crossed — everything a filter predicate
 // needs. Built by the renderer from a CaptureEntry + the link/device lookup.
@@ -248,8 +248,15 @@ function buildFieldPred(field: string, cmp: Comparator, value: string): Pred {
     return row => matchNums(numValues(row, field), cmp, target);   // numValues fills numScratch
   }
   if (IP_FIELDS.has(field)) {
+    // Validated when the filter is compiled, so a typo is a parse error the
+    // toolbar shows — `10.0.0.0/33` used to be read as a /24, and `10.0.0.300`
+    // or `foo` compiled and quietly matched nothing.
     if (value.includes("/")) {
       if (cmp !== "==" && cmp !== "!=") fail(`CIDR works only with == or != ("${field}")`);
+      const [address, bits, ...rest] = value.split("/");
+      if (rest.length || !isValidIpv4(address) || !/^\d{1,2}$/.test(bits) || Number(bits) > 32) {
+        fail(`"${value}" is not a CIDR — use an IPv4 address and a prefix length of 0 to 32 (10.0.0.0/24)`);
+      }
       return row => {
         const cands = ipValues(row, field);
         const inCidr = (ip: string) => cidrContains(value, ip);
@@ -257,11 +264,17 @@ function buildFieldPred(field: string, cmp: Comparator, value: string): Pred {
       };
     }
     assertStringCmp(field, cmp);
+    // `contains` takes any fragment (ip.addr contains 10.0.); an equality needs a whole address.
+    if (cmp !== "contains" && !isValidIpv4(value)) fail(`"${value}" is not an IPv4 address ("${field}" — use ${cmp} 10.0.0.1, a CIDR, or contains)`);
     return row => matchStrs(ipValues(row, field), cmp, value);
   }
   if (MAC_FIELDS.has(field)) {
     assertStringCmp(field, cmp);
-    return row => matchStrs(macValues(row, field), cmp, value);
+    // Frames carry colon-separated MACs; the dash form (aa-bb-…, as Windows
+    // prints it) is the same address and used to match nothing.
+    const mac = normaliseMacAddress(value);
+    if (cmp !== "contains" && !isValidMac(mac)) fail(`"${value}" is not a MAC address ("${field}" — use ${cmp} aa:bb:cc:dd:ee:ff, or contains)`);
+    return row => matchStrs(macValues(row, field), cmp, mac);
   }
   // device / dev
   assertStringCmp(field, cmp);

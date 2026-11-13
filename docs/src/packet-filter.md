@@ -66,8 +66,15 @@ primary := "(" orExpr ")" | field comparator value | protocolToken
 **Fields** and their comparators:
 
 - IP: `ip.addr` / `ip.src` / `ip.dst` — `==` `!=` `contains`, and a value with a
-  `/` is a **CIDR** prefix match (`ip.addr == 10.0.0.0/24`).
+  `/` is a **CIDR** prefix match (`ip.addr == 10.0.0.0/24`). The value is
+  **validated when the filter compiles**: `==`/`!=` need a whole IPv4 address,
+  a CIDR needs a valid address and a prefix length of 0–32, and anything else
+  is a parse error the toolbar shows (`"10.0.0.0/33" is not a CIDR …`) — `/33`
+  used to be read as a /24, and `10.0.0.300` or `foo` compiled and matched
+  nothing (review R74). `contains` takes any fragment (`ip.addr contains 10.0.`).
 - MAC: `eth.addr` / `eth.src` / `eth.dst` — `==` `!=` `contains` (case-insensitive).
+  The value is normalised, so the dash form (`aa-bb-cc-dd-ee-ff`) matches like
+  the colon form; `==`/`!=` need a whole MAC address.
 - TCP: `tcp.port` / `tcp.srcport` / `tcp.dstport` — `==` `!=` `<` `>` `<=` `>=`.
 - Numbers: `ip.ttl`, `frame.no` (or `no`), `frame.step` (or `step`) — same
   numeric comparators.

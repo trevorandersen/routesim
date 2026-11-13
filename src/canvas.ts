@@ -602,9 +602,13 @@ function drawPacketCallout(transit: ActiveTransit, x: number, y: number, color: 
     const ly = by + padY + i * lineH + lineH / 2;
     let lx = bx + padX;
     for (const tk of toks) {
-      const text = (tk.changed ? "✎" : "") + tk.t;
+      // A rewritten field (✎, pulsing) takes precedence over an echoed one (↩):
+      // a reply's echoed field is tinted and carries a marker so the request ⇄
+      // reply correspondence reads without relying on colour (issue #2).
+      const echoed = tk.echoed && !tk.changed;
+      const text = (tk.changed ? "✎" : echoed ? "↩" : "") + tk.t;
       ctx.globalAlpha = tk.changed ? pulse : 0.92;
-      ctx.fillStyle = cssColor(tk.changed ? "--label-primary" : "--muted");
+      ctx.fillStyle = cssColor(tk.changed ? "--label-primary" : echoed ? "--label-ip" : "--muted");
       ctx.textAlign = "left";
       ctx.fillText(text, lx, ly);
       const w = ctx.measureText(text).width;

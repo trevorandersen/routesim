@@ -339,3 +339,44 @@ describe("router netfilter chains", () => {
     expect(r.output.join(" ")).toContain("chain must be FORWARD");
   });
 });
+
+// ── The inspector's live NAT translation table (issue #2) ────────────────────
+import { renderNatTranslations } from "../src/inspector";
+
+describe("the NAT translation table in the inspector (#2)", () => {
+  beforeEach(() => resetState());
+
+  it("lists each translation and flashes the entry a frame just used", () => {
+    const { pc1, r1 } = natTopology();
+    enableNat();
+    runSimulationHeadless(buildPingEvents(pc1, "203.0.113.10") as any, pc1.id, "203.0.113.10", "ping");
+
+    const entries = r1.config!.natTranslations!;
+    expect(entries.length).toBeGreaterThan(0);
+    // touchNat stamped the step the entry was created/used.
+    expect(entries.every((e: any) => typeof e.lastStep === "number")).toBe(true);
+
+    const html = renderNatTranslations(r1);
+    expect(html).toContain("NAT translations (");
+    expect(html).toContain("192.168.1.10");            // the inside host
+    expect(html).toContain("203.0.113.10");            // the destination
+    expect(html).toContain("nat-flash");               // the most-recent entry is flashed
+    expect(html).toContain("just used");               // with a non-colour ● marker
+  });
+
+  it("renders nothing for a router with no translations", () => {
+    const { r1 } = natTopology();
+    expect(renderNatTranslations(r1)).toBe("");
+  });
+
+  it("the runtime lastStep does not leak into the saved config", () => {
+    const { pc1, r1 } = natTopology();
+    enableNat();
+    runSimulationHeadless(buildPingEvents(pc1, "203.0.113.10") as any, pc1.id, "203.0.113.10", "ping");
+    expect(r1.config!.natTranslations!.some((e: any) => e.lastStep != null)).toBe(true);
+    const payload = JSON.parse(JSON.stringify(buildConfigPayload()));
+    const saved = payload.devices.find((d: any) => d.name === "R1").config.natTranslations || [];
+    expect(saved.length).toBeGreaterThan(0);
+    expect(saved.every((e: any) => e.lastStep === undefined)).toBe(true);
+  });
+});

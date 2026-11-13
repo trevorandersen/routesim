@@ -390,7 +390,7 @@ export function normaliseDeviceConfig(device: any): DeviceConfig {
       ...(Object.keys(policy).length ? { policy } : {}),
       ...(device.config?.ruleLang === "nftables" ? { ruleLang: "nftables" as const } : {}),
       ...(Array.isArray(device.config?.natTranslations) && device.config.natTranslations.length
-        ? { natTranslations: device.config.natTranslations } : {}),
+        ? { natTranslations: (device.config.natTranslations as any[]).map(({ lastStep, ...e }: any) => e) } : {}),
       ...((pf => pf.length ? { portForwards: pf } : {})(normalisePortForwards(device.config?.portForwards)))
     };
   }

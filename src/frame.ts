@@ -476,7 +476,7 @@ export function frameColor(frame: EthernetFrame): string {
 // One token of a callout line. `changed` marks a field the device at the last
 // hop rewrote (vs the frame it received), so the callout can flag it — with a
 // marker, never colour alone.
-export interface CalloutToken { t: string; changed?: boolean }
+export interface CalloutToken { t: string; changed?: boolean; echoed?: boolean }
 
 // A MAC shown short: the last two octets (…:aa:bb), enough to tell hops apart
 // without widening the callout. Broadcast/zero stay recognisable.
@@ -515,13 +515,30 @@ export function frameCalloutLines(frame: EthernetFrame, prevFrame?: EthernetFram
 
   if (p.type === "arp") {
     if (p.operation === "request") lines.push([{ t: "who-has " }, { t: p.targetIp, changed: chg("targetIp") }]);
-    else lines.push([{ t: p.senderIp, changed: chg("senderIp") }, { t: " is-at " }, { t: shortMac(p.senderMac), changed: chg("senderMac") }]);
+    // Reply: the senderIp is the address the request asked about — echoed back —
+    // while is-at carries the new answer (the MAC).
+    else lines.push([{ t: p.senderIp, changed: chg("senderIp"), echoed: true }, { t: " is-at " }, { t: shortMac(p.senderMac), changed: chg("senderMac") }]);
   } else if (p.type === "ipv4") {
-    lines.push([{ t: p.srcIp, changed: chg("srcIp") }, { t: " → " }, { t: p.dstIp, changed: chg("dstIp") }]);
     const inner = p.payload;
-    if (inner?.type === "tcp") lines.push([{ t: `${String(inner.flags).toUpperCase()} ` }, { t: `:${inner.dstPort}`, changed: chg("dstPort") }, { t: ` ←:${inner.srcPort}`, changed: chg("srcPort") }]);
-    else if (inner?.type === "dns") lines.push([{ t: `dns ${inner.name}${inner.address ? ` = ${inner.address}` : ""}` }]);
-    else if (inner?.type === "dhcp") lines.push([{ t: `dhcp ${inner.messageType}` }]);
+    // A reply returns to whoever asked: its destination echoes the request's
+    // source. Marked on the clear response types so the conversation is legible.
+    const isReply = (inner?.type === "icmp" && inner.icmpType === 0)
+      || (inner?.type === "tcp" && inner.flags === "syn-ack")
+      || (inner?.type === "dns" && inner.op === "response");
+    lines.push([{ t: p.srcIp, changed: chg("srcIp") }, { t: " → " }, { t: p.dstIp, changed: chg("dstIp"), echoed: isReply }]);
+    if (inner?.type === "tcp") {
+      // A SYN-ACK echoes the handshake's ports (swapped from the SYN).
+      const echoed = inner.flags === "syn-ack";
+      lines.push([{ t: `${String(inner.flags).toUpperCase()} ` }, { t: `:${inner.dstPort}`, changed: chg("dstPort"), echoed }, { t: ` ←:${inner.srcPort}`, changed: chg("srcPort"), echoed }]);
+    } else if (inner?.type === "dns") {
+      // The response echoes the queried name; the address is the new answer.
+      const echoed = inner.op === "response";
+      const line: CalloutToken[] = [{ t: "dns " }, { t: inner.name, echoed }];
+      if (inner.address) line.push({ t: ` = ${inner.address}` });
+      lines.push(line);
+    } else if (inner?.type === "dhcp") {
+      lines.push([{ t: `dhcp ${inner.messageType}` }]);
+    }
   } else if (p.type === "bpdu") {
     lines.push([{ t: "BPDU" }]);
   } else if (p.type === "dot11" || p.type === "dot1x") {

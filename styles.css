@@ -1635,6 +1635,30 @@
     }
     .fw-select:focus, .fw-add-form input:focus { border-color: var(--accent); outline: none; }
 
+    /* The router's live NAT translation table (issue #2). */
+    .nat-table {
+      width: 100%;
+      border-collapse: collapse;
+      font-family: var(--mono, ui-monospace, SFMono-Regular, Menlo, monospace);
+      font-size: 10.5px;
+      margin-top: 4px;
+    }
+    .nat-table th {
+      text-align: left;
+      font-weight: 600;
+      color: var(--muted);
+      padding: 2px 6px 2px 0;
+      border-bottom: 1px solid var(--line);
+    }
+    .nat-table td { padding: 2px 6px 2px 0; color: var(--text); white-space: nowrap; }
+    .nat-table .nat-mark { width: 12px; color: var(--accent); }
+    /* The entry a frame just created or used pulses, and carries a ● marker. */
+    .nat-row.nat-flash { background: color-mix(in srgb, var(--accent) 16%, transparent); animation: nat-pulse 0.9s ease-out; }
+    @keyframes nat-pulse {
+      0% { background: color-mix(in srgb, var(--accent) 55%, transparent); }
+      100% { background: color-mix(in srgb, var(--accent) 16%, transparent); }
+    }
+
     /* The native ruleset view (iptables-save / nft list ruleset), collapsible. */
         .fw-nft-row { display: flex; align-items: center; gap: 6px; font-family: var(--mono, ui-monospace, Menlo, monospace); font-size: 10.5px; }
     .fw-nft-row.fw-accept { color: var(--ok, #16794b); }

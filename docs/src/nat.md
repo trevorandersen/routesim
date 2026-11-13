@@ -91,6 +91,10 @@ correctly refuses to answer a source it cannot route to). Marking the two
 interfaces makes the same ping/TCP connect succeed, because replies now target
 the router's public address. `show ip nat translations` shows the live table.
 
+## The translation table in the inspector (issue #2)
+
+The router's config panel lists the **live PAT table** — `renderNatTranslations` in `inspector.ts` — as Cisco's **Inside local** (the original inside endpoint) → **Inside global** (the outside address it is translated to) → **Outside** (the destination), one row per `NatEntry`. The entry a frame **most recently created or used** is flashed: `touchNat` (engine.ts) stamps `NatEntry.lastStep` with the sim step on every create/match in `natTranslateOutbound`/`natRestoreInbound`, and, while the router's config panel is open, refreshes it live so the row pulses as the frame crosses. The flash is a highlighted row **plus a `●` marker**, so the signal is not colour-only. `lastStep` is runtime — stripped from the config payload (`config.ts`) and the normalised shape (`normalise.ts`), so it never reaches a saved topology.
+
 ## Limits (v1)
 
 - Source NAT only — no port-forwarding/DNAT (an unsolicited inbound SYN to the

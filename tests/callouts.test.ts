@@ -4,7 +4,7 @@
  * callout says and which fields it flags as rewritten at a hop.
  */
 import { describe, it, expect } from "bun:test";
-import { frameCalloutLines, shortMac, createArpRequest, createArpReply, createIcmpEchoRequest, createTcpSegment } from "../src/frame";
+import { frameCalloutLines, shortMac, createArpRequest, createArpReply, createIcmpEchoRequest, createIcmpEchoReply, createTcpSegment, createDnsResponse } from "../src/frame";
 import type { CalloutToken } from "../src/frame";
 
 // The plain text of a line, and the set of its tokens flagged `changed`.
@@ -70,5 +70,38 @@ describe("the rewrite diff flashes what the hop changed", () => {
     const dnatted = createTcpSegment("aa:bb:cc:dd:ee:02", "aa:bb:cc:dd:ee:03", "10.0.0.1", "192.168.1.9", 51000, 80, "syn");
     const flagged = changed(frameCalloutLines(dnatted, received));
     expect(flagged).toContain(":80");
+  });
+});
+
+// Echoed fields on a reply (issue #2 remainder): a value the reply carries back
+// from its request is tinted so the request ⇄ reply correspondence reads.
+const echoed = (lines: CalloutToken[][]) => lines.flat().filter(t => t.echoed).map(t => t.t);
+
+describe("a reply tints the fields it echoes from the request", () => {
+  it("an ICMP echo reply tints its destination (back to the requester)", () => {
+    const reply = createIcmpEchoReply("aa:bb:cc:dd:ee:02", "aa:bb:cc:dd:ee:01", "10.0.0.9", "10.0.0.1", 64);
+    expect(echoed(frameCalloutLines(reply))).toContain("10.0.0.1");
+  });
+
+  it("an ICMP echo REQUEST tints nothing (it is the question, not an echo)", () => {
+    const req = createIcmpEchoRequest("aa:bb:cc:dd:ee:01", "aa:bb:cc:dd:ee:02", "10.0.0.1", "10.0.0.9", 64);
+    expect(echoed(frameCalloutLines(req))).toEqual([]);
+  });
+
+  it("an ARP reply tints the resolved address it was asked about", () => {
+    const reply = createArpReply("aa:bb:cc:dd:ee:09", "10.0.0.9", "aa:bb:cc:dd:ee:01", "10.0.0.1");
+    expect(echoed(frameCalloutLines(reply))).toContain("10.0.0.9");
+  });
+
+  it("a TCP SYN-ACK tints the handshake ports; a plain SYN does not", () => {
+    const synack = createTcpSegment("aa:bb:cc:dd:ee:02", "aa:bb:cc:dd:ee:01", "10.0.0.9", "10.0.0.1", 22, 51000, "syn-ack");
+    expect(echoed(frameCalloutLines(synack)).length).toBeGreaterThan(0);
+    const syn = createTcpSegment("aa:bb:cc:dd:ee:01", "aa:bb:cc:dd:ee:02", "10.0.0.1", "10.0.0.9", 51000, 22, "syn");
+    expect(echoed(frameCalloutLines(syn))).toEqual([]);
+  });
+
+  it("a DNS response tints the queried name it echoes", () => {
+    const resp = createDnsResponse("aa:bb:cc:dd:ee:02", "aa:bb:cc:dd:ee:01", "10.0.0.53", "10.0.0.9", "web.local", "10.0.0.80", 1234);
+    expect(echoed(frameCalloutLines(resp))).toContain("web.local");
   });
 });

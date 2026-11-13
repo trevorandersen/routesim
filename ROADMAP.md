@@ -107,24 +107,22 @@ lands.
 > the victim; the IDS or a static ARP entry catches it), and the IPv6 forwarding
 > knob once IPv6 lands.
 
-All five requests are now shipped; the only remainder is the second half of #2 (below) — tinting a reply's echoed fields and listing the NAT translation table in the inspector.
+All five requests are now shipped (the #2 note below records the full feature).
 
-> **Packet callouts — the canvas half shipped (2026-11)**
+> **Packet callouts — shipped (2026-11)**
 > ([#2](https://github.com/trevorandersen/routesim/issues/2)). A View-tab
 > **Packet callouts** toggle (off by default, `state.options.packetCallouts`)
 > draws a small field callout beside each frame in flight (`frameCalloutLines`
 > in `frame.ts`, `drawPacketCallout` in `canvas.ts`): the network/transport line
 > (ARP who-has / is-at; IPv4 `src → dst`; TCP flags + ports; DNS/DHCP) then the
-> MAC pair. A field the **last hop rewrote** — diffed against the new
-> `ActiveTransit.prevFrame` — is underlined, marked `✎` (not colour alone) and
-> pulsed, so a router's MAC swap and a NAT router's source rewrite show at the
-> hop. Capped (`CALLOUT_CAP`, the inspected frame first) to stay legible. Proven
-> in `tests/callouts.test.ts`.
->
-> **Still open on #2:** tinting a reply's **echoed** fields to match its request,
-> and making the **NAT translation table** visible in the inspector (list the
-> entries, flash the one a frame just created or used) — the inspector still
-> shows only a count. These are the next cut.
+> MAC pair. A field the **last hop rewrote** — diffed against
+> `ActiveTransit.prevFrame` — is underlined, marked `✎` and pulsed; a field a
+> **reply echoes from its request** is tinted and marked `↩`. The companion NAT
+> view is the router inspector's **live translation table**
+> (`renderNatTranslations`): it lists every PAT entry and **flashes** (a `●`
+> marker) the one a frame just created or used (`NatEntry.lastStep`, stamped by
+> `touchNat`, stripped from the payload). Capped (`CALLOUT_CAP`, inspected frame
+> first) to stay legible; proven in `tests/callouts.test.ts` + `tests/nat.test.ts`.
 
 > **nftables alongside iptables — shipped (2026-11)**
 > ([#1](https://github.com/trevorandersen/routesim/issues/1)). `terminal/nftables.ts`

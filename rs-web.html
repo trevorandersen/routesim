@@ -1644,6 +1644,30 @@
     }
     .fw-select:focus, .fw-add-form input:focus { border-color: var(--accent); outline: none; }
 
+    /* The router's live NAT translation table (issue #2). */
+    .nat-table {
+      width: 100%;
+      border-collapse: collapse;
+      font-family: var(--mono, ui-monospace, SFMono-Regular, Menlo, monospace);
+      font-size: 10.5px;
+      margin-top: 4px;
+    }
+    .nat-table th {
+      text-align: left;
+      font-weight: 600;
+      color: var(--muted);
+      padding: 2px 6px 2px 0;
+      border-bottom: 1px solid var(--line);
+    }
+    .nat-table td { padding: 2px 6px 2px 0; color: var(--text); white-space: nowrap; }
+    .nat-table .nat-mark { width: 12px; color: var(--accent); }
+    /* The entry a frame just created or used pulses, and carries a ● marker. */
+    .nat-row.nat-flash { background: color-mix(in srgb, var(--accent) 16%, transparent); animation: nat-pulse 0.9s ease-out; }
+    @keyframes nat-pulse {
+      0% { background: color-mix(in srgb, var(--accent) 55%, transparent); }
+      100% { background: color-mix(in srgb, var(--accent) 16%, transparent); }
+    }
+
     /* The native ruleset view (iptables-save / nft list ruleset), collapsible. */
         .fw-nft-row { display: flex; align-items: center; gap: 6px; font-family: var(--mono, ui-monospace, Menlo, monospace); font-size: 10.5px; }
     .fw-nft-row.fw-accept { color: var(--ok, #16794b); }
@@ -3748,7 +3772,7 @@ Full legal text: https://creativecommons.org/publicdomain/zero/1.0/legalcode</pr
         ...rules.length ? { rules } : {},
         ...Object.keys(policy).length ? { policy } : {},
         ...device.config?.ruleLang === "nftables" ? { ruleLang: "nftables" } : {},
-        ...Array.isArray(device.config?.natTranslations) && device.config.natTranslations.length ? { natTranslations: device.config.natTranslations } : {},
+        ...Array.isArray(device.config?.natTranslations) && device.config.natTranslations.length ? { natTranslations: device.config.natTranslations.map(({ lastStep, ...e }) => e) } : {},
         ...((pf) => pf.length ? { portForwards: pf } : {})(normalisePortForwards(device.config?.portForwards))
       };
     }
@@ -6241,13 +6265,22 @@ Full legal text: https://creativecommons.org/publicdomain/zero/1.0/legalcode</pr
     const p = frame.payload;
     if (p.type === "arp") {
       if (p.operation === "request") lines.push([{ t: "who-has " }, { t: p.targetIp, changed: chg("targetIp") }]);
-      else lines.push([{ t: p.senderIp, changed: chg("senderIp") }, { t: " is-at " }, { t: shortMac(p.senderMac), changed: chg("senderMac") }]);
+      else lines.push([{ t: p.senderIp, changed: chg("senderIp"), echoed: true }, { t: " is-at " }, { t: shortMac(p.senderMac), changed: chg("senderMac") }]);
     } else if (p.type === "ipv4") {
-      lines.push([{ t: p.srcIp, changed: chg("srcIp") }, { t: " \u2192 " }, { t: p.dstIp, changed: chg("dstIp") }]);
       const inner = p.payload;
-      if (inner?.type === "tcp") lines.push([{ t: `${String(inner.flags).toUpperCase()} ` }, { t: `:${inner.dstPort}`, changed: chg("dstPort") }, { t: ` \u2190:${inner.srcPort}`, changed: chg("srcPort") }]);
-      else if (inner?.type === "dns") lines.push([{ t: `dns ${inner.name}${inner.address ? ` = ${inner.address}` : ""}` }]);
-      else if (inner?.type === "dhcp") lines.push([{ t: `dhcp ${inner.messageType}` }]);
+      const isReply = inner?.type === "icmp" && inner.icmpType === 0 || inner?.type === "tcp" && inner.flags === "syn-ack" || inner?.type === "dns" && inner.op === "response";
+      lines.push([{ t: p.srcIp, changed: chg("srcIp") }, { t: " \u2192 " }, { t: p.dstIp, changed: chg("dstIp"), echoed: isReply }]);
+      if (inner?.type === "tcp") {
+        const echoed = inner.flags === "syn-ack";
+        lines.push([{ t: `${String(inner.flags).toUpperCase()} ` }, { t: `:${inner.dstPort}`, changed: chg("dstPort"), echoed }, { t: ` \u2190:${inner.srcPort}`, changed: chg("srcPort"), echoed }]);
+      } else if (inner?.type === "dns") {
+        const echoed = inner.op === "response";
+        const line = [{ t: "dns " }, { t: inner.name, echoed }];
+        if (inner.address) line.push({ t: ` = ${inner.address}` });
+        lines.push(line);
+      } else if (inner?.type === "dhcp") {
+        lines.push([{ t: `dhcp ${inner.messageType}` }]);
+      }
     } else if (p.type === "bpdu") {
       lines.push([{ t: "BPDU" }]);
     } else if (p.type === "dot11" || p.type === "dot1x") {
@@ -7256,9 +7289,10 @@ Full legal text: https://creativecommons.org/publicdomain/zero/1.0/legalcode</pr
       const ly = by + padY + i * lineH + lineH / 2;
       let lx = bx + padX;
       for (const tk of toks) {
-        const text = (tk.changed ? "\u270E" : "") + tk.t;
+        const echoed = tk.echoed && !tk.changed;
+        const text = (tk.changed ? "\u270E" : echoed ? "\u21A9" : "") + tk.t;
         ctx.globalAlpha = tk.changed ? pulse : 0.92;
-        ctx.fillStyle = cssColor(tk.changed ? "--label-primary" : "--muted");
+        ctx.fillStyle = cssColor(tk.changed ? "--label-primary" : echoed ? "--label-ip" : "--muted");
         ctx.textAlign = "left";
         ctx.fillText(text, lx, ly);
         const w = ctx.measureText(text).width;
@@ -9365,6 +9399,10 @@ Full legal text: https://creativecommons.org/publicdomain/zero/1.0/legalcode</pr
     while (translations.some((t) => t.outsidePort === p)) p++;
     return p;
   }
+  function touchNat(device, entry) {
+    entry.lastStep = state.simulation.stepIndex;
+    if (state.configuringId === device.id) sync().syncPanel();
+  }
   function natTranslateOutbound(device, ipv4, egressIface) {
     const translations = natTable(device);
     const outsideIp = egressIface.ipv4Address;
@@ -9375,6 +9413,7 @@ Full legal text: https://creativecommons.org/publicdomain/zero/1.0/legalcode</pr
         entry = { protocol: "icmp", insideIp: ipv4.srcIp, insidePort: icmp.sequence, outsideIp, outsidePort: allocNatId(translations), destIp: ipv4.dstIp };
         translations.push(entry);
       }
+      touchNat(device, entry);
       return { ...ipv4, srcIp: outsideIp, payload: { ...icmp, sequence: entry.outsidePort } };
     }
     if (ipv4.payload.type === "tcp") {
@@ -9384,6 +9423,7 @@ Full legal text: https://creativecommons.org/publicdomain/zero/1.0/legalcode</pr
         entry = { protocol: "tcp", insideIp: ipv4.srcIp, insidePort: tcp.srcPort, outsideIp, outsidePort: allocNatId(translations), destIp: ipv4.dstIp };
         translations.push(entry);
       }
+      touchNat(device, entry);
       return { ...ipv4, srcIp: outsideIp, payload: { ...tcp, srcPort: entry.outsidePort } };
     }
     if (ipv4.payload.type === "dns" && ipv4.payload.op === "query") {
@@ -9393,6 +9433,7 @@ Full legal text: https://creativecommons.org/publicdomain/zero/1.0/legalcode</pr
         entry = { protocol: "udp", insideIp: ipv4.srcIp, insidePort: dns.id, outsideIp, outsidePort: allocNatId(translations), destIp: ipv4.dstIp };
         translations.push(entry);
       }
+      touchNat(device, entry);
       return { ...ipv4, srcIp: outsideIp, payload: { ...dns, id: entry.outsidePort } };
     }
     return null;
@@ -9404,25 +9445,35 @@ Full legal text: https://creativecommons.org/publicdomain/zero/1.0/legalcode</pr
     if (ipv4.payload.type === "icmp" && ipv4.payload.icmpType === 0) {
       const icmp = ipv4.payload;
       const entry = translations.find((t) => t.protocol === "icmp" && t.outsidePort === icmp.sequence && t.destIp === ipv4.srcIp);
-      if (entry) return { ...ipv4, dstIp: entry.insideIp, payload: { ...icmp, sequence: entry.insidePort } };
+      if (entry) {
+        touchNat(device, entry);
+        return { ...ipv4, dstIp: entry.insideIp, payload: { ...icmp, sequence: entry.insidePort } };
+      }
     }
     if (ipv4.payload.type === "icmp" && (ipv4.payload.icmpType === 11 || ipv4.payload.icmpType === 3) && ipv4.payload.original) {
       const icmp = ipv4.payload;
       const o = icmp.original;
       const entry = translations.find((t) => t.protocol === o.proto && t.outsidePort === o.flowId && t.destIp === o.dstIp);
       if (entry) {
+        touchNat(device, entry);
         return { ...ipv4, dstIp: entry.insideIp, payload: { ...icmp, original: { ...o, srcIp: entry.insideIp, flowId: entry.insidePort } } };
       }
     }
     if (ipv4.payload.type === "tcp") {
       const tcp = ipv4.payload;
       const entry = translations.find((t) => t.protocol === "tcp" && t.outsidePort === tcp.dstPort && t.destIp === ipv4.srcIp);
-      if (entry) return { ...ipv4, dstIp: entry.insideIp, payload: { ...tcp, dstPort: entry.insidePort } };
+      if (entry) {
+        touchNat(device, entry);
+        return { ...ipv4, dstIp: entry.insideIp, payload: { ...tcp, dstPort: entry.insidePort } };
+      }
     }
     if (ipv4.payload.type === "dns" && ipv4.payload.op === "response") {
       const dns = ipv4.payload;
       const entry = translations.find((t) => t.protocol === "udp" && t.outsidePort === dns.id && t.destIp === ipv4.srcIp);
-      if (entry) return { ...ipv4, dstIp: entry.insideIp, payload: { ...dns, id: entry.insidePort } };
+      if (entry) {
+        touchNat(device, entry);
+        return { ...ipv4, dstIp: entry.insideIp, payload: { ...dns, id: entry.insidePort } };
+      }
     }
     return null;
   }
@@ -13703,6 +13754,30 @@ Snort successfully validated the configuration${bad ? " (with errors)" : "."}`);
       return `<li><span class="fw-target fw-${escapeHtml(r.target)}">${escapeHtml(String(r.target).toUpperCase())}</span> ${escapeHtml(String(r.chain || "forward").toUpperCase())} ${match || "(any)"}${del(index)}</li>`;
     }).join("")}</ol>`;
   }
+  function renderNatTranslations(device) {
+    const translations = device.config?.natTranslations || [];
+    if (!translations.length) return "";
+    const maxStep = Math.max(-1, ...translations.map((t) => t.lastStep ?? -1));
+    const endpoint = (ip, port, proto) => proto === "tcp" ? `${ip}:${port}` : `${ip} #${port}`;
+    const rows = translations.map((t) => {
+      const flash = t.lastStep != null && t.lastStep === maxStep;
+      return `<tr class="nat-row${flash ? " nat-flash" : ""}">
+      <td class="nat-mark">${flash ? '<span title="just used">\u25CF</span>' : ""}</td>
+      <td>${escapeHtml(t.protocol)}</td>
+      <td>${escapeHtml(endpoint(t.insideIp, t.insidePort, t.protocol))}</td>
+      <td>${escapeHtml(endpoint(t.outsideIp, t.outsidePort, t.protocol))}</td>
+      <td>${escapeHtml(t.destIp)}</td>
+    </tr>`;
+    }).join("");
+    return `
+      <div class="field">
+        <label>NAT translations (${translations.length})</label>
+        <table class="nat-table">
+          <thead><tr><th></th><th>Pro</th><th>Inside</th><th>Outside</th><th>Dest</th></tr></thead>
+          <tbody>${rows}</tbody>
+        </table>
+      </div>`;
+  }
   function renderFirewallControls(device, chains) {
     const policy = device.config?.policy || {};
     const lang = ruleLangOf(device);
@@ -14789,11 +14864,7 @@ Snort successfully validated the configuration${bad ? " (with errors)" : "."}`);
         <label>Netfilter (${ruleLangOf(selected)} INPUT + FORWARD)</label>
         ${renderFirewallControls(selected, ["forward", "input"])}
       </div>
-      ${selected.config?.natTranslations?.length ? `
-      <div class="field">
-        <label>NAT translations</label>
-        <p class="empty-state">${selected.config.natTranslations.length} active flow(s) \u2014 see <code>show ip nat translations</code>.</p>
-      </div>` : ""}
+      ${renderNatTranslations(selected)}
     `,
       bind(selected) {
         const routerRole = document.getElementById("selectedRouterRole");
@@ -17199,7 +17270,7 @@ Snort successfully validated the configuration${bad ? " (with errors)" : "."}`);
             ...config?.rules?.length ? { rules: normaliseFirewallRules(config.rules) } : {},
             ...config?.policy && Object.keys(config.policy).length ? { policy: config.policy } : {},
             ...config?.ruleLang === "nftables" ? { ruleLang: "nftables" } : {},
-            ...config?.natTranslations?.length ? { natTranslations: config.natTranslations } : {},
+            ...config?.natTranslations?.length ? { natTranslations: (config?.natTranslations || []).map(({ lastStep, ...e }) => e) } : {},
             ...((pf) => pf.length ? { portForwards: pf } : {})(normalisePortForwards(config?.portForwards)),
             ...macsecPayload(config)
           }

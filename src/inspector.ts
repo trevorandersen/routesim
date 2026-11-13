@@ -266,6 +266,37 @@ export function renderFirewallRules(device: any): string {
 // FORWARD) and the transparent firewall (FORWARD only): the rule list (each row
 // deletable), a per-chain default-policy select, and an add-rule form. It writes
 // the same `config.rules`/`config.policy` the iptables CLI does.
+// The router's live PAT table (issue #2). Lists every translation — Cisco's
+// Inside local (the original inside endpoint) → Inside global (the outside
+// address it is translated to) → Outside (the destination) — and **flashes** the
+// entry a frame most recently created or used (`NatEntry.lastStep`, refreshed
+// live by `touchNat` while this panel is open). The flash is a highlighted row
+// plus a "●" marker, so the signal is not carried by colour alone.
+export function renderNatTranslations(device: any): string {
+  const translations = (device.config?.natTranslations || []) as any[];
+  if (!translations.length) return "";
+  const maxStep = Math.max(-1, ...translations.map(t => t.lastStep ?? -1));
+  const endpoint = (ip: string, port: number, proto: string) => proto === "tcp" ? `${ip}:${port}` : `${ip} #${port}`;
+  const rows = translations.map(t => {
+    const flash = t.lastStep != null && t.lastStep === maxStep;
+    return `<tr class="nat-row${flash ? " nat-flash" : ""}">
+      <td class="nat-mark">${flash ? '<span title="just used">●</span>' : ""}</td>
+      <td>${escapeHtml(t.protocol)}</td>
+      <td>${escapeHtml(endpoint(t.insideIp, t.insidePort, t.protocol))}</td>
+      <td>${escapeHtml(endpoint(t.outsideIp, t.outsidePort, t.protocol))}</td>
+      <td>${escapeHtml(t.destIp)}</td>
+    </tr>`;
+  }).join("");
+  return `
+      <div class="field">
+        <label>NAT translations (${translations.length})</label>
+        <table class="nat-table">
+          <thead><tr><th></th><th>Pro</th><th>Inside</th><th>Outside</th><th>Dest</th></tr></thead>
+          <tbody>${rows}</tbody>
+        </table>
+      </div>`;
+}
+
 export function renderFirewallControls(device: any, chains: string[]): string {
   const policy = device.config?.policy || {};
   const lang = ruleLangOf(device);
@@ -1430,11 +1461,7 @@ export const INSPECTOR_SECTIONS: InspectorSection[] = [
         <label>Netfilter (${ruleLangOf(selected)} INPUT + FORWARD)</label>
         ${renderFirewallControls(selected, ["forward", "input"])}
       </div>
-      ${(selected.config?.natTranslations?.length) ? `
-      <div class="field">
-        <label>NAT translations</label>
-        <p class="empty-state">${selected.config.natTranslations.length} active flow(s) — see <code>show ip nat translations</code>.</p>
-      </div>` : ""}
+      ${renderNatTranslations(selected)}
     `,
     bind(selected) {
       const routerRole = document.getElementById("selectedRouterRole") as HTMLSelectElement | null;

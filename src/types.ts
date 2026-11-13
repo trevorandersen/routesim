@@ -322,6 +322,7 @@ export interface NatEntry {
   outsideIp: string;
   outsidePort: number;
   destIp: string;
+  lastStep?: number;   // runtime: the sim step a frame last created/used this entry (inspector flash, issue #2); not serialised
 }
 
 // A static destination-NAT (port-forward): an outside-facing IP:port is

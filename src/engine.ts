@@ -2172,6 +2172,14 @@ function allocNatId(translations: NatEntry[]): number {
   return p;
 }
 
+// Mark the sim step a frame created or used this translation, so the inspector
+// can flash it (issue #2). When the router's config panel is open, refresh it
+// live so the entry pulses as the frame crosses — the NAT half of the callouts.
+function touchNat(device: Device, entry: NatEntry): void {
+  entry.lastStep = state.simulation.stepIndex;
+  if (state.configuringId === device.id) sync().syncPanel();
+}
+
 // Source-translate an inside→outside flow onto the egress interface address.
 // Returns the rewritten payload, or null when the packet isn't translatable
 // (only ICMP echo requests and TCP segments carry a flow identifier we model).
@@ -2185,6 +2193,7 @@ function natTranslateOutbound(device: Device, ipv4: Ipv4Payload, egressIface: an
       entry = { protocol: "icmp", insideIp: ipv4.srcIp, insidePort: icmp.sequence, outsideIp, outsidePort: allocNatId(translations), destIp: ipv4.dstIp };
       translations.push(entry);
     }
+    touchNat(device, entry);
     return { ...ipv4, srcIp: outsideIp, payload: { ...icmp, sequence: entry.outsidePort } };
   }
   if (ipv4.payload.type === "tcp") {
@@ -2194,6 +2203,7 @@ function natTranslateOutbound(device: Device, ipv4: Ipv4Payload, egressIface: an
       entry = { protocol: "tcp", insideIp: ipv4.srcIp, insidePort: tcp.srcPort, outsideIp, outsidePort: allocNatId(translations), destIp: ipv4.dstIp };
       translations.push(entry);
     }
+    touchNat(device, entry);
     return { ...ipv4, srcIp: outsideIp, payload: { ...tcp, srcPort: entry.outsidePort } };
   }
   if (ipv4.payload.type === "dns" && ipv4.payload.op === "query") {
@@ -2204,6 +2214,7 @@ function natTranslateOutbound(device: Device, ipv4: Ipv4Payload, egressIface: an
       entry = { protocol: "udp", insideIp: ipv4.srcIp, insidePort: dns.id, outsideIp, outsidePort: allocNatId(translations), destIp: ipv4.dstIp };
       translations.push(entry);
     }
+    touchNat(device, entry);
     return { ...ipv4, srcIp: outsideIp, payload: { ...dns, id: entry.outsidePort } };
   }
   return null;
@@ -2219,7 +2230,7 @@ function natRestoreInbound(device: Device, ipv4: Ipv4Payload, ifaces: any[]): Ip
   if (ipv4.payload.type === "icmp" && ipv4.payload.icmpType === 0) {
     const icmp = ipv4.payload;
     const entry = translations.find(t => t.protocol === "icmp" && t.outsidePort === icmp.sequence && t.destIp === ipv4.srcIp);
-    if (entry) return { ...ipv4, dstIp: entry.insideIp, payload: { ...icmp, sequence: entry.insidePort } };
+    if (entry) { touchNat(device, entry); return { ...ipv4, dstIp: entry.insideIp, payload: { ...icmp, sequence: entry.insidePort } }; }
   }
   if (ipv4.payload.type === "icmp" && (ipv4.payload.icmpType === 11 || ipv4.payload.icmpType === 3) && ipv4.payload.original) {
     // An ICMP error from beyond the NAT (Time-Exceeded / Dest-Unreachable): the
@@ -2231,6 +2242,7 @@ function natRestoreInbound(device: Device, ipv4: Ipv4Payload, ifaces: any[]): Ip
     const o = icmp.original!;
     const entry = translations.find(t => t.protocol === o.proto && t.outsidePort === o.flowId && t.destIp === o.dstIp);
     if (entry) {
+      touchNat(device, entry);
       // Rewrite the embedded original too (real NAT does), so the inside host
       // sees its own address/flow id quoted back.
       return { ...ipv4, dstIp: entry.insideIp, payload: { ...icmp, original: { ...o, srcIp: entry.insideIp, flowId: entry.insidePort } } };
@@ -2239,12 +2251,12 @@ function natRestoreInbound(device: Device, ipv4: Ipv4Payload, ifaces: any[]): Ip
   if (ipv4.payload.type === "tcp") {
     const tcp = ipv4.payload;
     const entry = translations.find(t => t.protocol === "tcp" && t.outsidePort === tcp.dstPort && t.destIp === ipv4.srcIp);
-    if (entry) return { ...ipv4, dstIp: entry.insideIp, payload: { ...tcp, dstPort: entry.insidePort } };
+    if (entry) { touchNat(device, entry); return { ...ipv4, dstIp: entry.insideIp, payload: { ...tcp, dstPort: entry.insidePort } }; }
   }
   if (ipv4.payload.type === "dns" && ipv4.payload.op === "response") {
     const dns = ipv4.payload;
     const entry = translations.find(t => t.protocol === "udp" && t.outsidePort === dns.id && t.destIp === ipv4.srcIp);
-    if (entry) return { ...ipv4, dstIp: entry.insideIp, payload: { ...dns, id: entry.insidePort } };
+    if (entry) { touchNat(device, entry); return { ...ipv4, dstIp: entry.insideIp, payload: { ...dns, id: entry.insidePort } }; }
   }
   return null;
 }

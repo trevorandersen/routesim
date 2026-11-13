@@ -89,32 +89,26 @@ lands.
 > drops a device. The status line says how to leave for as long as the tool is
 > armed.
 
-The four still open:
+> **Kali as a real man-in-the-middle — shipped (2026-11)**
+> ([#4](https://github.com/trevorandersen/routesim/issues/4) +
+> [#5](https://github.com/trevorandersen/routesim/issues/5)). **IP forwarding**
+> (`config.ipForward`, `sysctl -w net.ipv4.ip_forward=1`): `forwardIntercepted`
+> relays a frame unicast to the attacker's MAC but bound for another IP to the
+> true next hop from the attacker's own unpoisoned cache (TTL decremented, IPs
+> untouched), so a poisoned victim's ping still succeeds and the extra hop shows.
+> **Targeted / reverse `arpspoof`**: `arpspoof [-r] [-t <victim>] <gateway>` —
+> `-t` unicasts the poison to one victim (`macForIp` resolves it), `-r` adds the
+> mirror reply poisoning the gateway for the victim, so `-r` + forwarding gives a
+> transparent **two-way** MITM (the reply returns via the attacker). Both off by
+> default, round-trip through JSON + the script, and are proven end to end in
+> `tests/forwarding.test.ts` + `tests/arpspoof.test.ts`.
+>
+> **Next on this thread:** a red-vs-blue *scenario* (intercept without breaking
+> the victim; the IDS or a static ARP entry catches it), and the IPv6 forwarding
+> knob once IPv6 lands.
 
-1. **Kali as a real man-in-the-middle** — two requests that only make sense
-   together:
-   - **IP forwarding on the Kali hosts — shipped (2026-11)**
-     ([#4](https://github.com/trevorandersen/routesim/issues/4)).
-     `sysctl -w net.ipv4.ip_forward=1` (and the `echo 1 > /proc/…` / `cat` /
-     `sysctl` reads) sets `config.ipForward`. With it on, `forwardIntercepted`
-     relays a frame unicast to the attacker's MAC but bound for another IP to the
-     true next hop from the attacker's own unpoisoned cache — TTL decremented,
-     IPs untouched — so a poisoned victim's ping still succeeds and the extra hop
-     shows. Off by default; round-trips through JSON + the script; proven end to
-     end in `tests/forwarding.test.ts`.
-   - **`arpspoof -r` (reverse / both directions)**
-     ([#5](https://github.com/trevorandersen/routesim/issues/5)) — also poison
-     the gateway's entry for the victim, so return traffic crosses the attacker
-     too. Needs `-t <victim>` to mean something first: `buildArpSpoofEvents`
-     currently parses and ignores it, broadcasting one gratuitous ARP that
-     poisons every host on the segment. Make `-t` a unicast poisoning of one
-     victim, and `-r` add the mirror-image reply to the gateway.
+All five requests are now shipped; the only remainder is the second half of #2 (below) — tinting a reply's echoed fields and listing the NAT translation table in the inspector.
 
-   Together they open a red-vs-blue scenario (intercept without breaking the
-   victim's connection; the IDS or a static ARP entry catches it) and give
-   MACsec and 802.1X a visible payoff. Depends on review finding R3's router
-   MAC admission (fixed) — the forwarding path must apply the same "frame is
-   for my MAC" test. IPv6 forwarding waits for IPv6 (Reach). Effort: moderate.
 > **Packet callouts — the canvas half shipped (2026-11)**
 > ([#2](https://github.com/trevorandersen/routesim/issues/2)). A View-tab
 > **Packet callouts** toggle (off by default, `state.options.packetCallouts`)

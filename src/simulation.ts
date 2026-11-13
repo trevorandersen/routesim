@@ -570,18 +570,70 @@ export function buildSweepEvents(attacker: any, subnetText: string): PingSetup |
   return { events, pendingArp };
 }
 
-// arpspoof: a gratuitous ARP reply broadcasting "spoofIp is at <our MAC>",
-// poisoning every host's ARP cache so traffic to the spoofed IP (the gateway)
-// is redirected to the attacker — a classic MITM.
-export function buildArpSpoofEvents(attacker: any, spoofText?: string): PingSetup | string {
+// The MAC that currently owns an IP anywhere on the topology — a host's NIC or a
+// router interface. Lets arpspoof address a *targeted* poison to one victim (or
+// the gateway) the way real arpspoof does after ARPing for it first. Null when
+// no device holds the address.
+export function macForIp(ip: string): string | null {
+  const want = String(ip || "").trim();
+  if (!isValidIpv4(want)) return null;
+  for (const d of state.devices) {
+    if (isHost(d.type) && d.config?.ipv4Address === want) return d.config?.macAddress || null;
+    for (const iface of (d.config?.interfaces || []) as any[]) {
+      if (iface.ipv4Address === want && iface.macAddress) return iface.macAddress;
+    }
+  }
+  return null;
+}
+
+// arpspoof: a gratuitous ARP reply "spoofIp is at <our MAC>", poisoning a
+// victim's ARP cache so its traffic to spoofIp (the gateway) is redirected to
+// the attacker — a classic MITM. By default a **broadcast** reply poisons every
+// host on the segment; `-t <victim>` **unicasts** it to one victim; `-r` adds
+// the mirror-image reply that poisons the **gateway's** entry for the victim, so
+// return traffic crosses the attacker too (pair with `net.ipv4.ip_forward` — see
+// forwardIntercepted — for a transparent, bidirectional MITM). Issue #5.
+export function buildArpSpoofEvents(
+  attacker: any, spoofText?: string, opts: { victim?: string; reverse?: boolean } = {}
+): PingSetup | string {
   const cfg = attacker.config;
   if (!cfg?.macAddress) return `${attacker.name}: eth0 has no MAC address.`;
   const spoofIp = String(spoofText || cfg.spoofIp || cfg.gatewayIpv4Address || "").trim();
   if (!isValidIpv4(spoofIp)) return `arpspoof: no valid IP to impersonate (set a gateway, or "arp-spoof <ip>").`;
   const firstHop = findFirstHop(attacker);
   if ("blocked" in firstHop) return `arpspoof: network is unreachable (${firstHop.blocked})`;
-  const gratuitous = createArpReply(cfg.macAddress, spoofIp, BROADCAST_MAC, spoofIp);
-  return { events: [{ type: "frame_arrive", frame: gratuitous, deviceId: firstHop.peerId, fromDeviceId: attacker.id, linkId: firstHop.linkId }], pendingArp: {} };
+
+  // Resolve a target's IP (a name or a bare IP) and the MAC to unicast to — the
+  // attacker's own cache first, then the topology; a broadcast fallback still
+  // poisons when the MAC can't be resolved (as a broadcast reply reaches it).
+  const resolveTarget = (text: string): { ip: string; mac: string } | string => {
+    const dev = findPingTarget(text);
+    const ip = dev?.config?.ipv4Address || (isValidIpv4(text) ? text : "");
+    if (!isValidIpv4(ip)) return `arpspoof: "${text}" is not a host or IP on this network`;
+    const cached = (cfg.arpTable || []).find((e: any) => e.ipv4Address === ip)?.macAddress;
+    return { ip, mac: cached || macForIp(ip) || BROADCAST_MAC };
+  };
+
+  const emit = (frame: any) => ({ type: "frame_arrive" as const, frame, deviceId: firstHop.peerId, fromDeviceId: attacker.id, linkId: firstHop.linkId });
+
+  // No -t: the broadcast poison (every victim learns spoofIp → our MAC).
+  if (!opts.victim) {
+    return { events: [emit(createArpReply(cfg.macAddress, spoofIp, BROADCAST_MAC, spoofIp))], pendingArp: {} };
+  }
+
+  const victim = resolveTarget(opts.victim);
+  if (typeof victim === "string") return victim;
+  // Forward poison: unicast "spoofIp is-at us" to the victim only.
+  const events = [emit(createArpReply(cfg.macAddress, spoofIp, victim.mac, victim.ip))];
+
+  if (opts.reverse) {
+    // Reverse poison: tell the gateway "the victim is-at us", so the victim's
+    // return traffic is redirected to the attacker as well.
+    const gw = resolveTarget(spoofIp);
+    if (typeof gw === "string") return gw;
+    events.push(emit(createArpReply(cfg.macAddress, victim.ip, gw.mac, gw.ip)));
+  }
+  return { events, pendingArp: {} };
 }
 
 // Merge the enabled attacks (or a specific one) into a single run. The scan/

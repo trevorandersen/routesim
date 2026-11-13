@@ -37,7 +37,7 @@ export function runAttackerTerminalCommand(device: Device, command: string): voi
     terminalLine("muted", [
       "nmap -sS <target>          TCP SYN port scan",
       "nmap -sn <subnet>          ping sweep (host discovery)",
-      "arpspoof [-t <victim>] <gateway-ip>   ARP cache poisoning (MITM)",
+      "arpspoof [-r] [-t <victim>] <gateway-ip>   ARP cache poisoning (MITM; -t one victim, -r both ways)",
       "nmap -V                    version",
       "hostname [<name>]",
       "clear",
@@ -56,9 +56,23 @@ export function runAttackerTerminalCommand(device: Device, command: string): voi
   const scan = command.match(/^(?:sudo\s+)?nmap\s+(?:-sS\s+)?(\S+)\s*$/i);
   if (scan) { launch(device, () => buildScanEvents(device, scan[1]), `SYN scan of ${scan[1]}`); return; }
 
-  // arpspoof [-t victim] <gateway> — we impersonate the gateway IP (the last arg).
-  const spoof = command.match(/^(?:sudo\s+)?arpspoof\s+(?:-t\s+\S+\s+)?(\S+)\s*$/i);
-  if (spoof) { launch(device, () => buildArpSpoofEvents(device, spoof[1]), `ARP spoof of ${spoof[1]}`); return; }
+  // arpspoof [-r] [-t <victim>] <gateway> — impersonate the gateway IP (the last
+  // positional). -t targets one victim (unicast); -r also poisons the gateway so
+  // return traffic crosses us too. Flags may come in any order.
+  if (/^(?:sudo\s+)?arpspoof\b/i.test(command)) {
+    const toks = command.replace(/^(?:sudo\s+)?arpspoof\s*/i, "").trim().split(/\s+/).filter(Boolean);
+    let reverse = false, victim: string | undefined, gateway: string | undefined;
+    for (let i = 0; i < toks.length; i++) {
+      if (toks[i] === "-r") reverse = true;
+      else if (toks[i] === "-t") { victim = toks[++i]; }
+      else gateway = toks[i];
+    }
+    if (reverse && !victim) { terminalLine("error", "arpspoof: -r (reverse) needs a victim: arpspoof -r -t <victim> <gateway>"); return; }
+    if (!gateway) { terminalLine("error", "arpspoof: usage: arpspoof [-r] [-t <victim>] <gateway-ip>"); return; }
+    const label = victim ? `ARP spoof of ${gateway}${reverse ? " ⇄ " : " → "}${victim}` : `ARP spoof of ${gateway}`;
+    launch(device, () => buildArpSpoofEvents(device, gateway, { victim, reverse }), label);
+    return;
+  }
 
   // An nmap invocation we don't model — say so, rather than handing a scanner
   // command to the host shell (which would only call it an unknown command).

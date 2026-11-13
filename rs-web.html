@@ -6674,15 +6674,44 @@ Full legal text: https://creativecommons.org/publicdomain/zero/1.0/legalcode</pr
     if (!events.length) return `nmap: nothing to sweep`;
     return { events, pendingArp };
   }
-  function buildArpSpoofEvents(attacker, spoofText) {
+  function macForIp(ip) {
+    const want = String(ip || "").trim();
+    if (!isValidIpv4(want)) return null;
+    for (const d of state.devices) {
+      if (isHost(d.type) && d.config?.ipv4Address === want) return d.config?.macAddress || null;
+      for (const iface of d.config?.interfaces || []) {
+        if (iface.ipv4Address === want && iface.macAddress) return iface.macAddress;
+      }
+    }
+    return null;
+  }
+  function buildArpSpoofEvents(attacker, spoofText, opts = {}) {
     const cfg = attacker.config;
     if (!cfg?.macAddress) return `${attacker.name}: eth0 has no MAC address.`;
     const spoofIp = String(spoofText || cfg.spoofIp || cfg.gatewayIpv4Address || "").trim();
     if (!isValidIpv4(spoofIp)) return `arpspoof: no valid IP to impersonate (set a gateway, or "arp-spoof <ip>").`;
     const firstHop = findFirstHop(attacker);
     if ("blocked" in firstHop) return `arpspoof: network is unreachable (${firstHop.blocked})`;
-    const gratuitous = createArpReply(cfg.macAddress, spoofIp, BROADCAST_MAC, spoofIp);
-    return { events: [{ type: "frame_arrive", frame: gratuitous, deviceId: firstHop.peerId, fromDeviceId: attacker.id, linkId: firstHop.linkId }], pendingArp: {} };
+    const resolveTarget = (text) => {
+      const dev = findPingTarget(text);
+      const ip = dev?.config?.ipv4Address || (isValidIpv4(text) ? text : "");
+      if (!isValidIpv4(ip)) return `arpspoof: "${text}" is not a host or IP on this network`;
+      const cached = (cfg.arpTable || []).find((e) => e.ipv4Address === ip)?.macAddress;
+      return { ip, mac: cached || macForIp(ip) || BROADCAST_MAC };
+    };
+    const emit = (frame) => ({ type: "frame_arrive", frame, deviceId: firstHop.peerId, fromDeviceId: attacker.id, linkId: firstHop.linkId });
+    if (!opts.victim) {
+      return { events: [emit(createArpReply(cfg.macAddress, spoofIp, BROADCAST_MAC, spoofIp))], pendingArp: {} };
+    }
+    const victim = resolveTarget(opts.victim);
+    if (typeof victim === "string") return victim;
+    const events = [emit(createArpReply(cfg.macAddress, spoofIp, victim.mac, victim.ip))];
+    if (opts.reverse) {
+      const gw = resolveTarget(spoofIp);
+      if (typeof gw === "string") return gw;
+      events.push(emit(createArpReply(cfg.macAddress, victim.ip, gw.mac, gw.ip)));
+    }
+    return { events, pendingArp: {} };
   }
   function buildAttackEvents(attacker, only) {
     const kinds = only ? [only] : attacker.config?.attacks || ["scan"];
@@ -12511,7 +12540,7 @@ Snort successfully validated the configuration${bad ? " (with errors)" : "."}`);
       terminalLine("muted", [
         "nmap -sS <target>          TCP SYN port scan",
         "nmap -sn <subnet>          ping sweep (host discovery)",
-        "arpspoof [-t <victim>] <gateway-ip>   ARP cache poisoning (MITM)",
+        "arpspoof [-r] [-t <victim>] <gateway-ip>   ARP cache poisoning (MITM; -t one victim, -r both ways)",
         "nmap -V                    version",
         "hostname [<name>]",
         "clear",
@@ -12537,9 +12566,25 @@ Snort successfully validated the configuration${bad ? " (with errors)" : "."}`);
       launch(device, () => buildScanEvents(device, scan[1]), `SYN scan of ${scan[1]}`);
       return;
     }
-    const spoof = command.match(/^(?:sudo\s+)?arpspoof\s+(?:-t\s+\S+\s+)?(\S+)\s*$/i);
-    if (spoof) {
-      launch(device, () => buildArpSpoofEvents(device, spoof[1]), `ARP spoof of ${spoof[1]}`);
+    if (/^(?:sudo\s+)?arpspoof\b/i.test(command)) {
+      const toks = command.replace(/^(?:sudo\s+)?arpspoof\s*/i, "").trim().split(/\s+/).filter(Boolean);
+      let reverse = false, victim, gateway;
+      for (let i = 0; i < toks.length; i++) {
+        if (toks[i] === "-r") reverse = true;
+        else if (toks[i] === "-t") {
+          victim = toks[++i];
+        } else gateway = toks[i];
+      }
+      if (reverse && !victim) {
+        terminalLine("error", "arpspoof: -r (reverse) needs a victim: arpspoof -r -t <victim> <gateway>");
+        return;
+      }
+      if (!gateway) {
+        terminalLine("error", "arpspoof: usage: arpspoof [-r] [-t <victim>] <gateway-ip>");
+        return;
+      }
+      const label = victim ? `ARP spoof of ${gateway}${reverse ? " \u21C4 " : " \u2192 "}${victim}` : `ARP spoof of ${gateway}`;
+      launch(device, () => buildArpSpoofEvents(device, gateway, { victim, reverse }), label);
       return;
     }
     if (/^(?:sudo\s+)?nmap\b/i.test(command)) {

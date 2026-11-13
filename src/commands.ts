@@ -664,13 +664,21 @@ function cmdAttack(args: string[]): CommandResult {
   const targetArg = (kind ? args.slice(2) : args.slice(1)).join(" ").trim();
   // A scan/sweep target argument overrides (and remembers) the configured
   // target; for arp-spoof the argument is the IP to impersonate, not a target.
-  if (targetArg && kind !== "arp-spoof") (node.config as any).attackTarget = targetArg;
+  // Build (and validate) against the effective target WITHOUT persisting it —
+  // a rejected attack must not leave an un-undoable config change (R82).
+  const effectiveTarget = targetArg || node.config?.attackTarget || "";
   let setup: any;
-  if (kind === "scan") setup = buildScanEvents(node, targetArg || node.config?.attackTarget || "");
-  else if (kind === "sweep") setup = buildSweepEvents(node, targetArg || node.config?.attackTarget || "");
+  if (kind === "scan") setup = buildScanEvents(node, effectiveTarget);
+  else if (kind === "sweep") setup = buildSweepEvents(node, effectiveTarget);
   else if (kind === "arp-spoof") setup = buildArpSpoofEvents(node, targetArg || undefined);
   else setup = buildAttackEvents(node);
   if (typeof setup === "string") return err(setup);
+  // The target validated — now remember it, undoably, and only if it changed.
+  if (targetArg && kind !== "arp-spoof" && node.config?.attackTarget !== targetArg) {
+    pushUndo();
+    ensureConfig(node);
+    (node.config as any).attackTarget = targetArg;
+  }
   startSimulation(setup, node.id, "", "attack");
   return ok(`${node.name}: ${kind || "attacks"} launched.`);
 }

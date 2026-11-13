@@ -18793,13 +18793,18 @@ Snort successfully validated the configuration${bad ? " (with errors)" : "."}`);
     if (busy) return err(busy);
     const kind = args[1] && /^(scan|sweep|arp-spoof)$/i.test(args[1]) ? args[1].toLowerCase() : void 0;
     const targetArg = (kind ? args.slice(2) : args.slice(1)).join(" ").trim();
-    if (targetArg && kind !== "arp-spoof") node.config.attackTarget = targetArg;
+    const effectiveTarget = targetArg || node.config?.attackTarget || "";
     let setup;
-    if (kind === "scan") setup = buildScanEvents(node, targetArg || node.config?.attackTarget || "");
-    else if (kind === "sweep") setup = buildSweepEvents(node, targetArg || node.config?.attackTarget || "");
+    if (kind === "scan") setup = buildScanEvents(node, effectiveTarget);
+    else if (kind === "sweep") setup = buildSweepEvents(node, effectiveTarget);
     else if (kind === "arp-spoof") setup = buildArpSpoofEvents(node, targetArg || void 0);
     else setup = buildAttackEvents(node);
     if (typeof setup === "string") return err(setup);
+    if (targetArg && kind !== "arp-spoof" && node.config?.attackTarget !== targetArg) {
+      pushUndo();
+      ensureConfig(node);
+      node.config.attackTarget = targetArg;
+    }
     startSimulation(setup, node.id, "", "attack");
     return ok(`${node.name}: ${kind || "attacks"} launched.`);
   }

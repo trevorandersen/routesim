@@ -224,6 +224,16 @@ describe("Red Team — console + Kali terminal", () => {
     expect(report.join("\n")).toContain("open");
   });
 
+  it("a rejected attack leaves the stored target unchanged and pushes no undo (R82)", () => {
+    exec("add attacker RT1 at 0 0");   // no cable, no address → the build fails
+    (dev("RT1").config as any).attackTarget = "OLD";
+    const undos = state.undoStack.length;
+    const r = exec("attack RT1 scan NEWTARGET");
+    expect(r.ok).toBe(false);
+    expect((dev("RT1").config as any).attackTarget).toBe("OLD");   // not overwritten before validation
+    expect(state.undoStack.length).toBe(undos);                    // and no spurious undo snapshot
+  });
+
   it("the Kali terminal reports nmap's version, help, and renames the host", () => {
     exec("add attacker RT1 at 0 0");
     const rt = dev("RT1");

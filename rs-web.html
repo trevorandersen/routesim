@@ -13513,6 +13513,7 @@ Snort successfully validated the configuration${bad ? " (with errors)" : "."}`);
     { label: "MACsec", token: "macsec" }
   ];
   function frameMatchesToken(row, token) {
+    if (row.macsec) return token === "macsec";
     const p = row.frame.payload;
     switch (token) {
       case "arp":
@@ -13521,7 +13522,8 @@ Snort successfully validated the configuration${bad ? " (with errors)" : "."}`);
       case "ipv4":
         return p.type === "ipv4";
       case "macsec":
-        return row.macsec === true;
+        return false;
+      // a macsec row already returned above; a non-macsec row never matches
       case "stp":
       case "bpdu":
         return p.type === "bpdu";
@@ -13681,6 +13683,7 @@ Snort successfully validated the configuration${bad ? " (with errors)" : "."}`);
     return toks;
   }
   function ipValues(row, field) {
+    if (row.macsec) return [];
     const p = row.frame.payload;
     if (p.type !== "ipv4") return [];
     if (field === "ip.src") return [p.srcIp];
@@ -13702,6 +13705,7 @@ Snort successfully validated the configuration${bad ? " (with errors)" : "."}`);
       numScratch[0] = row.step;
       return 1;
     }
+    if (row.macsec) return 0;
     const p = row.frame.payload;
     if (field === "ip.ttl") {
       if (p.type !== "ipv4") return 0;
@@ -14016,7 +14020,7 @@ Snort successfully validated the configuration${bad ? " (with errors)" : "."}`);
     const selectInPane = !!selectedEntry && captureEntriesFor(capId).includes(selectedEntry);
     const body = rows.map((row) => {
       const inner = packetColumns(row.frame);
-      const cols = row.macsec ? { ...inner, protocol: "MACsec", info: `Encrypted ${inner.protocol} (SecTAG, ICV)`, tone: "macsec" } : inner;
+      const cols = row.macsec ? { ...inner, src: row.frame.srcMac, dst: row.frame.dstMac, protocol: "MACsec", info: `Encrypted ${inner.protocol} (SecTAG, ICV)`, tone: "macsec" } : inner;
       const link = linkMap.get(row.linkId);
       const wire = link ? linkName(link) : `${row.fromName} \u2194 ${row.toName}`;
       const selected = (selectedEntry ? selectInPane && selectedEntry.no === row.no : state.inspectedFrame === row.frame) ? " selected" : "";

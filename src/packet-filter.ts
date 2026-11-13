@@ -59,12 +59,17 @@ export const PROTOCOL_CHIPS: { label: string; token: string }[] = [
 
 // Does a frame match a single protocol token? (The chip and bare-keyword path.)
 export function frameMatchesToken(row: FilterRow, token: string): boolean {
+  // A MACsec-protected frame is opaque on the wire: only the Ethernet header and
+  // the SecTAG are visible, so its inner protocol can't be matched — only the
+  // `macsec` token does (R97). (ARP/control frames aren't encrypted, so this only
+  // ever hides a genuine IP payload.)
+  if (row.macsec) return token === "macsec";
   const p = row.frame.payload;
   switch (token) {
     case "arp": return p.type === "arp";
     case "ip":
     case "ipv4": return p.type === "ipv4";
-    case "macsec": return row.macsec === true;
+    case "macsec": return false;   // a macsec row already returned above; a non-macsec row never matches
     case "stp":
     case "bpdu": return p.type === "bpdu";
     case "wlan":
@@ -168,6 +173,7 @@ function lex(input: string): Tok[] {
 // Candidate values a field reads from a row (a frame can hold two — a src and a
 // dst — so each comparison is "some side matches").
 function ipValues(row: FilterRow, field: string): string[] {
+  if (row.macsec) return [];   // inner IPs are encrypted on the wire — not matchable (R97)
   const p = row.frame.payload;
   if (p.type !== "ipv4") return [];
   if (field === "ip.src") return [p.srcIp];
@@ -191,6 +197,7 @@ const numScratch: [number, number] = [0, 0];
 function numValues(row: FilterRow, field: string): number {
   if (field === "frame.no" || field === "no") { numScratch[0] = row.no; return 1; }
   if (field === "frame.step" || field === "step") { numScratch[0] = row.step; return 1; }
+  if (row.macsec) return 0;   // inner ttl / TCP ports are encrypted on the wire — not matchable (R97)
   const p = row.frame.payload;
   if (field === "ip.ttl") { if (p.type !== "ipv4") return 0; numScratch[0] = p.ttl; return 1; }
   // tcp ports

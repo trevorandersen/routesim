@@ -159,10 +159,12 @@ function renderPacketTable(rows: FilterRow[], capId: string): string {
   const selectInPane = !!selectedEntry && captureEntriesFor(capId).includes(selectedEntry);
   const body = rows.map(row => {
     const inner = packetColumns(row.frame);
-    // A MACsec-protected frame shows as encrypted on the wire (its real protocol
-    // would only be visible after decryption at the far end).
+    // A MACsec-protected frame shows as encrypted on the wire: the Ethernet
+    // header and SecTAG are visible, but the inner IPs are not — so the row shows
+    // the frame's MAC addresses, not the encrypted inner addresses (R97). The
+    // inner protocol name in the Info text is a documented design choice.
     const cols = row.macsec
-      ? { ...inner, protocol: "MACsec", info: `Encrypted ${inner.protocol} (SecTAG, ICV)`, tone: "macsec" }
+      ? { ...inner, src: row.frame.srcMac, dst: row.frame.dstMac, protocol: "MACsec", info: `Encrypted ${inner.protocol} (SecTAG, ICV)`, tone: "macsec" }
       : inner;
     // The wire it was captured on: the link's name (user-given, or the
     // endpoint combo). Falls back to the traversal endpoints if the link is gone.

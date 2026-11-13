@@ -45,6 +45,14 @@ protocol names where they exist:
 | `radius` | 802.1X RADIUS Access-Request/Accept/Reject |
 | `macsec` | a frame captured encrypted on a MACsec-secured wire (the row's flag) |
 
+A **MACsec row is opaque on the wire**: only the Ethernet header and SecTAG are
+visible, so its inner protocol and inner IP/L4 fields are **not matchable** — a
+macsec row answers only the `macsec` token, and `ip.addr`/`tcp.port`/`ip.ttl` and
+the protocol atoms (`tcp`, `icmp`, …) never match it (review R97). The clear-text
+fields still work: `eth.addr`/`eth.src`/`eth.dst`, `frame.no`/`step`, and
+`device`. The packet-list row likewise shows the frame's **MAC addresses**, not
+the encrypted inner IPs.
+
 `PROTOCOL_CHIPS` is the curated, ordered subset shown as toggle chips (ARP /
 ICMP / TCP / HTTP / DNS / DHCP / STP / 802.1X / 802.11 / MACsec). `presentTokens(rows)`
 reports which chip tokens actually occur in a capture, so the engine can dim the

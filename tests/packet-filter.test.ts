@@ -100,6 +100,34 @@ describe("frameMatchesToken — protocol classification", () => {
     expect(frameMatchesToken(row(icmpEcho, { macsec: true }), "macsec")).toBe(true);
     expect(frameMatchesToken(row(icmpEcho), "macsec")).toBe(false);
   });
+
+  it("a MACsec row hides its inner protocol from every token but `macsec` (R97)", () => {
+    const enc = row(icmpEcho, { macsec: true });
+    expect(frameMatchesToken(enc, "icmp")).toBe(false);   // the inner protocol is opaque on the wire
+    expect(frameMatchesToken(enc, "ip")).toBe(false);
+    expect(frameMatchesToken(enc, "macsec")).toBe(true);
+  });
+});
+
+describe("MACsec rows are opaque to inner IP/L4 filter predicates (R97)", () => {
+  const encTcp = row(tcpSyn, { macsec: true });   // inner 10.0.0.1→10.0.0.2, tcp 5000→80
+  const match = (expr: string, r: FilterRow) => {
+    const c = compileFilter(expr);
+    if (!c.ok) throw new Error(`expected a valid filter, got: ${c.error}`);
+    return c.test(r);
+  };
+  it("inner IPs and TCP ports don't match once the frame is encrypted", () => {
+    expect(match("ip.addr == 10.0.0.1", row(tcpSyn))).toBe(true);    // visible when not encrypted
+    expect(match("ip.addr == 10.0.0.1", encTcp)).toBe(false);        // hidden once encrypted
+    expect(match("tcp.port == 80", encTcp)).toBe(false);
+    expect(match("ip.ttl == 64", encTcp)).toBe(false);
+  });
+  it("but the clear-text Ethernet header and row metadata still match", () => {
+    expect(match("macsec", encTcp)).toBe(true);
+    expect(match(`eth.addr == ${encTcp.frame.srcMac}`, encTcp)).toBe(true);
+    expect(match("frame.no == 1", encTcp)).toBe(true);
+    expect(match("device contains PC", encTcp)).toBe(true);
+  });
 });
 
 // R100: the packet list labels rows HTTP, but there was no `http` keyword or chip.
@@ -135,12 +163,13 @@ describe("http — a filter keyword and a chip for the rows the list calls HTTP 
 
 describe("presentTokens", () => {
   it("reports only the chip tokens occurring in the rows", () => {
-    const present = presentTokens([row(arpReq), row(icmpEcho), row(dnsQuery, { macsec: true })]);
+    // The TCP row is encrypted, so it surfaces the macsec chip, not tcp (R97).
+    const present = presentTokens([row(arpReq), row(icmpEcho), row(dnsQuery), row(tcpSyn, { macsec: true })]);
     expect(present.has("arp")).toBe(true);
     expect(present.has("icmp")).toBe(true);
     expect(present.has("dns")).toBe(true);
     expect(present.has("macsec")).toBe(true);
-    expect(present.has("tcp")).toBe(false);
+    expect(present.has("tcp")).toBe(false);   // the only tcp row is encrypted — its inner protocol is hidden
     expect(present.has("stp")).toBe(false);
   });
 

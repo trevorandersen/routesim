@@ -541,12 +541,21 @@ export function buildSweepEvents(attacker: any, subnetText: string): PingSetup |
   const t = String(subnetText || "").trim();
   const base = t && (t.includes("/") || isValidIpv4(t)) ? t : `${cfg.ipv4Address}/${prefixOf(cfg)}`;
   const cidr = base.includes("/") ? base : `${base}/${prefixOf(cfg)}`;
-  const network = networkOf(cidr.split("/")[0], prefixLengthOfCidr(cidr));
+  const addr = cidr.split("/")[0];
+  // Reject a garbage target (e.g. "foo/24") rather than sweeping 0.0.0.x.
+  if (!isValidIpv4(addr)) return `nmap: invalid target`;
+  const prefixLen = prefixLengthOfCidr(cidr);
+  const network = networkOf(addr, prefixLen);
   const netInt = ipv4ToInt(network.split("/")[0]);
+  // Probe only the subnet's usable host addresses, so a small subnet (/29 and
+  // below) never spills past its broadcast into the next subnet. A /31 or /32
+  // has no usable hosts to sweep.
+  const usable = prefixLen >= 31 ? 0 : Math.max(0, (2 ** (32 - prefixLen)) - 2);
+  const probeCount = Math.min(SWEEP_HOSTS, usable);
 
   const events: SimEvent[] = [];
   const pendingArp: Record<string, EthernetFrame[]> = {};
-  for (let i = 1; i <= SWEEP_HOSTS; i++) {
+  for (let i = 1; i <= probeCount; i++) {
     const hostIp = intToIpv4(netInt + i);
     if (hostIp === cfg.ipv4Address) continue;   // don't ping ourselves
     // Route each probe like a real ping: a same-subnet target is reached

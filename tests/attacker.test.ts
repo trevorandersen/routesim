@@ -90,6 +90,37 @@ describe("Red Team — ping sweep + ARP spoof", () => {
     expect(state.simulation.sweepLive).not.toContain("10.0.0.19");   // nothing there
   });
 
+  // Every ICMP-echo destination a sweep setup emits (resolved frames + the
+  // echoes queued behind an ARP).
+  const sweepDests = (setup: any): string[] => {
+    const out: string[] = [];
+    const grab = (f: any) => { const p = f?.payload; if (p?.type === "ipv4" && p.payload?.type === "icmp") out.push(p.dstIp); };
+    for (const e of setup.events || []) grab(e.frame);
+    for (const arr of Object.values(setup.pendingArp || {})) for (const f of arr as any[]) grab(f);
+    return out;
+  };
+
+  it("bounds the sweep to the subnet's usable hosts — no broadcast or next-subnet probe (R27)", () => {
+    exec("add switch SW1 at 0 0");
+    exec("add attacker RT1 at -200 0");
+    exec("ip RT1 10.0.0.1/29");          // usable .1–.6, broadcast .7
+    exec("link RT1 SW1");
+    const setup = buildSweepEvents(dev("RT1"), "") as any;   // own subnet
+    expect(typeof setup).not.toBe("string");
+    const octets = sweepDests(setup).map(ip => Number(ip.split(".")[3]));
+    expect(octets.length).toBeGreaterThan(0);
+    expect(Math.max(...octets)).toBeLessThanOrEqual(6);   // never .7 (broadcast) or the next subnet
+    expect(octets).not.toContain(7);
+  });
+
+  it("rejects a garbage sweep target instead of sweeping 0.0.0.x (R27)", () => {
+    exec("add switch SW1 at 0 0");
+    exec("add attacker RT1 at -200 0");
+    exec("ip RT1 10.0.0.1/24");
+    exec("link RT1 SW1");
+    expect(buildSweepEvents(dev("RT1"), "foo/24")).toBe("nmap: invalid target");
+  });
+
   it("an ARP spoof poisons a victim's ARP cache (gateway -> attacker MAC)", () => {
     exec("add switch SW1 at 0 0");
     exec("add attacker RT1 at -150 0");

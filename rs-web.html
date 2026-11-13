@@ -6742,11 +6742,16 @@ Full legal text: https://creativecommons.org/publicdomain/zero/1.0/legalcode</pr
     const t = String(subnetText || "").trim();
     const base = t && (t.includes("/") || isValidIpv4(t)) ? t : `${cfg.ipv4Address}/${prefixOf(cfg)}`;
     const cidr = base.includes("/") ? base : `${base}/${prefixOf(cfg)}`;
-    const network = networkOf(cidr.split("/")[0], prefixLengthOfCidr(cidr));
+    const addr = cidr.split("/")[0];
+    if (!isValidIpv4(addr)) return `nmap: invalid target`;
+    const prefixLen = prefixLengthOfCidr(cidr);
+    const network = networkOf(addr, prefixLen);
     const netInt = ipv4ToInt(network.split("/")[0]);
+    const usable = prefixLen >= 31 ? 0 : Math.max(0, 2 ** (32 - prefixLen) - 2);
+    const probeCount = Math.min(SWEEP_HOSTS, usable);
     const events = [];
     const pendingArp = {};
-    for (let i = 1; i <= SWEEP_HOSTS; i++) {
+    for (let i = 1; i <= probeCount; i++) {
       const hostIp = intToIpv4(netInt + i);
       if (hostIp === cfg.ipv4Address) continue;
       const hop = attackNextHop(attacker, hostIp);

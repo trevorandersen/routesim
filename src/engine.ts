@@ -2709,12 +2709,24 @@ export function processAtFirewall(device: Device, frame: EthernetFrame, fromDevi
   const outgoing: OutgoingFrame[] = [];
   if (device.poweredOff) return outgoing;
 
-  // Transparent bridge: forward to every linked port except the ingress one.
+  // Transparent bridge legs (every linked peer except the ingress one).
   // (linkedPortsFor can be sparse — null gaps — when explicit ports skip a slot.)
-  const egress = linkedPortsFor(device.id)
+  const egressAll = linkedPortsFor(device.id)
     .filter((p: any) => p?.peer)
     .map((p: any) => p.peer.id)
     .filter((id: string) => id !== fromDeviceId);
+
+  // L2 MAC learning, like the switch (review R93): learn the source MAC on the
+  // ingress leg — even for a frame the filter then drops, as a real bridge does.
+  // Without it the firewall flooded every accepted frame out all legs, leaking
+  // unicast and ARP replies the moment it had three or more legs (a hub).
+  const cfg: any = device.config;
+  if (fromDeviceId && frame.srcMac && frame.srcMac !== BROADCAST_MAC) {
+    cfg.macTable = normaliseMacTable(cfg.macTable || []);
+    const existing = cfg.macTable.find((e: any) => e.macAddress === frame.srcMac);
+    if (existing) existing.port = fromDeviceId;
+    else cfg.macTable.push({ macAddress: frame.srcMac, port: fromDeviceId, type: "DYNAMIC", vlan: "" });
+  }
 
   // Filter IPv4 on the FORWARD chain; pass ARP and other control frames through.
   if (frame.payload.type === "ipv4") {
@@ -2735,7 +2747,15 @@ export function processAtFirewall(device: Device, frame: EthernetFrame, fromDevi
     if (stateful) trackConnection(device, ipv4);   // remember the accepted flow (for ESTABLISHED)
     logStep(device, "sim-forward", `Firewall ACCEPT ${frameLabel(frame)} ${ipv4.srcIp}→${ipv4.dstIp} (${tag})`);
   }
-  egress.forEach((toDeviceId: string, i: number) => {
+
+  // Forward a known unicast to just the learnt leg; flood a broadcast or an
+  // unknown unicast. A learnt leg that is no longer cabled falls back to flood.
+  let targets = egressAll;
+  if (frame.dstMac && frame.dstMac !== BROADCAST_MAC) {
+    const entry = (cfg.macTable || []).find((e: any) => e.macAddress === frame.dstMac);
+    if (entry && egressAll.includes(entry.port)) targets = [entry.port];
+  }
+  targets.forEach((toDeviceId: string, i: number) => {
     outgoing.push({ frame: { ...frame, id: `${frame.id}-fw${i}` }, toDeviceId });
   });
   return outgoing;

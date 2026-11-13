@@ -10,7 +10,7 @@ import { state } from "../src/state";
 import { evaluateFirewall, firewallRuleMatches, processAtFirewall, runSimulationHeadless } from "../src/engine";
 import { runFirewallTerminalCommand } from "../src/terminal";
 import { buildPingEvents } from "../src/simulation";
-import { createArpRequest } from "../src/frame";
+import { createArpRequest, createIcmpEchoRequest } from "../src/frame";
 import { runConsoleScript, runConsoleCommand as exec } from "../src/commands";
 import { registerNoopCallbacks, resetState } from "./helpers";
 import { state as _state2 } from "../src/state";
@@ -180,6 +180,35 @@ describe("firewall — packet filtering in the simulation", () => {
     const out = processAtFirewall(fw, arp, state.devices.find(d => d.name === "PC1")!.id);
     expect(out).toHaveLength(1);
     expect(out[0].toDeviceId).toBe(state.devices.find(d => d.name === "SW1")!.id);
+  });
+
+  it("learns MACs and forwards a known unicast to one leg, not every leg (R93)", () => {
+    runConsoleScript(`
+      add firewall FW1 at 0 0
+      add computer PC1 at -100 0
+      add computer PC2 at 0 -100
+      add computer PC3 at 100 0
+      ip PC1 192.168.1.10/24
+      ip PC2 192.168.1.20/24
+      ip PC3 192.168.1.30/24
+      link PC1 FW1
+      link PC2 FW1
+      link PC3 FW1
+    `);
+    const fw = state.devices.find(d => d.name === "FW1")!;
+    const pc1 = state.devices.find(d => d.name === "PC1")!;
+    const pc2 = state.devices.find(d => d.name === "PC2")!;
+    const pc3 = state.devices.find(d => d.name === "PC3")!;
+    const mac = (d: any) => d.config.macAddress as string;
+    expect(mac(pc1) && mac(pc2) && mac(pc3)).toBeTruthy();
+    // PC2 speaks first → the firewall learns PC2's MAC on PC2's leg.
+    processAtFirewall(fw, createArpRequest(mac(pc2), "192.168.1.20", "192.168.1.10"), pc2.id);
+    // A unicast from PC1 to PC2's MAC now reaches only PC2, not PC3.
+    const unicast = createIcmpEchoRequest(mac(pc1), mac(pc2), "192.168.1.10", "192.168.1.20", 64);
+    expect(processAtFirewall(fw, unicast, pc1.id).map(o => o.toDeviceId)).toEqual([pc2.id]);
+    // A broadcast (or an unknown unicast) still floods to every leg except ingress.
+    const flood = processAtFirewall(fw, createArpRequest(mac(pc1), "192.168.1.10", "192.168.1.30"), pc1.id);
+    expect(new Set(flood.map(o => o.toDeviceId))).toEqual(new Set([pc2.id, pc3.id]));
   });
 
   it("a DROP rule stops a ping through the firewall", () => {

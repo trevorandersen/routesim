@@ -123,9 +123,14 @@ are not). The transparent firewall device remains FORWARD-only.
 ## How it fits
 
 `processAtFirewall` is dispatched from the engine's per-device step (alongside
-`processAtComputer/Switch/Router`). It uses `linkedPortsFor` to forward an
-accepted frame to every linked port except the ingress one (so a 2-port firewall
-is a filtering pass-through). The inspector's `renderFirewallControls` panel
+`processAtComputer/Switch/Router`). It uses `linkedPortsFor` for its legs and,
+like a switch, **learns the source MAC** on the ingress leg and forwards a known
+unicast to just the learnt leg, flooding only a broadcast or an unknown unicast
+(a learnt leg that is no longer cabled falls back to flood). For the common
+2-port firewall this is a filtering pass-through; with three or more legs it no
+longer behaves like a hub leaking unicast and ARP replies to every port (review
+R93). The learning table (`config.macTable`, dynamic/not serialised) self-corrects
+as MACs move, so no explicit flush is needed on a cable change. The inspector's `renderFirewallControls` panel
 (routers: INPUT + FORWARD; firewall: FORWARD) lists each rule (deletable), a
 per-chain default-policy select, and an add-rule form — target / protocol /
 **connection-state** / src / dst / dport — writing the same `config.rules` the

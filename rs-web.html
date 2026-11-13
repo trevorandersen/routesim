@@ -10058,7 +10058,14 @@ Full legal text: https://creativecommons.org/publicdomain/zero/1.0/legalcode</pr
   function processAtFirewall(device, frame, fromDeviceId) {
     const outgoing = [];
     if (device.poweredOff) return outgoing;
-    const egress = linkedPortsFor(device.id).filter((p) => p?.peer).map((p) => p.peer.id).filter((id) => id !== fromDeviceId);
+    const egressAll = linkedPortsFor(device.id).filter((p) => p?.peer).map((p) => p.peer.id).filter((id) => id !== fromDeviceId);
+    const cfg = device.config;
+    if (fromDeviceId && frame.srcMac && frame.srcMac !== BROADCAST_MAC) {
+      cfg.macTable = normaliseMacTable(cfg.macTable || []);
+      const existing = cfg.macTable.find((e) => e.macAddress === frame.srcMac);
+      if (existing) existing.port = fromDeviceId;
+      else cfg.macTable.push({ macAddress: frame.srcMac, port: fromDeviceId, type: "DYNAMIC", vlan: "" });
+    }
     if (frame.payload.type === "ipv4") {
       const ipv4 = frame.payload;
       const stateful = firewallUsesConntrack(device);
@@ -10076,7 +10083,12 @@ Full legal text: https://creativecommons.org/publicdomain/zero/1.0/legalcode</pr
       if (stateful) trackConnection(device, ipv4);
       logStep(device, "sim-forward", `Firewall ACCEPT ${frameLabel(frame)} ${ipv4.srcIp}\u2192${ipv4.dstIp} (${tag})`);
     }
-    egress.forEach((toDeviceId, i) => {
+    let targets = egressAll;
+    if (frame.dstMac && frame.dstMac !== BROADCAST_MAC) {
+      const entry = (cfg.macTable || []).find((e) => e.macAddress === frame.dstMac);
+      if (entry && egressAll.includes(entry.port)) targets = [entry.port];
+    }
+    targets.forEach((toDeviceId, i) => {
       outgoing.push({ frame: { ...frame, id: `${frame.id}-fw${i}` }, toDeviceId });
     });
     return outgoing;

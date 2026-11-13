@@ -44,7 +44,7 @@ An attack run is `startSimulation(setup, host.id, "", "attack")` — sim mode `"
 
 ## Triggers — CLI, console, inspector
 
-- **Kali terminal** ([terminal/attacker.ts](terminal.md), used by both types) — `nmap -sS <target>` (scan), `nmap -sn <subnet>` (sweep), `arpspoof [-t <victim>] <gateway>` (spoof; the last arg is the impersonated IP), `nmap -V`, `clear`, `?`/`help`. **Anything else falls through to the host shell** (`runHostTerminalCommand`: `ip addr`, `ip route`, `ping`, `traceroute`, `nc`, `hostname`, `/etc/resolv.conf`) — which is also what the inspector's IP/gateway/DNS/MAC fields commit through. Each attack starts the animated run; results land in this session when it finishes.
+- **Kali terminal** ([terminal/attacker.ts](terminal.md), used by both types) — `nmap -sS <target>` (scan), `nmap -sn <subnet>` (sweep), `arpspoof [-t <victim>] <gateway>` (spoof; the last arg is the impersonated IP), `nmap -V`, `clear`, `?`/`help`; plus (via the host shell) `sysctl -w net.ipv4.ip_forward=1` to become a transparent MITM. **Anything else falls through to the host shell** (`runHostTerminalCommand`: `ip addr`, `ip route`, `ping`, `traceroute`, `nc`, `hostname`, `/etc/resolv.conf`) — which is also what the inspector's IP/gateway/DNS/MAC fields commit through. Each attack starts the animated run; results land in this session when it finishes.
 - **Console** ([scripting.md](../scripting.md)) — `attack <node> [scan|sweep|arp-spoof] [target]` launches (works on either type; a scan/sweep target arg overrides and remembers `config.attackTarget`); `redteam <node> target <ip> | attacks <scan,sweep,arp-spoof> | spoof <ip>` configures an **actor's** plan.
 - **Inspector** ([inspector.md](inspector.md)) — the actor gets `renderAttackerSection`: a target field, three attack checkboxes, a **Launch attacks** button, and the last run's report. The Kali PC gets the plain host inspector only (drive it from the terminal).
 
@@ -55,6 +55,16 @@ The actor serialises via the shared host helpers (`hostConfigForPayload` / `norm
 ## Detecting it (red vs blue)
 
 The point of these devices. A scan's port-23 SYN probe trips a [Snort](ids.md) Telnet rule on an IDS fed by a SPAN port; the `alert` [scenario check](../scenarios.md) launches the scan when its `from` is an attacker. The `red-team-scan` scenario ("Detect the Red Team scan") ships a pre-mirrored IDS with an empty rule set — the learner authors the rule that catches the actor's scan.
+
+## IP forwarding — the transparent MITM (issue #4)
+
+A Kali host (any host, really) carries **`config.ipForward`** (`net.ipv4.ip_forward`, off by default). With it on, `processAtComputer`'s `forwardIntercepted` relays an IPv4 frame **unicast to our MAC but bound for another IP** — the signature of an arpspoof victim whose ARP cache we poisoned — instead of dropping it as "not for us":
+
+- next hop = the destination if on our subnet, else our gateway;
+- the frame is re-sent from our **own (unpoisoned) ARP cache**, source MAC rewritten to ours, **TTL decremented**, the src/dst **IPs untouched** (no NAT);
+- a cold next-hop MAC is ARP-resolved first (the frame buffered in `pendingArp`, flushed by the host's ARP-reply handler, exactly like the router's egress ARP).
+
+So a poisoned victim's traffic reaches its real destination and the reply returns — the silent man-in-the-middle, where without forwarding `arpspoof` is a black hole the victim notices. The knob is driven by the host shell (`sysctl -w net.ipv4.ip_forward=1`, `echo 1 > /proc/sys/net/ipv4/ip_forward`, and the `cat`/`sysctl` reads), round-trips through JSON + the script export (`cli <kali> sysctl …`), and is covered end to end in `tests/forwarding.test.ts`.
 
 ## Simplifications (teaching scope)
 

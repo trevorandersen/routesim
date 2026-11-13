@@ -1159,6 +1159,20 @@ export function processAtComputer(device: Device, frame: EthernetFrame, fromDevi
   } else if (frame.payload.type === "ipv4") {
     const ipv4 = frame.payload as Ipv4Payload;
 
+    // IP forwarding (net.ipv4.ip_forward): a frame unicast to OUR MAC but bound
+    // for another IP was handed to us — the signature of an arpspoof victim
+    // whose ARP cache we poisoned. With forwarding on, relay it toward its true
+    // destination from our own (unpoisoned) ARP cache instead of dropping it:
+    // the silent MITM the tool is known for, and the ping still succeeds. Off by
+    // default; a broadcast/flooded frame (dstMac ≠ our MAC) is never forwarded.
+    if (config.ipForward
+        && ipv4.dstIp !== config.ipv4Address
+        && frame.dstMac === normaliseMacAddress(config.macAddress || "")
+        && frame.dstMac !== BROADCAST_MAC) {
+      forwardIntercepted(device, config, frame, ipv4, fromDeviceId, outgoing);
+      return outgoing;
+    }
+
     if (ipv4.payload.type === "icmp") {
       // Hosts only answer ICMP addressed to their own IP — a frame that leaks
       // here (e.g. flooded unknown unicast) must not be answered for someone else.
@@ -1350,6 +1364,43 @@ function buildFollowOnFrames(device: Device, config: any, dstIp: string, then: "
   if (!sim.pendingArp[pendingKey]) sim.pendingArp[pendingKey] = [];
   sim.pendingArp[pendingKey].push(make("00:00:00:00:00:00"));
   return [createArpRequest(srcMac, srcIp, nextHopIp, vlanTag)];
+}
+
+// Relay an intercepted frame (net.ipv4.ip_forward on): the host forwards an
+// IPv4 frame addressed to its MAC but bound for another IP — issue #4. A real
+// host router: decrement TTL, rewrite the source MAC to its own, resolve the
+// true next hop from its OWN (unpoisoned) ARP cache, and send it back out the
+// one NIC toward that hop. The source/destination IPs are untouched (no NAT),
+// so the victim's traffic reaches its destination and the reply still returns —
+// a silent man-in-the-middle. A cold next-hop MAC is ARP-resolved first (the
+// frame buffered in pendingArp, flushed by the host's ARP-reply handler).
+function forwardIntercepted(device: Device, config: any, frame: EthernetFrame, ipv4: Ipv4Payload, fromDeviceId: string | null, outgoing: OutgoingFrame[]): void {
+  if (!fromDeviceId) return;
+  if (ipv4.ttl <= 1) {
+    logStep(device, "sim-drop", `ip_forward: TTL expired forwarding to ${ipv4.dstIp} — dropped`);
+    return;
+  }
+  // Next hop: on our subnet → the destination itself; otherwise our gateway.
+  let nextHopIp = ipv4.dstIp;
+  if (!sameSubnet(config.ipv4Address, ipv4.dstIp, prefixOf(config))) {
+    if (!config.gatewayIpv4Address) {
+      logStep(device, "sim-drop", `ip_forward: no route to ${ipv4.dstIp} (no default gateway) — dropped`);
+      return;
+    }
+    nextHopIp = config.gatewayIpv4Address;
+  }
+  const forwarded: EthernetFrame = { ...frame, srcMac: config.macAddress || "", payload: { ...ipv4, ttl: ipv4.ttl - 1 } };
+  const entry = (config.arpTable || []).find((e: any) => e.ipv4Address === nextHopIp);
+  if (entry) {
+    forwarded.dstMac = entry.macAddress;
+    logStep(device, "sim-forward", `ip_forward: relaying ${frameLabel(frame)} for ${ipv4.dstIp} via ${nextHopIp} (TTL ${ipv4.ttl}→${ipv4.ttl - 1})`);
+    outgoing.push({ frame: forwarded, toDeviceId: fromDeviceId });
+  } else {
+    const key = `${device.id}:${nextHopIp}`;
+    (state.simulation.pendingArp[key] ||= []).push(forwarded);
+    logStep(device, "sim-arp", `ip_forward: ${nextHopIp} unknown — ARPing before relaying to ${ipv4.dstIp}`);
+    outgoing.push({ frame: createArpRequest(config.macAddress || "", config.ipv4Address || "", nextHopIp, frame.vlanTag), toDeviceId: fromDeviceId });
+  }
 }
 
 // ─── Server processing (dnsmasq: DNS + DHCP) ─────────────────────────────────

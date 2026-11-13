@@ -93,17 +93,15 @@ The four still open:
 
 1. **Kali as a real man-in-the-middle** — two requests that only make sense
    together:
-   - **IP forwarding on the Kali hosts**
-     ([#4](https://github.com/trevorandersen/routesim/issues/4)) —
-     `sysctl -w net.ipv4.ip_forward=1` (and `cat /proc/sys/net/ipv4/ip_forward`)
-     on the Kali PC and Red Team actor. Today a poisoned victim's traffic
-     reaches the attacker and dies there ("not for us"), so `arpspoof` is a
-     black hole — a denial of service the victim notices — rather than the
-     silent interception the tool is known for. With forwarding on, a frame
-     addressed to the attacker's MAC but another host's IP is captured, then
-     re-sent to the true next hop from the attacker's own (unpoisoned) ARP
-     cache: the ping still succeeds, and the packet list shows the extra hop.
-     Off by default, as on Linux; round-trips through JSON and the script.
+   - **IP forwarding on the Kali hosts — shipped (2026-11)**
+     ([#4](https://github.com/trevorandersen/routesim/issues/4)).
+     `sysctl -w net.ipv4.ip_forward=1` (and the `echo 1 > /proc/…` / `cat` /
+     `sysctl` reads) sets `config.ipForward`. With it on, `forwardIntercepted`
+     relays a frame unicast to the attacker's MAC but bound for another IP to the
+     true next hop from the attacker's own unpoisoned cache — TTL decremented,
+     IPs untouched — so a poisoned victim's ping still succeeds and the extra hop
+     shows. Off by default; round-trips through JSON + the script; proven end to
+     end in `tests/forwarding.test.ts`.
    - **`arpspoof -r` (reverse / both directions)**
      ([#5](https://github.com/trevorandersen/routesim/issues/5)) — also poison
      the gateway's entry for the victim, so return traffic crosses the attacker

@@ -1330,6 +1330,8 @@ export function exportTopologyScript(): string {
       for (const u of (c.radius?.users || [])) lines.push(`radius ${quoteArg(d.name)} ${quoteArg(u.identity)} ${quoteArg(u.password ?? "")}`);
       if (Array.isArray(c.openPorts)) lines.push(c.openPorts.length ? `ports ${quoteArg(d.name)} ${c.openPorts.join(",")}` : `ports ${quoteArg(d.name)} closed`);
       if (c.httpEnabled) lines.push(`web ${quoteArg(d.name)} on${c.httpTitle ? ` ${quoteArg(c.httpTitle)}` : ""}`);
+      // IP forwarding, replayed through the host shell as a person would set it.
+      if (c.ipForward) lines.push(`cli ${quoteArg(d.name)} sysctl -w net.ipv4.ip_forward=1`);
       if (d.type === "attacker") {
         if (Array.isArray(c.attacks)) lines.push(`redteam ${quoteArg(d.name)} attacks ${c.attacks.join(",")}`);
         if (c.attackTarget) lines.push(`redteam ${quoteArg(d.name)} target ${c.attackTarget}`);

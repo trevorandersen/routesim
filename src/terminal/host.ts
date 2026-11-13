@@ -201,6 +201,32 @@ export function runHostTerminalCommand(host: Device, command: string): void {
     return;
   }
 
+  // IP forwarding (net.ipv4.ip_forward) — a Linux kernel knob. With it on, the
+  // host relays a frame unicast to its MAC but bound for another IP (an
+  // arpspoof victim whose cache we poisoned), forwarding it to the true next
+  // hop from its own unpoisoned ARP cache instead of dropping it — so a MITM
+  // can read traffic without breaking it. Off by default, as on Linux.
+  const fwWrite = command.match(/^sysctl\s+-w\s+net\.ipv4\.ip_forward\s*=\s*([01])$/i)
+    || command.match(/^echo\s+([01])\s*>\s*\/proc\/sys\/net\/ipv4\/ip_forward$/i);
+  if (fwWrite) {
+    const on = fwWrite[1] === "1";
+    pushUndo();
+    ensureConfig(host);
+    if (on) (host.config as any).ipForward = true; else delete (host.config as any).ipForward;
+    sync().syncPanel();
+    terminalLine("", `net.ipv4.ip_forward = ${on ? 1 : 0}`);
+    return;
+  }
+  if (lower === "sysctl net.ipv4.ip_forward" || lower === "sysctl -n net.ipv4.ip_forward") {
+    const on = !!(host.config as any)?.ipForward;
+    terminalLine("", lower.includes("-n") ? `${on ? 1 : 0}` : `net.ipv4.ip_forward = ${on ? 1 : 0}`);
+    return;
+  }
+  if (lower === "cat /proc/sys/net/ipv4/ip_forward") {
+    terminalLine("", (host.config as any)?.ipForward ? "1" : "0");
+    return;
+  }
+
   const nsSetMatch = command.match(/^echo\s+['"]?nameserver\s+(\S+?)['"]?\s*>{1,2}\s*\/etc\/resolv\.conf$/i)
     || command.match(/^set\s+nameserver\s+(\S+)$/i);
   if (nsSetMatch) {

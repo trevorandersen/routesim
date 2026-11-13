@@ -209,6 +209,10 @@ export interface ComputerConfig {
   // 802.1X supplicant credentials — the identity/password the host presents to
   // an authenticator port. Absent = the host can't authenticate on an `auto` port.
   dot1x?: { identity: string; password: string };
+  // IP forwarding (net.ipv4.ip_forward). On a host it relays a frame unicast to
+  // its MAC but bound for another IP — what an arpspoof MITM needs to forward,
+  // not black-hole, intercepted traffic. Off (absent) by default, as on Linux.
+  ipForward?: boolean;
 }
 
 // One dnsmasq A-record: `address=/name/ip`.

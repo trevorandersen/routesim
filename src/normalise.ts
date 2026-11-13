@@ -257,6 +257,7 @@ function normaliseHostFields(device: any): DeviceConfig {
     ...(openPorts ? { openPorts } : {}),
     ...(isValidIpv4(dnsServerIp) ? { dnsServerIp } : {}),
     ...(device.config?.dot1x?.identity ? { dot1x: { identity: String(device.config.dot1x.identity), password: String(device.config.dot1x.password ?? "") } } : {}),
+    ...(device.config?.ipForward ? { ipForward: true } : {}),
   };
 }
 

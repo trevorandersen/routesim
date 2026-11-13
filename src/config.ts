@@ -192,7 +192,8 @@ function hostConfigForPayload(config: any): any {
     arpTable: normaliseArpTable(config?.arpTable || []),
     ...(Array.isArray(config?.openPorts) ? { openPorts: config.openPorts } : {}),
     ...(config?.dnsServerIp ? { dnsServerIp: config.dnsServerIp } : {}),
-    ...(config?.dot1x?.identity ? { dot1x: { identity: config.dot1x.identity, password: config.dot1x.password || "" } } : {})
+    ...(config?.dot1x?.identity ? { dot1x: { identity: config.dot1x.identity, password: config.dot1x.password || "" } } : {}),
+    ...(config?.ipForward ? { ipForward: true } : {})
   };
 }
 

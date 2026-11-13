@@ -3641,7 +3641,8 @@ Full legal text: https://creativecommons.org/publicdomain/zero/1.0/legalcode</pr
       arpTable: normaliseArpTable(device.config?.arpTable || device.arpTable || []),
       ...openPorts ? { openPorts } : {},
       ...isValidIpv4(dnsServerIp) ? { dnsServerIp } : {},
-      ...device.config?.dot1x?.identity ? { dot1x: { identity: String(device.config.dot1x.identity), password: String(device.config.dot1x.password ?? "") } } : {}
+      ...device.config?.dot1x?.identity ? { dot1x: { identity: String(device.config.dot1x.identity), password: String(device.config.dot1x.password ?? "") } } : {},
+      ...device.config?.ipForward ? { ipForward: true } : {}
     };
   }
   function normalisePortAuth(raw) {
@@ -8535,6 +8536,10 @@ Full legal text: https://creativecommons.org/publicdomain/zero/1.0/legalcode</pr
       }
     } else if (frame.payload.type === "ipv4") {
       const ipv4 = frame.payload;
+      if (config.ipForward && ipv4.dstIp !== config.ipv4Address && frame.dstMac === normaliseMacAddress(config.macAddress || "") && frame.dstMac !== BROADCAST_MAC) {
+        forwardIntercepted(device, config, frame, ipv4, fromDeviceId, outgoing);
+        return outgoing;
+      }
       if (ipv4.payload.type === "icmp") {
         if (ipv4.dstIp !== config.ipv4Address) return outgoing;
         if (ipv4.payload.icmpType === 8) {
@@ -8708,6 +8713,33 @@ Full legal text: https://creativecommons.org/publicdomain/zero/1.0/legalcode</pr
     if (!sim.pendingArp[pendingKey]) sim.pendingArp[pendingKey] = [];
     sim.pendingArp[pendingKey].push(make("00:00:00:00:00:00"));
     return [createArpRequest(srcMac, srcIp, nextHopIp, vlanTag)];
+  }
+  function forwardIntercepted(device, config, frame, ipv4, fromDeviceId, outgoing) {
+    if (!fromDeviceId) return;
+    if (ipv4.ttl <= 1) {
+      logStep(device, "sim-drop", `ip_forward: TTL expired forwarding to ${ipv4.dstIp} \u2014 dropped`);
+      return;
+    }
+    let nextHopIp = ipv4.dstIp;
+    if (!sameSubnet(config.ipv4Address, ipv4.dstIp, prefixOf(config))) {
+      if (!config.gatewayIpv4Address) {
+        logStep(device, "sim-drop", `ip_forward: no route to ${ipv4.dstIp} (no default gateway) \u2014 dropped`);
+        return;
+      }
+      nextHopIp = config.gatewayIpv4Address;
+    }
+    const forwarded = { ...frame, srcMac: config.macAddress || "", payload: { ...ipv4, ttl: ipv4.ttl - 1 } };
+    const entry = (config.arpTable || []).find((e) => e.ipv4Address === nextHopIp);
+    if (entry) {
+      forwarded.dstMac = entry.macAddress;
+      logStep(device, "sim-forward", `ip_forward: relaying ${frameLabel(frame)} for ${ipv4.dstIp} via ${nextHopIp} (TTL ${ipv4.ttl}\u2192${ipv4.ttl - 1})`);
+      outgoing.push({ frame: forwarded, toDeviceId: fromDeviceId });
+    } else {
+      const key = `${device.id}:${nextHopIp}`;
+      (state.simulation.pendingArp[key] ||= []).push(forwarded);
+      logStep(device, "sim-arp", `ip_forward: ${nextHopIp} unknown \u2014 ARPing before relaying to ${ipv4.dstIp}`);
+      outgoing.push({ frame: createArpRequest(config.macAddress || "", config.ipv4Address || "", nextHopIp, frame.vlanTag), toDeviceId: fromDeviceId });
+    }
   }
   function processAtServer(device, frame, fromDeviceId) {
     const config = device.config;
@@ -10222,6 +10254,26 @@ ${body}
     }
     if (lower === "cat /etc/resolv.conf") {
       terminalLine("", showResolvConf(host));
+      return;
+    }
+    const fwWrite = command.match(/^sysctl\s+-w\s+net\.ipv4\.ip_forward\s*=\s*([01])$/i) || command.match(/^echo\s+([01])\s*>\s*\/proc\/sys\/net\/ipv4\/ip_forward$/i);
+    if (fwWrite) {
+      const on = fwWrite[1] === "1";
+      pushUndo();
+      ensureConfig(host);
+      if (on) host.config.ipForward = true;
+      else delete host.config.ipForward;
+      sync().syncPanel();
+      terminalLine("", `net.ipv4.ip_forward = ${on ? 1 : 0}`);
+      return;
+    }
+    if (lower === "sysctl net.ipv4.ip_forward" || lower === "sysctl -n net.ipv4.ip_forward") {
+      const on = !!host.config?.ipForward;
+      terminalLine("", lower.includes("-n") ? `${on ? 1 : 0}` : `net.ipv4.ip_forward = ${on ? 1 : 0}`);
+      return;
+    }
+    if (lower === "cat /proc/sys/net/ipv4/ip_forward") {
+      terminalLine("", host.config?.ipForward ? "1" : "0");
       return;
     }
     const nsSetMatch = command.match(/^echo\s+['"]?nameserver\s+(\S+?)['"]?\s*>{1,2}\s*\/etc\/resolv\.conf$/i) || command.match(/^set\s+nameserver\s+(\S+)$/i);
@@ -14976,7 +15028,7 @@ Snort successfully validated the configuration${bad ? " (with errors)" : "."}`);
   var DEVICE_DOCS = [
     { type: "computer", body: "A general-purpose host with a single NIC. Give it an IP, gateway and DNS from the inspector or its Linux terminal (`ip addr`, `ip route`, `/etc/resolv.conf`), then run `ping`, `arp -n`, `nslookup`, `curl`, `nc`, and `traceroute`." },
     { type: "laptop", body: "A WiFi-only host. Instead of a cable it associates to an access point whose SSID (and password, if secured) matches \u2014 otherwise it behaves exactly like a client PC on the wired LAN it reaches through the AP." },
-    { type: "kali", body: "A hand-driven pentest workstation. Its terminal is an ordinary Linux shell plus `nmap -sS` (SYN port scan), `nmap -sn` (ping sweep) and `arpspoof` \u2014 you launch the attacks yourself, one command at a time." },
+    { type: "kali", body: "A hand-driven pentest workstation. Its terminal is an ordinary Linux shell plus `nmap -sS` (SYN port scan), `nmap -sn` (ping sweep) and `arpspoof` \u2014 you launch the attacks yourself, one command at a time. With `sysctl -w net.ipv4.ip_forward=1` it becomes a transparent man-in-the-middle: a poisoned victim's traffic is relayed on to its real destination instead of dropped, so the connection keeps working while you watch it." },
     { type: "server", body: "A host that also runs dnsmasq \u2014 DNS A-records and a DHCP pool \u2014 and can serve HTTP. The DNS / DHCP / RADIUS / Web tool variants are the same device with a different service switched on; enable more from the inspector." },
     { type: "switch", body: "Forwards frames by learning which MAC lives on each port (floods the unknown). Adding, removing or shutting a cable flushes what it learnt on that LAN, so a moved host is re-learnt. The basic switch is unmanaged; the Managed variant adds 802.1Q VLANs, a SONiC-style CLI, SPAN port mirroring (to feed an IDS), and spanning tree." },
     { type: "router", body: "Forwards IP packets between subnets \u2014 longest-prefix routing, static routes and RIP \u2014 over an FRR-style CLI, with NAT and netfilter INPUT/FORWARD chains. The Border variant is the edge archetype (a \u201CB\u201D badge): the natural home for NAT and a firewall." },
@@ -17193,7 +17245,8 @@ Snort successfully validated the configuration${bad ? " (with errors)" : "."}`);
       arpTable: normaliseArpTable(config?.arpTable || []),
       ...Array.isArray(config?.openPorts) ? { openPorts: config.openPorts } : {},
       ...config?.dnsServerIp ? { dnsServerIp: config.dnsServerIp } : {},
-      ...config?.dot1x?.identity ? { dot1x: { identity: config.dot1x.identity, password: config.dot1x.password || "" } } : {}
+      ...config?.dot1x?.identity ? { dot1x: { identity: config.dot1x.identity, password: config.dot1x.password || "" } } : {},
+      ...config?.ipForward ? { ipForward: true } : {}
     };
   }
   function routerInterfacesForPayload(device) {
@@ -18720,6 +18773,7 @@ Snort successfully validated the configuration${bad ? " (with errors)" : "."}`);
         for (const u of c.radius?.users || []) lines.push(`radius ${quoteArg(d.name)} ${quoteArg(u.identity)} ${quoteArg(u.password ?? "")}`);
         if (Array.isArray(c.openPorts)) lines.push(c.openPorts.length ? `ports ${quoteArg(d.name)} ${c.openPorts.join(",")}` : `ports ${quoteArg(d.name)} closed`);
         if (c.httpEnabled) lines.push(`web ${quoteArg(d.name)} on${c.httpTitle ? ` ${quoteArg(c.httpTitle)}` : ""}`);
+        if (c.ipForward) lines.push(`cli ${quoteArg(d.name)} sysctl -w net.ipv4.ip_forward=1`);
         if (d.type === "attacker") {
           if (Array.isArray(c.attacks)) lines.push(`redteam ${quoteArg(d.name)} attacks ${c.attacks.join(",")}`);
           if (c.attackTarget) lines.push(`redteam ${quoteArg(d.name)} target ${c.attackTarget}`);

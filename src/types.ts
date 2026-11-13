@@ -21,6 +21,9 @@ export interface TerminalSession {
   mode: string;
   interfacePeerId: string | null;
   interfaceVlanTag: number | null;
+  // Router config-if on a port with NO cable: there is no peer to key by, so
+  // the session holds the port's name (Ethernet3) instead. Null otherwise.
+  interfaceName: string | null;
   lines: TerminalLine[];
   history: string[];
   historyIndex: number;

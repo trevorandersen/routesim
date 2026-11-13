@@ -4059,6 +4059,7 @@ Full legal text: https://creativecommons.org/publicdomain/zero/1.0/legalcode</pr
       mode: "exec",
       interfacePeerId: null,
       interfaceVlanTag: null,
+      interfaceName: null,
       lines: [],
       history: [],
       historyIndex: -1
@@ -4090,6 +4091,7 @@ Full legal text: https://creativecommons.org/publicdomain/zero/1.0/legalcode</pr
       mode: "exec",
       interfacePeerId: null,
       interfaceVlanTag: null,
+      interfaceName: null,
       lines: [],
       history: [],
       historyIndex: -1
@@ -11345,6 +11347,17 @@ ${body}
     sync().render();
     return "";
   }
+  function setUncabledRouterInterfaceIp(router, name, address) {
+    const parsed = address === "" ? null : parseIpv4Token(address);
+    if (address !== "" && !parsed) return `Invalid IPv4 address: ${address}`;
+    pushUndo();
+    const iface = routerInterfaceForName(router, name);
+    iface.ipv4Address = parsed ? parsed.address : "";
+    if (parsed?.prefixLength != null) iface.prefixLength = clampPrefixLength(parsed.prefixLength);
+    sync().syncPanel();
+    sync().render();
+    return "";
+  }
   function clearRouterInterfaceIp(router, peerId, vlanTag) {
     pushUndo();
     const iface = routerInterfaceFor(router, peerId, vlanTag);
@@ -11403,6 +11416,23 @@ ${body}
       return;
     }
     if (session.mode !== "interface") return;
+    if (!session.interfacePeerId && session.interfaceName) {
+      const base = session.interfaceName.toLowerCase();
+      const now = routerInterfacesWithNames(router).find((i) => i.name.toLowerCase().split(".")[0] === base);
+      if (now && !now.peer) return;
+      if (now) {
+        terminalLineFor(session, "muted", `% ${session.interfaceName} is now cabled to ${now.peer.name} \u2014 configuring that interface.`);
+        session.interfacePeerId = now.peerId;
+        session.interfaceVlanTag = null;
+        session.interfaceName = null;
+        return;
+      }
+      const name = session.interfaceName;
+      session.mode = "config";
+      clearInterfaceTarget(session);
+      terminalLineFor(session, "muted", `% ${name} no longer exists on ${router.name} \u2014 back in configuration mode.`);
+      return;
+    }
     const peerId = session.interfacePeerId;
     const tag = session.interfaceVlanTag;
     let gone = null;
@@ -11413,10 +11443,25 @@ ${body}
     }
     if (!gone) return;
     session.mode = "config";
-    session.interfacePeerId = null;
-    session.interfaceVlanTag = null;
+    clearInterfaceTarget(session);
     terminalLineFor(session, "muted", `% ${gone} \u2014 back in configuration mode.`);
   }
+  function clearInterfaceTarget(session) {
+    session.interfacePeerId = null;
+    session.interfaceVlanTag = null;
+    session.interfaceName = null;
+  }
+  function inInterfaceMode() {
+    return state.terminal.mode === "interface" && !!(state.terminal.interfacePeerId || state.terminal.interfaceName);
+  }
+  function uncabledTarget() {
+    return state.terminal.interfacePeerId ? null : state.terminal.interfaceName;
+  }
+  function sessionInterfaceEntry(router) {
+    const name = uncabledTarget();
+    return name ? routerInterfaceForName(router, name) : routerInterfaceFor(router, state.terminal.interfacePeerId, state.terminal.interfaceVlanTag);
+  }
+  var notCabledNote = (name) => `% ${name} is not cabled \u2014 it stays down, with no connected route, until a cable is plugged in.`;
   function routerMode() {
     const m = state.terminal.mode;
     return m === "privileged" || m === "config" || m === "interface" || m === "rip" ? m : "exec";
@@ -11519,12 +11564,12 @@ ${body}
   function routerNatCommand(router, lower) {
     const natMatch = lower.match(/^(no\s+)?ip\s+nat\s+(inside|outside)$/);
     if (!natMatch) return false;
-    if (state.terminal.mode !== "interface" || !state.terminal.interfacePeerId) {
+    if (!inInterfaceMode()) {
       terminalLine("error", "% Interface mode required.");
       return true;
     }
     pushUndo();
-    const iface = routerInterfaceFor(router, state.terminal.interfacePeerId, state.terminal.interfaceVlanTag);
+    const iface = sessionInterfaceEntry(router);
     if (natMatch[1]) {
       delete iface.natRole;
       terminalLine("", `Cleared NAT role on the interface.`);
@@ -11610,8 +11655,7 @@ ${body}
     if (lower === "exit") {
       if (state.terminal.mode === "interface") {
         state.terminal.mode = "config";
-        state.terminal.interfacePeerId = null;
-        state.terminal.interfaceVlanTag = null;
+        clearInterfaceTarget(state.terminal);
       } else if (state.terminal.mode === "rip") {
         state.terminal.mode = "config";
       } else if (state.terminal.mode === "config") {
@@ -11625,8 +11669,7 @@ ${body}
     }
     if (lower === "end") {
       state.terminal.mode = "privileged";
-      state.terminal.interfacePeerId = null;
-      state.terminal.interfaceVlanTag = null;
+      clearInterfaceTarget(state.terminal);
       return true;
     }
     if (lower === "enable") {
@@ -11635,8 +11678,7 @@ ${body}
         return true;
       }
       state.terminal.mode = "privileged";
-      state.terminal.interfacePeerId = null;
-      state.terminal.interfaceVlanTag = null;
+      clearInterfaceTarget(state.terminal);
       return true;
     }
     if (lower === "configure terminal" || lower === "conf t") {
@@ -11644,8 +11686,7 @@ ${body}
         terminalLine("error", "% Privileged mode required. Enter enable first.");
       } else {
         state.terminal.mode = "config";
-        state.terminal.interfacePeerId = null;
-        state.terminal.interfaceVlanTag = null;
+        clearInterfaceTarget(state.terminal);
       }
       return true;
     }
@@ -11734,43 +11775,63 @@ ${body}
       }
       const iface = routerInterfaceByName(router, interfaceMatch[1]);
       if (!iface) {
+        const sub = interfaceMatch[1].match(/^(.+?)\.\d+$/);
+        const uncabledBase = sub ? routerInterfaceByName(router, sub[1]) : null;
+        if (uncabledBase && !uncabledBase.peer) {
+          terminalLine("error", `% ${uncabledBase.name} is not cabled \u2014 a sub-interface needs a cable to carry its VLAN. Connect the port first.`);
+          return true;
+        }
         const sel = routerBaseOrNewSubInterface(router, interfaceMatch[1]);
         if (!sel) {
           terminalLine("error", `% Unknown interface ${interfaceMatch[1]}`);
           return true;
         }
         state.terminal.mode = "interface";
+        clearInterfaceTarget(state.terminal);
         state.terminal.interfacePeerId = sel.peerId;
         state.terminal.interfaceVlanTag = sel.vlanTag;
         return true;
       }
       state.terminal.mode = "interface";
-      state.terminal.interfacePeerId = iface.peerId;
-      state.terminal.interfaceVlanTag = iface.config?.vlanTag ?? null;
+      clearInterfaceTarget(state.terminal);
+      if (iface.peer) {
+        state.terminal.interfacePeerId = iface.peerId;
+        state.terminal.interfaceVlanTag = iface.config?.vlanTag ?? null;
+      } else {
+        state.terminal.interfaceName = iface.name;
+      }
       return true;
     }
     const ipAddressMatch = command.match(/^ip\s+address\s+(\S+)$/i);
     if (ipAddressMatch) {
-      if (state.terminal.mode !== "interface" || !state.terminal.interfacePeerId) {
+      if (!inInterfaceMode()) {
         terminalLine("error", "% Interface mode required.");
         return true;
       }
-      const result = setRouterInterfaceIp(router, state.terminal.interfacePeerId, ipAddressMatch[1], state.terminal.interfaceVlanTag);
+      const uncabled = uncabledTarget();
+      const result = uncabled ? setUncabledRouterInterfaceIp(router, uncabled, ipAddressMatch[1]) : setRouterInterfaceIp(router, state.terminal.interfacePeerId, ipAddressMatch[1], state.terminal.interfaceVlanTag);
       if (result) terminalLine("error", result);
+      else if (uncabled) terminalLine("muted", notCabledNote(uncabled));
       return true;
     }
     if (lower === "no ip address") {
-      if (state.terminal.mode !== "interface" || !state.terminal.interfacePeerId) {
+      if (!inInterfaceMode()) {
         terminalLine("error", "% Interface mode required.");
         return true;
       }
-      clearRouterInterfaceIp(router, state.terminal.interfacePeerId, state.terminal.interfaceVlanTag);
+      const uncabled = uncabledTarget();
+      if (uncabled) setUncabledRouterInterfaceIp(router, uncabled, "");
+      else clearRouterInterfaceIp(router, state.terminal.interfacePeerId, state.terminal.interfaceVlanTag);
       return true;
     }
     const encapMatch = command.match(/^encapsulation\s+dot1q\s+(\d+)$/i);
     if (encapMatch) {
-      if (state.terminal.mode !== "interface" || !state.terminal.interfacePeerId) {
+      if (!inInterfaceMode()) {
         terminalLine("error", "% Interface mode required.");
+        return true;
+      }
+      if (uncabledTarget()) {
+        terminalLine("error", `% ${uncabledTarget()} is not cabled \u2014 a sub-interface needs a cable to carry its VLAN. Connect the port first.`);
         return true;
       }
       const vlanId = normaliseVlanId(encapMatch[1]);
@@ -11796,7 +11857,7 @@ ${body}
       return true;
     }
     if (lower === "no encapsulation dot1q" || lower === "no encapsulation") {
-      if (state.terminal.mode !== "interface" || !state.terminal.interfacePeerId) {
+      if (!inInterfaceMode()) {
         terminalLine("error", "% Interface mode required.");
         return true;
       }

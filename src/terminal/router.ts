@@ -7,7 +7,7 @@ import type { Device, TerminalSession, MutationResult } from "../types";
 import { state, sync, pushUndo } from "../state";
 import { isValidIpv4, parseIpv4Token, normaliseVlanId, prefixOf, clampPrefixLength, networkOf } from "../utils";
 import { normaliseArpTable, normaliseDhcpLeases, normaliseStaticRoutes, normaliseRipConfig } from "../normalise";
-import { routerInterfacesWithNames, routerInterfaceFor, routerInterfaceByName, applyHostname, linkedPortsFor } from "../devices";
+import { routerInterfacesWithNames, routerInterfaceFor, routerInterfaceForName, routerInterfaceByName, applyHostname, linkedPortsFor } from "../devices";
 import { buildRoutingTable, runRipConvergence } from "../engine";
 import { terminalLine, terminalLineFor, closeSession } from "./core";
 import { runIptablesCommand } from "./iptables";
@@ -192,6 +192,21 @@ export function setRouterInterfaceIp(router: Device, peerId: string, address: st
   return "";
 }
 
+// The same edit for a port with NO cable, keyed by its name (Ethernet3) — the
+// entry the inspector's "not connected" rows edit. An empty address clears it.
+// Returns an error string, or "" on success, like setRouterInterfaceIp.
+export function setUncabledRouterInterfaceIp(router: Device, name: string, address: string): string {
+  const parsed = address === "" ? null : parseIpv4Token(address);
+  if (address !== "" && !parsed) return `Invalid IPv4 address: ${address}`;
+  pushUndo();
+  const iface = routerInterfaceForName(router, name);
+  iface.ipv4Address = parsed ? parsed.address : "";
+  if (parsed?.prefixLength != null) iface.prefixLength = clampPrefixLength(parsed.prefixLength);
+  sync().syncPanel();
+  sync().render();
+  return "";
+}
+
 export function clearRouterInterfaceIp(router: Device, peerId: string, vlanTag?: number | null): void {
   pushUndo();
   const iface = routerInterfaceFor(router, peerId, vlanTag);
@@ -268,6 +283,25 @@ export function reconcileRouterSession(session: TerminalSession, router: Device)
     return;
   }
   if (session.mode !== "interface") return;
+  if (!session.interfacePeerId && session.interfaceName) {
+    // Configuring a port that had no cable. It may have gained one, or gone.
+    const base = session.interfaceName.toLowerCase();
+    const now = routerInterfacesWithNames(router).find((i: any) => i.name.toLowerCase().split(".")[0] === base);
+    if (now && !now.peer) return;                       // still there, still unplugged
+    if (now) {
+      // The port is the same port; it is keyed by its peer now that it has one.
+      terminalLineFor(session, "muted", `% ${session.interfaceName} is now cabled to ${now.peer!.name} — configuring that interface.`);
+      session.interfacePeerId = now.peerId;
+      session.interfaceVlanTag = null;
+      session.interfaceName = null;
+      return;
+    }
+    const name = session.interfaceName;
+    session.mode = "config";
+    clearInterfaceTarget(session);
+    terminalLineFor(session, "muted", `% ${name} no longer exists on ${router.name} — back in configuration mode.`);
+    return;
+  }
   const peerId = session.interfacePeerId;
   const tag = session.interfaceVlanTag;
   let gone: string | null = null;
@@ -278,10 +312,43 @@ export function reconcileRouterSession(session: TerminalSession, router: Device)
   }
   if (!gone) return;
   session.mode = "config";
-  session.interfacePeerId = null;
-  session.interfaceVlanTag = null;
+  clearInterfaceTarget(session);
   terminalLineFor(session, "muted", `% ${gone} — back in configuration mode.`);
 }
+
+// ── What the session's config-if commands act on ─────────────────────────────
+// A cabled interface is keyed by its peer (+ VLAN tag for a sub-interface). A
+// port with no cable has no peer, so the session holds its name instead and the
+// commands edit the by-name entry the inspector's "not connected" rows use
+// (`routerInterfaceForName`). The guards used to test `interfacePeerId` alone:
+// an uncabled port's is "", so `interface Ethernet3` entered config-if and
+// then every command answered "Interface mode required" (review R39).
+
+function clearInterfaceTarget(session: TerminalSession): void {
+  session.interfacePeerId = null;
+  session.interfaceVlanTag = null;
+  session.interfaceName = null;
+}
+
+function inInterfaceMode(): boolean {
+  return state.terminal.mode === "interface" && !!(state.terminal.interfacePeerId || state.terminal.interfaceName);
+}
+
+// The name of the uncabled port being configured, or null on a cabled one.
+function uncabledTarget(): string | null {
+  return state.terminal.interfacePeerId ? null : state.terminal.interfaceName;
+}
+
+// The config entry the session's interface commands edit (created on demand).
+function sessionInterfaceEntry(router: Device): any {
+  const name = uncabledTarget();
+  return name
+    ? routerInterfaceForName(router, name)
+    : routerInterfaceFor(router, state.terminal.interfacePeerId!, state.terminal.interfaceVlanTag);
+}
+
+// A port with no cable takes an address, but it is down: say what that means.
+const notCabledNote = (name: string) => `% ${name} is not cabled — it stays down, with no connected route, until a cable is plugged in.`;
 
 function routerMode(): RouterMode {
   const m = state.terminal.mode;
@@ -396,12 +463,12 @@ function routerStaticNatCommand(router: Device, lower: string): boolean {
 function routerNatCommand(router: Device, lower: string): boolean {
   const natMatch = lower.match(/^(no\s+)?ip\s+nat\s+(inside|outside)$/);
   if (!natMatch) return false;
-  if (state.terminal.mode !== "interface" || !state.terminal.interfacePeerId) {
+  if (!inInterfaceMode()) {
     terminalLine("error", "% Interface mode required.");
     return true;
   }
   pushUndo();
-  const iface = routerInterfaceFor(router, state.terminal.interfacePeerId, state.terminal.interfaceVlanTag);
+  const iface = sessionInterfaceEntry(router);
   if (natMatch[1]) {
     delete iface.natRole;
     terminalLine("", `Cleared NAT role on the interface.`);
@@ -499,8 +566,7 @@ function routerSessionCommand(lower: string): boolean {
   if (lower === "exit") {
     if (state.terminal.mode === "interface") {
       state.terminal.mode = "config";
-      state.terminal.interfacePeerId = null;
-      state.terminal.interfaceVlanTag = null;
+      clearInterfaceTarget(state.terminal);
     } else if (state.terminal.mode === "rip") {
       state.terminal.mode = "config";
     } else if (state.terminal.mode === "config") {
@@ -515,8 +581,7 @@ function routerSessionCommand(lower: string): boolean {
   }
   if (lower === "end") {
     state.terminal.mode = "privileged";
-    state.terminal.interfacePeerId = null;
-    state.terminal.interfaceVlanTag = null;
+    clearInterfaceTarget(state.terminal);
     return true;
   }
   if (lower === "enable") {
@@ -527,8 +592,7 @@ function routerSessionCommand(lower: string): boolean {
       return true;
     }
     state.terminal.mode = "privileged";
-    state.terminal.interfacePeerId = null;
-    state.terminal.interfaceVlanTag = null;
+    clearInterfaceTarget(state.terminal);
     return true;
   }
   if (lower === "configure terminal" || lower === "conf t") {
@@ -536,8 +600,7 @@ function routerSessionCommand(lower: string): boolean {
       terminalLine("error", "% Privileged mode required. Enter enable first.");
     } else {
       state.terminal.mode = "config";
-      state.terminal.interfacePeerId = null;
-      state.terminal.interfaceVlanTag = null;
+      clearInterfaceTarget(state.terminal);
     }
     return true;
   }
@@ -646,43 +709,66 @@ function routerInterfaceCommand(router: Device, command: string, lower: string):
       // cannot: `Ethernet1` is the BASE of an interface that already has
       // sub-interfaces (the view lists only those), and `Ethernet1.20` is a
       // sub-interface that does not exist yet — naming it creates it.
+      const sub = interfaceMatch[1].match(/^(.+?)\.\d+$/);
+      const uncabledBase = sub ? routerInterfaceByName(router, sub[1]) : null;
+      if (uncabledBase && !uncabledBase.peer) {
+        // A sub-interface is keyed by the cable that carries its VLAN.
+        terminalLine("error", `% ${uncabledBase.name} is not cabled — a sub-interface needs a cable to carry its VLAN. Connect the port first.`);
+        return true;
+      }
       const sel = routerBaseOrNewSubInterface(router, interfaceMatch[1]);
       if (!sel) {
         terminalLine("error", `% Unknown interface ${interfaceMatch[1]}`);
         return true;
       }
       state.terminal.mode = "interface";
+      clearInterfaceTarget(state.terminal);
       state.terminal.interfacePeerId = sel.peerId;
       state.terminal.interfaceVlanTag = sel.vlanTag;
       return true;
     }
     state.terminal.mode = "interface";
-    state.terminal.interfacePeerId = iface.peerId;
-    state.terminal.interfaceVlanTag = iface.config?.vlanTag ?? null;
+    clearInterfaceTarget(state.terminal);
+    if (iface.peer) {
+      state.terminal.interfacePeerId = iface.peerId;
+      state.terminal.interfaceVlanTag = iface.config?.vlanTag ?? null;
+    } else {
+      state.terminal.interfaceName = iface.name;     // no cable, so no peer to key by — hold the port's name
+    }
     return true;
   }
   const ipAddressMatch = command.match(/^ip\s+address\s+(\S+)$/i);
   if (ipAddressMatch) {
-    if (state.terminal.mode !== "interface" || !state.terminal.interfacePeerId) {
+    if (!inInterfaceMode()) {
       terminalLine("error", "% Interface mode required.");
       return true;
     }
-    const result = setRouterInterfaceIp(router, state.terminal.interfacePeerId, ipAddressMatch[1], state.terminal.interfaceVlanTag);
+    const uncabled = uncabledTarget();
+    const result = uncabled
+      ? setUncabledRouterInterfaceIp(router, uncabled, ipAddressMatch[1])
+      : setRouterInterfaceIp(router, state.terminal.interfacePeerId!, ipAddressMatch[1], state.terminal.interfaceVlanTag);
     if (result) terminalLine("error", result);
+    else if (uncabled) terminalLine("muted", notCabledNote(uncabled));
     return true;
   }
   if (lower === "no ip address") {
-    if (state.terminal.mode !== "interface" || !state.terminal.interfacePeerId) {
+    if (!inInterfaceMode()) {
       terminalLine("error", "% Interface mode required.");
       return true;
     }
-    clearRouterInterfaceIp(router, state.terminal.interfacePeerId, state.terminal.interfaceVlanTag);
+    const uncabled = uncabledTarget();
+    if (uncabled) setUncabledRouterInterfaceIp(router, uncabled, "");
+    else clearRouterInterfaceIp(router, state.terminal.interfacePeerId!, state.terminal.interfaceVlanTag);
     return true;
   }
   const encapMatch = command.match(/^encapsulation\s+dot1q\s+(\d+)$/i);
   if (encapMatch) {
-    if (state.terminal.mode !== "interface" || !state.terminal.interfacePeerId) {
+    if (!inInterfaceMode()) {
       terminalLine("error", "% Interface mode required.");
+      return true;
+    }
+    if (uncabledTarget()) {
+      terminalLine("error", `% ${uncabledTarget()} is not cabled — a sub-interface needs a cable to carry its VLAN. Connect the port first.`);
       return true;
     }
     const vlanId = normaliseVlanId(encapMatch[1]);
@@ -696,7 +782,7 @@ function routerInterfaceCommand(router: Device, command: string, lower: string):
       // .N sub-interface and moves the session onto it — the base keeps its own
       // untagged identity. It used to retag the base itself, after which no
       // second sub-interface could ever be made (router-on-a-stick was a dead end).
-      routerInterfaceFor(router, state.terminal.interfacePeerId, vlanId);
+      routerInterfaceFor(router, state.terminal.interfacePeerId!, vlanId);
       state.terminal.interfaceVlanTag = vlanId;
       sync().syncPanel();
       sync().render();
@@ -704,7 +790,7 @@ function routerInterfaceCommand(router: Device, command: string, lower: string):
       return true;
     }
     // On a sub-interface: change the VLAN it carries (its name follows the tag).
-    const iface = routerInterfaceFor(router, state.terminal.interfacePeerId, state.terminal.interfaceVlanTag);
+    const iface = routerInterfaceFor(router, state.terminal.interfacePeerId!, state.terminal.interfaceVlanTag);
     iface.vlanTag = vlanId;
     state.terminal.interfaceVlanTag = vlanId;
     sync().syncPanel();
@@ -713,7 +799,7 @@ function routerInterfaceCommand(router: Device, command: string, lower: string):
     return true;
   }
   if (lower === "no encapsulation dot1q" || lower === "no encapsulation") {
-    if (state.terminal.mode !== "interface" || !state.terminal.interfacePeerId) {
+    if (!inInterfaceMode()) {
       terminalLine("error", "% Interface mode required.");
       return true;
     }
@@ -728,7 +814,7 @@ function routerInterfaceCommand(router: Device, command: string, lower: string):
       return true;
     }
     pushUndo();
-    const iface = routerInterfaceFor(router, state.terminal.interfacePeerId, state.terminal.interfaceVlanTag);
+    const iface = routerInterfaceFor(router, state.terminal.interfacePeerId!, state.terminal.interfaceVlanTag);
     iface.vlanTag = null;
     state.terminal.interfaceVlanTag = null;
     sync().syncPanel();

@@ -781,7 +781,7 @@ describe("cli — the shell's verdict is the command's verdict (R56)", () => {
   });
 
   it("a detached terminal is a failure, an empty line is not", () => {
-    state.terminal = { deviceId: null, mode: "exec", interfacePeerId: null, interfaceVlanTag: null, lines: [], history: [], historyIndex: -1 };
+    state.terminal = { deviceId: null, mode: "exec", interfacePeerId: null, interfaceVlanTag: null, interfaceName: null, lines: [], history: [], historyIndex: -1 };
     expect(runTerminalCommand("show ip route").ok).toBe(false);
     exec("cli R1 enable");
     expect(runTerminalCommand("   ").ok).toBe(true);

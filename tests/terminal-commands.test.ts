@@ -792,3 +792,99 @@ describe("router shell — a CLI mode whose target is gone falls back to config 
     expect(r1().config!.rip?.enabled).toBeFalsy();
   });
 });
+
+// R39: an uncabled router port has no peer, and config-if was keyed by peer id
+// alone — `interface Ethernet3` entered the mode, then every command in it
+// answered "Interface mode required" (later: "no longer cabled", for a port
+// that never was). The session now holds the port's name, and the commands
+// edit the by-name entry the inspector's "not connected" rows use.
+describe("router shell — config-if on a port with no cable (R39)", () => {
+  function shell() {
+    resetState();
+    runConsoleScript("add router R1 at 0 0\nadd switch SW at 200 0\nlink R1 SW\ninterface R1 SW ip 10.0.0.1/24");
+    const r1 = () => state.devices.find(d => d.name === "R1")!;   // undo replaces the device objects
+    state.terminal = { deviceId: r1().id, mode: "config", interfacePeerId: null, interfaceVlanTag: null, interfaceName: null, lines: [], history: [], historyIndex: -1 };
+    state.terminalSessions = [state.terminal];
+    const run = (c: string) => { const n = state.terminal.lines.length; runRouterTerminalCommand(r1(), c); return state.terminal.lines.slice(n).map(l => l.text).join(" "); };
+    const byName = (name: string) => (r1().config.interfaces || []).find(i => i.peerId === "" && i.name === name);
+    return { r1, run, byName };
+  }
+
+  it("`ip address` addresses the unplugged port, says it stays down, and is undoable", () => {
+    const { r1, run, byName } = shell();
+    expect(run("interface Ethernet3")).toBe("");
+    expect(state.terminal.mode).toBe("interface");
+    expect(state.terminal.interfaceName).toBe("Ethernet3");
+    const out = run("ip address 10.3.0.1/24");
+    expect(out).not.toContain("Interface mode required");
+    expect(out).toContain("Ethernet3 is not cabled");
+    expect(state.terminal.mode).toBe("interface");
+    expect(byName("Ethernet3")).toMatchObject({ ipv4Address: "10.3.0.1", prefixLength: 24 });
+    expect(showRouterRunningConfig(r1())).toContain("interface Ethernet3\n ip address 10.3.0.1/24");
+    undo();
+    expect(byName("Ethernet3")?.ipv4Address || "").toBe("");
+  });
+
+  it("`no ip address`, `ip nat` and a bad address all act on that port", () => {
+    const { run, byName } = shell();
+    run("interface ethernet3");                                    // names match ignoring case
+    expect(run("ip address 10.3.0.999")).toContain("Invalid IPv4 address");
+    run("ip address 10.3.0.1/24");
+    expect(run("ip nat inside")).toContain("ip nat inside");
+    expect(byName("Ethernet3")!.natRole).toBe("inside");
+    expect(run("no ip address")).not.toContain("Interface mode required");
+    expect(byName("Ethernet3")!.ipv4Address).toBe("");
+  });
+
+  it("a sub-interface on an unplugged port is refused with the reason, not `Unknown interface`", () => {
+    const { run } = shell();
+    const undoDepth = state.undoStack.length;
+    const out = run("interface Ethernet3.10");
+    expect(out).toContain("Ethernet3 is not cabled");
+    expect(out).not.toContain("Unknown interface");
+    expect(state.terminal.mode).toBe("config");
+    run("interface Ethernet3");
+    expect(run("encapsulation dot1q 10")).toContain("Ethernet3 is not cabled");
+    expect(state.terminal.interfaceVlanTag).toBeNull();
+    expect(state.undoStack.length).toBe(undoDepth);
+    expect(run("interface Ethernet99")).toContain("Unknown interface Ethernet99");   // a port that does not exist still is
+  });
+
+  it("retargeting to a cabled interface, `exit` and `end` drop the port name", () => {
+    const { r1, run } = shell();
+    run("interface Ethernet3");
+    run("interface Ethernet1");
+    expect(state.terminal.interfaceName).toBeNull();
+    expect(state.terminal.interfacePeerId).toBe(state.devices.find(d => d.name === "SW")!.id);
+    run("ip address 10.0.0.254/24");
+    expect(r1().config.interfaces!.find(i => i.peerId)!.ipv4Address).toBe("10.0.0.254");
+    run("interface Ethernet3");
+    run("exit");
+    expect(state.terminal.mode).toBe("config");
+    expect(state.terminal.interfaceName).toBeNull();
+    expect(run("ip address 10.9.9.9/24")).toContain("Interface mode required");   // truly outside the mode
+  });
+
+  it("a cable plugged into the port mid-session moves the session onto that interface", () => {
+    const { r1, run } = shell();
+    run("interface Ethernet2");
+    runConsoleScript("add switch SW2 at 200 200\nlink R1 SW2");      // the next free port: Ethernet2
+    const out = run("ip address 10.2.0.1/24");
+    expect(out).toContain("Ethernet2 is now cabled to SW2");
+    const sw2 = state.devices.find(d => d.name === "SW2")!.id;
+    expect(state.terminal.interfacePeerId).toBe(sw2);
+    expect(state.terminal.interfaceName).toBeNull();
+    expect(r1().config.interfaces!.find(i => i.peerId === sw2)!.ipv4Address).toBe("10.2.0.1");
+  });
+
+  it("a port removed mid-session falls back to config mode and says so", () => {
+    const { run } = shell();
+    run("interface Ethernet4");
+    expect(state.terminal.mode).toBe("interface");
+    expect(runConsoleScript("portcount R1 2").every(r => r.ok)).toBe(true);
+    const out = run("ip address 10.4.0.1/24");
+    expect(out).toContain("Ethernet4 no longer exists on R1");
+    expect(out).toContain("Interface mode required");
+    expect(state.terminal.mode).toBe("config");
+  });
+});

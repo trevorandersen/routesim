@@ -152,6 +152,7 @@ export const state: AppState = {
     mode: "exec",
     interfacePeerId: null,
     interfaceVlanTag: null,
+    interfaceName: null,
     lines: [],
     history: [],
     historyIndex: -1
@@ -186,6 +187,7 @@ export function freshTerminalSession(deviceId: string | null = null): TerminalSe
     mode: "exec",
     interfacePeerId: null,
     interfaceVlanTag: null,
+    interfaceName: null,
     lines: [],
     history: [],
     historyIndex: -1,

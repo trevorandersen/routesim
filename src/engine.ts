@@ -1827,6 +1827,18 @@ function internetFacingIface(router: Device, internetId: string): RouterInterfac
   return ifaces.find((i) => i.peerId === internetId && i.vlanTag == null);
 }
 
+// Whether `ip` is a gateway address the cloud presents on one of its links —
+// the highest host address of a connected router's public subnet.
+function isInternetGatewayIp(internetId: string, ports: ReturnType<typeof linkedPortsFor>, ip: string): boolean {
+  for (const port of ports) {
+    const peer = port?.peer;
+    if (!peer || peer.type !== "router") continue;
+    const wan = internetFacingIface(peer, internetId);
+    if (wan?.ipv4Address && internetGatewayIp(wan.ipv4Address, prefixOf(wan)) === ip) return true;
+  }
+  return false;
+}
+
 // The internet cloud is NOT an L2 bridge — it represents the public internet and
 // routes IPv4 between the routers cabled to it, each on its own public subnet.
 // It presents a gateway address per link (answering ARP for it, so a connected
@@ -1836,6 +1848,7 @@ function internetFacingIface(router: Device, internetId: string): RouterInterfac
 // them). One L3 hop: TTL is decremented, and an expired packet earns an ICMP
 // Time-Exceeded from the gateway the cloud presents to the sender — so
 // traceroute sees the cloud as a single hop standing in for the many real ones.
+// That gateway answers ping (and refuses everything else, with the reason).
 export function processAtInternet(device: Device, frame: EthernetFrame, fromDeviceId: string | null): OutgoingFrame[] {
   if (device.poweredOff) return [];
   const out: OutgoingFrame[] = [];
@@ -1866,6 +1879,29 @@ export function processAtInternet(device: Device, frame: EthernetFrame, fromDevi
   const dstMac = normaliseMacAddress(frame.dstMac);
   if (dstMac !== cloudMac) {
     logStep(device, "sim-learn", `${frameLabel(frame)} ${ipv4.srcIp}→${ipv4.dstIp} is for ${dstMac}, not the internet gateway MAC ${cloudMac} — not ours to route, ignoring`);
+    return out;
+  }
+
+  // Addressed to the cloud itself: one of the gateway addresses it presents.
+  // It answers ARP for that address and sources Time-Exceeded from it (it is a
+  // traceroute hop), so it answers ping there too — the routing loop below
+  // skips the sender's own subnet, and an echo to the gateway used to fall
+  // through to "No route to <gateway> on the internet". Nothing else is served
+  // at the gateway, and it says so as a router does for its own address.
+  if (fromDeviceId && isInternetGatewayIp(device.id, ports, ipv4.dstIp)) {
+    const inner = ipv4.payload;
+    if (inner.type === "icmp" && inner.icmpType === 8) {
+      logStep(device, "sim-icmp", `Received ICMP Echo Request for the internet gateway (${ipv4.dstIp}) — sending Reply`);
+      out.push({ frame: createIcmpEchoReply(cloudMac, frame.srcMac, ipv4.dstIp, ipv4.srcIp, 64, null, inner.sequence), toDeviceId: fromDeviceId });
+    } else if ((inner.type === "tcp" && inner.flags === "syn") || (inner.type === "dns" && inner.op === "query")) {
+      logStep(device, "sim-drop", inner.type === "tcp"
+        ? `TCP SYN to ${ipv4.dstIp}:${inner.dstPort} — the internet gateway answers ping only, no service listens there; sending RST`
+        : `DNS query to ${ipv4.dstIp} — the internet gateway answers ping only, it runs no DNS service (UDP/53 closed); sending ICMP Port Unreachable`);
+      const resp = rejectResponse(frame, ipv4, cloudMac, ipv4.dstIp, null, fromDeviceId);
+      if (resp) out.push(resp);
+    } else {
+      logStep(device, "sim-drop", `${frameLabel(frame)} addressed to the internet gateway itself (${ipv4.dstIp}) — it answers ping only, dropped`);
+    }
     return out;
   }
 

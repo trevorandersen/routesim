@@ -12,7 +12,7 @@ import { describe, it, expect, beforeAll, beforeEach } from "bun:test";
 import { state } from "../src/state";
 import { runSimulationHeadless, processAtInternet, runTraceroute } from "../src/engine";
 import { buildRoutingTable, runRipConvergence } from "../src/routing";
-import { buildPingEvents, buildHttpEvents, l2Reachable } from "../src/simulation";
+import { buildPingEvents, buildHttpEvents, buildConnectEvents, l2Reachable } from "../src/simulation";
 import { buildConfigPayload, parseConfig } from "../src/config";
 import { createIcmpEchoRequest } from "../src/frame";
 import { deriveMac } from "../src/utils";
@@ -112,6 +112,59 @@ describe("the internet cloud", () => {
     const r = runSimulationHeadless(buildPingEvents(pcA, "8.8.8.8") as any, pcA.id, "8.8.8.8", "ping");
     expect(r.success).toBe(false);
     expect(netLog().some(a => a.includes("No route to 8.8.8.8 on the internet"))).toBe(true);
+  });
+
+  // R23: the gateway is a traceroute hop and answers ARP, so it answers ping.
+  describe("the gateway the cloud presents", () => {
+    beforeEach(() => {
+      runConsoleScript(`
+        add computer PC-A at -500 0
+        add router R1 at -300 0
+        add internet NET at 0 0
+        add router R2 at 300 0
+        link PC-A R1
+        link R1 NET
+        link R2 NET
+        ip PC-A 10.0.0.10/24
+        gateway PC-A 10.0.0.1
+        interface R1 PC-A ip 10.0.0.1/24
+        interface R1 NET ip 203.0.113.1/30
+        interface R2 NET ip 198.51.100.1/30
+        cli R1 enable
+        cli R1 configure terminal
+        cli R1 interface Ethernet1
+        cli R1 ip nat inside
+        cli R1 exit
+        cli R1 interface Ethernet2
+        cli R1 ip nat outside
+        cli R1 end
+      `);
+    });
+
+    it("answers a ping to the sender's own gateway — the hop traceroute shows", () => {
+      const pcA = dev("PC-A");
+      const trace = runTraceroute(pcA, "198.51.100.1");
+      if (typeof trace === "string") throw new Error(trace);
+      expect(trace.hops.map(h => h.ip)).toContain("203.0.113.2");
+      const r = runSimulationHeadless(buildPingEvents(pcA, "203.0.113.2") as any, pcA.id, "203.0.113.2", "ping");
+      expect(r.success).toBe(true);
+      expect(netLog().some(a => a.includes("Echo Request for the internet gateway (203.0.113.2)"))).toBe(true);
+      expect(netLog().some(a => a.includes("No route to"))).toBe(false);
+    });
+
+    it("answers a ping to the gateway it presents to another site, without bouncing it off that site's router", () => {
+      const pcA = dev("PC-A");
+      const r = runSimulationHeadless(buildPingEvents(pcA, "198.51.100.2") as any, pcA.id, "198.51.100.2", "ping");
+      expect(r.success).toBe(true);
+      expect(state.simulation.log.some(l => l.deviceName === "R2")).toBe(false);
+    });
+
+    it("refuses a TCP connection there, saying the gateway answers ping only", () => {
+      const pcA = dev("PC-A");
+      const r = runSimulationHeadless(buildConnectEvents(pcA, "203.0.113.2", 80) as any, pcA.id, "203.0.113.2", "tcp");
+      expect(r.success).toBe(false);
+      expect(netLog().some(a => a.includes("the internet gateway answers ping only") && a.includes("sending RST"))).toBe(true);
+    });
   });
 
   it("originates a default into RIP so a router several hops from the edge still gets out", () => {

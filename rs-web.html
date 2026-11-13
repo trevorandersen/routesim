@@ -9267,6 +9267,15 @@ Full legal text: https://creativecommons.org/publicdomain/zero/1.0/legalcode</pr
     const ifaces = router.config?.interfaces || [];
     return ifaces.find((i) => i.peerId === internetId && i.vlanTag == null);
   }
+  function isInternetGatewayIp(internetId, ports, ip) {
+    for (const port of ports) {
+      const peer = port?.peer;
+      if (!peer || peer.type !== "router") continue;
+      const wan = internetFacingIface(peer, internetId);
+      if (wan?.ipv4Address && internetGatewayIp(wan.ipv4Address, prefixOf(wan)) === ip) return true;
+    }
+    return false;
+  }
   function processAtInternet(device, frame, fromDeviceId) {
     if (device.poweredOff) return [];
     const out = [];
@@ -9291,6 +9300,20 @@ Full legal text: https://creativecommons.org/publicdomain/zero/1.0/legalcode</pr
     const dstMac = normaliseMacAddress(frame.dstMac);
     if (dstMac !== cloudMac) {
       logStep(device, "sim-learn", `${frameLabel(frame)} ${ipv4.srcIp}\u2192${ipv4.dstIp} is for ${dstMac}, not the internet gateway MAC ${cloudMac} \u2014 not ours to route, ignoring`);
+      return out;
+    }
+    if (fromDeviceId && isInternetGatewayIp(device.id, ports, ipv4.dstIp)) {
+      const inner = ipv4.payload;
+      if (inner.type === "icmp" && inner.icmpType === 8) {
+        logStep(device, "sim-icmp", `Received ICMP Echo Request for the internet gateway (${ipv4.dstIp}) \u2014 sending Reply`);
+        out.push({ frame: createIcmpEchoReply(cloudMac, frame.srcMac, ipv4.dstIp, ipv4.srcIp, 64, null, inner.sequence), toDeviceId: fromDeviceId });
+      } else if (inner.type === "tcp" && inner.flags === "syn" || inner.type === "dns" && inner.op === "query") {
+        logStep(device, "sim-drop", inner.type === "tcp" ? `TCP SYN to ${ipv4.dstIp}:${inner.dstPort} \u2014 the internet gateway answers ping only, no service listens there; sending RST` : `DNS query to ${ipv4.dstIp} \u2014 the internet gateway answers ping only, it runs no DNS service (UDP/53 closed); sending ICMP Port Unreachable`);
+        const resp = rejectResponse(frame, ipv4, cloudMac, ipv4.dstIp, null, fromDeviceId);
+        if (resp) out.push(resp);
+      } else {
+        logStep(device, "sim-drop", `${frameLabel(frame)} addressed to the internet gateway itself (${ipv4.dstIp}) \u2014 it answers ping only, dropped`);
+      }
       return out;
     }
     for (const port of ports) {
@@ -15424,7 +15447,7 @@ Snort successfully validated the configuration${bad ? " (with errors)" : "."}`);
     { type: "server", body: "A host that also runs dnsmasq \u2014 DNS A-records and a DHCP pool \u2014 and can serve HTTP. The DNS / DHCP / RADIUS / Web tool variants are the same device with a different service switched on; enable more from the inspector." },
     { type: "switch", body: "Forwards frames by learning which MAC lives on each port (floods the unknown). Adding, removing or shutting a cable flushes what it learnt on that LAN, so a moved host is re-learnt. The basic switch is unmanaged; the Managed variant adds 802.1Q VLANs, a SONiC-style CLI, SPAN port mirroring (to feed an IDS), and spanning tree." },
     { type: "router", body: "Forwards IP packets between subnets \u2014 longest-prefix routing, static routes and RIP \u2014 over an FRR-style CLI, with NAT and netfilter INPUT/FORWARD chains. The Border variant is the edge archetype (a \u201CB\u201D badge): the natural home for NAT and a firewall." },
-    { type: "internet", body: "Stands in for the public internet. Cable several routers to it \u2014 each on its own public subnet \u2014 and it routes between them by destination, handing each a default route and answering ARP for the gateway it presents. Pair with NAT + port-forwarding for the full multi-site story." },
+    { type: "internet", body: "Stands in for the public internet. Cable several routers to it \u2014 each on its own public subnet \u2014 and it routes between them by destination, handing each a default route and answering ARP \u2014 and ping \u2014 for the gateway it presents (the hop traceroute shows). Pair with NAT + port-forwarding for the full multi-site story." },
     { type: "firewall", body: "A transparent inline packet filter (the netfilter FORWARD chain). Write `iptables` rules to accept / drop / reject by protocol, address, port and connection state; a stateful `-m state ESTABLISHED,RELATED` ruleset lets replies back while blocking new inbound flows." },
     { type: "ids", body: "A passive Snort sensor. Cable it to a managed switch's SPAN/monitor port; it matches the mirrored traffic against your Snort rules (`local.rules`) and raises alerts. It only detects \u2014 it never forwards or drops." },
     { type: "attacker", body: "An autonomous Red Team (Kali) adversary. Set a target and a plan, and on Play it launches a port scan, ping sweep or ARP spoof and reports nmap-style findings. Without an address, Play first boots it over DHCP like any host. Pair it with an IDS for a red-vs-blue detection exercise." },

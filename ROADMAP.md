@@ -5,6 +5,13 @@ that makes invisible network behaviour visible, faithfully and fast.* Each item
 notes rough effort and how it leverages what already exists. Nothing here is
 committed scope — it's a menu for "what next".
 
+> **Released:** [`v0.5.0-alpha`](https://github.com/trevorandersen/routesim/releases/tag/v0.5.0-alpha)
+> (2026-11) — the first tagged release, bundling everything shipped below (the
+> netfilter/NAT/STP/IDS model, the Kali offensive hosts, the 28-scenario
+> curriculum, and the five requested features #1&ndash;#5). The portable
+> `rs-web.html` is attached to the release, and `package.json`'s `version` now
+> drives the number shown in the About box.
+
 > Shipped so far (2026-06): traceroute (ICMP Time-Exceeded), real subnet
 > prefixes (longest-prefix routing, DHCP mask option), the firewall device
 > (iptables, live `-p tcp --dport` rules), the L4 TCP layer (`nc`/`connect`

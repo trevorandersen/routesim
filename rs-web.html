@@ -10634,6 +10634,7 @@ ${body}
   function setHostDns(device, address) {
     const parsed = parseIpv4Token(address);
     if (!parsed) return `Invalid IPv4 address: ${address}`;
+    if (device.config?.dnsServerIp === parsed.address) return `nameserver ${parsed.address} > /etc/resolv.conf`;
     pushUndo();
     ensureConfig(device);
     device.config.dnsServerIp = parsed.address;
@@ -11665,6 +11666,7 @@ ${body}
   function setUncabledRouterInterfaceIp(router, name, address) {
     const parsed = address === "" ? null : parseIpv4Token(address);
     if (address !== "" && !parsed) return `Invalid IPv4 address: ${address}`;
+    if (address === "" && !(router.config?.interfaces || []).some((i) => i.peerId === "" && i.name === name && i.ipv4Address)) return "";
     pushUndo();
     const iface = routerInterfaceForName(router, name);
     iface.ipv4Address = parsed ? parsed.address : "";
@@ -11674,6 +11676,8 @@ ${body}
     return "";
   }
   function clearRouterInterfaceIp(router, peerId, vlanTag) {
+    const set = (router.config?.interfaces || []).some((i) => i.peerId === peerId && (i.vlanTag ?? null) === (vlanTag ?? null) && i.ipv4Address);
+    if (!set) return;
     pushUndo();
     const iface = routerInterfaceFor(router, peerId, vlanTag);
     iface.ipv4Address = "";
@@ -12525,6 +12529,7 @@ ${body}
     ensureConfig(device);
     const cfg = device.config;
     if (change === null) {
+      if (!cfg.mirror) return "No mirror session is configured.";
       pushUndo();
       delete cfg.mirror;
       sync().syncPanel();
@@ -12547,6 +12552,11 @@ ${body}
     return Number.isInteger(n) && n >= 0 && n <= 61440 && n % 4096 === 0 ? null : `Bridge priority must be 0\u201361440 in steps of 4096 (got ${String(value).trim() || "nothing"}).`;
   }
   function setSwitchStp(device, change) {
+    const now = device.config?.stp;
+    const enabledNow = now?.enabled !== false, priorityNow = now?.priority ?? 32768;
+    if ((change.enabled == null || change.enabled === enabledNow) && (change.priority == null || change.priority === priorityNow)) {
+      return change.priority != null ? `Bridge priority is already ${priorityNow}.` : `Spanning tree is already ${enabledNow ? "enabled" : "disabled"}.`;
+    }
     pushUndo();
     ensureConfig(device);
     const cfg = device.config;
@@ -12562,22 +12572,23 @@ ${body}
     const id = normaliseVlanId(vlanId);
     if (!id) return `Invalid VLAN ID: ${vlanId}`;
     const label = name.replace(/\s+/g, " ").trim().slice(0, 32);
-    pushUndo();
     ensureConfig(device);
     const vlans = normaliseVlans(device.config.vlans || []);
     const existing = vlans.find((vlan) => vlan.id === id);
-    if (existing) {
-      if (label) existing.name = label;
-    } else vlans.push({ id, name: label || (id === 1 ? "default" : `Vlan${id}`) });
+    if (existing && (!label || existing.name === label)) return `VLAN ${id} already exists.`;
+    pushUndo();
+    if (existing) existing.name = label;
+    else vlans.push({ id, name: label || (id === 1 ? "default" : `Vlan${id}`) });
     device.config.vlans = vlans.sort((a, b) => a.id - b.id);
     sync().syncPanel();
-    return `Added VLAN ${id}${label ? ` (${label})` : ""}.`;
+    return existing ? `Renamed VLAN ${id} to ${label}.` : `Added VLAN ${id}${label ? ` (${label})` : ""}.`;
   }
   function removeSwitchVlan(device, vlanId) {
     const id = normaliseVlanId(vlanId);
     if (!id || id === 1) return `Invalid VLAN ID: ${vlanId}`;
-    pushUndo();
     ensureConfig(device);
+    if (!normaliseVlans(device.config.vlans || []).some((vlan) => vlan.id === id)) return `Unknown VLAN ${id} \u2014 nothing to remove.`;
+    pushUndo();
     device.config.vlans = normaliseVlans(device.config.vlans || []).filter((vlan) => vlan.id !== id);
     const portVlans = normalisePortVlans(device.config.portVlans || {});
     Object.keys(portVlans).forEach((port) => {
@@ -12604,11 +12615,12 @@ ${body}
     const iface = switchInterfacesWithNames(device).find((port) => port.name.toLowerCase() === String(portName || "").toLowerCase());
     if (!iface) return `Unknown interface ${portName}.`;
     if (!id) return `Invalid VLAN ID: ${vlanId}`;
-    pushUndo();
     ensureConfig(device);
     const vlans = normaliseVlans(device.config.vlans || []);
-    if (!vlans.some((vlan) => vlan.id === id)) vlans.push({ id, name: id === 1 ? "default" : `Vlan${id}` });
     const portVlans = normalisePortVlans(device.config.portVlans || {});
+    if ((portVlans[iface.name] || 1) === id && (id === 1 || vlans.some((vlan) => vlan.id === id))) return `${iface.name} is already in VLAN ${id}.`;
+    pushUndo();
+    if (!vlans.some((vlan) => vlan.id === id)) vlans.push({ id, name: id === 1 ? "default" : `Vlan${id}` });
     if (id === 1) {
       delete portVlans[iface.name];
     } else {
@@ -12622,9 +12634,10 @@ ${body}
   function setSwitchPortMode(device, portName, mode) {
     const iface = switchInterfacesWithNames(device).find((port) => port.name.toLowerCase() === String(portName || "").toLowerCase());
     if (!iface) return `Unknown interface ${portName}.`;
-    pushUndo();
     ensureConfig(device);
     const portModes = normalisePortModes(device.config.portModes || {});
+    if ((portModes[iface.name] || "access") === mode) return `${iface.name} is already in ${mode} mode.`;
+    pushUndo();
     if (mode === "access") {
       delete portModes[iface.name];
     } else {
@@ -12640,9 +12653,10 @@ ${body}
     const iface = switchInterfacesWithNames(device).find((port) => port.name.toLowerCase() === String(portName || "").toLowerCase());
     if (!iface) return `Unknown interface ${portName}.`;
     if (!id) return `Invalid VLAN ID: ${vlanId}`;
-    pushUndo();
     ensureConfig(device);
     const trunkNativeVlans = normalisePortVlans(device.config.trunkNativeVlans || {});
+    if ((trunkNativeVlans[iface.name] || 1) === id) return `${iface.name} trunk native VLAN is already ${id}.`;
+    pushUndo();
     if (id === 1) {
       delete trunkNativeVlans[iface.name];
     } else {
@@ -12657,9 +12671,12 @@ ${body}
     const iface = switchInterfacesWithNames(device).find((port) => port.name.toLowerCase() === String(portName || "").toLowerCase());
     if (!iface) return `Unknown interface ${portName}.`;
     if (!id) return `Invalid VLAN ID: ${vlanId}`;
-    pushUndo();
     ensureConfig(device);
     const trunkAllowed = normaliseTrunkAllowedVlans(device.config.trunkAllowedVlans || {});
+    const listed = !!trunkAllowed[iface.name]?.includes(id);
+    if (action === "add" && listed) return `VLAN ${id} is already on ${iface.name}'s trunk allowed list.`;
+    if (action === "remove" && !listed) return `VLAN ${id} is not on ${iface.name}'s trunk allowed list.`;
+    pushUndo();
     if (!trunkAllowed[iface.name]) trunkAllowed[iface.name] = [];
     if (action === "add") {
       if (!trunkAllowed[iface.name].includes(id)) trunkAllowed[iface.name].push(id);
@@ -12842,13 +12859,15 @@ ${body}
     const addVlanMatch = command.match(/^config\s+vlan\s+add\s+(\d+)$/i);
     if (addVlanMatch) {
       const result = addSwitchVlan(device, addVlanMatch[1]);
-      terminalLine(result.startsWith("Invalid") ? "error" : "", result);
+      if (result.endsWith("already exists.")) terminalLine("error", `Error: Vlan${Number(addVlanMatch[1])} already exists`);
+      else terminalLine(result.startsWith("Invalid") ? "error" : "", result);
       return;
     }
     const delVlanMatch = command.match(/^config\s+vlan\s+del\s+(\d+)$/i);
     if (delVlanMatch) {
       const result = removeSwitchVlan(device, delVlanMatch[1]);
-      terminalLine(result.startsWith("Invalid") ? "error" : "", result);
+      if (result.startsWith("Unknown")) terminalLine("error", `Error: Vlan${Number(delVlanMatch[1])} doesn't exist`);
+      else terminalLine(result.startsWith("Invalid") ? "error" : "", result);
       return;
     }
     const memberAddMatch = command.match(/^config\s+vlan\s+member\s+add\s+(-t\s+)?(\d+)\s+(\S+)$/i);
@@ -18693,25 +18712,21 @@ Snort successfully validated the configuration${bad ? " (with errors)" : "."}`);
     if (!["target", "spoof", "attacks"].includes(sub)) {
       return err("Usage: redteam <node> target <ip> | attacks <scan,sweep,arp-spoof> | spoof <ip>");
     }
-    pushUndo();
     ensureConfig(node);
     const cfg = node.config;
-    const after = (msg) => {
-      sync().syncPanel();
+    const set = (key, value, msg) => {
+      if (JSON.stringify(cfg[key] ?? null) !== JSON.stringify(value)) {
+        pushUndo();
+        cfg[key] = value;
+        sync().syncPanel();
+      }
       return ok(msg);
     };
-    if (sub === "target") {
-      cfg.attackTarget = args[2] || "";
-      return after(`${node.name}: target ${cfg.attackTarget || "(none)"}.`);
-    }
-    if (sub === "spoof") {
-      cfg.spoofIp = args[2] || "";
-      return after(`${node.name}: ARP-spoof target ${cfg.spoofIp || "(gateway)"}.`);
-    }
+    if (sub === "target") return set("attackTarget", args[2] || "", `${node.name}: target ${args[2] || "(none)"}.`);
+    if (sub === "spoof") return set("spoofIp", args[2] || "", `${node.name}: ARP-spoof target ${args[2] || "(gateway)"}.`);
     if (sub === "attacks") {
       const list = (args[2] || "").split(",").map((s) => s.trim()).filter((a) => ["scan", "sweep", "arp-spoof"].includes(a));
-      cfg.attacks = list;
-      return after(`${node.name}: attacks [${list.join(", ")}].`);
+      return set("attacks", list, `${node.name}: attacks [${list.join(", ")}].`);
     }
     return err("Usage: redteam <node> target <ip> | attacks <scan,sweep,arp-spoof> | spoof <ip>");
   }
@@ -18735,29 +18750,11 @@ Snort successfully validated the configuration${bad ? " (with errors)" : "."}`);
       const bad = stpPriorityError(args[2]);
       if (bad) return err(`stp priority: ${bad}`);
     }
-    pushUndo();
-    ensureConfig(sw);
-    const cfg = sw.config;
-    cfg.stp = cfg.stp || { enabled: true };
-    const after = (msg) => {
-      sync().recomputeStp();
-      sync().syncPanel();
-      return ok(msg);
-    };
-    if (sub === "on" || sub === "enable") {
-      cfg.stp.enabled = true;
-      return after(`${sw.name}: spanning tree enabled.`);
-    }
-    if (sub === "off" || sub === "disable") {
-      cfg.stp.enabled = false;
-      return after(`${sw.name}: spanning tree disabled.`);
-    }
-    if (sub === "priority") {
-      const n = Number(args[2]);
-      cfg.stp.priority = n;
-      return after(`${sw.name}: bridge priority ${n}.`);
-    }
-    return err("Usage: stp [<switch> on|off | <switch> priority <n>]   (no args animates the BPDU exchange)");
+    const enable = sub === "on" || sub === "enable";
+    const n = Number(args[2]);
+    const result = setSwitchStp(sw, sub === "priority" ? { priority: n } : { enabled: enable });
+    if (result.includes("already")) return ok(`${sw.name}: ${result.charAt(0).toLowerCase()}${result.slice(1)}`);
+    return ok(sub === "priority" ? `${sw.name}: bridge priority ${n}.` : `${sw.name}: spanning tree ${enable ? "enabled" : "disabled"}.`);
   }
   function runOutput(r, line) {
     return { ok: r.success, data: r, output: [line, ...r.success ? [] : r.diagnosis] };

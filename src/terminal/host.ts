@@ -148,6 +148,8 @@ export function clearHostDns(device: Device): string {
 export function setHostDns(device: Device, address: string): string {
   const parsed = parseIpv4Token(address);
   if (!parsed) return `Invalid IPv4 address: ${address}`;
+  // Re-stating the nameserver it already has changes nothing: no undo point.
+  if (device.config?.dnsServerIp === parsed.address) return `nameserver ${parsed.address} > /etc/resolv.conf`;
   pushUndo();
   ensureConfig(device);
   device.config.dnsServerIp = parsed.address;

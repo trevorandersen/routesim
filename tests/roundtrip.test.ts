@@ -165,7 +165,7 @@ describe("export → replay: the awkward corners", () => {
 
   it("`vlan add` with a name renames an existing VLAN, and is one undo step", () => {
     runConsoleScript("add switch SW at 100 100\nmanaged SW on\nvlan SW add 10");
-    expect(exec("vlan SW add 10 Sales").output).toEqual(["Added VLAN 10 (Sales)."]);
+    expect(exec("vlan SW add 10 Sales").output).toEqual(["Renamed VLAN 10 to Sales."]);
     expect(dev("SW").config!.vlans!.find(v => v.id === 10)!.name).toBe("Sales");
     exec("undo");
     expect(dev("SW").config!.vlans!.find(v => v.id === 10)!.name).toBe("Vlan10");

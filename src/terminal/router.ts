@@ -198,6 +198,9 @@ export function setRouterInterfaceIp(router: Device, peerId: string, address: st
 export function setUncabledRouterInterfaceIp(router: Device, name: string, address: string): string {
   const parsed = address === "" ? null : parseIpv4Token(address);
   if (address !== "" && !parsed) return `Invalid IPv4 address: ${address}`;
+  // Clearing an address that was never set changes nothing: no undo point (and
+  // no empty by-name entry created just to hold nothing).
+  if (address === "" && !(router.config?.interfaces || []).some((i: any) => i.peerId === "" && i.name === name && i.ipv4Address)) return "";
   pushUndo();
   const iface = routerInterfaceForName(router, name);
   iface.ipv4Address = parsed ? parsed.address : "";
@@ -208,6 +211,9 @@ export function setUncabledRouterInterfaceIp(router: Device, name: string, addre
 }
 
 export function clearRouterInterfaceIp(router: Device, peerId: string, vlanTag?: number | null): void {
+  // `no ip address` with no address set changes nothing: no undo point.
+  const set = (router.config?.interfaces || []).some((i: any) => i.peerId === peerId && (i.vlanTag ?? null) === (vlanTag ?? null) && i.ipv4Address);
+  if (!set) return;
   pushUndo();
   const iface = routerInterfaceFor(router, peerId, vlanTag);
   iface.ipv4Address = "";

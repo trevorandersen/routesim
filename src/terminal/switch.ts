@@ -141,7 +141,10 @@ export function showSwitchMirror(device: Device): string {
 export function setSwitchMirror(device: Device, change: { name?: string; dest: string; sources?: string[] } | null): string {
   ensureConfig(device);
   const cfg: any = device.config;
-  if (change === null) { pushUndo(); delete cfg.mirror; sync().syncPanel(); sync().render(); return "Mirror session removed."; }
+  if (change === null) {
+    if (!cfg.mirror) return "No mirror session is configured.";   // nothing to remove: no undo point
+    pushUndo(); delete cfg.mirror; sync().syncPanel(); sync().render(); return "Mirror session removed.";
+  }
   const valid = (p: string) => !!switchIfaceByName(device, p);
   if (!valid(change.dest)) return `Unknown interface ${change.dest}.`;
   const sources = (change.sources || []).filter(Boolean);
@@ -167,6 +170,14 @@ export function stpPriorityError(value: unknown): string | null {
 // Enable/disable spanning tree or set the bridge priority (shared by the CLI and
 // the console `stp` command). Re-converges so blocked ports update live.
 export function setSwitchStp(device: Device, change: { enabled?: boolean; priority?: number }): string {
+  // A change that changes nothing takes no undo point (and so keeps the redo
+  // branch) — `config spanning_tree disable` on a bridge already disabled used
+  // to (review R88).
+  const now = device.config?.stp;
+  const enabledNow = now?.enabled !== false, priorityNow = now?.priority ?? 32768;
+  if ((change.enabled == null || change.enabled === enabledNow) && (change.priority == null || change.priority === priorityNow)) {
+    return change.priority != null ? `Bridge priority is already ${priorityNow}.` : `Spanning tree is already ${enabledNow ? "enabled" : "disabled"}.`;
+  }
   pushUndo();
   ensureConfig(device);
   const cfg: any = device.config;
@@ -186,22 +197,28 @@ export function addSwitchVlan(device: Device, vlanId: string, name = ""): string
   const id = normaliseVlanId(vlanId);
   if (!id) return `Invalid VLAN ID: ${vlanId}`;
   const label = name.replace(/\s+/g, " ").trim().slice(0, 32);
-  pushUndo();
   ensureConfig(device);
   const vlans = normaliseVlans(device.config.vlans || []);
   const existing = vlans.find((vlan: any) => vlan.id === id);
-  if (existing) { if (label) existing.name = label; }
+  // Nothing to add and nothing to rename: say so, with no undo point — it used
+  // to answer "Added VLAN 10" and leave a dead undo entry (review R88).
+  if (existing && (!label || existing.name === label)) return `VLAN ${id} already exists.`;
+  pushUndo();
+  if (existing) existing.name = label;
   else vlans.push({ id, name: label || (id === 1 ? "default" : `Vlan${id}`) });
   device.config.vlans = vlans.sort((a: any, b: any) => a.id - b.id);
   sync().syncPanel();
-  return `Added VLAN ${id}${label ? ` (${label})` : ""}.`;
+  return existing ? `Renamed VLAN ${id} to ${label}.` : `Added VLAN ${id}${label ? ` (${label})` : ""}.`;
 }
 
 export function removeSwitchVlan(device: Device, vlanId: string): string {
   const id = normaliseVlanId(vlanId);
   if (!id || id === 1) return `Invalid VLAN ID: ${vlanId}`;
-  pushUndo();
   ensureConfig(device);
+  // Removing a VLAN the switch does not have removed nothing, yet answered
+  // "Removed VLAN 999" and took an undo point (review R88).
+  if (!normaliseVlans(device.config.vlans || []).some((vlan: any) => vlan.id === id)) return `Unknown VLAN ${id} — nothing to remove.`;
+  pushUndo();
   device.config.vlans = normaliseVlans(device.config.vlans || []).filter((vlan: any) => vlan.id !== id);
   const portVlans = normalisePortVlans(device.config.portVlans || {});
   Object.keys(portVlans).forEach(port => {
@@ -229,11 +246,12 @@ export function setSwitchPortVlan(device: Device, portName: string, vlanId: stri
   const iface = switchInterfacesWithNames(device).find((port: any) => port.name.toLowerCase() === String(portName || "").toLowerCase());
   if (!iface) return `Unknown interface ${portName}.`;
   if (!id) return `Invalid VLAN ID: ${vlanId}`;
-  pushUndo();
   ensureConfig(device);
   const vlans = normaliseVlans(device.config.vlans || []);
-  if (!vlans.some((vlan: any) => vlan.id === id)) vlans.push({ id, name: id === 1 ? "default" : `Vlan${id}` });
   const portVlans = normalisePortVlans(device.config.portVlans || {});
+  if ((portVlans[iface.name] || 1) === id && (id === 1 || vlans.some((vlan: any) => vlan.id === id))) return `${iface.name} is already in VLAN ${id}.`;
+  pushUndo();
+  if (!vlans.some((vlan: any) => vlan.id === id)) vlans.push({ id, name: id === 1 ? "default" : `Vlan${id}` });
   if (id === 1) {
     delete portVlans[iface.name];
   } else {
@@ -248,9 +266,10 @@ export function setSwitchPortVlan(device: Device, portName: string, vlanId: stri
 export function setSwitchPortMode(device: Device, portName: string, mode: string): string {
   const iface = switchInterfacesWithNames(device).find((port: any) => port.name.toLowerCase() === String(portName || "").toLowerCase());
   if (!iface) return `Unknown interface ${portName}.`;
-  pushUndo();
   ensureConfig(device);
   const portModes = normalisePortModes(device.config.portModes || {});
+  if ((portModes[iface.name] || "access") === mode) return `${iface.name} is already in ${mode} mode.`;
+  pushUndo();
   if (mode === "access") {
     delete portModes[iface.name];
   } else {
@@ -267,9 +286,10 @@ export function setSwitchTrunkNative(device: Device, portName: string, vlanId: s
   const iface = switchInterfacesWithNames(device).find((port: any) => port.name.toLowerCase() === String(portName || "").toLowerCase());
   if (!iface) return `Unknown interface ${portName}.`;
   if (!id) return `Invalid VLAN ID: ${vlanId}`;
-  pushUndo();
   ensureConfig(device);
   const trunkNativeVlans = normalisePortVlans(device.config.trunkNativeVlans || {});
+  if ((trunkNativeVlans[iface.name] || 1) === id) return `${iface.name} trunk native VLAN is already ${id}.`;
+  pushUndo();
   if (id === 1) {
     delete trunkNativeVlans[iface.name];
   } else {
@@ -285,9 +305,12 @@ export function modifySwitchTrunkAllowed(device: Device, portName: string, vlanI
   const iface = switchInterfacesWithNames(device).find((port: any) => port.name.toLowerCase() === String(portName || "").toLowerCase());
   if (!iface) return `Unknown interface ${portName}.`;
   if (!id) return `Invalid VLAN ID: ${vlanId}`;
-  pushUndo();
   ensureConfig(device);
   const trunkAllowed = normaliseTrunkAllowedVlans(device.config.trunkAllowedVlans || {});
+  const listed = !!trunkAllowed[iface.name]?.includes(id);
+  if (action === "add" && listed) return `VLAN ${id} is already on ${iface.name}'s trunk allowed list.`;
+  if (action === "remove" && !listed) return `VLAN ${id} is not on ${iface.name}'s trunk allowed list.`;
+  pushUndo();
   if (!trunkAllowed[iface.name]) trunkAllowed[iface.name] = [];
   if (action === "add") {
     if (!trunkAllowed[iface.name].includes(id)) trunkAllowed[iface.name].push(id);
@@ -482,13 +505,17 @@ export function runSwitchTerminalCommand(device: Device, command: string): void 
   const addVlanMatch = command.match(/^config\s+vlan\s+add\s+(\d+)$/i);
   if (addVlanMatch) {
     const result = addSwitchVlan(device, addVlanMatch[1]);
-    terminalLine(result.startsWith("Invalid") ? "error" : "", result);
+    // As SONiC does, an existing VLAN is an error here (the console's `vlan …
+    // add` stays idempotent, so a replayed script is not rejected).
+    if (result.endsWith("already exists.")) terminalLine("error", `Error: Vlan${Number(addVlanMatch[1])} already exists`);
+    else terminalLine(result.startsWith("Invalid") ? "error" : "", result);
     return;
   }
   const delVlanMatch = command.match(/^config\s+vlan\s+del\s+(\d+)$/i);
   if (delVlanMatch) {
     const result = removeSwitchVlan(device, delVlanMatch[1]);
-    terminalLine(result.startsWith("Invalid") ? "error" : "", result);
+    if (result.startsWith("Unknown")) terminalLine("error", `Error: Vlan${Number(delVlanMatch[1])} doesn't exist`);
+    else terminalLine(result.startsWith("Invalid") ? "error" : "", result);
     return;
   }
   const memberAddMatch = command.match(/^config\s+vlan\s+member\s+add\s+(-t\s+)?(\d+)\s+(\S+)$/i);

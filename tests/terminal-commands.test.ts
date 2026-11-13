@@ -827,6 +827,82 @@ describe("switch running-config is made of lines its shell accepts (R89)", () =>
   });
 });
 
+// R88: a command that changes nothing used to take an undo point (a dead Undo
+// press) and clear the redo branch, and several reported a change ("Added VLAN
+// 10", "Removed VLAN 999") that had not happened.
+describe("a command that changes nothing takes no undo point and keeps redo (R88)", () => {
+  beforeEach(() => {
+    resetState();
+    runConsoleScript(`
+      add switch SW1 at 0 0
+      managed SW1
+      add computer PC1 at 100 0
+      add router R1 at 200 0
+      add attacker RT at 300 0
+      link PC1 SW1
+      link R1 SW1
+      vlan SW1 add 10
+      port SW1 Ethernet2 mode trunk
+      port SW1 Ethernet2 allowed add 10
+      stp SW1 off
+      nameserver PC1 10.0.0.53
+      redteam RT attacks scan,sweep
+      add computer SPARE at 400 0
+    `);
+    runConsoleScript("undo");                     // leave something on the redo stack
+  });
+
+  // Each command must leave both stacks exactly as they were.
+  const stacks = () => `${state.undoStack.length}/${state.redoStack.length}`;
+  const unchanged = (run: () => unknown) => { const before = stacks(); expect(state.redoStack.length).toBeGreaterThan(0); run(); expect(stacks()).toBe(before); };
+  const sw = () => state.devices.find(d => d.name === "SW1")!;
+  const shell = (name: string, mode = "exec") => {
+    const device = state.devices.find(d => d.name === name)!;
+    state.terminal = { ...state.terminal, deviceId: device.id, lines: [], mode, interfacePeerId: null, interfaceVlanTag: null, interfaceName: null } as any;
+    return (c: string) => { const n = state.terminal.lines.length; runTerminalCommand(c); return state.terminal.lines.slice(n).filter(l => l.kind !== "command").map(l => l.text).join(" "); };
+  };
+
+  it("the switch shell: an existing VLAN, a missing VLAN, STP already off", () => {
+    const run = shell("SW1");
+    unchanged(() => expect(run("config vlan add 10")).toBe("Error: Vlan10 already exists"));
+    unchanged(() => expect(run("config vlan del 999")).toBe("Error: Vlan999 doesn't exist"));
+    unchanged(() => expect(run("config spanning_tree disable")).toBe("Spanning tree is already disabled."));
+    unchanged(() => expect(run("config mirror_session remove MON")).toBe("No mirror session is configured."));
+    expect(sw().config.vlans!.map(v => v.id)).toEqual([1, 10]);
+  });
+
+  it("the console's switch verbs: the same value again", () => {
+    unchanged(() => expect(runConsoleScript("vlan SW1 add 10")[0]).toEqual({ ok: true, output: ["VLAN 10 already exists."] }));
+    unchanged(() => expect(runConsoleScript("vlan SW1 del 999")[0].ok).toBe(false));
+    unchanged(() => runConsoleScript("stp SW1 off"));
+    unchanged(() => runConsoleScript("port SW1 Ethernet2 mode trunk"));
+    unchanged(() => runConsoleScript("port SW1 Ethernet1 vlan 1"));
+    unchanged(() => runConsoleScript("port SW1 Ethernet2 native 1"));
+    unchanged(() => runConsoleScript("port SW1 Ethernet2 allowed add 10"));
+    unchanged(() => runConsoleScript("port SW1 Ethernet2 allowed remove 20"));
+  });
+
+  it("a host's nameserver, a router's `no ip address`, and a Red Team plan", () => {
+    unchanged(() => runConsoleScript("nameserver PC1 10.0.0.53"));
+    unchanged(() => runConsoleScript("redteam RT attacks scan,sweep"));
+    const run = shell("R1", "config");
+    run("interface Ethernet1");
+    unchanged(() => run("no ip address"));
+    run("exit"); run("interface Ethernet3");                 // a port with no cable
+    unchanged(() => run("no ip address"));
+    expect(state.devices.find(d => d.name === "R1")!.config.interfaces!.some(i => i.peerId === "")).toBe(false);
+  });
+
+  it("a real change still takes exactly one undo point and clears redo", () => {
+    const depth = state.undoStack.length;
+    expect(runConsoleScript("vlan SW1 add 20")[0].output).toEqual(["Added VLAN 20."]);
+    expect(runConsoleScript("vlan SW1 add 20 Sales")[0].output).toEqual(["Renamed VLAN 20 to Sales."]);
+    runConsoleScript("stp SW1 on");
+    expect(state.undoStack.length).toBe(depth + 3);
+    expect(state.redoStack.length).toBe(0);
+  });
+});
+
 describe("P3 sweep — router shell", () => {
   const router = (mode: string) => {
     resetState();

@@ -22,7 +22,7 @@ import { buildPingEvents, buildDhcpEvents, buildConnectEvents, buildResolveEvent
 import { DEFAULT_BRIDGE_PRIORITY } from "./stp";
 import {
   setHostIp, setHostGateway, setHostDns, setRouterInterfaceIp, addSwitchVlan, removeSwitchVlan,
-  setSwitchPortVlan, setSwitchPortMode, setSwitchTrunkNative, modifySwitchTrunkAllowed, setSwitchMirror, addIdsRule,
+  setSwitchPortVlan, setSwitchPortMode, setSwitchTrunkNative, modifySwitchTrunkAllowed, setSwitchMirror, setSwitchStp, addIdsRule,
   runTerminalCommand, ensureSession, setListeningPorts, stpPriorityError, addStaticRoute,
 } from "./terminal";
 import { buildConfigPayload, applyConfig, loadTopology } from "./config";
@@ -684,16 +684,19 @@ function cmdRedteam(args: string[]): CommandResult {
   if (!["target", "spoof", "attacks"].includes(sub)) {
     return err("Usage: redteam <node> target <ip> | attacks <scan,sweep,arp-spoof> | spoof <ip>");
   }
-  pushUndo();
   ensureConfig(node);
   const cfg: any = node.config;
-  const after = (msg: string) => { sync().syncPanel(); return ok(msg); };
-  if (sub === "target") { cfg.attackTarget = args[2] || ""; return after(`${node.name}: target ${cfg.attackTarget || "(none)"}.`); }
-  if (sub === "spoof") { cfg.spoofIp = args[2] || ""; return after(`${node.name}: ARP-spoof target ${cfg.spoofIp || "(gateway)"}.`); }
+  // An unchanged value takes no undo point (review R88): the undo is pushed by
+  // `set`, only when the new value differs from the stored one.
+  const set = (key: string, value: unknown, msg: string) => {
+    if (JSON.stringify(cfg[key] ?? null) !== JSON.stringify(value)) { pushUndo(); cfg[key] = value; sync().syncPanel(); }
+    return ok(msg);
+  };
+  if (sub === "target") return set("attackTarget", args[2] || "", `${node.name}: target ${args[2] || "(none)"}.`);
+  if (sub === "spoof") return set("spoofIp", args[2] || "", `${node.name}: ARP-spoof target ${args[2] || "(gateway)"}.`);
   if (sub === "attacks") {
     const list = (args[2] || "").split(",").map(s => s.trim()).filter(a => ["scan", "sweep", "arp-spoof"].includes(a));
-    cfg.attacks = list;
-    return after(`${node.name}: attacks [${list.join(", ")}].`);
+    return set("attacks", list, `${node.name}: attacks [${list.join(", ")}].`);
   }
   return err("Usage: redteam <node> target <ip> | attacks <scan,sweep,arp-spoof> | spoof <ip>");
 }
@@ -721,19 +724,14 @@ function cmdStp(args: string[]): CommandResult {
     const bad = stpPriorityError(args[2]);
     if (bad) return err(`stp priority: ${bad}`);
   }
-  pushUndo();
-  ensureConfig(sw);
-  const cfg: any = sw.config;
-  cfg.stp = cfg.stp || { enabled: true };
-  const after = (msg: string) => { sync().recomputeStp(); sync().syncPanel(); return ok(msg); };
-  if (sub === "on" || sub === "enable") { cfg.stp.enabled = true; return after(`${sw.name}: spanning tree enabled.`); }
-  if (sub === "off" || sub === "disable") { cfg.stp.enabled = false; return after(`${sw.name}: spanning tree disabled.`); }
-  if (sub === "priority") {
-    const n = Number(args[2]);   // already validated by the up-front guard
-    cfg.stp.priority = n;
-    return after(`${sw.name}: bridge priority ${n}.`);
-  }
-  return err("Usage: stp [<switch> on|off | <switch> priority <n>]   (no args animates the BPDU exchange)");
+  // The same mutator as the switch shell and the inspector (undo point,
+  // reconvergence, panel) — and the same no-op rule: a value it already has
+  // takes no undo point.
+  const enable = sub === "on" || sub === "enable";
+  const n = Number(args[2]);   // already validated by the up-front guard
+  const result = setSwitchStp(sw, sub === "priority" ? { priority: n } : { enabled: enable });
+  if (result.includes("already")) return ok(`${sw.name}: ${result.charAt(0).toLowerCase()}${result.slice(1)}`);
+  return ok(sub === "priority" ? `${sw.name}: bridge priority ${n}.` : `${sw.name}: spanning tree ${enable ? "enabled" : "disabled"}.`);
 }
 
 // A `run` result line followed, when the run failed, by the engine's

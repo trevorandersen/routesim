@@ -6,6 +6,7 @@ import {
   createDhcpRequest, createDhcpAck,
   frameLabel, frameColor, frameGlyph, toneGlyph,
   createTcpSegment, createIcmpTimeExceeded,
+  createDot11Frame, createDot1xFrame,
   packetColumns, dhcpXidText,
   BROADCAST_MAC,
 } from "../src/frame";
@@ -338,11 +339,24 @@ describe("frameGlyph / toneGlyph — the redundant, non-colour channel", () => {
   });
 
   it("toneGlyph covers every tone frameColor distinguishes, and falls back for the unknown", () => {
-    for (const tone of ["arp", "icmp", "icmp-reply", "tcp", "http", "dns", "dhcp", "stp", "dot11", "macsec", "bad"]) {
+    for (const tone of ["arp", "icmp", "icmp-reply", "tcp", "http", "dns", "dhcp", "stp", "dot11", "dot1x", "macsec", "bad"]) {
       expect(toneGlyph(tone).length).toBeGreaterThan(0);
       expect(toneGlyph(tone)).not.toBe("•");   // a real glyph, not the fallback
     }
     expect(toneGlyph("nonsense")).toBe("•");     // graceful fallback
+  });
+
+  it("wired 802.1X has its own glyph and colour; a WiFi deauth reads red (R76)", () => {
+    // Wired 802.1X (the dot1x payload) must not borrow the 802.11 "W".
+    const eapStart = createDot1xFrame(M, M, "eapol-start", "alice");
+    expect(frameGlyph(eapStart)).toBe("X");
+    expect(packetColumns(eapStart).tone).toBe("dot1x");
+    expect(frameColor(eapStart)).not.toBe(frameColor(createDot11Frame(M, M, "assoc-req", "net")));
+    // A WiFi deauth is an error: red dot and ✕, matching its packet-list tone.
+    const deauth = createDot11Frame(M, M, "deauth", "net");
+    expect(frameColor(deauth)).toBe("#ef4444");
+    expect(frameGlyph(deauth)).toBe("✕");
+    expect(packetColumns(deauth).tone).toBe("bad");
   });
 
   it("the glyph pairs with the colour rather than replacing it (both still exist)", () => {

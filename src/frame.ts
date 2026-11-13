@@ -360,7 +360,9 @@ export function packetColumns(frame: EthernetFrame): PacketColumns {
     const d = frame.payload;
     const { protocol, info } = dot1xInfo(d.subtype, d.identity);
     const bad = d.subtype === "radius-reject" || d.subtype === "eap-failure";
-    return { src: frame.srcMac, dst: frame.dstMac, protocol, info, tone: bad ? "bad" : "dot11" };
+    // Wired 802.1X gets its own tone/glyph — it isn't WiFi, so it must not borrow
+    // the 802.11 "W" (R76). WiFi EAPOL (the WPA2 handshake) stays a dot11 frame.
+    return { src: frame.srcMac, dst: frame.dstMac, protocol, info, tone: bad ? "bad" : "dot1x" };
   }
   if (frame.payload.type === "bpdu") {
     const b = frame.payload;
@@ -452,17 +454,17 @@ export function frameLabel(frame: EthernetFrame): string {
 // name in the list, so the mapping is self-documenting.
 const TONE_GLYPH: Record<string, string> = {
   arp: "A", icmp: "I", "icmp-reply": "I", tcp: "T", http: "H",
-  dns: "N", dhcp: "D", stp: "S", dot11: "W", macsec: "K", bad: "✕",
+  dns: "N", dhcp: "D", stp: "S", dot11: "W", dot1x: "X", macsec: "K", bad: "✕",
 };
 export function toneGlyph(tone: string): string { return TONE_GLYPH[tone] ?? "•"; }
 export function frameGlyph(frame: EthernetFrame): string { return toneGlyph(packetColumns(frame).tone); }
 
 export function frameColor(frame: EthernetFrame): string {
   if (frame.payload.type === "arp") return "#f59e0b";    // amber
-  if (frame.payload.type === "dot11") return "#14b8a6";  // teal (802.11 management)
+  if (frame.payload.type === "dot11") return frame.payload.subtype === "deauth" ? "#ef4444" : "#14b8a6";  // teal (802.11 management), red on deauth (R76)
   if (frame.payload.type === "dot1x") {
     const bad = frame.payload.subtype === "radius-reject" || frame.payload.subtype === "eap-failure";
-    return bad ? "#ef4444" : "#14b8a6"; // teal, red on reject/failure
+    return bad ? "#ef4444" : "#d946ef"; // fuchsia (wired 802.1X), red on reject/failure
   }
   if (frame.payload.type === "bpdu") return "#818cf8";   // indigo (spanning-tree BPDU)
   const ipv4 = frame.payload; // narrowed to Ipv4Payload after the arp/dot11/bpdu branches return

@@ -2078,6 +2078,7 @@
     .pkt-dns        td { color: #22d3ee; }
     .pkt-dhcp       td { color: #a78bfa; }
     .pkt-dot11      td { color: #2dd4bf; }
+    .pkt-dot1x      td { color: #e879f9; }
     .pkt-stp        td { color: #a5b4fc; }
     .pkt-macsec     td { color: #5eead4; font-style: italic; }
     .pkt-bad        td { color: #f87171; }
@@ -6216,7 +6217,7 @@ Full legal text: https://creativecommons.org/publicdomain/zero/1.0/legalcode</pr
       const d = frame.payload;
       const { protocol, info } = dot1xInfo(d.subtype, d.identity);
       const bad = d.subtype === "radius-reject" || d.subtype === "eap-failure";
-      return { src: frame.srcMac, dst: frame.dstMac, protocol, info, tone: bad ? "bad" : "dot11" };
+      return { src: frame.srcMac, dst: frame.dstMac, protocol, info, tone: bad ? "bad" : "dot1x" };
     }
     if (frame.payload.type === "bpdu") {
       const b = frame.payload;
@@ -6297,6 +6298,7 @@ Full legal text: https://creativecommons.org/publicdomain/zero/1.0/legalcode</pr
     dhcp: "D",
     stp: "S",
     dot11: "W",
+    dot1x: "X",
     macsec: "K",
     bad: "\u2715"
   };
@@ -6308,10 +6310,10 @@ Full legal text: https://creativecommons.org/publicdomain/zero/1.0/legalcode</pr
   }
   function frameColor(frame) {
     if (frame.payload.type === "arp") return "#f59e0b";
-    if (frame.payload.type === "dot11") return "#14b8a6";
+    if (frame.payload.type === "dot11") return frame.payload.subtype === "deauth" ? "#ef4444" : "#14b8a6";
     if (frame.payload.type === "dot1x") {
       const bad = frame.payload.subtype === "radius-reject" || frame.payload.subtype === "eap-failure";
-      return bad ? "#ef4444" : "#14b8a6";
+      return bad ? "#ef4444" : "#d946ef";
     }
     if (frame.payload.type === "bpdu") return "#818cf8";
     const ipv4 = frame.payload;

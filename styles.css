@@ -2069,6 +2069,7 @@
     .pkt-dns        td { color: #22d3ee; }
     .pkt-dhcp       td { color: #a78bfa; }
     .pkt-dot11      td { color: #2dd4bf; }
+    .pkt-dot1x      td { color: #e879f9; }
     .pkt-stp        td { color: #a5b4fc; }
     .pkt-macsec     td { color: #5eead4; font-style: italic; }
     .pkt-bad        td { color: #f87171; }

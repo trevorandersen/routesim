@@ -7,7 +7,7 @@ import { state, pushUndo } from "./state";
 import { dom } from "./dom";
 import { buildConfigPayload, parseConfig, applyConfig } from "./config";
 import { exportTopologyScript, runConsoleScript } from "./commands";
-import { SCENARIOS, registerScenario, unregisterScenario, isValidScenarioCheck, loadScenario } from "./scenarios";
+import { SCENARIOS, registerScenario, unregisterScenario, scenarioIssue, loadScenario } from "./scenarios";
 import { normaliseConfig } from "./normalise";
 import { syncSimLog } from "./simlog-view";
 import { openDock } from "./terminal";
@@ -82,24 +82,26 @@ export async function importScenario(): Promise<void> {
     const parsed = JSON.parse(text);
     const list = Array.isArray(parsed) ? parsed : [parsed];
     let lastId = "";
+    const skipped: string[] = [];
     for (const s of list) {
-      if (!(s && typeof s.id === "string" && typeof s.name === "string" && s.topology && Array.isArray(s.checks))) continue;
       // Validate EVERYTHING loadScenario will touch BEFORE registering, so a
-      // malformed scenario never poisons the global registry/dropdown — the
-      // topology (the throw-prone normalise) AND every check (the banner reads
-      // each one's label/fields on load; a null or unknown-kind entry threw
-      // there, leaving a permanently broken selectable entry).
-      try { normaliseConfig(s.topology); } catch { continue; }
-      if (!s.checks.every(isValidScenarioCheck)) continue;
+      // malformed scenario never poisons the global registry/dropdown — its
+      // own fields and every check (scenarioIssue: the banner and `scenario
+      // goal` read them on load; a missing objective or a null check threw
+      // there, leaving a permanently broken selectable entry) AND the topology
+      // (the throw-prone normalise).
+      let issue = scenarioIssue(s);
+      if (!issue) { try { normaliseConfig(s.topology); } catch { issue = `"${s.id}" has a topology that does not load`; } }
+      if (issue) { skipped.push(issue); continue; }
       registerScenario(s);
       lastId = s.id;
     }
-    if (!lastId) { dom.modeLabel.textContent = "No valid scenarios in file."; return; }
+    if (!lastId) { dom.modeLabel.textContent = `No valid scenarios in file${skipped.length ? ` — ${skipped[0]}` : ""}.`; return; }
     // Belt and braces: if a validated scenario still fails to load, roll the
     // registration back rather than leave an entry that throws on re-select.
     try {
       loadScenario(lastId);
-      dom.modeLabel.textContent = `Imported scenario "${lastId}".`;
+      dom.modeLabel.textContent = `Imported scenario "${lastId}".${skipped.length ? ` Skipped ${skipped.length}: ${skipped[0]}.` : ""}`;
     } catch (e) {
       unregisterScenario(lastId);
       throw e;

@@ -84,6 +84,7 @@ export function getScenario(id: string | null): Scenario | undefined {
 const CHECK_KINDS = new Set(["link", "config", "ping", "ping-fail", "tcp", "tcp-fail", "http", "dns", "dhcp", "alert"]);
 const str = (v: unknown) => typeof v === "string" && v.length > 0;
 const optStr = (v: unknown) => v === undefined || str(v);
+const optInt = (v: unknown, lo: number, hi: number) => v === undefined || (Number.isInteger(v) && (v as number) >= lo && (v as number) <= hi);
 
 /**
  * Structural validity of one goal check — the discriminant is known and every
@@ -99,16 +100,40 @@ export function isValidScenarioCheck(c: unknown): c is ScenarioCheck {
   switch (k.kind) {
     case "link":     return str(k.a) && str(k.b);
     case "config":   return str(k.device) && str(k.field);
-    case "ping": case "http": return str(k.from) && str(k.to);
+    case "ping":     return str(k.from) && str(k.to);
+    // The optional fields are typed too: a string `status: "200"` could never
+    // equal the numeric status the run returns, so the check could never pass.
+    case "http":     return str(k.from) && str(k.to) && optStr(k.path) && optInt(k.status, 100, 599);
     case "ping-fail": return str(k.from) && str(k.to) && optStr(k.blockedBy);
     case "tcp": case "tcp-fail":
       return str(k.from) && str(k.to) && Number.isInteger(k.port) && k.port >= 1 && k.port <= 65535
         && (k.kind === "tcp" || optStr(k.blockedBy));
-    case "dns":      return str(k.from) && str(k.name);
+    case "dns":      return str(k.from) && str(k.name) && optStr(k.ip);
     case "dhcp":     return str(k.host);
-    case "alert":    return str(k.from) && str(k.to) && str(k.contains);
+    case "alert":    return str(k.from) && str(k.to) && str(k.contains) && optInt(k.port, 1, 65535);
   }
   return false;
+}
+
+/**
+ * Why an imported value is not a usable scenario, or null when it is. Covers
+ * everything the registry's readers touch: the chooser reads `id`/`name`/
+ * `group`, the banner and `scenario goal` print `objective` (a missing or
+ * non-string one threw there), and every check is read field by field.
+ * (The topology is normalised separately — that is the throw-prone step.)
+ */
+export function scenarioIssue(s: unknown): string | null {
+  if (!s || typeof s !== "object" || Array.isArray(s)) return "it is not a scenario object";
+  const k = s as any;
+  if (!str(k.id)) return "it has no id";
+  if (!str(k.name)) return `"${k.id}" has no name`;
+  if (typeof k.objective !== "string") return `"${k.id}" needs an objective (text)`;
+  if (k.group !== undefined && typeof k.group !== "string") return `"${k.id}" has a group that is not text`;
+  if (!k.topology || typeof k.topology !== "object") return `"${k.id}" has no topology`;
+  if (!Array.isArray(k.checks)) return `"${k.id}" has no checks list`;
+  const bad = k.checks.findIndex((c: unknown) => !isValidScenarioCheck(c));
+  if (bad >= 0) return `"${k.id}" check ${bad + 1} is malformed (a missing or mistyped field)`;
+  return null;
 }
 
 // Removes a scenario from the runtime registry — import rolls back with this

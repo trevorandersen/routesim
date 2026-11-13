@@ -127,6 +127,8 @@ see the answer play out. They double as the curriculum's test fixtures
 
 `importScenario` (io.ts) validates **everything `loadScenario` will touch before registering**: the topology (via `normaliseConfig`) *and* every check via **`isValidScenarioCheck`** (scenarios.ts) — a known `kind`, a `label`, and the fields that kind's evaluator and the goal banner read (`from`/`to`, a 1–65535 `port` for `tcp`/`tcp-fail`, `contains` for `alert`, …). A scenario with any invalid check is skipped, not registered. Previously only `Array.isArray(checks)` was checked, so `checks: [null]` registered fine and then threw `c.label` in the banner on every re-select — a permanently broken dropdown entry. If a validated scenario still fails to load, `unregisterScenario` rolls the registration back.
 
+**The scenario's own fields and the optional check fields are typed too** (`scenarioIssue`, review R83): `id` and `name` must be non-empty text, `objective` must be text (a scenario without one registered, and `scenario goal` then threw printing it), `group` must be text when present; an `http` check's `path` must be text and its `status` an integer 100–599 (a string `"200"` could never equal the status a run returns, so the check could never pass), a `dns` check's `ip` must be text, an `alert` check's `port` an integer 1–65535. A skipped scenario is named on the status line with the reason (`No valid scenarios in file — "x" needs an objective (text).`), instead of a bare "no valid scenarios". Replacing a built-in id stays allowed, as documented.
+
 
 ## Check tears an active run down first
 

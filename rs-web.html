@@ -16605,6 +16605,7 @@ Snort successfully validated the configuration${bad ? " (with errors)" : "."}`);
   var CHECK_KINDS = /* @__PURE__ */ new Set(["link", "config", "ping", "ping-fail", "tcp", "tcp-fail", "http", "dns", "dhcp", "alert"]);
   var str = (v) => typeof v === "string" && v.length > 0;
   var optStr = (v) => v === void 0 || str(v);
+  var optInt = (v, lo, hi) => v === void 0 || Number.isInteger(v) && v >= lo && v <= hi;
   function isValidScenarioCheck(c) {
     if (!c || typeof c !== "object") return false;
     const k = c;
@@ -16615,21 +16616,37 @@ Snort successfully validated the configuration${bad ? " (with errors)" : "."}`);
       case "config":
         return str(k.device) && str(k.field);
       case "ping":
-      case "http":
         return str(k.from) && str(k.to);
+      // The optional fields are typed too: a string `status: "200"` could never
+      // equal the numeric status the run returns, so the check could never pass.
+      case "http":
+        return str(k.from) && str(k.to) && optStr(k.path) && optInt(k.status, 100, 599);
       case "ping-fail":
         return str(k.from) && str(k.to) && optStr(k.blockedBy);
       case "tcp":
       case "tcp-fail":
         return str(k.from) && str(k.to) && Number.isInteger(k.port) && k.port >= 1 && k.port <= 65535 && (k.kind === "tcp" || optStr(k.blockedBy));
       case "dns":
-        return str(k.from) && str(k.name);
+        return str(k.from) && str(k.name) && optStr(k.ip);
       case "dhcp":
         return str(k.host);
       case "alert":
-        return str(k.from) && str(k.to) && str(k.contains);
+        return str(k.from) && str(k.to) && str(k.contains) && optInt(k.port, 1, 65535);
     }
     return false;
+  }
+  function scenarioIssue(s) {
+    if (!s || typeof s !== "object" || Array.isArray(s)) return "it is not a scenario object";
+    const k = s;
+    if (!str(k.id)) return "it has no id";
+    if (!str(k.name)) return `"${k.id}" has no name`;
+    if (typeof k.objective !== "string") return `"${k.id}" needs an objective (text)`;
+    if (k.group !== void 0 && typeof k.group !== "string") return `"${k.id}" has a group that is not text`;
+    if (!k.topology || typeof k.topology !== "object") return `"${k.id}" has no topology`;
+    if (!Array.isArray(k.checks)) return `"${k.id}" has no checks list`;
+    const bad = k.checks.findIndex((c) => !isValidScenarioCheck(c));
+    if (bad >= 0) return `"${k.id}" check ${bad + 1} is malformed (a missing or mistyped field)`;
+    return null;
   }
   function unregisterScenario(id) {
     const idx = SCENARIOS.findIndex((s) => s.id === id);
@@ -16969,24 +16986,30 @@ Snort successfully validated the configuration${bad ? " (with errors)" : "."}`);
       const parsed = JSON.parse(text);
       const list = Array.isArray(parsed) ? parsed : [parsed];
       let lastId = "";
+      const skipped = [];
       for (const s of list) {
-        if (!(s && typeof s.id === "string" && typeof s.name === "string" && s.topology && Array.isArray(s.checks))) continue;
-        try {
-          normaliseConfig(s.topology);
-        } catch {
+        let issue = scenarioIssue(s);
+        if (!issue) {
+          try {
+            normaliseConfig(s.topology);
+          } catch {
+            issue = `"${s.id}" has a topology that does not load`;
+          }
+        }
+        if (issue) {
+          skipped.push(issue);
           continue;
         }
-        if (!s.checks.every(isValidScenarioCheck)) continue;
         registerScenario(s);
         lastId = s.id;
       }
       if (!lastId) {
-        dom.modeLabel.textContent = "No valid scenarios in file.";
+        dom.modeLabel.textContent = `No valid scenarios in file${skipped.length ? ` \u2014 ${skipped[0]}` : ""}.`;
         return;
       }
       try {
         loadScenario(lastId);
-        dom.modeLabel.textContent = `Imported scenario "${lastId}".`;
+        dom.modeLabel.textContent = `Imported scenario "${lastId}".${skipped.length ? ` Skipped ${skipped.length}: ${skipped[0]}.` : ""}`;
       } catch (e) {
         unregisterScenario(lastId);
         throw e;

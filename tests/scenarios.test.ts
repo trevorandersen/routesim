@@ -5,7 +5,7 @@ import { describe, it, expect, beforeAll, beforeEach } from "bun:test";
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import { state, defaultConfig, vlanRoasConfig, routerMeshConfig, wifiVlanConfig, undo, redo, networkSnapshot, restoreSnapshot, registerCallbacks } from "../src/state";
-import { SCENARIOS, getScenario, loadScenario, checkScenario, registerScenario, isValidScenarioCheck, unregisterScenario } from "../src/scenarios";
+import { SCENARIOS, getScenario, loadScenario, checkScenario, registerScenario, isValidScenarioCheck, unregisterScenario, scenarioIssue } from "../src/scenarios";
 import { SCENARIO_GROUPS } from "../src/scenario-library";
 import { addLink } from "../src/devices";
 import { runConsoleCommand as exec, runConsoleScript } from "../src/commands";
@@ -165,6 +165,42 @@ describe("scenario import validates every check before registering (F12)", () =>
       { kind: "tcp", from: "A", to: "B", port: 70000, label: "l" },
       { kind: "alert", from: "A", to: "B", label: "l" }];    // missing `contains`
     for (const c of bad) expect(isValidScenarioCheck(c)).toBe(false);
+  });
+
+  // R83: `objective` and the optional check fields were not validated — a
+  // scenario with no objective made `scenario goal` throw, and a string
+  // `status: "200"` could never pass.
+  it("types the optional fields of http, dns and alert checks", () => {
+    const ok = [
+      { kind: "http", from: "A", to: "B", path: "/index.html", status: 404, label: "l" },
+      { kind: "dns", from: "A", name: "web", ip: "10.0.0.80", label: "l" },
+      { kind: "alert", from: "A", to: "B", port: 22, contains: "scan", label: "l" },
+    ];
+    for (const c of ok) expect(isValidScenarioCheck(c)).toBe(true);
+    const bad = [
+      { kind: "http", from: "A", to: "B", status: "200", label: "l" },
+      { kind: "http", from: "A", to: "B", status: 99, label: "l" },
+      { kind: "http", from: "A", to: "B", path: 7, label: "l" },
+      { kind: "dns", from: "A", name: "web", ip: 167772240, label: "l" },
+      { kind: "alert", from: "A", to: "B", port: "22", contains: "scan", label: "l" },
+      { kind: "alert", from: "A", to: "B", port: 0, contains: "scan", label: "l" },
+    ];
+    for (const c of bad) expect({ c, valid: isValidScenarioCheck(c) }).toEqual({ c, valid: false });
+  });
+
+  it("scenarioIssue names what is wrong with an imported scenario, and passes every built-in", () => {
+    const good = { id: "x", name: "X", objective: "Do it.", topology: { version: 1, devices: [], links: [] }, checks: [{ kind: "ping", from: "A", to: "B", label: "l" }] };
+    expect(scenarioIssue(good)).toBeNull();
+    expect(scenarioIssue({ ...good, objective: "" })).toBeNull();          // empty text is still text
+    expect(scenarioIssue({ ...good, group: "Mine" })).toBeNull();
+    const { objective, ...noObjective } = good;
+    expect(scenarioIssue(noObjective)).toBe('"x" needs an objective (text)');
+    expect(scenarioIssue({ ...good, objective: 42 })).toBe('"x" needs an objective (text)');
+    expect(scenarioIssue({ ...good, group: 3 })).toContain("group");
+    expect(scenarioIssue({ ...good, name: "" })).toContain("no name");
+    expect(scenarioIssue({ ...good, checks: [good.checks[0], { kind: "http", from: "A", to: "B", status: "200", label: "l" }] })).toBe('"x" check 2 is malformed (a missing or mistyped field)');
+    expect(scenarioIssue(null)).toContain("not a scenario object");
+    for (const s of SCENARIOS) expect({ id: s.id, issue: scenarioIssue(s) }).toEqual({ id: s.id, issue: null });
   });
 
   it("unregisterScenario removes an entry the import rolled back", () => {

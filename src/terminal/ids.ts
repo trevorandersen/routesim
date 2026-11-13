@@ -6,7 +6,7 @@
  * inspector and the engine's detection.
  */
 import type { Device } from "../types";
-import { state, pushUndo } from "../state";
+import { state, pushUndo, sync } from "../state";
 import { ensureConfig } from "../normalise";
 import { applyHostname } from "../devices";
 import { parseSnortRule, snortRuleIssue } from "../snort";
@@ -46,6 +46,7 @@ export function addIdsRule(device: Device, ruleText: string): string {
   // Replace the array (don't push) so snort.ts's parse-by-array-identity memo
   // invalidates — a mutated-in-place array would return stale parsed rules.
   cfg.idsRules = [...(Array.isArray(cfg.idsRules) ? cfg.idsRules : []), rule.raw];
+  sync().syncPanel();   // refresh the inspector so its rules textarea can't later overwrite this add
   return `Loaded rule sid:${rule.sid} (${cfg.idsRules.length} rule${cfg.idsRules.length === 1 ? "" : "s"} in ${RULES_FILE}).`;
 }
 
@@ -91,6 +92,7 @@ export function runIdsTerminalCommand(device: Device, command: string): void {
     ensureConfig(device);
     if (clearMatch[1].includes("local.rules")) { pushUndo(); (device.config as any).idsRules = []; terminalLine("", "Cleared local.rules."); }
     else { (device.config as any).alerts = []; terminalLine("", "Cleared the alert log."); }
+    sync().syncPanel();   // keep the inspector's rules/alerts view in step with the shell
     return;
   }
 

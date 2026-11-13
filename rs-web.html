@@ -13006,6 +13006,7 @@ ${body}
     ensureConfig(device);
     const cfg = device.config;
     cfg.idsRules = [...Array.isArray(cfg.idsRules) ? cfg.idsRules : [], rule.raw];
+    sync().syncPanel();
     return `Loaded rule sid:${rule.sid} (${cfg.idsRules.length} rule${cfg.idsRules.length === 1 ? "" : "s"} in ${RULES_FILE}).`;
   }
   function runIdsTerminalCommand(device, command) {
@@ -13067,6 +13068,7 @@ Snort successfully validated the configuration${bad ? " (with errors)" : "."}`);
         device.config.alerts = [];
         terminalLine("", "Cleared the alert log.");
       }
+      sync().syncPanel();
       return;
     }
     if (lower === "hostname") {

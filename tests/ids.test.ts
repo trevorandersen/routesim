@@ -226,6 +226,20 @@ describe("IDS — console, CLI, and round-trip", () => {
     expect((ids.config.idsRules || []).length).toBe(0);
   });
 
+  it("the Snort shell refreshes the inspector after editing rules/alerts (R87)", () => {
+    build();
+    const ids = state.devices.find(d => d.name === "IDS1")!;
+    let panels = 0;
+    registerNoopCallbacks({ syncPanel: () => { panels++; } });
+    panels = 0;
+    runIdsTerminalCommand(ids, `echo 'alert udp any any -> any 53 (msg:"DNS"; sid:9100;)' >> /etc/snort/rules/local.rules`);
+    expect(panels).toBeGreaterThan(0);   // the add re-synced the panel
+    panels = 0;
+    runIdsTerminalCommand(ids, "echo -n > /etc/snort/rules/local.rules");
+    expect(panels).toBeGreaterThan(0);   // the clear re-synced the panel
+    registerNoopCallbacks();             // restore the suite default
+  });
+
   it("idsrule adds and clears rules; addIdsRule rejects malformed rules", () => {
     build();
     const ids = state.devices.find(d => d.name === "IDS1")!;

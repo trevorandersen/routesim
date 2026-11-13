@@ -1246,7 +1246,7 @@ export function processAtComputer(device: Device, frame: EthernetFrame, fromDevi
         }
         // Listener model: no openPorts list = accept on any port; otherwise RST.
         const listening = !Array.isArray(config.openPorts) || config.openPorts.includes(tcp.dstPort);
-        learnArp(config, ipv4.srcIp, frame.srcMac);
+        learnOnLinkArp(config, ipv4.srcIp, frame.srcMac);
         if (listening) {
           logStep(device, "sim-tcp", `TCP SYN on port ${tcp.dstPort} — sending SYN-ACK`);
           emitHostReply(device, config, hostReplyPath(config, ipv4.srcIp, frame.srcMac),
@@ -1463,7 +1463,7 @@ export function processAtServer(device: Device, frame: EthernetFrame, fromDevice
         logStep(device, "sim-drop", `Cannot answer ${ipv4.srcIp} — no route (no default gateway)`);
         return [];
       }
-      learnArp(config, ipv4.srcIp, frame.srcMac);
+      learnOnLinkArp(config, ipv4.srcIp, frame.srcMac);
       const dns = ipv4.payload as DnsPayload;
       // Manual A-records first, then the auto-zone: any device's hostname
       // resolves to its IP without a configured record.
@@ -2897,6 +2897,15 @@ function learnArp(config: any, ip: string, mac: string): void {
   } else {
     config.arpTable.push({ ipv4Address: ip, macAddress: mac });
   }
+}
+
+// Learn a neighbour from the source of an IP packet the host is answering — but
+// only a neighbour: an ARP cache maps on-link addresses. A routed packet arrives
+// with the ROUTER's MAC as its source, so learning from it filed the remote
+// host's address against the gateway's MAC (`arp -n` on a server listed every
+// off-subnet client that way — review R70).
+function learnOnLinkArp(config: any, ip: string, mac: string): void {
+  if (config?.ipv4Address && sameSubnet(config.ipv4Address, ip, prefixOf(config))) learnArp(config, ip, mac);
 }
 
 // Count an ARP-cache poison towards the attack report. A spoof is a gratuitous

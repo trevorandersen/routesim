@@ -8913,7 +8913,7 @@ Full legal text: https://creativecommons.org/publicdomain/zero/1.0/legalcode</pr
             return outgoing;
           }
           const listening = !Array.isArray(config.openPorts) || config.openPorts.includes(tcp.dstPort);
-          learnArp(config, ipv4.srcIp, frame.srcMac);
+          learnOnLinkArp(config, ipv4.srcIp, frame.srcMac);
           if (listening) {
             logStep(device, "sim-tcp", `TCP SYN on port ${tcp.dstPort} \u2014 sending SYN-ACK`);
             emitHostReply(
@@ -9098,7 +9098,7 @@ Full legal text: https://creativecommons.org/publicdomain/zero/1.0/legalcode</pr
           logStep(device, "sim-drop", `Cannot answer ${ipv4.srcIp} \u2014 no route (no default gateway)`);
           return [];
         }
-        learnArp(config, ipv4.srcIp, frame.srcMac);
+        learnOnLinkArp(config, ipv4.srcIp, frame.srcMac);
         const dns = ipv4.payload;
         const record = (config.dnsRecords || []).find((r) => r.name === dns.name.toLowerCase());
         const address = record?.ip ?? hostnameToIp(dns.name);
@@ -10165,6 +10165,9 @@ Full legal text: https://creativecommons.org/publicdomain/zero/1.0/legalcode</pr
     } else {
       config.arpTable.push({ ipv4Address: ip, macAddress: mac });
     }
+  }
+  function learnOnLinkArp(config, ip, mac) {
+    if (config?.ipv4Address && sameSubnet(config.ipv4Address, ip, prefixOf(config))) learnArp(config, ip, mac);
   }
   function recordArpPoison(victim, arp) {
     const sim = state.simulation;

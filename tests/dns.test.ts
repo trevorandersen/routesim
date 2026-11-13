@@ -459,6 +459,51 @@ describe("DHCP — a client that asks again keeps its address (R69)", () => {
   });
 });
 
+// R70: answering a routed TCP SYN or DNS query filed the remote host's address
+// in the ARP cache against the gateway's MAC.
+describe("hosts learn only on-link neighbours into their ARP cache (R70)", () => {
+  beforeEach(() => {
+    resetState();
+    state.options.instantDns = false;
+    runConsoleScript(`
+      add computer PC-A at -400 0
+      add computer PC-N at -400 200
+      add router R1 at 0 0
+      add switch SW at 200 0
+      add server SRV at 400 0
+      link PC-A R1
+      link R1 SW
+      link SRV SW
+      link PC-N SW
+      interface R1 PC-A ip 10.0.1.1/24
+      interface R1 SW ip 10.0.2.1/24
+      ip PC-A 10.0.1.10/24
+      gateway PC-A 10.0.1.1
+      ip SRV 10.0.2.2/24
+      gateway SRV 10.0.2.1
+      ip PC-N 10.0.2.20/24
+      nameserver PC-A 10.0.2.2
+      nameserver PC-N 10.0.2.2
+    `);
+  });
+  const arp = () => (state.devices.find(d => d.name === "SRV")!.config.arpTable || []).map(e => e.ipv4Address).sort();
+
+  it("a routed TCP connect and a routed DNS query leave only the gateway in the server's cache", () => {
+    expect(exec("run connect PC-A 10.0.2.2 80").ok).toBe(true);
+    expect(arp()).toEqual(["10.0.2.1"]);
+    expect(exec("run resolve PC-A srv").ok).toBe(true);
+    expect(arp()).toEqual(["10.0.2.1"]);
+  });
+
+  it("an on-link client is still learnt from its SYN and its query", () => {
+    expect(exec("run connect PC-N 10.0.2.2 80").ok).toBe(true);
+    expect(arp()).toEqual(["10.0.2.20"]);
+    state.devices.find(d => d.name === "SRV")!.config.arpTable = [];
+    exec("run resolve PC-N srv");
+    expect(arp()).toContain("10.0.2.20");
+  });
+});
+
 describe("dns — through NAT (UDP translation)", () => {
   beforeEach(() => resetState());
 

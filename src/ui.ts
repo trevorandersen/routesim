@@ -253,6 +253,14 @@ function endAboutDrag(event: PointerEvent): void {
 }
 
 // Global keyboard shortcuts. Extracted from setupUI() so it can be unit-tested.
+// A modal dialog is up — the Guide, About, or the port picker. (The Settings
+// pane is docked beside the canvas, not modal, so the canvas shortcuts stay.)
+function modalDialogOpen(): boolean {
+  return dom.helpOverlay.classList.contains("open")
+    || dom.aboutOverlay.classList.contains("open")
+    || state.portSelection !== null;
+}
+
 export function handleGlobalKeydown(event: KeyboardEvent): void {
   const inField = ["INPUT", "SELECT", "TEXTAREA"].includes((event.target as HTMLElement)?.tagName);
   // The tutorial owns the keyboard while it plays (its own listener handles Esc
@@ -309,6 +317,14 @@ export function handleGlobalKeydown(event: KeyboardEvent): void {
     return;
   }
   if (inField) return;
+  // A held Ctrl/Cmd/Alt makes the key a browser or OS shortcut, not one of
+  // ours: Ctrl+C on text selected in the packet list or a terminal's scrollback
+  // must copy, not arm the Computer tool (Cmd+F armed the Firewall tool, Ctrl+A
+  // the Red Team one). Undo/redo, the only chords this handler owns, returned above.
+  if (event.ctrlKey || event.metaKey || event.altKey) return;
+  // An open dialog owns the keyboard: Delete behind the Guide or About modal
+  // deleted the selected device, unseen, and a letter armed a tool behind it.
+  if (modalDialogOpen()) return;
   if (event.key === "Delete" || event.key === "Backspace") deleteSelection();
   if (event.key.toLowerCase() === "v") setTool("select");
   if (event.key.toLowerCase() === "c") setTool("computer");

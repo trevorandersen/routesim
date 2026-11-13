@@ -97,6 +97,63 @@ describe("handleGlobalKeydown — tool shortcuts", () => {
   });
 });
 
+// R44: Ctrl+C armed the Computer tool, Cmd+F the Firewall tool, Ctrl+A the Red
+// Team tool — while copying text from the packet list or a terminal's
+// scrollback — and Delete behind the Guide or About modal deleted the device.
+describe("handleGlobalKeydown — modifier keys and open dialogs (R44)", () => {
+  beforeEach(() => {
+    resetState();
+    for (const id of ["helpOverlay", "aboutOverlay"]) document.getElementById(id)!.classList.remove("open");
+  });
+
+  it("a letter with Ctrl, Cmd or Alt held is not a tool shortcut", () => {
+    for (const modifier of ["ctrlKey", "metaKey", "altKey"]) {
+      for (const k of ["c", "f", "a", "s", "r", "l", "w"]) {
+        state.tool = "select";
+        handleGlobalKeydown({ key: k, target: {}, [modifier]: true } as any);
+        expect(state.tool).toBe("select");
+      }
+    }
+    handleGlobalKeydown({ key: "C", target: {}, shiftKey: true } as any);   // Shift is only a capital letter
+    expect(state.tool).toBe("computer");
+  });
+
+  it("Delete with a modifier held does not delete the selection", () => {
+    exec("add computer PC1 at 100 100");
+    state.selectedId = state.devices[0].id;
+    handleGlobalKeydown({ key: "Backspace", target: {}, metaKey: true } as any);
+    handleGlobalKeydown({ key: "Delete", target: {}, ctrlKey: true } as any);
+    expect(state.devices).toHaveLength(1);
+    handleGlobalKeydown(key("Delete"));
+    expect(state.devices).toHaveLength(0);
+  });
+
+  it("Delete and the tool letters do nothing behind the Guide, About or port dialog", () => {
+    exec("add computer PC1 at 100 100");
+    const open = [
+      () => document.getElementById("helpOverlay")!.classList.add("open"),
+      () => document.getElementById("aboutOverlay")!.classList.add("open"),
+      () => { state.portSelection = { fromId: "a", toId: "b" } as any; },
+    ];
+    const close = () => {
+      for (const id of ["helpOverlay", "aboutOverlay"]) document.getElementById(id)!.classList.remove("open");
+      state.portSelection = null;
+    };
+    for (const show of open) {
+      state.selectedId = state.devices[0].id;
+      state.tool = "select";
+      show();
+      handleGlobalKeydown(key("Delete"));
+      handleGlobalKeydown(key("r"));
+      expect(state.devices).toHaveLength(1);
+      expect(state.tool).toBe("select");
+      close();
+    }
+    handleGlobalKeydown(key("Delete"));                       // with nothing open it deletes again
+    expect(state.devices).toHaveLength(0);
+  });
+});
+
 describe("undo / redo", () => {
   beforeEach(() => resetState());
 

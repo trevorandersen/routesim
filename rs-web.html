@@ -17101,6 +17101,9 @@ Snort successfully validated the configuration${bad ? " (with errors)" : "."}`);
     } catch {
     }
   }
+  function modalDialogOpen() {
+    return dom.helpOverlay.classList.contains("open") || dom.aboutOverlay.classList.contains("open") || state.portSelection !== null;
+  }
   function handleGlobalKeydown(event) {
     const inField = ["INPUT", "SELECT", "TEXTAREA"].includes(event.target?.tagName);
     if (state.tutorialActive) {
@@ -17150,6 +17153,8 @@ Snort successfully validated the configuration${bad ? " (with errors)" : "."}`);
       return;
     }
     if (inField) return;
+    if (event.ctrlKey || event.metaKey || event.altKey) return;
+    if (modalDialogOpen()) return;
     if (event.key === "Delete" || event.key === "Backspace") deleteSelection();
     if (event.key.toLowerCase() === "v") setTool("select");
     if (event.key.toLowerCase() === "c") setTool("computer");

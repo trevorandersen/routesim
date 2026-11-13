@@ -4,7 +4,7 @@ import { dom } from "./dom";
 import { getDevice, linkedPortsFor, routerInterfacesWithNames, linkName, linkById, linksFor, linkDataBlockReason, macsecState, macsOwnedBy, liveMacsOf, isPhysicalLink, dot1xPortFacing } from "./devices";
 import { normalisePortVlans, normalisePortModes, normaliseTrunkAllowedVlans, normaliseArpTable, normaliseMacTable, normaliseDhcpLeases, normaliseStaticRoutes, ensureConfig } from "./normalise";
 import { quoteArg } from "./tokenize";
-import { sameSubnet, prefixOf, isValidIpv4, ipv4ToInt, intToIpv4, normaliseMacAddress, deriveMac, internetGatewayIp, parseIpv4, cidrOf, cidrHas } from "./utils";
+import { sameSubnet, prefixOf, isValidIpv4, ipv4ToInt, intToIpv4, normaliseMacAddress, deriveMac, internetGatewayIp, parseIpv4, cidrOf, cidrHas, icmpTypeName } from "./utils";
 import { simRandomInt, seedSimRng, seedLossRng, lossRandom } from "./prng";
 import { createArpRequest, createArpReply, createIcmpEchoRequest, createIcmpEchoReply, createIcmpTimeExceeded, createIcmpDestUnreachable, icmpOriginalOf, createDhcpOffer, createDhcpRequest, createDhcpAck, createTcpSegment, createHttpRequest, createHttpResponse, createDnsResponse, createDot11Frame, createDot1xFrame, createBpduFrame, BROADCAST_MAC, frameLabel } from "./frame";
 import { buildPingEvents, buildResolveEvents, buildDhcpEvents, buildAttackEvents, findPingTarget, hostnameToIp } from "./simulation";
@@ -2476,10 +2476,6 @@ function routeIpv4Frame(device: Device, frame: EthernetFrame, ifaces: any[], ing
 
 // ─── Firewall (transparent inline packet filter) ─────────────────────────────
 
-function icmpTypeName(t: number): string {
-  return t === 8 ? "echo-request" : t === 0 ? "echo-reply" : t === 11 ? "time-exceeded" : `type-${t}`;
-}
-
 // A rule's -s/-d pattern — an exact IP (matched as a /32) or a CIDR (e.g.
 // "192.168.1.0/24") — parsed to integers; null when unparseable, which never
 // matches. The length is read with parseInt, as iptables' own parser accepts.
@@ -2533,7 +2529,9 @@ function ruleMatchesParsed(rule: FirewallRule, ipv4: Ipv4Payload, srcAddr: numbe
   }
   if (rule.icmpType) {
     if (ipv4.payload.type !== "icmp") return false;
-    if (icmpTypeName(ipv4.payload.icmpType) !== rule.icmpType) return false;
+    // "any" matches every ICMP type; otherwise compare canonical names (the
+    // parser canonicalised numeric and named forms to the same space).
+    if (rule.icmpType !== "any" && icmpTypeName(ipv4.payload.icmpType) !== rule.icmpType) return false;
   }
   if (rule.src && !addressMatches(srcAddr, rule.src)) return false;
   if (rule.dst && !addressMatches(dstAddr, rule.dst)) return false;

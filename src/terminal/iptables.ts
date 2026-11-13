@@ -10,7 +10,7 @@
 import type { Device, FirewallRule, MutationResult, RuleLang } from "../types";
 import { state, sync, pushUndo } from "../state";
 import { ensureConfig } from "../normalise";
-import { isValidIpv4 } from "../utils";
+import { isValidIpv4, canonicalIcmpType } from "../utils";
 
 // The rule language a device presents its one netfilter ruleset in (native
 // view, add-rule form, script export). Both the `iptables` and `nft` shells
@@ -97,7 +97,14 @@ function parseFirewallRule(chain: string, toks: string[]): FirewallRule | string
       if (!["icmp", "udp", "tcp", "all"].includes(p)) return `iptables: unknown protocol "${val}"`;
       if (p !== "all") rule.protocol = p as any; i++;
     }
-    else if (t === "--icmp-type") { if (!val) return "iptables: --icmp-type needs a value"; rule.icmpType = val.toLowerCase(); i++; }
+    else if (t === "--icmp-type") {
+      if (!val) return "iptables: --icmp-type needs a value";
+      // Canonicalise 8 / echo-request / 8/0 to one name, reject a type the model
+      // can never match, and keep `any` as a wildcard (review R21).
+      const canon = canonicalIcmpType(val);
+      if (!canon) return `iptables: unknown ICMP type "${val}" (echo-request/8, echo-reply/0, time-exceeded/11, destination-unreachable/3, or any)`;
+      rule.icmpType = canon; i++;
+    }
     else if (t === "--dport") { if (!val || !/^\d+$/.test(val) || Number(val) < 1 || Number(val) > 65535) return "iptables: --dport needs a port number (1-65535)"; rule.dport = Number(val); i++; }
     // `-m <module>` loads a match extension; we infer behaviour from the flags,
     // so the module name (state / conntrack / tcp / udp) is accepted and skipped.

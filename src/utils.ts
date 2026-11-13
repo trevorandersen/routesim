@@ -321,6 +321,35 @@ export function clearCssColorCache(): void {
   cssColorCache.clear();
 }
 
+// The ICMP types the frame model carries, and their iptables `--icmp-type`
+// names. The single source of truth for both the firewall parser
+// (`canonicalIcmpType`) and the matcher (`icmpTypeName`).
+export const ICMP_TYPE_NAMES: Record<number, string> = {
+  0: "echo-reply",
+  3: "destination-unreachable",
+  8: "echo-request",
+  11: "time-exceeded",
+};
+
+// The iptables name for an ICMP type number (`echo-request`, …), or `type-N`.
+export function icmpTypeName(t: number): string {
+  return ICMP_TYPE_NAMES[t] ?? `type-${t}`;
+}
+
+// Canonicalise an iptables `--icmp-type` value to the name the matcher compares
+// against, or null if it names no type this model can ever match. Accepts a
+// canonical name, a numeric type (optionally `type/code` — the code is dropped,
+// the model has none), and `any` (matches every ICMP type). Rejecting the rest
+// stops a rule that could never fire from being silently accepted (review R21).
+export function canonicalIcmpType(value: string): string | null {
+  const v = value.trim().toLowerCase();
+  if (!v) return null;
+  if (v === "any") return "any";
+  const num = /^(\d+)(?:\/\d+)?$/.exec(v);
+  if (num) return ICMP_TYPE_NAMES[Number(num[1])] ?? null;
+  return Object.values(ICMP_TYPE_NAMES).includes(v) ? v : null;
+}
+
 // Generates a random locally-administered unicast MAC (02:..).
 export function randomMac(): string {
   const bytes = new Uint8Array(6);

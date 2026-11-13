@@ -36,6 +36,11 @@ describe("firewall — rule matching", () => {
   it("matches by icmp-type", () => {
     expect(firewallRuleMatches({ chain: "forward", target: "drop", icmpType: "echo-request" }, icmpV4("1.1.1.1", "2.2.2.2", 8))).toBe(true);
     expect(firewallRuleMatches({ chain: "forward", target: "drop", icmpType: "echo-reply" }, icmpV4("1.1.1.1", "2.2.2.2", 8))).toBe(false);
+    // R21: "any" is a wildcard, and type 3 is now named and matchable.
+    expect(firewallRuleMatches({ chain: "forward", target: "drop", icmpType: "any" }, icmpV4("1.1.1.1", "2.2.2.2", 8))).toBe(true);
+    expect(firewallRuleMatches({ chain: "forward", target: "drop", icmpType: "any" }, icmpV4("1.1.1.1", "2.2.2.2", 3))).toBe(true);
+    expect(firewallRuleMatches({ chain: "forward", target: "drop", icmpType: "destination-unreachable" }, icmpV4("1.1.1.1", "2.2.2.2", 3))).toBe(true);
+    expect(firewallRuleMatches({ chain: "forward", target: "drop", icmpType: "destination-unreachable" }, icmpV4("1.1.1.1", "2.2.2.2", 8))).toBe(false);
   });
 });
 
@@ -241,6 +246,22 @@ describe("iptables validates what it stores (G3-01)", () => {
     const f = fw();
     expect(_runIpt(f, "iptables -A FORWARD -s 10.0.0.0/24 -d 192.168.1.5 -p tcp --dport 443 -j DROP", ["forward"])).toBe(true);
     expect(f.config!.rules).toHaveLength(1);
+  });
+  it("canonicalises --icmp-type and rejects one that can never match (R21)", () => {
+    const f = fw();
+    // Numeric 8 is stored as its canonical name, so the tutorial rule that used
+    // to be accepted-but-inert now actually matches echo requests.
+    expect(_runIpt(f, "iptables -A FORWARD -p icmp --icmp-type 8 -j DROP", ["forward"])).toBe(true);
+    expect(f.config!.rules![0].icmpType).toBe("echo-request");
+    // Named, type-3 and the 'any' wildcard are all accepted.
+    expect(_runIpt(f, "iptables -A FORWARD -p icmp --icmp-type destination-unreachable -j DROP", ["forward"])).toBe(true);
+    expect(_runIpt(f, "iptables -A FORWARD -p icmp --icmp-type any -j DROP", ["forward"])).toBe(true);
+    expect(f.config!.rules).toHaveLength(3);
+    // A type the model can never carry is refused, not silently stored.
+    _runIpt(f, "iptables -A FORWARD -p icmp --icmp-type 5 -j DROP", ["forward"]);
+    _runIpt(f, "iptables -A FORWARD -p icmp --icmp-type nonsense -j DROP", ["forward"]);
+    expect(f.config!.rules).toHaveLength(3);                     // neither was stored
+    expect(out()).toContain("unknown ICMP type");
   });
 });
 

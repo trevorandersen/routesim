@@ -3160,6 +3160,23 @@ Full legal text: https://creativecommons.org/publicdomain/zero/1.0/legalcode</pr
   function clearCssColorCache() {
     cssColorCache.clear();
   }
+  var ICMP_TYPE_NAMES = {
+    0: "echo-reply",
+    3: "destination-unreachable",
+    8: "echo-request",
+    11: "time-exceeded"
+  };
+  function icmpTypeName(t) {
+    return ICMP_TYPE_NAMES[t] ?? `type-${t}`;
+  }
+  function canonicalIcmpType(value) {
+    const v = value.trim().toLowerCase();
+    if (!v) return null;
+    if (v === "any") return "any";
+    const num = /^(\d+)(?:\/\d+)?$/.exec(v);
+    if (num) return ICMP_TYPE_NAMES[Number(num[1])] ?? null;
+    return Object.values(ICMP_TYPE_NAMES).includes(v) ? v : null;
+  }
   function randomMac() {
     const bytes = new Uint8Array(6);
     crypto.getRandomValues(bytes);
@@ -9685,9 +9702,6 @@ Full legal text: https://creativecommons.org/publicdomain/zero/1.0/legalcode</pr
     }
     return outgoing;
   }
-  function icmpTypeName(t) {
-    return t === 8 ? "echo-request" : t === 0 ? "echo-reply" : t === 11 ? "time-exceeded" : `type-${t}`;
-  }
   function parseFirewallAddress(pattern) {
     const slash = pattern.indexOf("/");
     if (slash < 0) {
@@ -9724,7 +9738,7 @@ Full legal text: https://creativecommons.org/publicdomain/zero/1.0/legalcode</pr
     }
     if (rule.icmpType) {
       if (ipv4.payload.type !== "icmp") return false;
-      if (icmpTypeName(ipv4.payload.icmpType) !== rule.icmpType) return false;
+      if (rule.icmpType !== "any" && icmpTypeName(ipv4.payload.icmpType) !== rule.icmpType) return false;
     }
     if (rule.src && !addressMatches(srcAddr, rule.src)) return false;
     if (rule.dst && !addressMatches(dstAddr, rule.dst)) return false;
@@ -10826,7 +10840,9 @@ ${body}
         i++;
       } else if (t === "--icmp-type") {
         if (!val) return "iptables: --icmp-type needs a value";
-        rule.icmpType = val.toLowerCase();
+        const canon = canonicalIcmpType(val);
+        if (!canon) return `iptables: unknown ICMP type "${val}" (echo-request/8, echo-reply/0, time-exceeded/11, destination-unreachable/3, or any)`;
+        rule.icmpType = canon;
         i++;
       } else if (t === "--dport") {
         if (!val || !/^\d+$/.test(val) || Number(val) < 1 || Number(val) > 65535) return "iptables: --dport needs a port number (1-65535)";

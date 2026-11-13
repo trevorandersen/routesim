@@ -8,7 +8,7 @@ import { runStpConvergence } from "../src/stp";
 import { setDevicePower, setLinkShutdown, setSwitchManaged, toggleLinkShutdown } from "../src/devices";
 import { renderSwitchPorts, renderSwitchVlans, renderRouterInterfaces, renderFramePanel, ipSourceInfo, syncPanel, INSPECTOR_SECTIONS, inspectorSectionsFor } from "../src/inspector";
 import { DEVICE_SPECS, USER_ADDABLE_TYPES } from "../src/device-registry";
-import { addDevice, collapseLan } from "../src/devices";
+import { addDevice, collapseLan, linkedPortsFor } from "../src/devices";
 import { findTransitAt } from "../src/canvas";
 import { createIcmpEchoRequest, createTcpSegment } from "../src/frame";
 import { dom } from "../src/dom";
@@ -285,6 +285,45 @@ describe("inspector wiring survives a port-count re-render", () => {
     const linkId = one(".port-remove").dataset.linkId!;
     removeIcon.click();
     expect(state.links.some(l => l.id === linkId)).toBe(false);
+  });
+});
+
+// R95: unticking the last SPAN source checkbox sent `sources: []`, which the
+// engine reads as "mirror every port" — the opposite of what the empty tick
+// state shows. The binding now refuses the all-unticked state and explains.
+describe("SPAN mirror source checkboxes (R95)", () => {
+  let mini: ReturnType<typeof installMiniDom>;
+  beforeEach(() => { resetState(); mini = installMiniDom(); });
+  afterEach(() => mini.uninstall());
+
+  it("blocks unticking the last source instead of silently mirroring the whole switch", () => {
+    exec("add switch SW1 at 0 0");
+    exec("add computer PC1 at -150 0");
+    exec("add computer PC2 at 150 0");
+    exec("add ids IDS1 at 0 150");
+    const sw = state.devices.find(d => d.name === "SW1")!;
+    sw.config!.managed = true;
+    exec("link PC1 SW1");
+    exec("link PC2 SW1");
+    exec("link IDS1 SW1");
+    const ports = linkedPortsFor(sw.id);
+    const ids = state.devices.find(d => d.name === "IDS1")!;
+    const dest = `Ethernet${ports.findIndex((p: any) => p?.peer?.id === ids.id) + 1}`;
+    const pc1 = state.devices.find(d => d.name === "PC1")!;
+    const src = `Ethernet${ports.findIndex((p: any) => p?.peer?.id === pc1.id) + 1}`;
+    exec(`mirror SW1 ${dest} ${src}`);   // monitor the IDS port, source = PC1's port only
+    expect(sw.config!.mirror).toMatchObject({ dest, sources: [src] });
+
+    state.selectedId = sw.id;
+    syncPanel();
+    const cb = mini.panel.querySelector(`.mirror-source-cb[data-port="${src}"]`) as any;
+    expect(cb.checked).toBe(true);
+    cb.checked = false;
+    cb.dispatchEvent(new MiniEvent("change"));
+    // Refused: the box is re-ticked, the session still lists the one source, and the user is told why.
+    expect(cb.checked).toBe(true);
+    expect(sw.config!.mirror!.sources).toEqual([src]);
+    expect(dom.modeLabel.textContent).toContain("at least one source port");
   });
 });
 

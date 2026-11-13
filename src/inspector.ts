@@ -772,14 +772,22 @@ export function bindMirrorControl(device: any): void {
   const dest = device.config?.mirror?.dest;
   const cbs = Array.from(document.querySelectorAll<HTMLInputElement>(".mirror-source-cb"));
   if (dest && cbs.length) {
-    const apply = () => {
+    const apply = (changed: HTMLInputElement) => {
       const all = cbs.map(cb => cb.dataset.port!);
       const checked = cbs.filter(cb => cb.checked).map(cb => cb.dataset.port!);
+      // A SPAN session with no source ports would fall through to the engine's
+      // "empty sources = mirror every port" and silently monitor the whole
+      // switch. Keep at least one source and explain, rather than flip it (R95).
+      if (checked.length === 0) {
+        changed.checked = true;
+        dom.modeLabel.textContent = "A mirror session needs at least one source port — change the monitor port to reset it to the whole switch.";
+        return;
+      }
       // All ticked → mirror the whole switch (omit sources); a subset → that list.
       const sources = checked.length === all.length ? undefined : checked;
       setSwitchMirror(device, { name, dest, sources });
     };
-    cbs.forEach(cb => cb.addEventListener("change", apply));
+    cbs.forEach(cb => cb.addEventListener("change", () => apply(cb)));
   }
 }
 

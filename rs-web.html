@@ -14747,13 +14747,18 @@ Snort successfully validated the configuration${bad ? " (with errors)" : "."}`);
     const dest = device.config?.mirror?.dest;
     const cbs = Array.from(document.querySelectorAll(".mirror-source-cb"));
     if (dest && cbs.length) {
-      const apply = () => {
+      const apply = (changed) => {
         const all = cbs.map((cb) => cb.dataset.port);
         const checked = cbs.filter((cb) => cb.checked).map((cb) => cb.dataset.port);
+        if (checked.length === 0) {
+          changed.checked = true;
+          dom.modeLabel.textContent = "A mirror session needs at least one source port \u2014 change the monitor port to reset it to the whole switch.";
+          return;
+        }
         const sources = checked.length === all.length ? void 0 : checked;
         setSwitchMirror(device, { name, dest, sources });
       };
-      cbs.forEach((cb) => cb.addEventListener("change", apply));
+      cbs.forEach((cb) => cb.addEventListener("change", () => apply(cb)));
     }
   }
   function bindStpControls(device) {

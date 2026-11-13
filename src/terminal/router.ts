@@ -231,6 +231,7 @@ const ALL_ROUTER_MODES: RouterMode[] = ["exec", "privileged", "config", "interfa
 interface RouterCmdSpec { tokens: string[]; args?: boolean; modes: RouterMode[]; min?: number }
 const ROUTER_COMMANDS: RouterCmdSpec[] = [
   { tokens: ["enable"], modes: ["exec", "privileged"] },
+  { tokens: ["disable"], modes: ["exec", "privileged"] },
   { tokens: ["configure", "terminal"], modes: ["privileged"] },
   { tokens: ["show", "ip", "interface", "brief"], modes: ALL_ROUTER_MODES },
   { tokens: ["show", "ip", "route"], modes: ALL_ROUTER_MODES },
@@ -578,16 +579,32 @@ function routerSessionCommand(lower: string): boolean {
       state.terminal.mode = "config";
     } else if (state.terminal.mode === "config") {
       state.terminal.mode = "privileged";
-    } else if (state.terminal.mode === "privileged") {
-      state.terminal.mode = "exec";
     } else {
-      // `exit` at exec level logs out: close this session's tab.
+      // `exit` at either exec level logs out, as on IOS and in vtysh: close
+      // this session's tab. (`disable` is the step from privileged to user exec;
+      // `exit` used to do that step instead, so it never logged out from `#`.)
       closeSession(state.terminal.deviceId);
     }
     return true;
   }
   if (lower === "end") {
+    // `end` leaves configuration for privileged exec. At user exec there is no
+    // configuration to leave — it used to hand out privileged mode, no `enable`.
+    if (state.terminal.mode === "exec") {
+      terminalLine("error", "% Invalid input — end leaves configuration mode, and you are at user exec. Enter enable for privileged mode.");
+      return true;
+    }
     state.terminal.mode = "privileged";
+    clearInterfaceTarget(state.terminal);
+    return true;
+  }
+  if (lower === "disable") {
+    // The inverse of `enable`: privileged exec back to user exec.
+    if (state.terminal.mode !== "exec" && state.terminal.mode !== "privileged") {
+      terminalLine("error", "% Invalid input — leave configuration mode first (end).");
+      return true;
+    }
+    state.terminal.mode = "exec";
     clearInterfaceTarget(state.terminal);
     return true;
   }
@@ -612,6 +629,18 @@ function routerSessionCommand(lower: string): boolean {
     return true;
   }
   return false;
+}
+
+// The `clear ip …` commands change the router, so they run only in the modes
+// the registry (and `?`) advertise — they used to run in any mode, user exec
+// included. Prints the reason and returns true when the current mode is not one.
+function clearCommandRefused(modes: RouterMode[]): boolean {
+  const mode = routerMode();
+  if (modes.includes(mode)) return false;
+  terminalLine("error", mode === "exec"
+    ? "% Privileged mode required. Enter enable first."
+    : "% Leave the sub-mode first (exit) — clear runs in privileged or config mode.");
+  return true;
 }
 
 // Handles read-only `show ...` commands plus `clear ip rip database` and
@@ -650,6 +679,7 @@ function routerShowCommand(router: Device, lower: string): boolean {
     return true;
   }
   if (lower === "clear ip nat translation *" || lower === "clear ip nat translation") {
+    if (clearCommandRefused(["privileged", "config"])) return true;
     pushUndo();
     if (router.config) router.config.natTranslations = [];
     sync().syncPanel();
@@ -661,6 +691,7 @@ function routerShowCommand(router: Device, lower: string): boolean {
     return true;
   }
   if (lower === "clear ip rip database") {
+    if (clearCommandRefused(["privileged", "config", "rip"])) return true;
     if (!router.config?.rip?.enabled) {
       terminalLine("error", "% RIP is not enabled on this router.");
       return true;

@@ -112,8 +112,12 @@ describe("nat — PAT overload", () => {
     const show = exec("cli R1 show ip nat translations");
     expect(show.output.join("\n")).toContain("203.0.113.2");
     expect(show.output.join("\n")).toContain("192.168.1.10");
-    exec("cli R1 clear ip nat translation *");
     const r1 = state.devices.find(d => d.name === "R1")!;
+    // enableNat leaves the shell in config-if: `clear` is refused there (R86).
+    expect(exec("cli R1 clear ip nat translation *").ok).toBe(false);
+    expect(r1.config.natTranslations!.length).toBeGreaterThan(0);
+    exec("cli R1 end");
+    expect(exec("cli R1 clear ip nat translation *").ok).toBe(true);
     expect(r1.config.natTranslations).toHaveLength(0);
   });
 
@@ -322,7 +326,7 @@ describe("router netfilter chains", () => {
     const { pc1 } = natTopology();
     enableNat();
     exec("cli R1 end");   // config-if -> privileged
-    exec("cli R1 exit");  // privileged -> exec
+    exec("cli R1 disable");  // privileged -> exec
     const denied = exec("cli R1 iptables -L");
     expect(denied.output.join(" ")).toContain("Privileged");
     exec("cli R1 enable");

@@ -55,6 +55,62 @@ describe("runRouterTerminalCommand — mode machine", () => {
     expect(state.terminal.mode).toBe("privileged");
   });
 
+  // R86 — the mode machine's faults.
+  const say = (rtr: any, c: string) => { const n = state.terminal.lines.length; runRouterTerminalCommand(rtr, c); return state.terminal.lines.slice(n).map(l => l.text).join(" "); };
+
+  it("`end` at user exec does not hand out privileged mode", () => {
+    const rtr = loadRouter();
+    expect(say(rtr, "end")).toContain("% Invalid input — end leaves configuration mode");
+    expect(state.terminal.mode).toBe("exec");
+    runRouterTerminalCommand(rtr, "enable");
+    expect(say(rtr, "end")).toBe("");                       // already at privileged: nothing to leave
+    expect(state.terminal.mode).toBe("privileged");
+  });
+
+  it("`disable` steps privileged back to user exec, and is refused from configuration", () => {
+    const rtr = loadRouter();
+    runRouterTerminalCommand(rtr, "enable");
+    runRouterTerminalCommand(rtr, "disable");
+    expect(state.terminal.mode).toBe("exec");
+    runRouterTerminalCommand(rtr, "enable");
+    runRouterTerminalCommand(rtr, "configure terminal");
+    expect(say(rtr, "disable")).toContain("leave configuration mode first");
+    expect(state.terminal.mode).toBe("config");
+    state.terminal.mode = "privileged";
+    runRouterTerminalCommand(rtr, "disa");                  // abbreviates like any registered command
+    expect(state.terminal.mode).toBe("exec");
+  });
+
+  it("`exit` at privileged exec logs out, as at user exec", () => {
+    const rtr = loadRouter();
+    state.terminalSessions = [state.terminal];
+    runRouterTerminalCommand(rtr, "enable");
+    runRouterTerminalCommand(rtr, "exit");
+    expect(state.terminalSessions).toHaveLength(0);
+  });
+
+  it("the clear commands run only where the registry says", () => {
+    const rtr = loadRouter();
+    rtr.config.natTranslations = [{ protocol: "icmp", insideIp: "192.168.10.10", insidePort: 1, outsideIp: "192.168.20.1", outsidePort: 1, destIp: "192.168.20.10", destPort: 1 }] as any;
+    rtr.config.rip = { enabled: true, networks: [], passiveInterfaces: [], learnedRoutes: [{ network: "10.9.0.0/24", nextHop: "192.168.20.2", interface: "Ethernet2", metric: 2 }] } as any;
+    const depth = state.undoStack.length;
+    expect(say(rtr, "clear ip nat translation *")).toBe("% Privileged mode required. Enter enable first.");
+    expect(say(rtr, "clear ip rip database")).toBe("% Privileged mode required. Enter enable first.");
+    state.terminal.mode = "interface"; state.terminal.interfacePeerId = "sw-a";
+    expect(say(rtr, "clear ip nat translation *")).toContain("% Leave the sub-mode first");
+    expect(say(rtr, "clear ip rip database")).toContain("% Leave the sub-mode first");
+    expect(rtr.config.natTranslations).toHaveLength(1);
+    expect(rtr.config.rip!.learnedRoutes).toHaveLength(1);
+    expect(state.undoStack.length).toBe(depth);
+    state.terminal.mode = "rip";
+    expect(say(rtr, "clear ip nat translation *")).toContain("% Leave the sub-mode first");
+    expect(say(rtr, "clear ip rip database")).not.toContain("%");     // the registry lists rip mode for this one
+    expect(rtr.config.rip!.learnedRoutes).toHaveLength(0);
+    state.terminal.mode = "privileged";
+    expect(say(rtr, "clear ip nat translation *")).toBe("Cleared all NAT translations.");
+    expect(rtr.config.natTranslations).toHaveLength(0);
+  });
+
   it("conf t requires privileged mode", () => {
     const rtr = loadRouter();
     runRouterTerminalCommand(rtr, "configure terminal"); // from exec

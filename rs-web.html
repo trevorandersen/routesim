@@ -11683,6 +11683,7 @@ ${body}
   var ALL_ROUTER_MODES = ["exec", "privileged", "config", "interface", "rip"];
   var ROUTER_COMMANDS = [
     { tokens: ["enable"], modes: ["exec", "privileged"] },
+    { tokens: ["disable"], modes: ["exec", "privileged"] },
     { tokens: ["configure", "terminal"], modes: ["privileged"] },
     { tokens: ["show", "ip", "interface", "brief"], modes: ALL_ROUTER_MODES },
     { tokens: ["show", "ip", "route"], modes: ALL_ROUTER_MODES },
@@ -11976,15 +11977,26 @@ ${body}
         state.terminal.mode = "config";
       } else if (state.terminal.mode === "config") {
         state.terminal.mode = "privileged";
-      } else if (state.terminal.mode === "privileged") {
-        state.terminal.mode = "exec";
       } else {
         closeSession(state.terminal.deviceId);
       }
       return true;
     }
     if (lower === "end") {
+      if (state.terminal.mode === "exec") {
+        terminalLine("error", "% Invalid input \u2014 end leaves configuration mode, and you are at user exec. Enter enable for privileged mode.");
+        return true;
+      }
       state.terminal.mode = "privileged";
+      clearInterfaceTarget(state.terminal);
+      return true;
+    }
+    if (lower === "disable") {
+      if (state.terminal.mode !== "exec" && state.terminal.mode !== "privileged") {
+        terminalLine("error", "% Invalid input \u2014 leave configuration mode first (end).");
+        return true;
+      }
+      state.terminal.mode = "exec";
       clearInterfaceTarget(state.terminal);
       return true;
     }
@@ -12007,6 +12019,12 @@ ${body}
       return true;
     }
     return false;
+  }
+  function clearCommandRefused(modes) {
+    const mode = routerMode();
+    if (modes.includes(mode)) return false;
+    terminalLine("error", mode === "exec" ? "% Privileged mode required. Enter enable first." : "% Leave the sub-mode first (exit) \u2014 clear runs in privileged or config mode.");
+    return true;
   }
   function routerShowCommand(router, lower) {
     if (lower === "show ip interface brief" || lower === "show interface brief") {
@@ -12042,6 +12060,7 @@ ${body}
       return true;
     }
     if (lower === "clear ip nat translation *" || lower === "clear ip nat translation") {
+      if (clearCommandRefused(["privileged", "config"])) return true;
       pushUndo();
       if (router.config) router.config.natTranslations = [];
       sync().syncPanel();
@@ -12053,6 +12072,7 @@ ${body}
       return true;
     }
     if (lower === "clear ip rip database") {
+      if (clearCommandRefused(["privileged", "config", "rip"])) return true;
       if (!router.config?.rip?.enabled) {
         terminalLine("error", "% RIP is not enabled on this router.");
         return true;

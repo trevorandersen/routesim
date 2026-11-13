@@ -12465,7 +12465,8 @@ ${body}
     const vlans = normaliseVlans(device.config?.vlans || []).filter((vlan) => vlan.id !== 1);
     const interfaces = switchInterfacesWithNames(device);
     const trunkAllowed = normaliseTrunkAllowedVlans(device.config?.trunkAllowedVlans || {});
-    const lines = [`hostname ${device.name}`];
+    const header = `config hostname ${device.name}`;
+    const lines = [header];
     const stp = device.config?.stp;
     if (stp?.enabled === false) lines.push(`config spanning_tree disable`);
     if (stp?.priority != null && stp.priority !== 32768) lines.push(`config spanning_tree priority ${stp.priority}`);
@@ -12482,8 +12483,8 @@ ${body}
         lines.push(`config vlan member add ${iface.vlan} ${iface.name}`);
       }
     }
-    return lines.length > 1 ? lines.join("\n") : `hostname ${device.name}
-(no VLAN configuration)`;
+    return lines.length > 1 ? lines.join("\n") : `${header}
+# (no VLAN configuration)`;
   }
   function showSwitchSpanningTree(device) {
     if (!device.config?.managed) return "Spanning tree runs only on a managed switch.";

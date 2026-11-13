@@ -69,7 +69,11 @@ export function showSwitchRunningConfig(device: Device): string {
   const vlans = normaliseVlans(device.config?.vlans || []).filter((vlan: any) => vlan.id !== 1);
   const interfaces = switchInterfacesWithNames(device);
   const trunkAllowed = normaliseTrunkAllowedVlans(device.config?.trunkAllowedVlans || {});
-  const lines: string[] = [`hostname ${device.name}`];
+  // Every line is a command this shell accepts, so the listing can be typed
+  // back. The header used to read `hostname X`, which the SONiC shell rejects
+  // (its form is `config hostname X`).
+  const header = `config hostname ${device.name}`;
+  const lines: string[] = [header];
   const stp = device.config?.stp;
   if (stp?.enabled === false) lines.push(`config spanning_tree disable`);
   if (stp?.priority != null && stp.priority !== 32768) lines.push(`config spanning_tree priority ${stp.priority}`);
@@ -89,7 +93,7 @@ export function showSwitchRunningConfig(device: Device): string {
       lines.push(`config vlan member add ${iface.vlan} ${iface.name}`);
     }
   }
-  return lines.length > 1 ? lines.join("\n") : `hostname ${device.name}\n(no VLAN configuration)`;
+  return lines.length > 1 ? lines.join("\n") : `${header}\n# (no VLAN configuration)`;
 }
 
 // SONiC `show spanning_tree` — the bridge/root ids and per-port role/state/cost.

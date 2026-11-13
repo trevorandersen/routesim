@@ -787,6 +787,46 @@ describe("P3 sweep — switch shell", () => {
   });
 });
 
+// R89: the listing began `hostname X`, a line the switch's own shell rejects.
+describe("switch running-config is made of lines its shell accepts (R89)", () => {
+  beforeEach(() => resetState());
+
+  it("every non-comment line replays on a fresh switch without an error", () => {
+    const cabling = `
+      add switch SW1 at 0 0
+      managed SW1
+      add computer PC1 at 100 0
+      add computer PC2 at 200 0
+      link PC1 SW1
+      link PC2 SW1
+    `;
+    runConsoleScript(cabling + `
+      vlan SW1 add 10
+      port SW1 Ethernet1 vlan 10
+      stp SW1 priority 4096
+    `);
+    const listing = showSwitchRunningConfig(state.devices.find(d => d.name === "SW1")!).split("\n");
+    expect(listing[0]).toBe("config hostname SW1");
+    expect(listing.length).toBeGreaterThan(3);
+
+    runConsoleScript("clear\n" + cabling.replace("add switch SW1", "add switch OTHER").replace(/SW1/g, "OTHER"));
+    const fresh = state.devices.find(d => d.name === "OTHER")!;
+    state.terminal = { ...state.terminal, deviceId: fresh.id, lines: [] };
+    for (const line of listing.filter(l => !l.startsWith("#"))) {
+      const result = runTerminalCommand(line);
+      expect({ line, ok: result.ok }).toEqual({ line, ok: true });
+    }
+    expect(fresh.name).toBe("SW1");                              // the hostname line took effect
+    expect(showSwitchRunningConfig(fresh).split("\n")).toEqual(listing);
+  });
+
+  it("a switch with nothing configured lists its hostname and a comment", () => {
+    runConsoleScript("add switch SW1 at 0 0\nmanaged SW1");
+    const sw = state.devices.find(d => d.name === "SW1")!;
+    expect(showSwitchRunningConfig(sw)).toBe("config hostname SW1\n# (no VLAN configuration)");
+  });
+});
+
 describe("P3 sweep — router shell", () => {
   const router = (mode: string) => {
     resetState();

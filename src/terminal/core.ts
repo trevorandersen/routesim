@@ -273,6 +273,14 @@ export function runTerminalCommand(rawCommand: string): TerminalCommandResult {
     return { ok: false, lines: state.terminal.lines.slice(-1) };
   }
   if (!command) return { ok: true, lines: [] };
+  // A powered-off device has no shell. A session opened while it was on stays
+  // in the dock, but nothing typed into it takes effect — a config change used
+  // to succeed, and a traceroute to print thirty silent hops. `clear` only
+  // tidies this pane's scrollback, so it still works.
+  if (host.poweredOff && command.toLowerCase() !== "clear") {
+    terminalLine("error", poweredOffNote(host));
+    return { ok: false, lines: state.terminal.lines.slice(-1) };
+  }
   if (host.type === "router") reconcileRouterSession(state.terminal, host);   // before the echo, so it shows the real prompt
   terminalLine("command", `${terminalPromptText(host)} ${command}`);
   // A command here can stop another run (a ping preempting a network boot, a
@@ -304,11 +312,15 @@ function terminalBusy(): boolean {
   return animatedRunBlockReason() !== null && state.terminal.deviceId === state.simulation.originDeviceId;
 }
 
+// The one refusal a powered-off device gives, whether its terminal is being
+// opened or a command is typed into a session opened earlier.
+const poweredOffNote = (device: Device) => `${device.name} is powered off.`;
+
 export function openTerminalFor(device: Device | undefined): void {
   if (!device || !hasTerminal(device)) {
     state.terminal = withErrorLine("Select a PC, server, router, or managed switch to open its terminal.");
   } else if (device.poweredOff) {
-    state.terminal = withErrorLine(`${device.name} is powered off.`);
+    state.terminal = withErrorLine(poweredOffNote(device));
   } else if (device.type === "switch" && !device.config?.managed) {
     state.terminal = withErrorLine("This switch is unmanaged. Enable managed mode to use a switch terminal.");
   } else {
@@ -350,6 +362,7 @@ export function syncTerminal(): void {
   dom.terminalInput.disabled = !activeHost;
   dom.terminalInput.readOnly = busy;
   dom.terminalInput.placeholder = !activeHost ? "Select a device"
+    : activeHost.poweredOff ? `${activeHost.name} is powered off — power it on to use this shell`
     : busy ? `Simulation ${state.simulation.status === "paused" ? "paused" : "running"} — Ctrl+C to stop`
     : activeHost.type === "router" ? "?" : "help";
   dom.terminalOutput.innerHTML = state.terminal.lines.length

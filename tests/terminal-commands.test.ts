@@ -339,6 +339,74 @@ describe("runTerminalCommand — dispatch by device type", () => {
   });
 });
 
+describe("a powered-off device has no working shell (R42)", () => {
+  beforeEach(() => resetState());
+
+  function open(name: string) {
+    const device = state.devices.find(d => d.name === name)!;
+    state.terminal = { ...state.terminal, deviceId: device.id, lines: [], mode: "exec" };
+    return device;
+  }
+
+  it("refuses a host command with the reason, changes nothing and takes no undo point", () => {
+    runConsoleScript(`
+      add computer PC1 at 0 0
+      ip PC1 10.0.0.1/24
+    `);
+    const pc = open("PC1");
+    runConsoleScript("power PC1 off");
+    const undoDepth = state.undoStack.length;
+    const result = runTerminalCommand("ip addr add 10.0.0.9/24 dev eth0");
+    expect(result.ok).toBe(false);
+    expect(result.lines.map(l => l.text)).toEqual(["PC1 is powered off."]);
+    expect(pc.config.ipv4Address).toBe("10.0.0.1");
+    expect(state.undoStack.length).toBe(undoDepth);
+    // A traceroute used to print thirty silent hops from a dead machine.
+    expect(runTerminalCommand("traceroute 10.0.0.2").lines.map(l => l.text)).toEqual(["PC1 is powered off."]);
+  });
+
+  it("refuses a router's config commands too", () => {
+    runConsoleScript("add router R1 at 0 0");
+    const router = open("R1");
+    state.terminal.mode = "config";
+    runConsoleScript("power R1 off");
+    expect(runTerminalCommand("ip route 10.9.0.0/24 10.0.0.2").ok).toBe(false);
+    expect(router.config.staticRoutes || []).toEqual([]);
+    expect(state.terminal.lines.map(l => l.text)).toEqual(["R1 is powered off."]);
+  });
+
+  it("still lets `clear` tidy the scrollback, and works again once powered on", () => {
+    runConsoleScript("add computer PC1 at 0 0");
+    const pc = open("PC1");
+    runConsoleScript("power PC1 off");
+    runTerminalCommand("ip addr show");
+    expect(state.terminal.lines.length).toBe(1);
+    expect(runTerminalCommand("clear").ok).toBe(true);
+    expect(state.terminal.lines).toEqual([]);
+    runConsoleScript("power PC1 on");
+    expect(runTerminalCommand("ip addr add 10.0.0.9/24 dev eth0").ok).toBe(true);
+    expect(pc.config.ipv4Address).toBe("10.0.0.9");
+  });
+
+  it("the console's `cli` verb reports the refusal", () => {
+    runConsoleScript(`
+      add computer PC1 at 0 0
+      power PC1 off
+    `);
+    const results = runConsoleScript("cli PC1 ip addr add 10.0.0.9/24 dev eth0");
+    expect(results[0].ok).toBe(false);
+    expect(results[0].output).toEqual(["PC1 is powered off."]);
+  });
+
+  it("the input's placeholder says why the shell is dead", () => {
+    runConsoleScript("add computer PC1 at 0 0");
+    open("PC1");
+    runConsoleScript("power PC1 off");
+    syncTerminal();
+    expect((document.getElementById("terminalInput") as HTMLInputElement).placeholder).toContain("PC1 is powered off");
+  });
+});
+
 describe("host CLI — the inspector-set commands", () => {
   beforeEach(() => resetState());
   function pc() {

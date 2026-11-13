@@ -254,6 +254,37 @@ describe("export → replay: the awkward corners", () => {
     expect(exec("add computer PC11 at x y").ok).toBe(false);
   });
 
+  // R42: a powered-off device refuses its shell, so the export writes `power
+  // … off` after every `cli` line that configures it.
+  it("a powered-off server, router and firewall keep their shell-set config", () => {
+    runConsoleScript(`
+      add server SRV at 100 100
+      add router R1 at 400 100
+      add firewall FW at 400 300
+      link SRV R1
+      link R1 FW
+      ip SRV 10.0.0.2/24
+      cli SRV echo address=/www.example/10.0.0.80 >> /etc/dnsmasq.conf
+      cli SRV echo dhcp-range=10.0.0.100,10.0.0.150 >> /etc/dnsmasq.conf
+      cli R1 enable
+      cli R1 configure terminal
+      cli R1 router rip
+      cli R1 network 10.0.0.0/24
+      cli FW iptables -P FORWARD DROP
+      power SRV off
+      power R1 off
+      power FW off
+    `);
+    const { rejected, diffs, script } = roundTrip();
+    expect(rejected).toEqual([]);
+    expect(diffs).toEqual([]);
+    const lines = script.split("\n");
+    const lastCli = lines.map((l, i) => l.startsWith("cli ") ? i : -1).reduce((a, b) => Math.max(a, b), -1);
+    const firstPower = lines.findIndex(l => l.startsWith("power "));
+    expect(lastCli).toBeGreaterThan(-1);
+    expect(firstPower).toBeGreaterThan(lastCli);
+  });
+
   it("link properties, shut cables, power and port counts survive together", () => {
     runConsoleScript(`
       add switch SW at 100 100

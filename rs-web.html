@@ -13079,6 +13079,10 @@ Snort successfully validated the configuration${bad ? " (with errors)" : "."}`);
       return { ok: false, lines: state.terminal.lines.slice(-1) };
     }
     if (!command) return { ok: true, lines: [] };
+    if (host.poweredOff && command.toLowerCase() !== "clear") {
+      terminalLine("error", poweredOffNote(host));
+      return { ok: false, lines: state.terminal.lines.slice(-1) };
+    }
     if (host.type === "router") reconcileRouterSession(state.terminal, host);
     terminalLine("command", `${terminalPromptText(host)} ${command}`);
     takePreemptionNote();
@@ -13094,11 +13098,12 @@ Snort successfully validated the configuration${bad ? " (with errors)" : "."}`);
   function terminalBusy() {
     return animatedRunBlockReason() !== null && state.terminal.deviceId === state.simulation.originDeviceId;
   }
+  var poweredOffNote = (device) => `${device.name} is powered off.`;
   function openTerminalFor(device) {
     if (!device || !hasTerminal(device)) {
       state.terminal = withErrorLine("Select a PC, server, router, or managed switch to open its terminal.");
     } else if (device.poweredOff) {
-      state.terminal = withErrorLine(`${device.name} is powered off.`);
+      state.terminal = withErrorLine(poweredOffNote(device));
     } else if (device.type === "switch" && !device.config?.managed) {
       state.terminal = withErrorLine("This switch is unmanaged. Enable managed mode to use a switch terminal.");
     } else {
@@ -13126,7 +13131,7 @@ Snort successfully validated the configuration${bad ? " (with errors)" : "."}`);
     const busy = terminalBusy();
     dom.terminalInput.disabled = !activeHost;
     dom.terminalInput.readOnly = busy;
-    dom.terminalInput.placeholder = !activeHost ? "Select a device" : busy ? `Simulation ${state.simulation.status === "paused" ? "paused" : "running"} \u2014 Ctrl+C to stop` : activeHost.type === "router" ? "?" : "help";
+    dom.terminalInput.placeholder = !activeHost ? "Select a device" : activeHost.poweredOff ? `${activeHost.name} is powered off \u2014 power it on to use this shell` : busy ? `Simulation ${state.simulation.status === "paused" ? "paused" : "running"} \u2014 Ctrl+C to stop` : activeHost.type === "router" ? "?" : "help";
     dom.terminalOutput.innerHTML = state.terminal.lines.length ? state.terminal.lines.map((line) => `<p class="terminal-line ${escapeHtml(line.kind || "")}${line.injected ? " injected" : ""}">${escapeHtml(line.text)}</p>`).join("") : `<p class="terminal-line muted">No device terminal attached \u2014 select a device and open its terminal, or use the device list.</p>`;
     dom.terminalOutput.scrollTop = dom.terminalOutput.scrollHeight;
     syncDock();
@@ -19140,7 +19145,6 @@ Snort successfully validated the configuration${bad ? " (with errors)" : "."}`);
     }
     for (const d of payload.devices) {
       if (d.type === "lan") continue;
-      if (d.poweredOff) lines.push(`power ${quoteArg(d.name)} off`);
       const c = d.config || {};
       const defaultPorts = defaultPortCount(d.type);
       if (defaultPorts > 0 && c.ethernetPorts != null && c.ethernetPorts !== defaultPorts) lines.push(`portcount ${quoteArg(d.name)} ${c.ethernetPorts}`);
@@ -19272,6 +19276,9 @@ Snort successfully validated the configuration${bad ? " (with errors)" : "."}`);
       const defaultName = `${anchorDevice.name} LAN`;
       if (d.name !== defaultName) lines.push(`rename ${quoteArg(defaultName)} ${quoteArg(d.name)}`);
       lines.push(`move ${quoteArg(d.name)} ${Math.round(d.x)} ${Math.round(d.y)}`);
+    }
+    for (const d of payload.devices) {
+      if (d.type !== "lan" && d.poweredOff) lines.push(`power ${quoteArg(d.name)} off`);
     }
     return lines.join("\n");
   }

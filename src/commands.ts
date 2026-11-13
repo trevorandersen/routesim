@@ -1306,12 +1306,11 @@ export function exportTopologyScript(): string {
     if (d.type === "lan") continue;
     lines.push(`add ${d.type} ${quoteArg(d.name)} at ${Math.round(d.x)} ${Math.round(d.y)}`);
   }
-  // Power state and non-default port capacities — previously unrepresentable,
-  // so a saved-then-replayed topology silently came back powered on with
-  // default port counts.
+  // Non-default port capacities — previously unrepresentable, so a
+  // saved-then-replayed topology silently came back with default port counts.
+  // (Power state is written last: see the end of this function.)
   for (const d of payload.devices) {
     if (d.type === "lan") continue;
-    if (d.poweredOff) lines.push(`power ${quoteArg(d.name)} off`);
     const c = d.config || {};
     const defaultPorts = defaultPortCount(d.type);
     if (defaultPorts > 0 && c.ethernetPorts != null && c.ethernetPorts !== defaultPorts) lines.push(`portcount ${quoteArg(d.name)} ${c.ethernetPorts}`);
@@ -1487,6 +1486,11 @@ export function exportTopologyScript(): string {
     lines.push(`move ${quoteArg(d.name)} ${Math.round(d.x)} ${Math.round(d.y)}`);
   }
 
+  // Power state goes last: a powered-off device refuses its shell, so every
+  // `cli` line above must run while it is still on.
+  for (const d of payload.devices) {
+    if (d.type !== "lan" && d.poweredOff) lines.push(`power ${quoteArg(d.name)} off`);
+  }
 
   return lines.join("\n");
 }

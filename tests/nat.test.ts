@@ -7,7 +7,7 @@
  */
 import { describe, it, expect, beforeAll, beforeEach } from "bun:test";
 import { state } from "../src/state";
-import { runSimulationHeadless, processAtRouter } from "../src/engine";
+import { runSimulationHeadless, processAtRouter, natRestoreInbound } from "../src/engine";
 import { createIcmpTimeExceeded } from "../src/frame";
 import { buildPingEvents, buildConnectEvents, buildHttpEvents } from "../src/simulation";
 import { buildConfigPayload, parseConfig } from "../src/config";
@@ -86,6 +86,33 @@ describe("nat — PAT overload", () => {
     expect(t).toHaveLength(1);
     expect(t[0].insideIp).toBe("192.168.1.10");
     expect(t[0].outsidePort).not.toBe(t[0].insidePort);
+    expect(t[0].destPort).toBe(80);   // the remote endpoint's port is recorded for return filtering (R72)
+  });
+
+  it("PAT return is address-and-port-dependent: an unsolicited inbound to the PAT port is not restored (R72)", () => {
+    const { pc1, r1 } = natTopology();
+    enableNat();
+    runSimulationHeadless(buildConnectEvents(pc1, "203.0.113.10", 80) as any, pc1.id, "203.0.113.10", "tcp", 80);
+    const entry = r1.config.natTranslations!.find(e => e.protocol === "tcp")!;
+    const ifaces = r1.config.interfaces as any[];   // carry natRole + ipv4Address
+    const inbound = (srcPort: number) => ({
+      type: "ipv4", srcIp: "203.0.113.10", dstIp: "203.0.113.2", ttl: 64, protocol: 6,
+      payload: { type: "tcp", srcPort, dstPort: entry.outsidePort, flags: "syn" },
+    }) as any;
+    // The real return (from the contacted endpoint SRV:80) is un-translated to PC1.
+    expect(natRestoreInbound(r1 as any, inbound(80), ifaces)?.dstIp).toBe("192.168.1.10");
+    // An unsolicited SYN to the same PAT port from a different source port is NOT.
+    expect(natRestoreInbound(r1 as any, inbound(54321), ifaces)).toBeNull();
+  });
+
+  it("NAT translations don't carry across runs (R72)", () => {
+    const { pc1, r1 } = natTopology();
+    enableNat();
+    runSimulationHeadless(buildConnectEvents(pc1, "203.0.113.10", 80) as any, pc1.id, "203.0.113.10", "tcp", 80);
+    expect(r1.config.natTranslations!.some(e => e.protocol === "tcp")).toBe(true);
+    // A later, unrelated run starts with an empty table — no stale tcp mapping lingers.
+    runSimulationHeadless(buildPingEvents(pc1, "203.0.113.10") as any, pc1.id, "203.0.113.10", "ping");
+    expect(r1.config.natTranslations!.some(e => e.protocol === "tcp")).toBe(false);
   });
 
   it("PAT allocates distinct outside ids for distinct inside flows", () => {

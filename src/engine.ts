@@ -201,6 +201,10 @@ function resetRunState(setup: PingSetup, originDeviceId: string, targetIp: strin
   for (const d of state.devices) {
     if (d.type === "ids" && d.config) d.config.alerts = [];
     if ((d.type === "attacker" || d.type === "kali") && d.config) (d.config as any).attackLog = [];
+    // NAT/PAT translations are per-flow runtime state (like conntrack): a mapping
+    // left over from an earlier run would let unsolicited inbound in on the PAT
+    // port it once used (R72) — start each run with an empty table.
+    if (d.config && Array.isArray((d.config as any).natTranslations)) (d.config as any).natTranslations = [];
   }
 }
 
@@ -2294,9 +2298,9 @@ function natTranslateOutbound(device: Device, ipv4: Ipv4Payload, egressIface: an
   }
   if (ipv4.payload.type === "tcp") {
     const tcp = ipv4.payload;
-    let entry = translations.find(t => t.protocol === "tcp" && t.insideIp === ipv4.srcIp && t.insidePort === tcp.srcPort && t.destIp === ipv4.dstIp);
+    let entry = translations.find(t => t.protocol === "tcp" && t.insideIp === ipv4.srcIp && t.insidePort === tcp.srcPort && t.destIp === ipv4.dstIp && t.destPort === tcp.dstPort);
     if (!entry) {
-      entry = { protocol: "tcp", insideIp: ipv4.srcIp, insidePort: tcp.srcPort, outsideIp, outsidePort: allocNatId(translations), destIp: ipv4.dstIp };
+      entry = { protocol: "tcp", insideIp: ipv4.srcIp, insidePort: tcp.srcPort, outsideIp, outsidePort: allocNatId(translations), destIp: ipv4.dstIp, destPort: tcp.dstPort };
       translations.push(entry);
     }
     touchNat(device, entry);
@@ -2319,7 +2323,7 @@ function natTranslateOutbound(device: Device, ipv4: Ipv4Payload, egressIface: an
 // Restore the inside endpoint for return traffic addressed to an outside
 // interface IP. Returns null when no translation matches (the packet is then
 // genuinely for the router itself — INPUT chain + self handling apply).
-function natRestoreInbound(device: Device, ipv4: Ipv4Payload, ifaces: any[]): Ipv4Payload | null {
+export function natRestoreInbound(device: Device, ipv4: Ipv4Payload, ifaces: any[]): Ipv4Payload | null {
   const outsideIface = ifaces.find((i: any) => i.natRole === "outside" && i.ipv4Address === ipv4.dstIp);
   if (!outsideIface) return null;
   const translations: NatEntry[] = device.config?.natTranslations || [];
@@ -2346,7 +2350,11 @@ function natRestoreInbound(device: Device, ipv4: Ipv4Payload, ifaces: any[]): Ip
   }
   if (ipv4.payload.type === "tcp") {
     const tcp = ipv4.payload;
-    const entry = translations.find(t => t.protocol === "tcp" && t.outsidePort === tcp.dstPort && t.destIp === ipv4.srcIp);
+    // Address-AND-port-dependent filtering (RFC 5382): the return must come from
+    // the exact remote endpoint the flow went to — its IP (destIp) and its port
+    // (destPort === the inbound packet's source port). So an unsolicited SYN to
+    // the PAT port from the same host but a different port is NOT restored (R72).
+    const entry = translations.find(t => t.protocol === "tcp" && t.outsidePort === tcp.dstPort && t.destIp === ipv4.srcIp && (t.destPort == null || t.destPort === tcp.srcPort));
     if (entry) { touchNat(device, entry); return { ...ipv4, dstIp: entry.insideIp, payload: { ...tcp, dstPort: entry.insidePort } }; }
   }
   if (ipv4.payload.type === "dns" && ipv4.payload.op === "response") {

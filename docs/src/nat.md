@@ -54,6 +54,13 @@ interface address is implicit (a deliberate simplification of Cisco's
   REJECT detail.
 - Both directions log `sim-nat` (teal) lines: `NAT a.b.c.d → w.x.y.z (PAT …)`
   and `(un-PAT return flow)`.
+- **Return filtering is address-and-port-dependent** (RFC 5382): a `NatEntry`
+  records the remote endpoint's port (`destPort`), and `natRestoreInbound`
+  un-translates a TCP return only when it comes from that exact endpoint — the
+  entry's `destIp` **and** `destPort` (matched against the inbound packet's
+  source port). So an unsolicited SYN to an active PAT port from the same host
+  but a different port is *not* let in to the inside host (review R72); it falls
+  through to the router's own INPUT/self handling (no listener → dropped).
 
 ## DNAT / port-forwarding (the inbound mirror)
 
@@ -104,3 +111,6 @@ The router's config panel lists the **live PAT table** — `renderNatTranslation
   NAT shows `*` for outside hops.
 - Translations live in `config.natTranslations` and round-trip with config
   export/import like ARP/MAC tables; `clear ip nat translation *` empties.
+  They are **per-flow runtime state**, so each run starts with an empty table
+  (`resetRunState`, like conntrack) — a mapping from an earlier run never lingers
+  to admit inbound traffic on a PAT port it once used (review R72).

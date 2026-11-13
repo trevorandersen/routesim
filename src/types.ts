@@ -330,6 +330,7 @@ export interface NatEntry {
   outsideIp: string;
   outsidePort: number;
   destIp: string;
+  destPort?: number;   // the remote endpoint's port (TCP) — matched on return so an unsolicited inbound to the PAT port from a different port is not let in (R72)
   lastStep?: number;   // runtime: the sim step a frame last created/used this entry (inspector flash, issue #2); not serialised
 }
 

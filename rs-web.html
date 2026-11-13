@@ -8163,6 +8163,7 @@ Full legal text: https://creativecommons.org/publicdomain/zero/1.0/legalcode</pr
     for (const d of state.devices) {
       if (d.type === "ids" && d.config) d.config.alerts = [];
       if ((d.type === "attacker" || d.type === "kali") && d.config) d.config.attackLog = [];
+      if (d.config && Array.isArray(d.config.natTranslations)) d.config.natTranslations = [];
     }
   }
   function runLabel(mode, target) {
@@ -9750,9 +9751,9 @@ Full legal text: https://creativecommons.org/publicdomain/zero/1.0/legalcode</pr
     }
     if (ipv4.payload.type === "tcp") {
       const tcp = ipv4.payload;
-      let entry = translations.find((t) => t.protocol === "tcp" && t.insideIp === ipv4.srcIp && t.insidePort === tcp.srcPort && t.destIp === ipv4.dstIp);
+      let entry = translations.find((t) => t.protocol === "tcp" && t.insideIp === ipv4.srcIp && t.insidePort === tcp.srcPort && t.destIp === ipv4.dstIp && t.destPort === tcp.dstPort);
       if (!entry) {
-        entry = { protocol: "tcp", insideIp: ipv4.srcIp, insidePort: tcp.srcPort, outsideIp, outsidePort: allocNatId(translations), destIp: ipv4.dstIp };
+        entry = { protocol: "tcp", insideIp: ipv4.srcIp, insidePort: tcp.srcPort, outsideIp, outsidePort: allocNatId(translations), destIp: ipv4.dstIp, destPort: tcp.dstPort };
         translations.push(entry);
       }
       touchNat(device, entry);
@@ -9793,7 +9794,7 @@ Full legal text: https://creativecommons.org/publicdomain/zero/1.0/legalcode</pr
     }
     if (ipv4.payload.type === "tcp") {
       const tcp = ipv4.payload;
-      const entry = translations.find((t) => t.protocol === "tcp" && t.outsidePort === tcp.dstPort && t.destIp === ipv4.srcIp);
+      const entry = translations.find((t) => t.protocol === "tcp" && t.outsidePort === tcp.dstPort && t.destIp === ipv4.srcIp && (t.destPort == null || t.destPort === tcp.srcPort));
       if (entry) {
         touchNat(device, entry);
         return { ...ipv4, dstIp: entry.insideIp, payload: { ...tcp, dstPort: entry.insidePort } };

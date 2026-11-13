@@ -12134,8 +12134,20 @@ ${body}
         terminalLine("error", `% Invalid VLAN ID: ${encapMatch[1]}`);
         return true;
       }
+      const peerId = state.terminal.interfacePeerId;
+      const current = state.terminal.interfaceVlanTag;
+      const holder = (router.config?.interfaces || []).some((i) => i.peerId === peerId && i.vlanTag === vlanId);
+      if (current != null && current !== vlanId && holder) {
+        const base = routerInterfacesWithNames(router).find((i) => i.peerId === peerId)?.name.split(".")[0] || "this port";
+        terminalLine("error", `% VLAN ${vlanId} is already carried by sub-interface ${base}.${vlanId} \u2014 a VLAN belongs to one sub-interface per port. Configure that one (interface ${base}.${vlanId}) or pick another VLAN.`);
+        return true;
+      }
+      if (current === vlanId) {
+        terminalLine("", `Encapsulation is already 802.1Q VLAN ${vlanId}.`);
+        return true;
+      }
       pushUndo();
-      if (state.terminal.interfaceVlanTag == null) {
+      if (current == null) {
         routerInterfaceFor(router, state.terminal.interfacePeerId, vlanId);
         state.terminal.interfaceVlanTag = vlanId;
         sync().syncPanel();

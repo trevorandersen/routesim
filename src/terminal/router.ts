@@ -776,8 +776,24 @@ function routerInterfaceCommand(router: Device, command: string, lower: string):
       terminalLine("error", `% Invalid VLAN ID: ${encapMatch[1]}`);
       return true;
     }
+    const peerId = state.terminal.interfacePeerId!;
+    const current = state.terminal.interfaceVlanTag;
+    const holder = (router.config?.interfaces || []).some((i: any) => i.peerId === peerId && i.vlanTag === vlanId);
+    if (current != null && current !== vlanId && holder) {
+      // Retagging this sub-interface onto a VLAN a sibling already carries
+      // would leave two entries with one name: the second could never be
+      // selected again and a later `ip address` overwrote the first. IOS
+      // refuses it; so does the sibling `no encapsulation` path below.
+      const base = routerInterfacesWithNames(router).find((i: any) => i.peerId === peerId)?.name.split(".")[0] || "this port";
+      terminalLine("error", `% VLAN ${vlanId} is already carried by sub-interface ${base}.${vlanId} — a VLAN belongs to one sub-interface per port. Configure that one (interface ${base}.${vlanId}) or pick another VLAN.`);
+      return true;
+    }
+    if (current === vlanId) {
+      terminalLine("", `Encapsulation is already 802.1Q VLAN ${vlanId}.`);   // nothing to change, no undo point
+      return true;
+    }
     pushUndo();
-    if (state.terminal.interfaceVlanTag == null) {
+    if (current == null) {
       // On the BASE interface, `encapsulation dot1q N` creates (or selects) the
       // .N sub-interface and moves the session onto it — the base keeps its own
       // untagged identity. It used to retag the base itself, after which no

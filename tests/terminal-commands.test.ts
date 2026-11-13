@@ -630,6 +630,38 @@ describe("router-on-a-stick from the FRR shell (sub-interfaces are created by na
     expect(tagged()).toEqual(["30=192.168.10.1"]);
     expect(run("interface Ethernet9.5")).toContain("Unknown");
   });
+  // R40: retagging used to create a second Ethernet1.10 with another subnet —
+  // unselectable, and a later `ip address` overwrote the first.
+  it("retagging a sub-interface onto a VLAN a sibling carries is refused, with no undo point", () => {
+    const { run, tagged } = roas();
+    run("interface Ethernet1.10"); run("ip address 192.168.10.1/24"); run("exit");
+    run("interface Ethernet1.20"); run("ip address 192.168.20.1/24");
+    const depth = state.undoStack.length;
+    const out = run("encapsulation dot1q 10");
+    expect(out).toContain("% VLAN 10 is already carried by sub-interface Ethernet1.10");
+    expect(tagged()).toEqual(["10=192.168.10.1", "20=192.168.20.1"]);
+    expect(state.terminal.interfaceVlanTag).toBe(20);              // still configuring .20
+    expect(state.undoStack.length).toBe(depth);
+    run("ip address 192.168.21.1/24");                             // …which edits .20, not .10
+    expect(tagged()).toEqual(["10=192.168.10.1", "20=192.168.21.1"]);
+  });
+  it("re-stating the sub-interface's own VLAN is a no-op; a free VLAN still retags", () => {
+    const { run, tagged } = roas();
+    run("interface Ethernet1.10"); run("ip address 192.168.10.1/24");
+    const depth = state.undoStack.length;
+    expect(run("encapsulation dot1q 10")).toBe("Encapsulation is already 802.1Q VLAN 10.");
+    expect(state.undoStack.length).toBe(depth);
+    expect(run("encapsulation dot1q 30")).toContain("Encapsulation set to 802.1Q VLAN 30");
+    expect(tagged()).toEqual(["30=192.168.10.1"]);
+  });
+  it("on the base, naming a VLAN that exists selects that sub-interface rather than duplicating it", () => {
+    const { run, tagged } = roas();
+    run("interface Ethernet1.10"); run("ip address 192.168.10.1/24"); run("exit");
+    run("interface Ethernet1");
+    run("encapsulation dot1q 10");
+    expect(state.terminal.interfaceVlanTag).toBe(10);
+    expect(tagged()).toEqual(["10=192.168.10.1"]);
+  });
 });
 
 describe("terminal targets by name (G2-02) and `no network` symmetry (G2-04)", () => {

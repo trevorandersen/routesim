@@ -824,6 +824,24 @@ describe("P3 sweep — router shell", () => {
     expect(state.undoStack.length).toBe(depth);
   });
 
+  // R85: `ip route` stored the prefix as typed, so `no ip route <network>` could
+  // not remove it and a duplicate went undetected. (Fixed with the shared
+  // static-route mutators, R37; pinned here from the shell.)
+  it("ip route stores the masked network, so no ip route removes it and a duplicate is a no-op", () => {
+    const { r1, run } = router("config");
+    run("ip route 10.9.0.77/24 192.168.10.2");
+    expect(r1.config!.staticRoutes).toEqual([{ network: "10.9.0.0/24", nextHop: "192.168.10.2" }]);
+    const depth = state.undoStack.length;
+    expect(run("ip route 10.9.0.200/24 192.168.10.2")).toContain("already configured");
+    expect(r1.config!.staticRoutes).toHaveLength(1);
+    expect(state.undoStack.length).toBe(depth);
+    expect(run("no ip route 10.9.0.0/24")).toContain("Removed 1 static route");
+    expect(r1.config!.staticRoutes).toEqual([]);
+    run("ip route 10.9.0.0/24 192.168.10.2");
+    expect(run("no ip route 10.9.0.31/24 192.168.10.2")).toContain("Removed 1 static route");   // host bits on the way out too
+    expect(r1.config!.staticRoutes).toEqual([]);
+  });
+
   it("passive-interface validates the interface and canonicalises its name", () => {
     const { r1, run } = router("rip");
     r1.config!.rip = { enabled: true, networks: [], passiveInterfaces: [], learnedRoutes: [] } as any;

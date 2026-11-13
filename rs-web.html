@@ -14370,7 +14370,8 @@ Snort successfully validated the configuration${bad ? " (with errors)" : "."}`);
     const records = normaliseDnsRecords(config.dnsRecords || []);
     const leases = normaliseDhcpLeases(config.dhcpLeases || []);
     const radiusUsers = normaliseRadiusUsers(config.radius?.users || []);
-    const ports = Array.isArray(config.openPorts) ? config.openPorts : [];
+    const portsValue = !Array.isArray(config.openPorts) ? "" : config.openPorts.length ? config.openPorts.join(", ") : "closed";
+    const portsNote = !Array.isArray(config.openPorts) ? "Accepts a connection on any port. List ports to limit it, or type closed to refuse them all." : config.openPorts.length ? `Accepts on ${config.openPorts.join(", ")}; every other port is refused (RST).` : "Closed: every connection is refused (RST). Clear the field to accept on any port.";
     return `
     <div class="field">
       <label for="dnsmasqRunning">dnsmasq service running</label>
@@ -14450,7 +14451,8 @@ Snort successfully validated the configuration${bad ? " (with errors)" : "."}`);
     </div>
     <div class="field">
       <label for="listenPorts">Listening TCP ports</label>
-      <input id="listenPorts" value="${escapeHtml(ports.join(", "))}" placeholder="80, 443" autocomplete="off" inputmode="numeric">
+      <input id="listenPorts" value="${escapeHtml(portsValue)}" placeholder="any port \u2014 or 80, 443 \u2014 or closed" autocomplete="off">
+      <p class="field-note" id="listenPortsNote">${escapeHtml(portsNote)}</p>
     </div>
   `;
   }
@@ -14572,9 +14574,11 @@ Snort successfully validated the configuration${bad ? " (with errors)" : "."}`);
     const portsInput = document.getElementById("listenPorts");
     if (portsInput) {
       portsInput.addEventListener("change", () => {
-        const parts = portsInput.value.split(",").map((text) => text.trim()).filter(Boolean);
-        const result = setListeningPorts(selected, parts.length ? parts.map(Number) : null);
-        portsInput.setCustomValidity(result.ok ? "" : "Enter comma-separated ports (1\u201365535).");
+        const text = portsInput.value.trim();
+        const parts = text.split(/[\s,]+/).filter(Boolean);
+        const ports = !parts.length || /^(none|any|off|clear)$/i.test(text) ? null : /^closed$/i.test(text) ? [] : parts.map(Number);
+        const result = setListeningPorts(selected, ports);
+        portsInput.setCustomValidity(result.ok ? "" : "Enter comma-separated ports (1\u201365535), closed, or leave it empty for any port.");
         if (!result.ok) portsInput.reportValidity?.();
         dom.modeLabel.textContent = mutationText(result);
       });

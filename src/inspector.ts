@@ -359,7 +359,14 @@ function renderDnsmasqSection(device: any): string {
   const records = normaliseDnsRecords(config.dnsRecords || []);
   const leases = normaliseDhcpLeases(config.dhcpLeases || []);
   const radiusUsers = normaliseRadiusUsers(config.radius?.users || []);
-  const ports = Array.isArray(config.openPorts) ? config.openPorts : [];
+  // Three listener states, each shown as itself: no list = any port (an empty
+  // field), a list = those ports, an EMPTY list = nothing (the word `closed`).
+  // The field used to render both "any" and "nothing" as empty, so refuse-all
+  // could not be seen — and committing the field flipped it to accept-all.
+  const portsValue = !Array.isArray(config.openPorts) ? "" : config.openPorts.length ? config.openPorts.join(", ") : "closed";
+  const portsNote = !Array.isArray(config.openPorts) ? "Accepts a connection on any port. List ports to limit it, or type closed to refuse them all."
+    : config.openPorts.length ? `Accepts on ${config.openPorts.join(", ")}; every other port is refused (RST).`
+    : "Closed: every connection is refused (RST). Clear the field to accept on any port.";
   return `
     <div class="field">
       <label for="dnsmasqRunning">dnsmasq service running</label>
@@ -439,7 +446,8 @@ function renderDnsmasqSection(device: any): string {
     </div>
     <div class="field">
       <label for="listenPorts">Listening TCP ports</label>
-      <input id="listenPorts" value="${escapeHtml(ports.join(", "))}" placeholder="80, 443" autocomplete="off" inputmode="numeric">
+      <input id="listenPorts" value="${escapeHtml(portsValue)}" placeholder="any port — or 80, 443 — or closed" autocomplete="off">
+      <p class="field-note" id="listenPortsNote">${escapeHtml(portsNote)}</p>
     </div>
   `;
 }
@@ -566,14 +574,19 @@ function bindDnsmasqControls(selected: any): void {
   });
 
   // Listening ports commit through setListeningPorts, the `ports` command's
-  // mutator. An empty field clears the list (accept on any port) — NOT an empty
-  // list, which means "listen on nothing" and refuses everything.
+  // mutator, and take the same three forms as the command: an empty field (or
+  // `none`/`any`) clears the list (accept on any port); `closed` is the empty
+  // list ("listen on nothing" — refuses everything); otherwise the ports.
   const portsInput = document.getElementById("listenPorts") as HTMLInputElement | null;
   if (portsInput) {
     portsInput.addEventListener("change", () => {
-      const parts = portsInput.value.split(",").map(text => text.trim()).filter(Boolean);
-      const result = setListeningPorts(selected, parts.length ? parts.map(Number) : null);
-      portsInput.setCustomValidity(result.ok ? "" : "Enter comma-separated ports (1–65535).");
+      const text = portsInput.value.trim();
+      const parts = text.split(/[\s,]+/).filter(Boolean);
+      const ports = !parts.length || /^(none|any|off|clear)$/i.test(text) ? null
+        : /^closed$/i.test(text) ? []
+        : parts.map(Number);
+      const result = setListeningPorts(selected, ports);
+      portsInput.setCustomValidity(result.ok ? "" : "Enter comma-separated ports (1–65535), closed, or leave it empty for any port.");
       if (!result.ok) portsInput.reportValidity?.();
       dom.modeLabel.textContent = mutationText(result);
     });

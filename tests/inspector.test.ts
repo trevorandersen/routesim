@@ -396,6 +396,33 @@ describe("server fields commit through the shell's mutators (R57)", () => {
     expect(srv().config!.openPorts).toBeUndefined();              // cleared = accept on any port, not []
   });
 
+  // R91: refuse-all (`openPorts: []`) rendered as an empty field — the same as
+  // accept-all — and committing the field flipped the server to accept-all.
+  it("the ports field shows and keeps refuse-all as `closed`", () => {
+    exec("ports SRV closed");
+    syncPanel();
+    expect(field("listenPorts").value).toBe("closed");
+    expect(document.getElementById("listenPortsNote")!.textContent).toContain("every connection is refused");
+    commit("listenPorts", "closed");                                 // re-committing what is shown keeps it
+    expect(srv().config!.openPorts).toEqual([]);
+    commit("listenPorts", "CLOSED");
+    expect(srv().config!.openPorts).toEqual([]);
+    expect(dom.modeLabel.textContent).toBe("SRV: no listening ports (refuses every connection).");
+    commit("listenPorts", "22 8080");                               // spaces separate as well as commas
+    expect(srv().config!.openPorts).toEqual([22, 8080]);
+    syncPanel();
+    expect(field("listenPorts").value).toBe("22, 8080");
+    expect(document.getElementById("listenPortsNote")!.textContent).toContain("Accepts on 22, 8080");
+    commit("listenPorts", "any");
+    expect(srv().config!.openPorts).toBeUndefined();
+    syncPanel();
+    expect(field("listenPorts").value).toBe("");
+    expect(document.getElementById("listenPortsNote")!.textContent).toContain("any port");
+    commit("listenPorts", "closed, 80");                             // not a port list
+    expect(srv().config!.openPorts).toBeUndefined();
+    expect(field("listenPorts").validationMessage).toContain("closed");
+  });
+
   it("the shell and the console reach the same mutators", () => {
     expect(exec("cli SRV echo dhcp-range=192.168.1.200,192.168.1.100 >> /etc/dnsmasq.conf").output.join(" "))
       .toContain("dnsmasq: dhcp-range end 192.168.1.100 is before start 192.168.1.200");

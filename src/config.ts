@@ -23,7 +23,7 @@ import { defaultConfig, vlanRoasConfig, routerMeshConfig, wifiVlanConfig } from 
 export function buildConfigPayload(): SerialisedTopology {
   return {
     version: 1,
-    devices: state.devices.map(({ id, type, name, x, y, config, hidden, poweredOff, collapsedBy }: any) => ({
+    devices: state.devices.map(({ id, type, name, x, y, config, hidden, poweredOff, collapsedBy }: any) => withMacsec(type, config, {
       id,
       type,
       name,
@@ -81,8 +81,7 @@ export function buildConfigPayload(): SerialisedTopology {
           // (disabled, or a non-default bridge priority). Derived roles never persist.
           ...(config?.managed && config?.stp && (config.stp.enabled === false || (typeof config.stp.priority === "number" && config.stp.priority !== 32768))
             ? { stp: normaliseStpConfig(config.stp) } : {}),
-          ...((config?.managed && normaliseMirror(config?.mirror)) ? { mirror: normaliseMirror(config?.mirror) } : {}),
-          ...macsecPayload(config)
+          ...((config?.managed && normaliseMirror(config?.mirror)) ? { mirror: normaliseMirror(config?.mirror) } : {})
         }
       } : {}),
       ...(type === "router" ? {
@@ -99,8 +98,7 @@ export function buildConfigPayload(): SerialisedTopology {
           ...(config?.policy && Object.keys(config.policy).length ? { policy: config.policy } : {}),
           ...(config?.ruleLang === "nftables" ? { ruleLang: "nftables" } : {}),
           ...(config?.natTranslations?.length ? { natTranslations: ((config?.natTranslations || []).map(({ lastStep, ...e }: any) => e)) } : {}),
-          ...((pf => pf.length ? { portForwards: pf } : {})(normalisePortForwards(config?.portForwards))),
-          ...macsecPayload(config)
+          ...((pf => pf.length ? { portForwards: pf } : {})(normalisePortForwards(config?.portForwards)))
         }
       } : {}),
       ...(type === "firewall" ? {
@@ -108,8 +106,7 @@ export function buildConfigPayload(): SerialisedTopology {
           ethernetPorts: config?.ethernetPorts ?? defaultPortCount(type),
           rules: normaliseFirewallRules(config?.rules || []),
           policy: { forward: config?.policy?.forward === "drop" ? "drop" : "accept" },
-          ...(config?.ruleLang === "nftables" ? { ruleLang: "nftables" } : {}),
-          ...macsecPayload(config)
+          ...(config?.ruleLang === "nftables" ? { ruleLang: "nftables" } : {})
         }
       } : {}),
       ...(type === "ids" ? {
@@ -171,6 +168,18 @@ function wifiConfigForPayload(config: any): any {
   };
 }
 
+// MACsec keys belong to a cable's end, whatever the device: `macsec` and
+// normaliseConfig accept every type, so the payload writes them for every type
+// too — once, here, rather than in each type's branch. They used to be spread
+// only for hosts, switches, routers and firewalls, so a key set on an access
+// point, hub, IDS sensor or internet cloud vanished on save, and a must-secure
+// link came back `failed` after a reload (review R30). A LAN node is a view,
+// not a cable end.
+function withMacsec<T extends { config?: any }>(type: string, config: any, entry: T): T {
+  const keys = type === "lan" ? {} : macsecPayload(config);
+  return keys.macsec ? { ...entry, config: { ...keys, ...(entry.config || {}) } } : entry;
+}
+
 // MACsec per-peer keys for the config payload (any device type).
 function macsecPayload(config: any): any {
   const m = config?.macsec;
@@ -187,7 +196,6 @@ function macsecPayload(config: any): any {
 // Shared host (computer/server) endpoint fields for the config payload.
 function hostConfigForPayload(config: any): any {
   return {
-    ...macsecPayload(config),
     ipv4Address: config?.ipv4Address || "",
     ...(config?.prefixLength != null ? { prefixLength: config.prefixLength } : {}),
     ...(config?.ipSource ? { ipSource: config.ipSource } : {}),

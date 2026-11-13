@@ -17631,7 +17631,7 @@ Snort successfully validated the configuration${bad ? " (with errors)" : "."}`);
   function buildConfigPayload() {
     return {
       version: 1,
-      devices: state.devices.map(({ id, type, name, x, y, config, hidden, poweredOff, collapsedBy }) => ({
+      devices: state.devices.map(({ id, type, name, x, y, config, hidden, poweredOff, collapsedBy }) => withMacsec(type, config, {
         id,
         type,
         name,
@@ -17687,8 +17687,7 @@ Snort successfully validated the configuration${bad ? " (with errors)" : "."}`);
             // STP is on by default for managed switches — only persist a deviation
             // (disabled, or a non-default bridge priority). Derived roles never persist.
             ...config?.managed && config?.stp && (config.stp.enabled === false || typeof config.stp.priority === "number" && config.stp.priority !== 32768) ? { stp: normaliseStpConfig(config.stp) } : {},
-            ...config?.managed && normaliseMirror(config?.mirror) ? { mirror: normaliseMirror(config?.mirror) } : {},
-            ...macsecPayload(config)
+            ...config?.managed && normaliseMirror(config?.mirror) ? { mirror: normaliseMirror(config?.mirror) } : {}
           }
         } : {},
         ...type === "router" ? {
@@ -17705,8 +17704,7 @@ Snort successfully validated the configuration${bad ? " (with errors)" : "."}`);
             ...config?.policy && Object.keys(config.policy).length ? { policy: config.policy } : {},
             ...config?.ruleLang === "nftables" ? { ruleLang: "nftables" } : {},
             ...config?.natTranslations?.length ? { natTranslations: (config?.natTranslations || []).map(({ lastStep, ...e }) => e) } : {},
-            ...((pf) => pf.length ? { portForwards: pf } : {})(normalisePortForwards(config?.portForwards)),
-            ...macsecPayload(config)
+            ...((pf) => pf.length ? { portForwards: pf } : {})(normalisePortForwards(config?.portForwards))
           }
         } : {},
         ...type === "firewall" ? {
@@ -17714,8 +17712,7 @@ Snort successfully validated the configuration${bad ? " (with errors)" : "."}`);
             ethernetPorts: config?.ethernetPorts ?? defaultPortCount(type),
             rules: normaliseFirewallRules(config?.rules || []),
             policy: { forward: config?.policy?.forward === "drop" ? "drop" : "accept" },
-            ...config?.ruleLang === "nftables" ? { ruleLang: "nftables" } : {},
-            ...macsecPayload(config)
+            ...config?.ruleLang === "nftables" ? { ruleLang: "nftables" } : {}
           }
         } : {},
         ...type === "ids" ? {
@@ -17773,6 +17770,10 @@ Snort successfully validated the configuration${bad ? " (with errors)" : "."}`);
       ...wifiPassword ? { wifiPassword } : {}
     };
   }
+  function withMacsec(type, config, entry) {
+    const keys = type === "lan" ? {} : macsecPayload(config);
+    return keys.macsec ? { ...entry, config: { ...keys, ...entry.config || {} } } : entry;
+  }
   function macsecPayload(config) {
     const m = config?.macsec;
     if (!m || !Object.keys(m).length) return {};
@@ -17786,7 +17787,6 @@ Snort successfully validated the configuration${bad ? " (with errors)" : "."}`);
   }
   function hostConfigForPayload(config) {
     return {
-      ...macsecPayload(config),
       ipv4Address: config?.ipv4Address || "",
       ...config?.prefixLength != null ? { prefixLength: config.prefixLength } : {},
       ...config?.ipSource ? { ipSource: config.ipSource } : {},

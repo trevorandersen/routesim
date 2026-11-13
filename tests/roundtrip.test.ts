@@ -16,7 +16,8 @@ import { state, defaultConfig, vlanRoasConfig, routerMeshConfig, wifiVlanConfig 
 import { runConsoleScript, runConsoleCommand as exec, exportTopologyScript } from "../src/commands";
 import { applyConfigWithoutUndo, buildConfigPayload } from "../src/config";
 import { normaliseConfig } from "../src/normalise";
-import { collapseLan, moveDevice } from "../src/devices";
+import { collapseLan, moveDevice, macsecState } from "../src/devices";
+import { USER_ADDABLE_TYPES } from "../src/device-registry";
 import { SCENARIOS } from "../src/scenarios";
 import { registerNoopCallbacks, resetState } from "./helpers";
 
@@ -305,4 +306,38 @@ describe("export → replay: the awkward corners", () => {
     expect(rejected).toEqual([]);
     expect(diffs).toEqual([]);
   });
+});
+
+// R30: `macsec` accepts every device type, but the payload wrote the keys only
+// for hosts, switches, routers and firewalls — an access point, hub, IDS sensor
+// or internet cloud lost its key on save, and a must-secure link then came
+// back `failed`, dropping all data.
+describe("MACsec keys survive a save and a replay on every device type (R30)", () => {
+  for (const type of USER_ADDABLE_TYPES) {
+    it(`${type}: a must-secure link is still secured after a JSON reload and a script replay`, () => {
+      const peerType = type === "laptop" ? "access-point" : "switch";   // a laptop only associates to an AP
+      expect(runConsoleScript(`
+        add ${peerType} PEER at 0 0
+        add ${type} DUT at 200 0
+        link DUT PEER
+        macsec DUT PEER "shared key" must
+        macsec PEER DUT "shared key" must
+      `).filter(r => !r.ok)).toEqual([]);
+      const secured = () => state.links.map(macsecState);
+      expect(secured()).toEqual(["secured"]);
+
+      const payload = JSON.parse(JSON.stringify(buildConfigPayload()));
+      const dut = payload.devices.find((d: any) => d.name === "DUT");
+      const peer = payload.devices.find((d: any) => d.name === "PEER");
+      expect(dut.config.macsec).toEqual({ [peer.id]: { cak: "shared key", mode: "must" } });
+      applyConfigWithoutUndo(normaliseConfig(payload));
+      expect(secured()).toEqual(["secured"]);
+
+      const { rejected, diffs, script } = roundTrip();
+      expect(rejected).toEqual([]);
+      expect(diffs).toEqual([]);
+      expect(script).toContain('macsec DUT PEER "shared key" must');
+      expect(secured()).toEqual(["secured"]);
+    });
+  }
 });

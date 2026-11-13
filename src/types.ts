@@ -765,6 +765,10 @@ export interface SimulationState {
   // port is force-unauthorized, no RADIUS server, Access-Reject). Reset each
   // run; the post-mortem puts it in `diagnosis`.
   dot1xFailure: string | null;
+  // Why an 802.11 association failed, stated by the AP that rejected it (a
+  // probe whose SSID is not the one it broadcasts). Reset each run; the
+  // post-mortem puts it in `diagnosis`, like dot1xFailure.
+  wifiFailure: string | null;
   stormDetected: boolean;            // a frame came back round a switching loop (no spanning tree), or the run hit the storm backstop
   // The run's post-mortem (finishSimulation): plain-language reasons the origin's
   // flow failed that no single step could state — an ARP nobody answered (its

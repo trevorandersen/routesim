@@ -186,6 +186,7 @@ function resetRunState(setup: PingSetup, originDeviceId: string, targetIp: strin
   sim.wifiAssociated = false;
   sim.dot1xAuthorized = false;
   sim.dot1xFailure = null;
+  sim.wifiFailure = null;
   sim.stormDetected = false;
   sim.diagnosis = [];
   sim.arpDrops = {};
@@ -949,7 +950,20 @@ function handleDot11(device: Device, frame: EthernetFrame, fromDeviceId: string 
   if (device.type === "access-point") {
     const secured = !!device.config?.wifiPassword;
     switch (payload.subtype) {
-      case "probe-req": logStep(device, "sim-wifi", `Probe Request for "${ssid}" — sending Probe Response`); return next("probe-resp");
+      case "probe-req": {
+        // Answer only a probe for the network this AP broadcasts. A probe for a
+        // different SSID is ignored, exactly as a real AP does — so changing the
+        // laptop's SSID after the link exists stalls the handshake here.
+        const apSsid = (device.config?.ssid || "").trim();
+        if (ssid !== apSsid) {
+          const who = getDevice(fromDeviceId || "")?.name || "client";
+          state.simulation.wifiFailure = `${device.name} broadcasts "${apSsid}", not "${ssid}" — ${who} is probing for a different network (set matching SSIDs)`;
+          logStep(device, "sim-drop", `Probe Request for "${ssid}" ignored — ${device.name} broadcasts "${apSsid}"`);
+          return [];
+        }
+        logStep(device, "sim-wifi", `Probe Request for "${ssid}" — sending Probe Response`);
+        return next("probe-resp");
+      }
       case "auth-req": logStep(device, "sim-wifi", `Open-system Authentication — sending success`); return next("auth-resp");
       case "assoc-req": logStep(device, "sim-wifi", `Association Request — sending Association Response${secured ? " (WPA2 follows)" : ""}`); return next("assoc-resp");
       case "eapol-start": logStep(device, "sim-wifi", `WPA2 4-way handshake — sending Message 1`); return next("eapol-m1");
@@ -3024,6 +3038,7 @@ function runPostMortem(succeeded: boolean): string[] {
   // An 802.1X login's failure was decided — and logged — by one handler; carry
   // its reason into the result so a headless `run dot1x` can state it too.
   if (!succeeded && sim.dot1xFailure) lines.push(sim.dot1xFailure);
+  if (!succeeded && sim.wifiFailure) lines.push(sim.wifiFailure);
   if (!succeeded) {
     for (const { device, reason } of staleArpEntries(origin)) {
       logStep(device, "sim-drop", reason);

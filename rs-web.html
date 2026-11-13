@@ -4032,6 +4032,7 @@ Full legal text: https://creativecommons.org/publicdomain/zero/1.0/legalcode</pr
       wifiAssociated: false,
       dot1xAuthorized: false,
       dot1xFailure: null,
+      wifiFailure: null,
       stormDetected: false,
       diagnosis: [],
       arpDrops: {},
@@ -4890,14 +4891,22 @@ Full legal text: https://creativecommons.org/publicdomain/zero/1.0/legalcode</pr
     }
     return null;
   }
-  function wifiLinkAuthenticated(link) {
-    if (!link?.wireless) return true;
+  function wifiLinkBlockReason(link) {
+    if (!link?.wireless) return null;
     const a = getDevice(link.from), b = getDevice(link.to);
     const ap = a?.type === "access-point" ? a : b?.type === "access-point" ? b : null;
     const laptop = a?.type === "laptop" ? a : b?.type === "laptop" ? b : null;
-    if (!ap || !laptop) return true;
+    if (!ap || !laptop) return null;
+    const apSsid = (ap.config?.ssid || "").trim();
+    const lapSsid = (laptop.config?.ssid || "").trim();
+    if (!apSsid) return `${ap.name} has no SSID set`;
+    if (lapSsid !== apSsid) return `${laptop.name} is set to join "${lapSsid || "(none)"}", but ${ap.name} broadcasts "${apSsid}"`;
     const apPassword = ap.config?.wifiPassword || "";
-    return !apPassword || (laptop.config?.wifiPassword || "") === apPassword;
+    if (apPassword && (laptop.config?.wifiPassword || "") !== apPassword) return "the laptop's WiFi password does not match the access point's";
+    return null;
+  }
+  function wifiLinkAuthenticated(link) {
+    return wifiLinkBlockReason(link) === null;
   }
   function dot1xPortEnd(link, sw, peer) {
     if (sw?.type !== "switch" || !sw.config?.portAuth || !peer) return null;
@@ -4970,8 +4979,10 @@ Full legal text: https://creativecommons.org/publicdomain/zero/1.0/legalcode</pr
     if (!link) return null;
     if (link.shutdown) return `${linkName(link)} is administratively down, so it carries no traffic`;
     if (link.stpBlocked) return `${linkName(link)} is blocked by spanning tree \u2014 an alternate port, cut to break a switching loop`;
-    if (link.wireless && !wifiLinkAuthenticated(link))
-      return `${linkName(link)} never authenticated \u2014 the laptop's WiFi password does not match the access point's`;
+    if (link.wireless) {
+      const why = wifiLinkBlockReason(link);
+      if (why) return `${linkName(link)} never authenticated \u2014 ${why}`;
+    }
     const port = dot1xBlockingEnd(link);
     if (port) {
       return port.mode === "force-unauthorized" ? `${port.sw.name} ${port.port} is 802.1X force-unauthorized, so it never carries data` : isDot1xSupplicant(port.peer.type) ? `${port.sw.name} ${port.port} is under 802.1X control and ${port.peer.name} has not authenticated \u2014 ${dot1xNextStep(port.peer)}` : `${port.sw.name} ${port.port} is under 802.1X control and ${port.peer.name} cannot authenticate (it is not an 802.1X supplicant)`;
@@ -6623,8 +6634,8 @@ Full legal text: https://creativecommons.org/publicdomain/zero/1.0/legalcode</pr
     const assoc = associatedAp(laptop);
     if (!assoc) return `${laptop.name} is not associated to an access point.`;
     const { ap, linkId } = assoc;
-    const ssid = ap.config?.ssid || "";
-    if (!ssid) return `${ap.name} has no SSID set.`;
+    const ssid = (laptop.config?.ssid || "").trim();
+    if (!ssid) return `${laptop.name} has no SSID set \u2014 give it a network name first.`;
     const bssid = ap.config?.macAddress || deriveMac(ap.id);
     const probe = createDot11Frame(srcMac, bssid, "probe-req", ssid);
     return {
@@ -7917,6 +7928,7 @@ Full legal text: https://creativecommons.org/publicdomain/zero/1.0/legalcode</pr
     sim.wifiAssociated = false;
     sim.dot1xAuthorized = false;
     sim.dot1xFailure = null;
+    sim.wifiFailure = null;
     sim.stormDetected = false;
     sim.diagnosis = [];
     sim.arpDrops = {};
@@ -8457,9 +8469,17 @@ Full legal text: https://creativecommons.org/publicdomain/zero/1.0/legalcode</pr
     if (device.type === "access-point") {
       const secured2 = !!device.config?.wifiPassword;
       switch (payload.subtype) {
-        case "probe-req":
+        case "probe-req": {
+          const apSsid = (device.config?.ssid || "").trim();
+          if (ssid !== apSsid) {
+            const who = getDevice(fromDeviceId || "")?.name || "client";
+            state.simulation.wifiFailure = `${device.name} broadcasts "${apSsid}", not "${ssid}" \u2014 ${who} is probing for a different network (set matching SSIDs)`;
+            logStep(device, "sim-drop", `Probe Request for "${ssid}" ignored \u2014 ${device.name} broadcasts "${apSsid}"`);
+            return [];
+          }
           logStep(device, "sim-wifi", `Probe Request for "${ssid}" \u2014 sending Probe Response`);
           return next("probe-resp");
+        }
         case "auth-req":
           logStep(device, "sim-wifi", `Open-system Authentication \u2014 sending success`);
           return next("auth-resp");
@@ -10068,6 +10088,7 @@ Full legal text: https://creativecommons.org/publicdomain/zero/1.0/legalcode</pr
     }
     const lines = [];
     if (!succeeded && sim.dot1xFailure) lines.push(sim.dot1xFailure);
+    if (!succeeded && sim.wifiFailure) lines.push(sim.wifiFailure);
     if (!succeeded) {
       for (const { device, reason } of staleArpEntries(origin)) {
         logStep(device, "sim-drop", reason);

@@ -210,17 +210,30 @@ function wifiJoinReason(laptop: any, ap: any): string | null {
   return null;
 }
 
-// Whether a wireless association is authenticated — open network, or the
-// laptop's password matches the AP's. Computed live (no stored state), so it
-// tracks password edits. A wired link is always "authenticated".
-export function wifiLinkAuthenticated(link: any): boolean {
-  if (!link?.wireless) return true;
+// Why a wireless association carries no data (null = it does). The *live* gate,
+// not just link creation: the laptop's SSID must still match the AP's — a laptop
+// re-pointed at another network after associating (`ssid …`) no longer passes —
+// and, on a secured AP, its password must match. Computed live (no stored
+// state), so it tracks SSID and password edits.
+export function wifiLinkBlockReason(link: any): string | null {
+  if (!link?.wireless) return null;
   const a = getDevice(link.from), b = getDevice(link.to);
   const ap = a?.type === "access-point" ? a : b?.type === "access-point" ? b : null;
   const laptop = a?.type === "laptop" ? a : b?.type === "laptop" ? b : null;
-  if (!ap || !laptop) return true;
+  if (!ap || !laptop) return null;
+  const apSsid = (ap.config?.ssid || "").trim();
+  const lapSsid = (laptop.config?.ssid || "").trim();
+  if (!apSsid) return `${ap.name} has no SSID set`;
+  if (lapSsid !== apSsid) return `${laptop.name} is set to join "${lapSsid || "(none)"}", but ${ap.name} broadcasts "${apSsid}"`;
   const apPassword = ap.config?.wifiPassword || "";
-  return !apPassword || (laptop.config?.wifiPassword || "") === apPassword;
+  if (apPassword && (laptop.config?.wifiPassword || "") !== apPassword) return "the laptop's WiFi password does not match the access point's";
+  return null;
+}
+
+// Boolean form: whether a wireless association is authenticated and carries
+// data. A wired link is always "authenticated".
+export function wifiLinkAuthenticated(link: any): boolean {
+  return wifiLinkBlockReason(link) === null;
 }
 
 export type Dot1xPortMode = "auto" | "force-authorized" | "force-unauthorized";
@@ -351,8 +364,10 @@ export function linkDataBlockReason(link: Link | null | undefined): string | nul
   if (!link) return null;
   if (link.shutdown) return `${linkName(link)} is administratively down, so it carries no traffic`;
   if (link.stpBlocked) return `${linkName(link)} is blocked by spanning tree — an alternate port, cut to break a switching loop`;
-  if (link.wireless && !wifiLinkAuthenticated(link))
-    return `${linkName(link)} never authenticated — the laptop's WiFi password does not match the access point's`;
+  if (link.wireless) {
+    const why = wifiLinkBlockReason(link);
+    if (why) return `${linkName(link)} never authenticated — ${why}`;
+  }
   const port = dot1xBlockingEnd(link);
   if (port) {
     return port.mode === "force-unauthorized"

@@ -118,6 +118,7 @@ export function freshSimulationState(): AppState["simulation"] {
     wifiAssociated: false,
     dot1xAuthorized: false,
     dot1xFailure: null,
+    wifiFailure: null,
     stormDetected: false,
     diagnosis: [],
     arpDrops: {},

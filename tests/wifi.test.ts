@@ -4,7 +4,7 @@
  */
 import { describe, it, expect, beforeAll, beforeEach, afterEach } from "bun:test";
 import { state } from "../src/state";
-import { addLink, classifyLink, linkBlockReason, switchInterfacesWithNames, wifiLinkAuthenticated } from "../src/devices";
+import { addLink, classifyLink, linkBlockReason, switchInterfacesWithNames, wifiLinkAuthenticated, wifiLinkBlockReason } from "../src/devices";
 import { runSimulationHeadless, startSimulation, stepOnce } from "../src/engine";
 import { buildPingEvents, buildAssociationEvents } from "../src/simulation";
 import { packetColumns } from "../src/frame";
@@ -318,6 +318,48 @@ describe("wifi — 802.11 association handshake", () => {
     const seq = associate();
     expect(state.simulation.wifiAssociated).toBe(true); // still handled
     expect(seq.length).toBe(0);                          // …just not shown
+  });
+
+  // R15: the SSID was enforced only at link creation. Re-pointing the laptop at
+  // another network after associating must fail the join at runtime, not sail
+  // through probe → auth → assoc and carry data.
+  it("re-pointing the laptop's SSID after associating stalls the handshake at the probe (R15)", () => {
+    runConsoleScript("add laptop LT1 at 0 0\nadd access-point AP1 at 100 0\nlink LT1 AP1\nssid LT1 OtherNet");
+    const lt = byName("LT1");
+    const setup = buildAssociationEvents(lt);
+    expect(typeof setup).not.toBe("string");
+    state.simulation.autoPlay = true;
+    startSimulation(setup as any, lt.id, "", "associate");
+    let g = 0; while (state.simulation.status !== "done" && g++ < 200) stepOnce();
+    expect(state.simulation.wifiAssociated).toBe(false);                 // the join failed
+    const seq = state.simulation.capture.map(c => packetColumns(c.frame).info);
+    expect(seq.some(s => s.startsWith("Probe Request"))).toBe(true);     // it did probe…
+    expect(seq.some(s => s.includes("Association Response"))).toBe(false); // …but the AP ignored it
+    expect(state.simulation.wifiFailure || "").toMatch(/broadcasts .*not/);
+  });
+
+  it("a desynced-SSID association carries no data; the reason names the SSID, not the password (R15)", () => {
+    runConsoleScript("add laptop LT1 at 0 0\nadd access-point AP1 at 100 0\nlink LT1 AP1\nadd switch SW at 200 0\nadd router R1 at 300 0\nlink AP1 SW\nlink SW R1\ninterface R1 SW ip 10.9.0.1\nip LT1 10.9.0.10/24\ngateway LT1 10.9.0.1\nssid LT1 OtherNet");
+    const r = runConsoleScript("run ping LT1 10.9.0.1")[0];
+    expect(r.ok).toBe(false);
+    expect(r.output.join(" ")).toMatch(/OtherNet/);              // the SSID mismatch, not a password
+  });
+
+  it("the live gate distinguishes a wrong SSID from a wrong password (R15)", () => {
+    runConsoleScript("add laptop LT1 at 0 0\nadd access-point AP1 at 100 0\nssid AP1 Secure pw123456\nssid LT1 Secure pw123456\nlink LT1 AP1");
+    const link = state.links.find(l => l.wireless)!;
+    expect(wifiLinkBlockReason(link)).toBeNull();                // SSID + password match
+    runConsoleScript("ssid LT1 Secure wrongpass");               // password differs, SSID matches
+    expect(wifiLinkBlockReason(link)).toMatch(/password/);
+    runConsoleScript("ssid LT1 OtherNet");                       // now the SSID differs
+    expect(wifiLinkBlockReason(link)).toMatch(/is set to join "OtherNet"/);
+  });
+
+  it("`run associate` on a desynced laptop fails and names the SSID mismatch (R15)", () => {
+    runConsoleScript("add laptop LT1 at 0 0\nadd access-point AP1 at 100 0\nlink LT1 AP1\nssid LT1 OtherNet");
+    const r = runConsoleScript("run associate LT1")[0];
+    expect(r.ok).toBe(false);
+    expect(r.output.join(" ")).toMatch(/broadcasts|OtherNet/);   // the diagnosis surfaced
   });
 });
 

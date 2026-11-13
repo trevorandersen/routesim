@@ -423,8 +423,10 @@ export function buildAssociationEvents(laptop: any): PingSetup | string {
   const assoc = associatedAp(laptop);
   if (!assoc) return `${laptop.name} is not associated to an access point.`;
   const { ap, linkId } = assoc;
-  const ssid = ap.config?.ssid || "";
-  if (!ssid) return `${ap.name} has no SSID set.`;
+  // Probe with the laptop's own SSID — the network it is looking for — not the
+  // AP's, so the AP can reject a probe for a different network (R15).
+  const ssid = (laptop.config?.ssid || "").trim();
+  if (!ssid) return `${laptop.name} has no SSID set — give it a network name first.`;
   const bssid = ap.config?.macAddress || deriveMac(ap.id);
   const probe = createDot11Frame(srcMac, bssid, "probe-req", ssid);
   return {

@@ -12,7 +12,7 @@ import { USER_ADDABLE_TYPES, isHost, isDot1xSupplicant, defaultPortCount } from 
 import { dom } from "./dom";
 import {
   addDevice, addLink, deleteLink, deleteSelection, clearNetwork, collapseLan, expandLan,
-  getDevice, moveDevice, linkName, routerInterfacesWithNames, isPhysicalLink, linkedPortsFor, linkPortName, setLinkShutdown, setDevicePower, setSwitchManaged } from "./devices";
+  getDevice, moveDevice, linkName, deviceNameBlockReason, routerInterfacesWithNames, isPhysicalLink, linkedPortsFor, linkPortName, setLinkShutdown, setDevicePower, setSwitchManaged } from "./devices";
 import {
   startSimulation, stopSimulation, pauseSimulation, resumeSimulation, stepOnce, animatedRunBlockReason, takePreemptionNote,
   runSimulationHeadless, runTraceroute, STORM_DIAGNOSIS,
@@ -100,6 +100,10 @@ function cmdAdd(args: string[]): CommandResult {
   } else if (args[1]) {
     name = args[1];
   }
+  // Names are the handle every later command uses, matched ignoring case — a
+  // second `PC1` (or `pc1`) could never be referenced again (R38).
+  const taken = name ? deviceNameBlockReason(name) : null;
+  if (taken) return err(`add: ${taken}`);
   const device = addDevice(type as DeviceType, pos.x, pos.y, name);
   return ok(`Added ${type} ${device.name} at ${Math.round(device.x)},${Math.round(device.y)}.`);
 }
@@ -207,7 +211,10 @@ function cmdRename(args: string[]): CommandResult {
   const name = args[1];
   if (!name) return err(`rename: missing new name.`);
   // `rename` stays permissive (a meta tool — no hostname validation, unlike the
-  // terminal's `hostname`), but it must still be undoable like every other edit.
+  // terminal's `hostname`), but it must still be undoable like every other edit,
+  // and the name must stay unique or nothing could address the device again.
+  const taken = deviceNameBlockReason(name, device);
+  if (taken) return err(`rename: ${taken}`);
   pushUndo();
   device.name = name;
   sync().syncPanel(); sync().syncTerminal(); sync().render();
@@ -1260,12 +1267,38 @@ function exportedPort(payloadLink: any, deviceId: string): number | null {
   return n > 0 ? n : null;
 }
 
+// Give every device in an export payload a name no other device in it has
+// (ignoring case), in payload order — deterministic, so the same network always
+// exports the same script. Renames in place; returns a `#` comment per rename.
+function uniqueExportNames(devices: { name: string }[]): string[] {
+  const original = new Set(devices.map(d => d.name.toLowerCase()));
+  const used = new Set<string>();
+  const notes: string[] = [];
+  for (const d of devices) {
+    const lower = d.name.toLowerCase();
+    if (!used.has(lower)) { used.add(lower); continue; }
+    let n = 2;
+    while (used.has(`${lower}-${n}`) || original.has(`${lower}-${n}`)) n++;
+    const unique = `${d.name}-${n}`;
+    notes.push(`# two devices were named ${quoteArg(d.name)} — this script calls the later one ${quoteArg(unique)}`);
+    d.name = unique;
+    used.add(unique.toLowerCase());
+  }
+  return notes;
+}
+
 export function exportTopologyScript(): string {
   const payload: any = buildConfigPayload();
+  // The script addresses devices by name, so every name in it must be unique
+  // (ignoring case, as `resolveDevice` matches). The commands refuse a
+  // duplicate, but a JSON import or a collapse can still produce one — the
+  // first holder keeps the name, each later one is written as `<name>-2`,
+  // `-3`, … (the lowest suffix nothing else uses), and the script says so.
+  const renamed = uniqueExportNames(payload.devices);
   // Names are quoted on the way out so a name containing a space still parses
   // back into exactly one token (`add computer "My PC" at 0 0`).
   const idToName = new Map<string, string>(payload.devices.map((d: any) => [d.id, quoteArg(d.name)]));
-  const lines: string[] = ["clear"];
+  const lines: string[] = ["clear", ...renamed];
 
   for (const d of payload.devices) {
     if (d.type === "lan") continue;

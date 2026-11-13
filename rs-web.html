@@ -4760,10 +4760,22 @@ Full legal text: https://creativecommons.org/publicdomain/zero/1.0/legalcode</pr
   }
 
   // src/devices.ts
+  function deviceNamed(name, self) {
+    const lower = String(name).toLowerCase();
+    return state.devices.find((d) => d !== self && d.name.toLowerCase() === lower);
+  }
+  function deviceNameBlockReason(name, self) {
+    const holder = deviceNamed(name, self);
+    if (!holder) return null;
+    const which = holder.name === name ? "A device" : `A device (${holder.name})`;
+    return `${which} is already named "${name}" \u2014 device names must be unique, ignoring case.`;
+  }
   function applyHostname(device, name) {
     const next = String(name || "").trim();
     if (!isValidHostname(next))
       return `Invalid hostname '${name}': use letters, digits and hyphens (1\u201363 chars, no leading/trailing hyphen).`;
+    const taken = deviceNameBlockReason(next, device);
+    if (taken) return taken;
     pushUndo();
     device.name = next;
     sync().syncPanel();
@@ -4798,9 +4810,14 @@ Full legal text: https://creativecommons.org/publicdomain/zero/1.0/legalcode</pr
     "web-server": { namePrefix: "WEB", config: () => ({ dnsmasqRunning: false, openPorts: [80], httpEnabled: true }) }
   };
   function nextNameForPrefix(prefix) {
-    const p = `${prefix}-`;
-    const highest = state.devices.filter((d) => d.name.startsWith(p)).map((d) => Number(d.name.slice(p.length))).filter(Number.isFinite).reduce((max, v) => Math.max(max, v), 0);
-    return `${prefix}-${highest + 1}`;
+    const p = `${prefix}-`.toLowerCase();
+    const highest = state.devices.filter((d) => d.name.toLowerCase().startsWith(p)).map((d) => Number(d.name.slice(p.length))).filter(Number.isFinite).reduce((max, v) => Math.max(max, v), 0);
+    return `${prefix}-${freeNameNumber(prefix, highest + 1)}`;
+  }
+  function freeNameNumber(prefix, from) {
+    let n = from;
+    while (deviceNamed(`${prefix}-${n}`)) n++;
+    return n;
   }
   function placementVariant(tool) {
     if (tool === "managed-switch") return { type: "switch", config: () => ({ managed: true }) };
@@ -4823,7 +4840,7 @@ Full legal text: https://creativecommons.org/publicdomain/zero/1.0/legalcode</pr
     if (!PLACEMENT_TOOLS.has(tool)) return null;
     const variant = placementVariant(tool);
     const spec = DEVICE_SPECS[variant.type];
-    const name = variant.namePrefix ? nextNameForPrefix(variant.namePrefix) : `${spec.namePrefix}-${state.nameCounters[variant.type]}`;
+    const name = variant.namePrefix ? nextNameForPrefix(variant.namePrefix) : `${spec.namePrefix}-${freeNameNumber(spec.namePrefix, state.nameCounters[variant.type])}`;
     return {
       id: "",
       type: variant.type,
@@ -5359,7 +5376,9 @@ Full legal text: https://creativecommons.org/publicdomain/zero/1.0/legalcode</pr
   }
   function nextName(type) {
     const spec = DEVICE_SPECS[type];
-    return `${spec.namePrefix}-${state.nameCounters[type]++}`;
+    const n = freeNameNumber(spec.namePrefix, state.nameCounters[type]);
+    state.nameCounters[type] = n + 1;
+    return `${spec.namePrefix}-${n}`;
   }
   function nextDeviceNumber(type) {
     const prefix = `${DEVICE_SPECS[type].namePrefix}-`;
@@ -14624,10 +14643,21 @@ Snort successfully validated the configuration${bad ? " (with errors)" : "."}`);
         } else {
           captureUndoOnFocus(nameInput);
           nameInput.addEventListener("input", (event) => {
-            selected.name = event.target.value || selected.name;
+            const typed = event.target.value;
+            const problem = typed ? deviceNameBlockReason(typed, selected) : null;
+            nameInput.setCustomValidity(problem || "");
+            if (problem) {
+              nameInput.reportValidity();
+              return;
+            }
+            selected.name = typed || selected.name;
             syncDeviceList();
             syncTerminal();
             sync().render();
+          });
+          nameInput.addEventListener("change", () => {
+            nameInput.setCustomValidity("");
+            nameInput.value = selected.name;
           });
         }
       }
@@ -17719,6 +17749,8 @@ Snort successfully validated the configuration${bad ? " (with errors)" : "."}`);
     } else if (args[1]) {
       name = args[1];
     }
+    const taken = name ? deviceNameBlockReason(name) : null;
+    if (taken) return err(`add: ${taken}`);
     const device = addDevice(type, pos.x, pos.y, name);
     return ok(`Added ${type} ${device.name} at ${Math.round(device.x)},${Math.round(device.y)}.`);
   }
@@ -17814,6 +17846,8 @@ Snort successfully validated the configuration${bad ? " (with errors)" : "."}`);
     if (typeof device === "string") return err(device);
     const name = args[1];
     if (!name) return err(`rename: missing new name.`);
+    const taken = deviceNameBlockReason(name, device);
+    if (taken) return err(`rename: ${taken}`);
     pushUndo();
     device.name = name;
     sync().syncPanel();
@@ -18837,10 +18871,30 @@ Snort successfully validated the configuration${bad ? " (with errors)" : "."}`);
     const n = name ? Number(name.replace(/\D+/g, "")) : 0;
     return n > 0 ? n : null;
   }
+  function uniqueExportNames(devices) {
+    const original = new Set(devices.map((d) => d.name.toLowerCase()));
+    const used = /* @__PURE__ */ new Set();
+    const notes = [];
+    for (const d of devices) {
+      const lower = d.name.toLowerCase();
+      if (!used.has(lower)) {
+        used.add(lower);
+        continue;
+      }
+      let n = 2;
+      while (used.has(`${lower}-${n}`) || original.has(`${lower}-${n}`)) n++;
+      const unique = `${d.name}-${n}`;
+      notes.push(`# two devices were named ${quoteArg(d.name)} \u2014 this script calls the later one ${quoteArg(unique)}`);
+      d.name = unique;
+      used.add(unique.toLowerCase());
+    }
+    return notes;
+  }
   function exportTopologyScript() {
     const payload = buildConfigPayload();
+    const renamed = uniqueExportNames(payload.devices);
     const idToName = new Map(payload.devices.map((d) => [d.id, quoteArg(d.name)]));
-    const lines = ["clear"];
+    const lines = ["clear", ...renamed];
     for (const d of payload.devices) {
       if (d.type === "lan") continue;
       lines.push(`add ${d.type} ${quoteArg(d.name)} at ${Math.round(d.x)} ${Math.round(d.y)}`);

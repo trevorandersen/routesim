@@ -9,6 +9,27 @@ import { DEVICE_SPECS, USER_ADDABLE_TYPES, freshNameCounters, hasSingleNic, isHo
 // The hostname role lives in the device registry; re-exported for the inspector.
 export { hasHostname } from "./device-registry";
 
+// Device names are the handle every text front door uses — console commands,
+// scripts, the exported script, ping-by-name — and they are matched ignoring
+// case. Two devices sharing a name (exactly, or as `PC1`/`pc1`) could not be
+// told apart: every reference answered "Ambiguous", and the exported script
+// could not be replayed (review R38). So a name is unique, ignoring case.
+
+// The device already using this name (ignoring case), other than `self`.
+export function deviceNamed(name: string, self?: Device | null): Device | undefined {
+  const lower = String(name).toLowerCase();
+  return state.devices.find(d => d !== self && d.name.toLowerCase() === lower);
+}
+
+// Why `name` cannot be given to a device (`self` when renaming one, so a device
+// may keep its own name or change only its case), or null when it is free.
+export function deviceNameBlockReason(name: string, self?: Device | null): string | null {
+  const holder = deviceNamed(name, self);
+  if (!holder) return null;
+  const which = holder.name === name ? "A device" : `A device (${holder.name})`;
+  return `${which} is already named "${name}" — device names must be unique, ignoring case.`;
+}
+
 // Set a CLI device's hostname, which IS its canvas name. Validates against the
 // RFC-1123 label rule, pushes undo, and re-syncs the panel/terminal/canvas.
 // Returns an error message on a bad name, or null on success — the realistic
@@ -17,6 +38,8 @@ export function applyHostname(device: Device, name: string): string | null {
   const next = String(name || "").trim();
   if (!isValidHostname(next))
     return `Invalid hostname '${name}': use letters, digits and hyphens (1–63 chars, no leading/trailing hyphen).`;
+  const taken = deviceNameBlockReason(next, device);
+  if (taken) return taken;
   pushUndo();
   device.name = next;
   sync().syncPanel();
@@ -67,13 +90,22 @@ export const SERVER_PRESETS: Record<string, ServerPreset> = {
 // Next free "<PREFIX>-<n>" name across all devices. Preset prefixes aren't in
 // DEVICE_SPECS, so they can't use the per-type nameCounters.
 function nextNameForPrefix(prefix: string): string {
-  const p = `${prefix}-`;
+  const p = `${prefix}-`.toLowerCase();   // names are unique ignoring case, so count `dns-3` too
   const highest = state.devices
-    .filter(d => d.name.startsWith(p))
+    .filter(d => d.name.toLowerCase().startsWith(p))
     .map(d => Number(d.name.slice(p.length)))
     .filter(Number.isFinite)
     .reduce((max, v) => Math.max(max, v), 0);
-  return `${prefix}-${highest + 1}`;
+  return `${prefix}-${freeNameNumber(prefix, highest + 1)}`;
+}
+
+// The first number from `from` up whose "<PREFIX>-<n>" no device is using — an
+// auto-generated name must not collide with one the learner typed (`add
+// computer PC-2`, then two more PCs).
+function freeNameNumber(prefix: string, from: number): number {
+  let n = from;
+  while (deviceNamed(`${prefix}-${n}`)) n++;
+  return n;
 }
 
 // What a placement tool drops: the real device type, plus — for the UI variants —
@@ -116,7 +148,7 @@ export function placementPreview(tool: string, x: number, y: number): Device | n
   const spec = DEVICE_SPECS[variant.type];
   const name = variant.namePrefix
     ? nextNameForPrefix(variant.namePrefix)
-    : `${spec.namePrefix}-${state.nameCounters[variant.type]}`;
+    : `${spec.namePrefix}-${freeNameNumber(spec.namePrefix, state.nameCounters[variant.type])}`;
   return {
     id: "",
     type: variant.type,
@@ -939,7 +971,9 @@ export function linkedPortsFor(id: string): any[] {
 
 export function nextName(type: string): string {
   const spec = DEVICE_SPECS[type as DeviceType];
-  return `${spec.namePrefix}-${state.nameCounters[type as DeviceType]++}`;
+  const n = freeNameNumber(spec.namePrefix, state.nameCounters[type as DeviceType]);
+  state.nameCounters[type as DeviceType] = n + 1;
+  return `${spec.namePrefix}-${n}`;
 }
 
 export function nextDeviceNumber(type: string): number {

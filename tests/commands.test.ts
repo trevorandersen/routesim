@@ -323,6 +323,92 @@ describe("commands — `route` validates like the router shell's `ip route` (R37
   });
 });
 
+describe("commands — device names are unique, ignoring case (R38)", () => {
+  beforeEach(reset);
+
+  const names = () => state.devices.map(d => d.name);
+
+  it("`add` refuses a name already in use, exactly or in another case, with no undo point", () => {
+    exec("add computer PC1 at 0 0");
+    const before = state.undoStack.length;
+    for (const name of ["PC1", "pc1"]) {
+      const r = exec(`add computer ${name} at 100 0`);
+      expect(r.ok).toBe(false);
+      expect(r.output.join(" ")).toContain("device names must be unique");
+    }
+    expect(exec("add switch Pc1").ok).toBe(false);                 // across device types too
+    expect(names()).toEqual(["PC1"]);
+    expect(state.undoStack.length).toBe(before);
+    expect(exec("ip PC1 10.0.0.1/24").ok).toBe(true);              // still addressable — never "Ambiguous"
+  });
+
+  it("`rename` refuses a taken name but lets a device change its own name's case", () => {
+    exec("add computer PC1 at 0 0");
+    exec("add computer PC2 at 100 0");
+    const before = state.undoStack.length;
+    const r = exec("rename PC2 pc1");
+    expect(r.ok).toBe(false);
+    expect(r.output.join(" ")).toContain("A device (PC1) is already named \"pc1\"");
+    expect(names()).toEqual(["PC1", "PC2"]);
+    expect(state.undoStack.length).toBe(before);
+    expect(exec("rename PC2 pc2").ok).toBe(true);
+    expect(names()).toEqual(["PC1", "pc2"]);
+  });
+
+  it("the device shells' `hostname` refuses a taken name and says why", () => {
+    exec("add computer PC1 at 0 0");
+    exec("add computer PC2 at 100 0");
+    exec("add router R1 at 200 0");
+    const host = exec("cli PC2 hostname pc1");
+    expect(host.ok).toBe(false);
+    expect(host.output.join(" ")).toContain("device names must be unique");
+    exec("cli R1 enable");
+    exec("cli R1 configure terminal");
+    expect(exec("cli R1 hostname PC1").ok).toBe(false);
+    expect(names()).toEqual(["PC1", "PC2", "R1"]);
+  });
+
+  it("an auto-generated name skips one the learner already typed", () => {
+    exec("add computer PC-2 at 0 0");
+    exec("add computer");
+    exec("add computer");
+    exec("add computer");
+    expect(names()).toEqual(["PC-2", "PC-1", "PC-3", "PC-4"]);
+  });
+
+  it("the export gives duplicates (from an import) distinct names, the same way every time, and replays", () => {
+    runConsoleScript(`
+      add computer PC1 at 0 0
+      add computer PC2 at 100 0
+      add computer PC3 at 200 0
+      add computer PC1-2 at 300 0
+      add switch SW at 100 100
+      link PC1 SW
+      link PC2 SW
+      link PC3 SW
+      ip PC1 10.0.0.1/24
+      ip PC2 10.0.0.2/24
+      ip PC3 10.0.0.3/24
+    `);
+    // A JSON import does not go through the commands, so it can still carry
+    // colliding names — exact and case-variant.
+    state.devices.find(d => d.name === "PC2")!.name = "pc1";
+    state.devices.find(d => d.name === "PC3")!.name = "PC1";
+    const script = exportTopologyScript();
+    expect(exportTopologyScript()).toBe(script);
+    expect(script).toContain("add computer pc1-3 at 100 0");        // -2 is another device's own name
+    expect(script).toContain("add computer PC1-4 at 200 0");
+    expect(script).toContain("ip pc1-3 10.0.0.2/24");
+    expect(script.split("\n").filter(l => l.startsWith("#"))).toHaveLength(2);   // each rename is stated
+
+    const results = runConsoleScript(script);
+    expect(results.filter(r => !r.ok).map(r => r.output.join(" "))).toEqual([]);
+    expect(names().sort()).toEqual(["PC1", "PC1-2", "PC1-4", "SW", "pc1-3"].sort());
+    expect(state.links).toHaveLength(3);
+    expect(state.devices.find(d => d.name === "PC1-4")!.config.ipv4Address).toBe("10.0.0.3");
+  });
+});
+
 describe("commands — speed clamp and interface confirmation", () => {
   beforeEach(reset);
 

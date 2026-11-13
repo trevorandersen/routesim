@@ -7,7 +7,7 @@ import { ensureConfig, normaliseVlans, normaliseDnsRecords, normaliseDhcpLeases,
 import {
   getDevice, isVisibleDevice, connectedIds, linkedPortsFor, linksFor, wifiLinkAuthenticated,
   routerInterfacesWithNames, routerInterfaceFor, routerInterfaceForName, switchInterfacesWithNames,
-  deleteSelection, deleteLink, collapseLan, expandLan, configureDevice, hasHostname, applyHostname,
+  deleteSelection, deleteLink, collapseLan, expandLan, configureDevice, hasHostname, applyHostname, deviceNameBlockReason,
   setLinkShutdown, setDevicePower, setSwitchManaged
 } from "./devices";
 import {
@@ -1225,12 +1225,23 @@ export const INSPECTOR_SECTIONS: InspectorSection[] = [
       } else {
         // Everything else (LAN, hub, unmanaged switch, AP, cloud) keeps a plain
         // label with no hostname semantics, so free text stays fine.
+        // The name must still be unique (ignoring case) — it is how commands
+        // and scripts address the device (R38). A colliding value is not
+        // applied; the field says why, and reverts when it is left.
         captureUndoOnFocus(nameInput);
         nameInput.addEventListener("input", (event: any) => {
-          selected.name = event.target.value || selected.name;
+          const typed = event.target.value;
+          const problem = typed ? deviceNameBlockReason(typed, selected) : null;
+          nameInput.setCustomValidity(problem || "");
+          if (problem) { nameInput.reportValidity(); return; }
+          selected.name = typed || selected.name;
           syncDeviceList();
           syncTerminal();
           sync().render();
+        });
+        nameInput.addEventListener("change", () => {
+          nameInput.setCustomValidity("");
+          nameInput.value = selected.name;        // a refused (or emptied) value reverts to the real name
         });
       }
     },

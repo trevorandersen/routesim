@@ -147,6 +147,47 @@ describe("click-a-packet frame inspector", () => {
   });
 });
 
+// A plain (non-hostname) name field is free text, but the name is still how
+// commands and scripts address the device, so it must stay unique (R38).
+describe("inspector name field refuses a name another device has (R38)", () => {
+  let mini: ReturnType<typeof installMiniDom>;
+  beforeEach(() => {
+    resetState();
+    mini = installMiniDom();
+  });
+  afterEach(() => mini.uninstall());
+
+  const nameField = (): MiniElement => mini.panel.getElementById("selectedName")!;
+
+  it("a hub's name: a colliding value is not applied and the field reverts; a free one is", () => {
+    const pc = addDevice("computer", 0, 0, "Core");
+    const hub = addDevice("hub", 100, 0, "Hub-A");
+    state.selectedId = hub.id;
+    syncPanel();
+    typeInto(nameField(), "core");                                  // PC's name in another case
+    expect(hub.name).toBe("Hub-A");
+    expect(nameField().validationMessage).toContain("device names must be unique");
+    nameField().dispatchEvent(new MiniEvent("change"));
+    expect(nameField().value).toBe("Hub-A");
+    expect(nameField().validationMessage).toBe("");
+    typeInto(nameField(), "Core Hub");
+    expect(hub.name).toBe("Core Hub");
+    expect(pc.name).toBe("Core");
+  });
+
+  it("a host's Hostname field refuses another device's name and keeps its own", () => {
+    addDevice("computer", 0, 0, "PC-A");
+    const pc = addDevice("computer", 100, 0, "PC-B");
+    state.selectedId = pc.id;
+    syncPanel();
+    const field = nameField();
+    field.value = "pc-a";
+    field.dispatchEvent(new MiniEvent("change"));
+    expect(pc.name).toBe("PC-B");
+    expect(field.value).toBe("PC-B");
+  });
+});
+
 // These drive the real syncPanel wiring over a parsed element tree
 // (tests/mini-dom.ts): a port-count spinner re-renders only the interface /
 // port rows, and the rows' controls must still work afterwards — exactly

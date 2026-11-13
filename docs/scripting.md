@@ -53,7 +53,7 @@ Param keys and boolean values are case-insensitive. Adding a setting is a one-ro
 ### Topology
 | Command | Effect |
 |---------|--------|
-| `add <computer\|laptop\|server\|switch\|router\|firewall\|hub\|access-point> [name] [at <x> <y>]` | Create a device (hosts get a random MAC). A `laptop` is a WiFi-only host; an `access-point` bridges laptops onto the wired LAN. The position is the *trailing* `at <x> <y>`, so a device may itself be named `at`. |
+| `add <computer\|laptop\|server\|switch\|router\|firewall\|hub\|access-point> [name] [at <x> <y>]` | Create a device (hosts get a random MAC). A `laptop` is a WiFi-only host; an `access-point` bridges laptops onto the wired LAN. The position is the *trailing* `at <x> <y>`, so a device may itself be named `at`. **Names are unique, ignoring case** — every reference is matched that way, so `add computer pc1` is refused while a `PC1` exists (as are `rename` and the shells' `hostname` onto a taken name), and an auto-generated name skips any the learner already typed. |
 | `remove <ref>` / `delete <ref>` | Delete a device and its links. |
 | `link <a> <b> [portA portB]` | Connect two devices. A port number **pins** that end to the port (`link R1 SW 3 1` → R1 Ethernet3, SW Ethernet1); `auto` (or `-`) leaves an end to the next free port (`link R1 SW auto 4`). On a router the number counts within the cable's own kind of port — serial to another router, Ethernet otherwise. A port that is already cabled (by any cable, pinned or not) or does not exist is **not honoured**: the cable is still made on the next free port, and the output says which port was refused, why, and where the cable went. Linking a pair that is already linked is a no-op that says so (and says when the ports asked for were not applied); a WiFi association with the wrong password links with a warning. |
 | `linkset <a> <b> <name\|bandwidth\|latency\|loss> <value>` | Set a link attribute (`0` clears a numeric one). |
@@ -61,7 +61,7 @@ Param keys and boolean values are case-insensitive. Adding a setting is a one-ro
 | `shut <a> <b>` | Administratively down the link (stays in the topology, carries no traffic). |
 | `noshut <a> <b>` | Bring the link back up. |
 | `move <ref> <x> <y>` | Reposition a device. |
-| `rename <ref> <name>` | Rename a device. For a CLI device the name **is** its hostname (canvas label, prompt, and resolvable name) — the realistic equivalent is `cli <host> hostname <name>` / `hostnamectl set-hostname <name>`, `cli <router> hostname <name>` (config mode), or `cli <switch> config hostname <name>`. |
+| `rename <ref> <name>` | Rename a device. The new name must not be another device's (ignoring case; a device may change the case of its own). For a CLI device the name **is** its hostname (canvas label, prompt, and resolvable name) — the realistic equivalent is `cli <host> hostname <name>` / `hostnamectl set-hostname <name>`, `cli <router> hostname <name>` (config mode), or `cli <switch> config hostname <name>`. |
 | `collapse <switch>` / `expand <lan>` | Collapse a switch + hosts into a LAN node / undo. Each says what it did, and fails with the reason when there is nothing to do (not a switch, nothing attached, already collapsed, not a collapsed LAN). |
 | `clear` | Remove all devices and links. |
 
@@ -214,6 +214,7 @@ route R1 10.0.0.0/24 192.168.10.254
 - **A laptop's SSID is always stated**, as `""` when unconfigured — a new laptop defaults to the shared SSID, so an empty one has to be written out.
 - **Collapsed LANs** are rebuilt last: the LAN node and its stand-in cable are views, so they are never `add`ed or `link`ed; the script ends with `collapse <switch>` for each, then a `rename` / `move` for the LAN node. They used to emit `link "SW LAN" R1`, which was rejected, and came back expanded. Review R81.
 - **A device named `at`** exports and replays (`add computer at at 120 240`).
+- **Duplicate names** cannot be made with the commands, but a JSON import (or a LAN collapsed around a switch whose default LAN name is taken) can still carry them, and the script addresses devices by name. The export keeps the first holder's name and writes each later one as `<name>-2`, `-3`, … (the lowest suffix no device uses, matched ignoring case), in creation order — the same script every time — with a `#` comment line per rename, so the script replays instead of failing every line with "Ambiguous device". Review R38.
 
 When you add a field to a device, this suite fails until the export can express it.
 

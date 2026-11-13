@@ -55,7 +55,7 @@ The budget is still a **p99** — the gate didn't move to p50. Stated exactly, t
 | `bench: dns` | `processAtServer` answering a DNS query against 50 A-records |
 | `bench: packetColumns` | The packet-list column mapping (runs per visible row on every sim-log sync) |
 | `bench: packet-list display filter` | `applyLogFilter` over a full (1000-row) capture with a mixed protocol-chip + expression filter — the per-step cost the sim-log render pays while filtering |
-| `bench: routing` | `buildRoutingTable` and `processAtRouter` (connected/static/NAT translate) |
+| `bench: routing` | `buildRoutingTable` and `processAtRouter` (connected/static/NAT translate — each call writes a `Route … via <interface>` log line, so these also cover the cached interface-name lookup, `ifaceName`) |
 | `bench: routingLookup` | Per-frame route resolution — building the table per call vs reusing a prebuilt table (the ARP-flush path) |
 | `bench: RIP convergence` | `runRipConvergence` at 5/10/15 routers on `ripStress` (ring + cross-links + two stub LANs per router), plus a check that the fixture converges every router to its full table |
 | `bench: STP convergence` | `runStpConvergence` at 10/30 managed switches (a ring with chords — many L2 loops to resolve), and `flushLearnedMacs` over that 30-switch domain with 20 learnt entries per bridge — the `linksChanged` MAC flush every cable add/remove/shut runs |

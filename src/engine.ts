@@ -152,6 +152,7 @@ function beginRun(setup: PingSetup, originDeviceId: string, targetIp: string, mo
 // The packet capture is not touched here — only an animated run clears it.
 function resetRunState(setup: PingSetup, originDeviceId: string, targetIp: string, mode: SimMode, targetPort: number | null, headless: boolean): void {
   const sim = state.simulation;
+  resetIfaceNames();   // interface names are derived from the cabling — never carried across runs
   sim.status = "running";
   sim.mode = mode;
   sim.headless = headless;
@@ -1970,7 +1971,7 @@ function handleRouterArp(device: Device, frame: EthernetFrame, ifaces: any[], in
 
   if (arp.operation === "request" && arp.targetIp === ingressIface.ipv4Address) {
     learnRouterArp(ingressIface, arp.senderIp, arp.senderMac);
-    logStep(device, "sim-arp", `Received ARP Request for ${arp.targetIp} on ${ifaceName(ingressIface)} — sending Reply`);
+    logStep(device, "sim-arp", `Received ARP Request for ${arp.targetIp} on ${ifaceName(device, ingressIface)} — sending Reply`);
     const reply = createArpReply(
       ingressIface.macAddress, ingressIface.ipv4Address,
       arp.senderMac, arp.senderIp, ingressIface.vlanTag ?? null
@@ -1994,7 +1995,7 @@ function handleRouterArp(device: Device, frame: EthernetFrame, ifaces: any[], in
       return outgoing;
     }
     learnRouterArp(ingressIface, arp.senderIp, arp.senderMac);
-    logStep(device, "sim-arp", `Received ARP Reply on ${ifaceName(ingressIface)}: ${arp.senderIp} is-at ${arp.senderMac}`);
+    logStep(device, "sim-arp", `Received ARP Reply on ${ifaceName(device, ingressIface)}: ${arp.senderIp} is-at ${arp.senderMac}`);
 
     // Check for buffered frames
     if (pending && pending.length > 0) {
@@ -2010,7 +2011,7 @@ function handleRouterArp(device: Device, frame: EthernetFrame, ifaces: any[], in
           pf.srcMac = route.egressIface.macAddress;
           pf.dstMac = arp.senderMac;
           pf.vlanTag = route.egressIface.vlanTag ?? null;
-          logStep(device, "sim-forward", `Forward deferred ${frameLabel(pf)} to ${ipv4.dstIp} via ${ifaceName(route.egressIface)} (TTL ${ipv4.ttl}→${ipv4.ttl - 1})`);
+          logStep(device, "sim-forward", `Forward deferred ${frameLabel(pf)} to ${ipv4.dstIp} via ${ifaceName(device, route.egressIface)} (TTL ${ipv4.ttl}→${ipv4.ttl - 1})`);
           ipv4.ttl--;
           outgoing.push({ frame: pf, toDeviceId: route.egressIface.peerId });
         } else {
@@ -2423,7 +2424,7 @@ function routeIpv4Frame(device: Device, frame: EthernetFrame, ifaces: any[], ing
     // interface address before leaving.
     const translated = natTranslateOutbound(device, ipv4, egressIface);
     if (translated) {
-      logStep(device, "sim-nat", `NAT ${ipv4.srcIp} → ${translated.srcIp} (PAT via ${ifaceName(egressIface)})`);
+      logStep(device, "sim-nat", `NAT ${ipv4.srcIp} → ${translated.srcIp} (PAT via ${ifaceName(device, egressIface)})`);
       ipv4 = translated;
       frame = { ...frame, payload: translated };
     }
@@ -2443,14 +2444,14 @@ function routeIpv4Frame(device: Device, frame: EthernetFrame, ifaces: any[], ing
       payload: { ...ipv4, ttl: ipv4.ttl - 1 }
     };
     const viaStr = nextHopIp !== ipv4.dstIp ? ` next-hop ${nextHopIp}` : "";
-    logStep(device, "sim-forward", `Route ${ipv4.srcIp}→${ipv4.dstIp} via ${ifaceName(egressIface)}${viaStr} (TTL ${ipv4.ttl}→${ipv4.ttl - 1})`);
+    logStep(device, "sim-forward", `Route ${ipv4.srcIp}→${ipv4.dstIp} via ${ifaceName(device, egressIface)}${viaStr} (TTL ${ipv4.ttl}→${ipv4.ttl - 1})`);
     outgoing.push({ frame: rewrittenFrame, toDeviceId: egressIface.peerId });
   } else {
     // Need ARP for next-hop — buffer the (already-translated) frame and ARP
     const pendingKey = `${device.id}:${nextHopIp}`;
     if (!sim.pendingArp[pendingKey]) sim.pendingArp[pendingKey] = [];
     sim.pendingArp[pendingKey].push({ ...frame, id: frame.id + "-buffered" });
-    logStep(device, "sim-arp", `ARP miss for ${nextHopIp} on ${ifaceName(egressIface)} — buffering frame, sending ARP Request`);
+    logStep(device, "sim-arp", `ARP miss for ${nextHopIp} on ${ifaceName(device, egressIface)} — buffering frame, sending ARP Request`);
 
     const arpReq = createArpRequest(egressIface.macAddress, egressIface.ipv4Address, nextHopIp, egressVlanTag);
     outgoing.push({ frame: arpReq, toDeviceId: egressIface.peerId });
@@ -2719,8 +2720,57 @@ export function allocateDhcpIp(iface: any, router: Device): string | null {
   return scan(start, last) ?? (start > first ? scan(first, start - 1) : null);
 }
 
-function ifaceName(iface: any): string {
-  return iface.name || iface.peerId || "unknown";
+// ── Router interface names for log lines ─────────────────────────────────────
+// A stored router interface is keyed by its peer's id (+ VLAN tag) and has no
+// name — the name (Ethernet1, Serial2, Ethernet1.10) is derived from the
+// cabling by `routerInterfacesWithNames`. The log lines used to print
+// `iface.name || iface.peerId`, so "Route … via", "ARP miss … on", "PAT via"
+// and "Forward deferred … via" named the interface by its peer's UUID (review
+// R52). They now say what `show ip interface brief` and the inspector say.
+//
+// Deriving the names enumerates the router's cables, and these lines are
+// written per routed frame, so the map is cached per router. It is dropped at
+// the start of every run and whenever the device or link list changes (the
+// same identity + length test the lookup indexes in devices.ts use); a key it
+// does not hold (a sub-interface made since) rebuilds it once.
+interface IfaceNameCache { devices: unknown; links: unknown; linkCount: number; names: Map<string, string> }
+let ifaceNameCaches = new Map<string, IfaceNameCache>();
+
+function resetIfaceNames(): void {
+  ifaceNameCaches = new Map();
+}
+
+const ifaceKey = (peerId: string, vlanTag: number | null | undefined) => vlanTag == null ? peerId : `${peerId}#${vlanTag}`;
+
+function buildIfaceNames(router: Device): Map<string, string> {
+  const names = new Map<string, string>();
+  for (const iface of routerInterfacesWithNames(router, true)) {
+    const key = ifaceKey(iface.peerId, iface.config?.vlanTag);
+    if (!names.has(key)) names.set(key, iface.name);
+    // A port carrying sub-interfaces lists only those; its untagged base is
+    // still an interface a frame can arrive on, named without the ".tag".
+    const dot = iface.name.indexOf(".");
+    if (dot > 0 && !names.has(iface.peerId)) names.set(iface.peerId, iface.name.slice(0, dot));
+  }
+  return names;
+}
+
+function ifaceName(router: Device, iface: { peerId?: string; vlanTag?: number | null; name?: string }): string {
+  const peerId = iface.peerId || "";
+  const key = ifaceKey(peerId, iface.vlanTag);
+  let cache = ifaceNameCaches.get(router.id);
+  const fresh = cache && cache.devices === state.devices && cache.links === state.links && cache.linkCount === state.links.length;
+  if (!cache || !fresh || !cache.names.has(key)) {
+    cache = { devices: state.devices, links: state.links, linkCount: state.links.length, names: buildIfaceNames(router) };
+    ifaceNameCaches.set(router.id, cache);
+  }
+  const name = cache.names.get(key);
+  if (name) return name;
+  // No port name (more cables than ports, say): name the far end instead —
+  // never the id.
+  const peer = peerId ? getDevice(peerId) : undefined;
+  if (peer) return `the interface to ${peer.name}`;
+  return iface.name || "an unnamed interface";
 }
 
 // ─── Helpers ─────────────────────────────────────────────────────────────────

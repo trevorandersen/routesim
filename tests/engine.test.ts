@@ -1444,3 +1444,90 @@ describe("a static with an unreachable next hop is inactive (R18)", () => {
     expect(out).not.toContain("S>* 192.168.50.0/24");
   });
 });
+
+// R52: a stored router interface is keyed by its peer's id and carries no
+// name, and the log lines printed `iface.name || iface.peerId` — so "Route …
+// via", "ARP miss … on", "Received ARP … on" and "Forward deferred … via" named
+// the interface by a UUID. They now use the name `show ip interface brief`
+// and the inspector show.
+describe("router log lines name interfaces, never peer ids (R52)", () => {
+  beforeEach(() => resetState());
+
+  const dev = (name: string) => state.devices.find(d => d.name === name)!;
+  const build = () => runConsoleScript(`
+    add computer PC1 at 0 0
+    add switch SW1 at 100 0
+    add router R1 at 200 0
+    add switch SW2 at 300 0
+    add computer PC2 at 400 0
+    link PC1 SW1
+    link SW1 R1
+    link R1 SW2
+    link PC2 SW2
+    interface R1 SW1 ip 10.0.1.1/24
+    interface R1 SW2 ip 10.0.2.1/24
+    ip PC1 10.0.1.10/24
+    gateway PC1 10.0.1.1
+    ip PC2 10.0.2.10/24
+    gateway PC2 10.0.2.1
+  `);
+  const ping = (from: string, ip: string) => {
+    const a = dev(from);
+    return runSimulationHeadless(buildPingEvents(a, ip) as any, a.id, ip, "ping");
+  };
+  const routerLines = (result: { log: { deviceName: string; action: string }[] }) =>
+    result.log.filter(l => l.deviceName === "R1").map(l => l.action);
+  const expectNoIds = (lines: string[]) => {
+    for (const d of state.devices) for (const line of lines) expect(line).not.toContain(d.id);
+  };
+
+  it("a routed ping: ARP, route, ARP-miss and deferred-forward lines say Ethernet1 / Ethernet2", () => {
+    build();
+    const result = ping("PC1", "10.0.2.10");
+    expect(result.success).toBe(true);
+    const lines = routerLines(result);
+    expect(lines).toContain("Received ARP Request for 10.0.1.1 on Ethernet1 — sending Reply");
+    expect(lines.some(l => /^ARP miss for 10\.0\.2\.10 on Ethernet2 /.test(l))).toBe(true);
+    expect(lines.some(l => /^Received ARP Reply on Ethernet2: 10\.0\.2\.10 is-at /.test(l))).toBe(true);
+    expect(lines.some(l => /^Forward deferred .* to 10\.0\.2\.10 via Ethernet2 /.test(l))).toBe(true);
+    expect(lines.some(l => /^Route 10\.0\.2\.10→10\.0\.1\.10 via Ethernet1 /.test(l))).toBe(true);
+    expectNoIds(lines);
+  });
+
+  it("the names follow the cabling: after an unlink renumbers the ports, the next run says so", () => {
+    build();
+    expect(ping("PC1", "10.0.2.10").success).toBe(true);            // names cached for this run
+    runConsoleScript("unlink SW1 R1");                              // R1—SW2 is now its only cable: Ethernet1
+    flushHostArp(dev("PC2"));                                       // so PC2 ARPs for its gateway again
+    const lines = routerLines(ping("PC2", "10.0.2.1"));
+    expect(lines).toContain("Received ARP Request for 10.0.2.1 on Ethernet1 — sending Reply");
+    expect(lines.some(l => l.includes("Ethernet2"))).toBe(false);
+    expectNoIds(lines);
+  });
+
+  it("sub-interfaces are named with their tag (router-on-a-stick)", () => {
+    const topo = vlanTopology();
+    state.devices = topo.devices as any;
+    state.links = topo.links as any;
+    const rtr = state.devices.find(d => d.id === "rtr-v")!;
+    rtr.config.interfaces![1].arpTable = [{ ipv4Address: "192.168.20.10", macAddress: "02:00:14:00:01:10" }];
+    const frame = createIcmpEchoRequest("02:00:0A:00:01:10", "02:01:00:00:01:01", "192.168.10.10", "192.168.20.10", 64);
+    frame.vlanTag = 10;
+    expect(processAtRouter(rtr, frame, "msw")).toHaveLength(1);
+    const line = state.simulation.log.map(l => l.action).find(l => l.startsWith("Route "))!;
+    expect(line).toContain("via Ethernet1.20 ");
+    expect(line).not.toContain("msw");
+  });
+
+  it("a cable beyond the port count has no port name: the line names the far device instead", () => {
+    build();
+    expect(routerLines(ping("PC2", "10.0.2.1"))).toContain("Received ARP Request for 10.0.2.1 on Ethernet2 — sending Reply");
+    // An in-place edit — no cable added or removed — so only the per-run reset
+    // can notice it: SW2's cable is now beyond the port count.
+    dev("R1").config.ethernetPorts = 1;
+    flushHostArp(dev("PC2"));
+    const lines = routerLines(ping("PC2", "10.0.2.1"));
+    expect(lines).toContain("Received ARP Request for 10.0.2.1 on the interface to SW2 — sending Reply");
+    expectNoIds(lines);
+  });
+});

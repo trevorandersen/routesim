@@ -7869,6 +7869,7 @@ Full legal text: https://creativecommons.org/publicdomain/zero/1.0/legalcode</pr
   }
   function resetRunState(setup, originDeviceId, targetIp, mode, targetPort, headless) {
     const sim = state.simulation;
+    resetIfaceNames();
     sim.status = "running";
     sim.mode = mode;
     sim.headless = headless;
@@ -9261,7 +9262,7 @@ Full legal text: https://creativecommons.org/publicdomain/zero/1.0/legalcode</pr
     const arp = frame.payload;
     if (arp.operation === "request" && arp.targetIp === ingressIface.ipv4Address) {
       learnRouterArp(ingressIface, arp.senderIp, arp.senderMac);
-      logStep(device, "sim-arp", `Received ARP Request for ${arp.targetIp} on ${ifaceName(ingressIface)} \u2014 sending Reply`);
+      logStep(device, "sim-arp", `Received ARP Request for ${arp.targetIp} on ${ifaceName(device, ingressIface)} \u2014 sending Reply`);
       const reply = createArpReply(
         ingressIface.macAddress,
         ingressIface.ipv4Address,
@@ -9281,7 +9282,7 @@ Full legal text: https://creativecommons.org/publicdomain/zero/1.0/legalcode</pr
         return outgoing;
       }
       learnRouterArp(ingressIface, arp.senderIp, arp.senderMac);
-      logStep(device, "sim-arp", `Received ARP Reply on ${ifaceName(ingressIface)}: ${arp.senderIp} is-at ${arp.senderMac}`);
+      logStep(device, "sim-arp", `Received ARP Reply on ${ifaceName(device, ingressIface)}: ${arp.senderIp} is-at ${arp.senderMac}`);
       if (pending && pending.length > 0) {
         const table = buildRoutingTable(device);
         for (const pf of pending) {
@@ -9292,7 +9293,7 @@ Full legal text: https://creativecommons.org/publicdomain/zero/1.0/legalcode</pr
             pf.srcMac = route.egressIface.macAddress;
             pf.dstMac = arp.senderMac;
             pf.vlanTag = route.egressIface.vlanTag ?? null;
-            logStep(device, "sim-forward", `Forward deferred ${frameLabel(pf)} to ${ipv4.dstIp} via ${ifaceName(route.egressIface)} (TTL ${ipv4.ttl}\u2192${ipv4.ttl - 1})`);
+            logStep(device, "sim-forward", `Forward deferred ${frameLabel(pf)} to ${ipv4.dstIp} via ${ifaceName(device, route.egressIface)} (TTL ${ipv4.ttl}\u2192${ipv4.ttl - 1})`);
             ipv4.ttl--;
             outgoing.push({ frame: pf, toDeviceId: route.egressIface.peerId });
           } else {
@@ -9621,7 +9622,7 @@ Full legal text: https://creativecommons.org/publicdomain/zero/1.0/legalcode</pr
     } else if (ingressIface.natRole === "inside" && egressIface.natRole === "outside" && egressIface.ipv4Address) {
       const translated = natTranslateOutbound(device, ipv4, egressIface);
       if (translated) {
-        logStep(device, "sim-nat", `NAT ${ipv4.srcIp} \u2192 ${translated.srcIp} (PAT via ${ifaceName(egressIface)})`);
+        logStep(device, "sim-nat", `NAT ${ipv4.srcIp} \u2192 ${translated.srcIp} (PAT via ${ifaceName(device, egressIface)})`);
         ipv4 = translated;
         frame = { ...frame, payload: translated };
       }
@@ -9638,13 +9639,13 @@ Full legal text: https://creativecommons.org/publicdomain/zero/1.0/legalcode</pr
         payload: { ...ipv4, ttl: ipv4.ttl - 1 }
       };
       const viaStr = nextHopIp !== ipv4.dstIp ? ` next-hop ${nextHopIp}` : "";
-      logStep(device, "sim-forward", `Route ${ipv4.srcIp}\u2192${ipv4.dstIp} via ${ifaceName(egressIface)}${viaStr} (TTL ${ipv4.ttl}\u2192${ipv4.ttl - 1})`);
+      logStep(device, "sim-forward", `Route ${ipv4.srcIp}\u2192${ipv4.dstIp} via ${ifaceName(device, egressIface)}${viaStr} (TTL ${ipv4.ttl}\u2192${ipv4.ttl - 1})`);
       outgoing.push({ frame: rewrittenFrame, toDeviceId: egressIface.peerId });
     } else {
       const pendingKey = `${device.id}:${nextHopIp}`;
       if (!sim.pendingArp[pendingKey]) sim.pendingArp[pendingKey] = [];
       sim.pendingArp[pendingKey].push({ ...frame, id: frame.id + "-buffered" });
-      logStep(device, "sim-arp", `ARP miss for ${nextHopIp} on ${ifaceName(egressIface)} \u2014 buffering frame, sending ARP Request`);
+      logStep(device, "sim-arp", `ARP miss for ${nextHopIp} on ${ifaceName(device, egressIface)} \u2014 buffering frame, sending ARP Request`);
       const arpReq = createArpRequest(egressIface.macAddress, egressIface.ipv4Address, nextHopIp, egressVlanTag);
       outgoing.push({ frame: arpReq, toDeviceId: egressIface.peerId });
     }
@@ -9825,8 +9826,35 @@ Full legal text: https://creativecommons.org/publicdomain/zero/1.0/legalcode</pr
     };
     return scan(start, last) ?? (start > first ? scan(first, start - 1) : null);
   }
-  function ifaceName(iface) {
-    return iface.name || iface.peerId || "unknown";
+  var ifaceNameCaches = /* @__PURE__ */ new Map();
+  function resetIfaceNames() {
+    ifaceNameCaches = /* @__PURE__ */ new Map();
+  }
+  var ifaceKey = (peerId, vlanTag) => vlanTag == null ? peerId : `${peerId}#${vlanTag}`;
+  function buildIfaceNames(router) {
+    const names = /* @__PURE__ */ new Map();
+    for (const iface of routerInterfacesWithNames(router, true)) {
+      const key = ifaceKey(iface.peerId, iface.config?.vlanTag);
+      if (!names.has(key)) names.set(key, iface.name);
+      const dot = iface.name.indexOf(".");
+      if (dot > 0 && !names.has(iface.peerId)) names.set(iface.peerId, iface.name.slice(0, dot));
+    }
+    return names;
+  }
+  function ifaceName(router, iface) {
+    const peerId = iface.peerId || "";
+    const key = ifaceKey(peerId, iface.vlanTag);
+    let cache = ifaceNameCaches.get(router.id);
+    const fresh = cache && cache.devices === state.devices && cache.links === state.links && cache.linkCount === state.links.length;
+    if (!cache || !fresh || !cache.names.has(key)) {
+      cache = { devices: state.devices, links: state.links, linkCount: state.links.length, names: buildIfaceNames(router) };
+      ifaceNameCaches.set(router.id, cache);
+    }
+    const name = cache.names.get(key);
+    if (name) return name;
+    const peer = peerId ? getDevice(peerId) : void 0;
+    if (peer) return `the interface to ${peer.name}`;
+    return iface.name || "an unnamed interface";
   }
   function learnArp(config, ip, mac) {
     config.arpTable = normaliseArpTable(config.arpTable || []);

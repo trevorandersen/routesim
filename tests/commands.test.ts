@@ -255,6 +255,74 @@ describe("commands — input validation", () => {
   });
 });
 
+describe("commands — `route` validates like the router shell's `ip route` (R37)", () => {
+  beforeEach(reset);
+
+  const routes = () => state.devices.find(d => d.name === "R1")!.config.staticRoutes ?? [];
+
+  it("refuses a non-address network and a bad next hop, storing nothing and pushing no undo", () => {
+    exec("add router R1 at 0 0");
+    const before = state.undoStack.length;
+    for (const [command, reason] of [
+      ["route R1 garbage nonsense", "Invalid network: garbage"],
+      ["route R1 192.168.2.0 10.0.0.2", "Use CIDR notation"],          // prefix-less: `no ip route` could never match it
+      ["route R1 192.168.2.0/33 10.0.0.2", "Invalid network"],
+      ["route R1 192.168.2.0/24 nonsense", "Invalid next-hop address: nonsense"],
+      ["route R1 192.168.2.0/24 10.0.0.2/24", "Invalid next-hop address"],
+    ] as const) {
+      const r = exec(command);
+      expect(r.ok).toBe(false);
+      expect(r.output.join(" ")).toContain(reason);
+    }
+    expect(routes()).toHaveLength(0);
+    expect(state.undoStack.length).toBe(before);
+  });
+
+  it("refuses a device that is not a router", () => {
+    exec("add computer PC1 at 0 0");
+    const r = exec("route PC1 192.168.2.0/24 10.0.0.2");
+    expect(r.ok).toBe(false);
+    expect(r.output.join(" ")).toContain("not a router");
+    expect(state.devices[0].config.staticRoutes).toBeUndefined();
+  });
+
+  it("stores the canonical network, and a duplicate is a no-op with no undo point", () => {
+    exec("add router R1 at 0 0");
+    expect(exec("route R1 192.168.2.77/24 10.0.0.2").ok).toBe(true);   // host bits masked, as FRR stores it
+    expect(routes()).toEqual([{ network: "192.168.2.0/24", nextHop: "10.0.0.2" }]);
+    const before = state.undoStack.length;
+    const again = exec("route R1 192.168.2.0/24 10.0.0.2");
+    expect(again.ok).toBe(true);
+    expect(again.output.join(" ")).toContain("already configured");
+    expect(routes()).toHaveLength(1);
+    expect(state.undoStack.length).toBe(before);
+    expect(exec("route R1 192.168.2.0/24 10.0.0.3").ok).toBe(true);    // a second next hop is a different route
+    expect(routes()).toHaveLength(2);
+  });
+
+  it("a route added from the console is removable from the router shell, and undoable", () => {
+    exec("add router R1 at 0 0");
+    exec("route R1 192.168.2.0/24 10.0.0.2");
+    exec("cli R1 enable");
+    exec("cli R1 configure terminal");
+    expect(exec("cli R1 no ip route 192.168.2.0/24").ok).toBe(true);
+    expect(routes()).toHaveLength(0);
+    undo();
+    expect(routes()).toEqual([{ network: "192.168.2.0/24", nextHop: "10.0.0.2" }]);
+  });
+
+  it("the shell's `no ip route` matching nothing is an error that pushes no undo", () => {
+    exec("add router R1 at 0 0");
+    exec("cli R1 enable");
+    exec("cli R1 configure terminal");
+    const before = state.undoStack.length;
+    const r = exec("cli R1 no ip route 10.9.0.0/24");
+    expect(r.ok).toBe(false);
+    expect(r.output.join(" ")).toContain("No matching static route");
+    expect(state.undoStack.length).toBe(before);
+  });
+});
+
 describe("commands — speed clamp and interface confirmation", () => {
   beforeEach(reset);
 

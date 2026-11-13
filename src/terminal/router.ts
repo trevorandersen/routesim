@@ -3,7 +3,7 @@
  * (exec/privileged/config/interface/rip), show commands, prefix abbreviation,
  * and context-sensitive `?` driven by the ROUTER_COMMANDS registry.
  */
-import type { Device, TerminalSession } from "../types";
+import type { Device, TerminalSession, MutationResult } from "../types";
 import { state, sync, pushUndo } from "../state";
 import { isValidIpv4, parseIpv4Token, normaliseVlanId, prefixOf, clampPrefixLength, networkOf } from "../utils";
 import { normaliseArpTable, normaliseDhcpLeases, normaliseStaticRoutes, normaliseRipConfig } from "../normalise";
@@ -868,69 +868,78 @@ function routerRipCommand(router: Device, command: string, lower: string): boole
   return false;
 }
 
+// ── Static-route mutators — one validation for every front door ──────────────
+// The router shell's `ip route` validated; the console's `route` verb did not:
+// it stored `garbage nonsense`, a prefix-less `192.168.2.0` that `no ip route`
+// could never match, and the same route again and again (review R37). Both now
+// go through these two, so they refuse the same input and store the same form.
+
+// The stored form of a static route's destination: CIDR required, host bits
+// masked off (`10.0.0.5/24` → `10.0.0.0/24`, as FRR stores it) so the same
+// prefix is one route however it was typed. Null when the text is not that.
+function canonicalRouteNetwork(text: string): string | null {
+  const parsed = parseIpv4Token(text);
+  if (!parsed || parsed.prefixLength == null) return null;
+  return networkOf(parsed.address, parsed.prefixLength);
+}
+
+const BAD_ROUTE_NETWORK = (text: string) => `Invalid network: ${text || "(none)"}. Use CIDR notation (e.g. 10.0.0.0/24).`;
+
+// Add a static route. Refuses a non-CIDR network or an invalid next hop; a
+// route already present is a no-op that says so (and takes no undo point).
+export function addStaticRoute(router: Device, networkText: string, nextHopText: string): MutationResult {
+  if (router.type !== "router") return { ok: false, error: `${router.name} is not a router — only a router has static routes.`, warnings: [] };
+  const networkToken = String(networkText ?? "").trim();
+  const nextHop = String(nextHopText ?? "").trim();
+  const network = canonicalRouteNetwork(networkToken);
+  if (!network) return { ok: false, error: BAD_ROUTE_NETWORK(networkToken), warnings: [] };
+  if (!isValidIpv4(nextHop)) return { ok: false, error: `Invalid next-hop address: ${nextHop || "(none)"}`, warnings: [] };
+  const statics = normaliseStaticRoutes(router.config?.staticRoutes || []);
+  if (statics.some(r => r.network === network && r.nextHop === nextHop)) {
+    return { ok: true, message: `Static route ${network} via ${nextHop} is already configured on ${router.name}.`, warnings: [] };
+  }
+  pushUndo();
+  router.config = router.config || {};
+  statics.push({ network, nextHop });
+  router.config.staticRoutes = statics;
+  sync().syncPanel();
+  sync().render();
+  return { ok: true, message: `Static route added: ${network} via ${nextHop}`, warnings: [] };
+}
+
+// Remove the static route(s) for a network — every next hop, or just the one
+// named. Matching nothing is a refusal (and takes no undo point).
+export function removeStaticRoute(router: Device, networkText: string, nextHopText?: string | null): MutationResult {
+  if (router.type !== "router") return { ok: false, error: `${router.name} is not a router — only a router has static routes.`, warnings: [] };
+  const networkToken = String(networkText ?? "").trim();
+  const nextHop = String(nextHopText ?? "").trim() || null;
+  const network = canonicalRouteNetwork(networkToken);
+  if (!network) return { ok: false, error: BAD_ROUTE_NETWORK(networkToken), warnings: [] };
+  const statics = normaliseStaticRoutes(router.config?.staticRoutes || []);
+  const kept = statics.filter(r => nextHop ? !(r.network === network && r.nextHop === nextHop) : r.network !== network);
+  const removed = statics.length - kept.length;
+  if (!removed) return { ok: false, error: `No matching static route found for ${network}.`, warnings: [] };
+  pushUndo();
+  router.config = router.config || {};
+  router.config.staticRoutes = kept;
+  sync().syncPanel();
+  sync().render();
+  return { ok: true, message: `Removed ${removed} static route(s) for ${network}.`, warnings: [] };
+}
+
 // Handles `ip route` / `no ip route`. Returns true if the command matched.
 function routerStaticRouteCommand(router: Device, command: string): boolean {
   const ipRouteMatch = command.match(/^ip\s+route\s+(\S+)\s+(\S+)$/i);
-  if (ipRouteMatch) {
-    if (state.terminal.mode !== "config") {
-      terminalLine("error", "% Configuration mode required.");
-      return true;
-    }
-    const networkToken = ipRouteMatch[1];
-    const nextHop = ipRouteMatch[2];
-    const parsedNetwork = parseIpv4Token(networkToken);
-    if (!parsedNetwork || parsedNetwork.prefixLength == null) {
-      terminalLine("error", `% Invalid network: ${networkToken}. Use CIDR notation (e.g. 10.0.0.0/24).`);
-      return true;
-    }
-    if (!isValidIpv4(nextHop)) {
-      terminalLine("error", `% Invalid next-hop address: ${nextHop}`);
-      return true;
-    }
-    const network = `${parsedNetwork.address}/${parsedNetwork.prefixLength}`;
-    pushUndo();
-    router.config = router.config || {};
-    const statics = normaliseStaticRoutes(router.config.staticRoutes || []);
-    if (!statics.some((r: any) => r.network === network && r.nextHop === nextHop)) {
-      statics.push({ network, nextHop });
-    }
-    router.config.staticRoutes = statics;
-    sync().syncPanel();
-    terminalLine("", `Static route added: ${network} via ${nextHop}`);
+  const noIpRouteMatch = ipRouteMatch ? null : command.match(/^no\s+ip\s+route\s+(\S+)(?:\s+(\S+))?$/i);
+  if (!ipRouteMatch && !noIpRouteMatch) return false;
+  if (state.terminal.mode !== "config") {
+    terminalLine("error", "% Configuration mode required.");
     return true;
   }
-  const noIpRouteMatch = command.match(/^no\s+ip\s+route\s+(\S+)(?:\s+(\S+))?$/i);
-  if (noIpRouteMatch) {
-    if (state.terminal.mode !== "config") {
-      terminalLine("error", "% Configuration mode required.");
-      return true;
-    }
-    const networkToken = noIpRouteMatch[1];
-    const nextHop = noIpRouteMatch[2] || null;
-    const parsedNetwork = parseIpv4Token(networkToken);
-    // Stored routes always carry a prefix (the add path requires CIDR), so the
-    // removal must too — otherwise a bare `no ip route 10.0.0.0` never matches.
-    if (!parsedNetwork || parsedNetwork.prefixLength == null) {
-      terminalLine("error", `% Invalid network: ${networkToken}. Use CIDR notation (e.g. 10.0.0.0/24).`);
-      return true;
-    }
-    const network = `${parsedNetwork.address}/${parsedNetwork.prefixLength}`;
-    pushUndo();
-    router.config = router.config || {};
-    const statics = normaliseStaticRoutes(router.config.staticRoutes || []);
-    const before = statics.length;
-    router.config.staticRoutes = statics.filter((r: any) => {
-      if (nextHop) return !(r.network === network && r.nextHop === nextHop);
-      return r.network !== network;
-    });
-    const removed = before - router.config.staticRoutes.length;
-    sync().syncPanel();
-    if (removed > 0) {
-      terminalLine("", `Removed ${removed} static route(s) for ${network}.`);
-    } else {
-      terminalLine("error", `% No matching static route found for ${network}.`);
-    }
-    return true;
-  }
-  return false;
+  const result = ipRouteMatch
+    ? addStaticRoute(router, ipRouteMatch[1], ipRouteMatch[2])
+    : removeStaticRoute(router, noIpRouteMatch![1], noIpRouteMatch![2]);
+  if (result.ok) terminalLine("", result.message || "");
+  else terminalLine("error", `% ${result.error}`);
+  return true;
 }

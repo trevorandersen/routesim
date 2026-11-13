@@ -11922,68 +11922,60 @@ ${body}
     }
     return false;
   }
+  function canonicalRouteNetwork(text) {
+    const parsed = parseIpv4Token(text);
+    if (!parsed || parsed.prefixLength == null) return null;
+    return networkOf(parsed.address, parsed.prefixLength);
+  }
+  var BAD_ROUTE_NETWORK = (text) => `Invalid network: ${text || "(none)"}. Use CIDR notation (e.g. 10.0.0.0/24).`;
+  function addStaticRoute(router, networkText, nextHopText) {
+    if (router.type !== "router") return { ok: false, error: `${router.name} is not a router \u2014 only a router has static routes.`, warnings: [] };
+    const networkToken = String(networkText ?? "").trim();
+    const nextHop = String(nextHopText ?? "").trim();
+    const network = canonicalRouteNetwork(networkToken);
+    if (!network) return { ok: false, error: BAD_ROUTE_NETWORK(networkToken), warnings: [] };
+    if (!isValidIpv4(nextHop)) return { ok: false, error: `Invalid next-hop address: ${nextHop || "(none)"}`, warnings: [] };
+    const statics = normaliseStaticRoutes(router.config?.staticRoutes || []);
+    if (statics.some((r) => r.network === network && r.nextHop === nextHop)) {
+      return { ok: true, message: `Static route ${network} via ${nextHop} is already configured on ${router.name}.`, warnings: [] };
+    }
+    pushUndo();
+    router.config = router.config || {};
+    statics.push({ network, nextHop });
+    router.config.staticRoutes = statics;
+    sync().syncPanel();
+    sync().render();
+    return { ok: true, message: `Static route added: ${network} via ${nextHop}`, warnings: [] };
+  }
+  function removeStaticRoute(router, networkText, nextHopText) {
+    if (router.type !== "router") return { ok: false, error: `${router.name} is not a router \u2014 only a router has static routes.`, warnings: [] };
+    const networkToken = String(networkText ?? "").trim();
+    const nextHop = String(nextHopText ?? "").trim() || null;
+    const network = canonicalRouteNetwork(networkToken);
+    if (!network) return { ok: false, error: BAD_ROUTE_NETWORK(networkToken), warnings: [] };
+    const statics = normaliseStaticRoutes(router.config?.staticRoutes || []);
+    const kept = statics.filter((r) => nextHop ? !(r.network === network && r.nextHop === nextHop) : r.network !== network);
+    const removed = statics.length - kept.length;
+    if (!removed) return { ok: false, error: `No matching static route found for ${network}.`, warnings: [] };
+    pushUndo();
+    router.config = router.config || {};
+    router.config.staticRoutes = kept;
+    sync().syncPanel();
+    sync().render();
+    return { ok: true, message: `Removed ${removed} static route(s) for ${network}.`, warnings: [] };
+  }
   function routerStaticRouteCommand(router, command) {
     const ipRouteMatch = command.match(/^ip\s+route\s+(\S+)\s+(\S+)$/i);
-    if (ipRouteMatch) {
-      if (state.terminal.mode !== "config") {
-        terminalLine("error", "% Configuration mode required.");
-        return true;
-      }
-      const networkToken = ipRouteMatch[1];
-      const nextHop = ipRouteMatch[2];
-      const parsedNetwork = parseIpv4Token(networkToken);
-      if (!parsedNetwork || parsedNetwork.prefixLength == null) {
-        terminalLine("error", `% Invalid network: ${networkToken}. Use CIDR notation (e.g. 10.0.0.0/24).`);
-        return true;
-      }
-      if (!isValidIpv4(nextHop)) {
-        terminalLine("error", `% Invalid next-hop address: ${nextHop}`);
-        return true;
-      }
-      const network = `${parsedNetwork.address}/${parsedNetwork.prefixLength}`;
-      pushUndo();
-      router.config = router.config || {};
-      const statics = normaliseStaticRoutes(router.config.staticRoutes || []);
-      if (!statics.some((r) => r.network === network && r.nextHop === nextHop)) {
-        statics.push({ network, nextHop });
-      }
-      router.config.staticRoutes = statics;
-      sync().syncPanel();
-      terminalLine("", `Static route added: ${network} via ${nextHop}`);
+    const noIpRouteMatch = ipRouteMatch ? null : command.match(/^no\s+ip\s+route\s+(\S+)(?:\s+(\S+))?$/i);
+    if (!ipRouteMatch && !noIpRouteMatch) return false;
+    if (state.terminal.mode !== "config") {
+      terminalLine("error", "% Configuration mode required.");
       return true;
     }
-    const noIpRouteMatch = command.match(/^no\s+ip\s+route\s+(\S+)(?:\s+(\S+))?$/i);
-    if (noIpRouteMatch) {
-      if (state.terminal.mode !== "config") {
-        terminalLine("error", "% Configuration mode required.");
-        return true;
-      }
-      const networkToken = noIpRouteMatch[1];
-      const nextHop = noIpRouteMatch[2] || null;
-      const parsedNetwork = parseIpv4Token(networkToken);
-      if (!parsedNetwork || parsedNetwork.prefixLength == null) {
-        terminalLine("error", `% Invalid network: ${networkToken}. Use CIDR notation (e.g. 10.0.0.0/24).`);
-        return true;
-      }
-      const network = `${parsedNetwork.address}/${parsedNetwork.prefixLength}`;
-      pushUndo();
-      router.config = router.config || {};
-      const statics = normaliseStaticRoutes(router.config.staticRoutes || []);
-      const before = statics.length;
-      router.config.staticRoutes = statics.filter((r) => {
-        if (nextHop) return !(r.network === network && r.nextHop === nextHop);
-        return r.network !== network;
-      });
-      const removed = before - router.config.staticRoutes.length;
-      sync().syncPanel();
-      if (removed > 0) {
-        terminalLine("", `Removed ${removed} static route(s) for ${network}.`);
-      } else {
-        terminalLine("error", `% No matching static route found for ${network}.`);
-      }
-      return true;
-    }
-    return false;
+    const result = ipRouteMatch ? addStaticRoute(router, ipRouteMatch[1], ipRouteMatch[2]) : removeStaticRoute(router, noIpRouteMatch[1], noIpRouteMatch[2]);
+    if (result.ok) terminalLine("", result.message || "");
+    else terminalLine("error", `% ${result.error}`);
+    return true;
   }
 
   // src/terminal/switch.ts
@@ -17909,17 +17901,10 @@ Snort successfully validated the configuration${bad ? " (with errors)" : "."}`);
   function cmdRoute(args) {
     const router = resolveDevice(args[0]);
     if (typeof router === "string") return err(router);
-    const network = args[1];
-    const nextHop = args[2];
-    if (!network || !nextHop) return err(`route: expected "<network/prefix> <nextHop>".`);
-    pushUndo();
-    ensureConfig(router);
-    const routes = router.config.staticRoutes || [];
-    routes.push({ network, nextHop });
-    router.config.staticRoutes = normaliseStaticRoutes(routes);
-    sync().syncPanel();
-    sync().render();
-    return ok(`Added static route ${network} via ${nextHop} on ${router.name}.`);
+    if (!args[1] || !args[2]) return err(`route: expected "<network/prefix> <nextHop>".`);
+    const result = addStaticRoute(router, args[1], args[2]);
+    if (!result.ok) return err(`route: ${result.error}`);
+    return ok(mutationText(result));
   }
   function cmdVlan(args) {
     const sw = resolveDevice(args[0]);

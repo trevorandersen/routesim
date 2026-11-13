@@ -23,10 +23,10 @@ import { DEFAULT_BRIDGE_PRIORITY } from "./stp";
 import {
   setHostIp, setHostGateway, setHostDns, setRouterInterfaceIp, addSwitchVlan, removeSwitchVlan,
   setSwitchPortVlan, setSwitchPortMode, setSwitchTrunkNative, modifySwitchTrunkAllowed, setSwitchMirror, addIdsRule,
-  runTerminalCommand, ensureSession, setListeningPorts, stpPriorityError,
+  runTerminalCommand, ensureSession, setListeningPorts, stpPriorityError, addStaticRoute,
 } from "./terminal";
 import { buildConfigPayload, applyConfig, loadTopology } from "./config";
-import { normaliseConfig, normaliseStaticRoutes, ensureConfig } from "./normalise";
+import { normaliseConfig, ensureConfig } from "./normalise";
 import { setTool, setTheme } from "./ui";
 import { setZoom, fitNetwork } from "./canvas";
 import { isValidMac, normaliseMacAddress, prefixOf, networkOf, normaliseSsid, normaliseWifiPassword, clampPortCount, clampRouterPortCount, clampApPortCount, mutationText, clampFirewallPortCount } from "./utils";
@@ -307,17 +307,14 @@ function cmdInterface(args: string[]): CommandResult {
 
 function cmdRoute(args: string[]): CommandResult {
   // route <router> <network/prefix> <nextHop>
+  // The same mutator as the router shell's `ip route`, so the console cannot
+  // store a route the shell would refuse — or could never remove (R37).
   const router = resolveDevice(args[0]);
   if (typeof router === "string") return err(router);
-  const network = args[1]; const nextHop = args[2];
-  if (!network || !nextHop) return err(`route: expected "<network/prefix> <nextHop>".`);
-  pushUndo();
-  ensureConfig(router);
-  const routes = router.config.staticRoutes || [];
-  routes.push({ network, nextHop });
-  router.config.staticRoutes = normaliseStaticRoutes(routes);
-  sync().syncPanel(); sync().render();
-  return ok(`Added static route ${network} via ${nextHop} on ${router.name}.`);
+  if (!args[1] || !args[2]) return err(`route: expected "<network/prefix> <nextHop>".`);
+  const result = addStaticRoute(router, args[1], args[2]);
+  if (!result.ok) return err(`route: ${result.error}`);
+  return ok(mutationText(result));
 }
 
 function cmdVlan(args: string[]): CommandResult {

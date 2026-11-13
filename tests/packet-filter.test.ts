@@ -102,6 +102,37 @@ describe("frameMatchesToken — protocol classification", () => {
   });
 });
 
+// R100: the packet list labels rows HTTP, but there was no `http` keyword or chip.
+describe("http — a filter keyword and a chip for the rows the list calls HTTP (R100)", () => {
+  const httpGet = frame(ipv4({ type: "tcp", srcPort: 5000, dstPort: 80, flags: "ack", http: { kind: "request", method: "GET", path: "/", host: "web" } }));
+  const http200 = frame(ipv4({ type: "tcp", srcPort: 80, dstPort: 5000, flags: "ack", http: { kind: "response", status: 200, statusText: "OK", title: "Home" } }, "10.0.0.2", "10.0.0.1"));
+  const plainAck = frame(ipv4({ type: "tcp", srcPort: 5000, dstPort: 80, flags: "ack" }));
+
+  it("matches a request and a response, not the handshake around them", () => {
+    expect(frameMatchesToken(row(httpGet), "http")).toBe(true);
+    expect(frameMatchesToken(row(http200), "http")).toBe(true);
+    expect(frameMatchesToken(row(tcpSyn), "http")).toBe(false);
+    expect(frameMatchesToken(row(plainAck), "http")).toBe(false);
+    expect(frameMatchesToken(row(httpGet), "tcp")).toBe(true);     // HTTP rides TCP, as in Wireshark
+  });
+
+  it("works as a bare keyword in an expression", () => {
+    expect(passes("http", row(httpGet))).toBe(true);
+    expect(passes("http && tcp.port == 80", row(http200))).toBe(true);
+    expect(passes("tcp && !http", row(tcpSyn))).toBe(true);
+    expect(passes("tcp && !http", row(httpGet))).toBe(false);
+  });
+
+  it("has a chip, which lights up when the capture holds HTTP", () => {
+    expect(PROTOCOL_CHIPS.map(c => c.token)).toContain("http");
+    expect(PROTOCOL_CHIPS.find(c => c.token === "http")!.label).toBe("HTTP");
+    expect(presentTokens([row(tcpSyn)]).has("http")).toBe(false);
+    expect(presentTokens([row(tcpSyn), row(httpGet)]).has("http")).toBe(true);
+    const filter: LogFilter = { protocols: ["http"], device: "", expr: "" };
+    expect(applyLogFilter([row(tcpSyn), row(httpGet), row(http200), row(plainAck)], filter).rows.length).toBe(2);
+  });
+});
+
 describe("presentTokens", () => {
   it("reports only the chip tokens occurring in the rows", () => {
     const present = presentTokens([row(arpReq), row(icmpEcho), row(dnsQuery, { macsec: true })]);

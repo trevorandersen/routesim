@@ -13444,6 +13444,7 @@ Snort successfully validated the configuration${bad ? " (with errors)" : "."}`);
     "ipv4",
     "icmp",
     "tcp",
+    "http",
     "udp",
     "dns",
     "dhcp",
@@ -13462,6 +13463,7 @@ Snort successfully validated the configuration${bad ? " (with errors)" : "."}`);
     { label: "ARP", token: "arp" },
     { label: "ICMP", token: "icmp" },
     { label: "TCP", token: "tcp" },
+    { label: "HTTP", token: "http" },
     { label: "DNS", token: "dns" },
     { label: "DHCP", token: "dhcp" },
     { label: "STP", token: "stp" },
@@ -13497,6 +13499,10 @@ Snort successfully validated the configuration${bad ? " (with errors)" : "."}`);
         return p.type === "ipv4" && p.payload.type === "icmp";
       case "tcp":
         return p.type === "ipv4" && p.payload.type === "tcp";
+      // The rows the packet list labels HTTP: a TCP data segment carrying a
+      // request or a response. (As in Wireshark, `tcp` matches them too.)
+      case "http":
+        return p.type === "ipv4" && p.payload.type === "tcp" && !!p.payload.http;
       case "dns":
         return p.type === "ipv4" && p.payload.type === "dns";
       case "dhcp":

@@ -35,6 +35,7 @@ protocol names where they exist:
 | `arp` | ARP frames |
 | `ip` / `ipv4` | any IPv4 frame (not ARP/BPDU/802.11) |
 | `icmp` `tcp` `dns` `dhcp` | the IPv4 payload kind |
+| `http` | the rows the packet list labels HTTP — a TCP data segment carrying a request or a response (`tcp` matches them too, as in Wireshark; `tcp && !http` is the handshake alone) |
 | `udp` | DNS or DHCP (IP protocol 17) |
 | `stp` / `bpdu` | spanning-tree BPDUs |
 | `wlan` / `dot11` | 802.11 management **and** the WPA2 4-way (EAPOL-Key rides 802.11) |
@@ -45,7 +46,7 @@ protocol names where they exist:
 | `macsec` | a frame captured encrypted on a MACsec-secured wire (the row's flag) |
 
 `PROTOCOL_CHIPS` is the curated, ordered subset shown as toggle chips (ARP /
-ICMP / TCP / DNS / DHCP / STP / 802.1X / 802.11 / MACsec). `presentTokens(rows)`
+ICMP / TCP / HTTP / DNS / DHCP / STP / 802.1X / 802.11 / MACsec). `presentTokens(rows)`
 reports which chip tokens actually occur in a capture, so the engine can dim the
 chips for protocols that aren't present.
 

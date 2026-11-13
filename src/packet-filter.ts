@@ -36,7 +36,7 @@ export interface FilterRow {
 // covers the whole 802.1X family (EAPOL/EAP/RADIUS), `wlan`/`dot11` the 802.11
 // management + WPA2 handshake frames.
 export const PROTOCOL_TOKENS = [
-  "arp", "ip", "ipv4", "icmp", "tcp", "udp", "dns", "dhcp",
+  "arp", "ip", "ipv4", "icmp", "tcp", "http", "udp", "dns", "dhcp",
   "stp", "bpdu", "wlan", "dot11", "dot1x", "eapol", "eap", "radius", "macsec",
 ] as const;
 
@@ -48,6 +48,7 @@ export const PROTOCOL_CHIPS: { label: string; token: string }[] = [
   { label: "ARP", token: "arp" },
   { label: "ICMP", token: "icmp" },
   { label: "TCP", token: "tcp" },
+  { label: "HTTP", token: "http" },
   { label: "DNS", token: "dns" },
   { label: "DHCP", token: "dhcp" },
   { label: "STP", token: "stp" },
@@ -76,6 +77,9 @@ export function frameMatchesToken(row: FilterRow, token: string): boolean {
     case "radius": return p.type === "dot1x" && p.subtype.startsWith("radius");
     case "icmp": return p.type === "ipv4" && p.payload.type === "icmp";
     case "tcp": return p.type === "ipv4" && p.payload.type === "tcp";
+    // The rows the packet list labels HTTP: a TCP data segment carrying a
+    // request or a response. (As in Wireshark, `tcp` matches them too.)
+    case "http": return p.type === "ipv4" && p.payload.type === "tcp" && !!p.payload.http;
     case "dns": return p.type === "ipv4" && p.payload.type === "dns";
     case "dhcp": return p.type === "ipv4" && p.payload.type === "dhcp";
     case "udp": return p.type === "ipv4" && (p.payload.type === "dns" || p.payload.type === "dhcp");

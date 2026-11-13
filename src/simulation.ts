@@ -1,6 +1,6 @@
-import type { SimEvent, EthernetFrame, Device } from "./types";
+import type { SimEvent, EthernetFrame, Device, NamedRouterIface } from "./types";
 import { state } from "./state";
-import { getDevice, linkedPortsFor, linksFor, linkAuthorizedForData, linkDataBlockReason, linkName, dot1xLinkInfo, isPhysicalLink } from "./devices";
+import { getDevice, linkedPortsFor, linksFor, linkAuthorizedForData, linkDataBlockReason, linkName, linkPortName, dot1xLinkInfo, isPhysicalLink } from "./devices";
 import { runStpConvergence, isStpParticipant } from "./stp";
 import { normalisePortVlans, normalisePortModes, normaliseTrunkAllowedVlans, memoPortVlans } from "./normalise";
 import { isValidIpv4, sameSubnet, prefixOf, deriveMac, networkOf, prefixLengthOfCidr, ipv4ToInt, intToIpv4 } from "./utils";
@@ -77,6 +77,46 @@ export function l2Reachable(fromId: string, toId: string, vlanId: number | null)
     }
   }
   return false;
+}
+
+// The VLAN a router interface's frames travel in on the segment its cable
+// joins: its dot1q tag for a sub-interface; otherwise whatever the managed
+// switch port it is plugged into puts untagged frames in (the access VLAN, or
+// a trunk's native VLAN) — as processAtSwitch does on ingress. Null when the
+// first device on the segment is not a managed switch (no VLAN in play yet).
+function routerIfaceVlan(iface: NamedRouterIface, peer: Device, port: string | null): number | null {
+  if (iface.config.vlanTag != null) return iface.config.vlanTag;
+  if (peer.type !== "switch" || !peer.config?.managed || !port) return null;
+  const mode = normalisePortModes(peer.config.portModes || {})[port] || "access";
+  const vlans = mode === "trunk" ? peer.config.trunkNativeVlans : peer.config.portVlans;
+  return normalisePortVlans(vlans || {})[port] || 1;
+}
+
+// Are two router interfaces on one L2 segment — would a frame multicast out of
+// `a` (a RIP update) arrive on `b`? Both cables must carry data (not shut, not
+// failing an auth or MACsec gate), both first devices must be powered on and
+// bridge (a switch, hub or access point — not another router, which is the
+// direct-cable case, nor the internet cloud), both ends must sit in the same
+// VLAN, and l2Reachable must find a path between the two bridges for it.
+export function routerIfacesShareSegment(a: NamedRouterIface, b: NamedRouterIface): boolean {
+  if (!a.peer || !b.peer || !a.link || !b.link) return false;
+  if (!linkAuthorizedForData(a.link) || !linkAuthorizedForData(b.link)) return false;
+  for (const peer of [a.peer, b.peer]) {
+    if (peer.poweredOff || peer.type === "router" || peer.type === "internet" || isHost(peer.type)) return false;
+  }
+  const portA = linkPortName(a.link, a.peer.id);
+  const portB = linkPortName(b.link, b.peer.id);
+  const vlanA = routerIfaceVlan(a, a.peer, portA);
+  const vlanB = routerIfaceVlan(b, b.peer, portB);
+  if (vlanA != null && vlanB != null && vlanA !== vlanB) return false;
+  const vlan = vlanA ?? vlanB;
+  if (vlan != null) {
+    // The port each router plugs into must carry the VLAN (a trunk's allowed
+    // list can exclude a sub-interface's tag).
+    if (a.peer.type === "switch" && a.peer.config?.managed && portA && !portCarries(a.peer, portA, vlan)) return false;
+    if (b.peer.type === "switch" && b.peer.config?.managed && portB && !portCarries(b.peer, portB, vlan)) return false;
+  }
+  return l2Reachable(a.peer.id, b.peer.id, vlan);
 }
 
 export function getVlanForDevice(deviceId: string): number {

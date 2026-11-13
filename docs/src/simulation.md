@@ -22,6 +22,7 @@ These build offensive flows the same way the ping builders do: each returns a `P
 
 ### Reachability & routing helpers
 - **`l2Reachable(fromId, toId, vlanId)`** — VLAN-aware BFS across switches: does a frame on `vlanId` reach `toId` at layer 2? Stops at routers and respects access/trunk port membership. Runs on every ping/DHCP validation, so it goes through the `linksFor` adjacency index and is **benchmarked**.
+- **`routerIfacesShareSegment(a, b)`** — are two router interfaces on one L2 segment (would a frame multicast out of `a` arrive on `b`)? Both cables must carry data, both first devices must be powered-on bridges (not a router, the cloud or a host), both ends must sit in the same VLAN (`routerIfaceVlan`: the sub-interface tag, else the access or trunk-native VLAN of the managed-switch port), each plugged-into port must carry it, and `l2Reachable` must find a path between the two bridges. RIP's neighbour discovery (`routing.ts`) is its caller.
 - **`getVlanForDevice(deviceId)`** — the VLAN a host sits in (via its switch's access-port assignment).
 - **`findPingTarget(value)`** — resolve a ping target to a device by name or IP (returns `undefined` for a bare IP that belongs to no device, so the ping still ARPs and times out).
 

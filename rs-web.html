@@ -5009,6 +5009,9 @@ Full legal text: https://creativecommons.org/publicdomain/zero/1.0/legalcode</pr
     if (macsecState(link) === "failed") return `${linkName(link)} failed MACsec \u2014 ${macsecFailureDetail(link)}`;
     return null;
   }
+  function linkAuthorizedForData(link) {
+    return linkDataBlockReason(link) === null;
+  }
   function linkBlockReason(fromId, toId) {
     if (fromId === toId) return "Cannot link a device to itself.";
     const exists = state.links.some((link) => link.from === fromId && link.to === toId || link.from === toId && link.to === fromId);
@@ -6393,6 +6396,75 @@ Full legal text: https://creativecommons.org/publicdomain/zero/1.0/legalcode</pr
   }
 
   // src/simulation.ts
+  function portCarries(sw, portName, vlanId) {
+    const mode = normalisePortModes(sw.config?.portModes || {})[portName] || "access";
+    if (mode === "trunk") {
+      const allowed = normaliseTrunkAllowedVlans(sw.config?.trunkAllowedVlans || {})[portName];
+      return !(allowed && allowed.length > 0 && !allowed.includes(vlanId));
+    }
+    return (normalisePortVlans(sw.config?.portVlans || {})[portName] || 1) === vlanId;
+  }
+  function portToward(sw, peerId) {
+    const idx = linkedPortsFor(sw.id).findIndex((p) => p?.peer?.id === peerId);
+    return idx < 0 ? null : `Ethernet${idx + 1}`;
+  }
+  function l2Reachable(fromId, toId, vlanId) {
+    const queue = [fromId];
+    const seen = new Set(queue);
+    while (queue.length) {
+      const id = queue.shift();
+      if (id === toId) return true;
+      const curr = getDevice(id);
+      const leavingManaged = !!curr && curr.type === "switch" && !!curr.config?.managed && vlanId != null;
+      for (const link of linksFor(id)) {
+        if (!isPhysicalLink(link) || link.shutdown) continue;
+        if (!linkAuthorizedForData(link)) continue;
+        const isFrom = link.from === id;
+        const nextId = isFrom ? link.to : link.from;
+        if (seen.has(nextId)) continue;
+        if (leavingManaged) {
+          const egress = portToward(curr, nextId);
+          if (egress && !portCarries(curr, egress, vlanId)) continue;
+        }
+        const next = getDevice(nextId);
+        if (!next || next.poweredOff) continue;
+        if ((next.type === "router" || next.type === "internet") && nextId !== toId) continue;
+        if (next.type === "switch" && next.config?.managed && vlanId != null) {
+          const ingress = portToward(next, id);
+          if (!ingress && id !== fromId) continue;
+          if (ingress && !portCarries(next, ingress, vlanId)) continue;
+        }
+        seen.add(nextId);
+        queue.push(nextId);
+      }
+    }
+    return false;
+  }
+  function routerIfaceVlan(iface, peer, port) {
+    if (iface.config.vlanTag != null) return iface.config.vlanTag;
+    if (peer.type !== "switch" || !peer.config?.managed || !port) return null;
+    const mode = normalisePortModes(peer.config.portModes || {})[port] || "access";
+    const vlans = mode === "trunk" ? peer.config.trunkNativeVlans : peer.config.portVlans;
+    return normalisePortVlans(vlans || {})[port] || 1;
+  }
+  function routerIfacesShareSegment(a, b) {
+    if (!a.peer || !b.peer || !a.link || !b.link) return false;
+    if (!linkAuthorizedForData(a.link) || !linkAuthorizedForData(b.link)) return false;
+    for (const peer of [a.peer, b.peer]) {
+      if (peer.poweredOff || peer.type === "router" || peer.type === "internet" || isHost(peer.type)) return false;
+    }
+    const portA = linkPortName(a.link, a.peer.id);
+    const portB = linkPortName(b.link, b.peer.id);
+    const vlanA = routerIfaceVlan(a, a.peer, portA);
+    const vlanB = routerIfaceVlan(b, b.peer, portB);
+    if (vlanA != null && vlanB != null && vlanA !== vlanB) return false;
+    const vlan = vlanA ?? vlanB;
+    if (vlan != null) {
+      if (a.peer.type === "switch" && a.peer.config?.managed && portA && !portCarries(a.peer, portA, vlan)) return false;
+      if (b.peer.type === "switch" && b.peer.config?.managed && portB && !portCarries(b.peer, portB, vlan)) return false;
+    }
+    return l2Reachable(a.peer.id, b.peer.id, vlan);
+  }
   function getVlanForDevice(deviceId) {
     for (const link of linksFor(deviceId)) {
       if (!isPhysicalLink(link)) continue;
@@ -7785,9 +7857,9 @@ Full legal text: https://creativecommons.org/publicdomain/zero/1.0/legalcode</pr
     for (const iface of ifaces) {
       const addr = parseIpv4(iface.config?.ipv4Address ?? "");
       const ripActive = addr !== null && networks.some((c) => c !== null && cidrHas(c, addr));
-      ripIfaces.push({ iface, ripActive });
-      if (addr === null || !iface.peer) continue;
-      const network = cidrText(cidrOf(addr, prefixOf(iface.config)));
+      const network = addr === null ? null : cidrText(cidrOf(addr, prefixOf(iface.config)));
+      ripIfaces.push({ iface, ripActive, network });
+      if (network === null || !iface.peer) continue;
       connectedNets.add(network);
       if (ripActive && !iface.link?.shutdown) {
         connectedAds.push({ network, metric: 1, sourceInterface: iface.name });
@@ -7844,6 +7916,27 @@ Full legal text: https://creativecommons.org/publicdomain/zero/1.0/legalcode</pr
     }
     return { changed, exchanged };
   }
+  function ripNeighboursOn(router, mine, ripRouters, speaking, viewFor) {
+    const peer = mine.iface.peer;
+    if (!peer) return [];
+    if (peer.type === "router") {
+      if (!speaking.has(peer.id)) return [];
+      const view = viewFor(peer);
+      const facing = view.ripIfaces.find((ni) => ni.iface.peer && ni.iface.peer.id === router.id);
+      return facing ? [{ view, facing }] : [];
+    }
+    if (mine.network === null) return [];
+    const neighbours = [];
+    for (const other of ripRouters) {
+      if (other === router) continue;
+      const view = viewFor(other);
+      for (const theirs of view.ripIfaces) {
+        if (theirs.network !== mine.network) continue;
+        if (routerIfacesShareSegment(mine.iface, theirs.iface)) neighbours.push({ view, facing: theirs });
+      }
+    }
+    return neighbours;
+  }
   function runRipConvergence() {
     const ripRouters = state.devices.filter((d) => d.type === "router" && !d.hidden && !d.poweredOff && d.config?.rip?.enabled);
     if (ripRouters.length === 0) return { iterations: 0, routesExchanged: 0 };
@@ -7860,6 +7953,16 @@ Full legal text: https://creativecommons.org/publicdomain/zero/1.0/legalcode</pr
       }
       return view;
     };
+    const speaking = new Set(ripRouters.map((r) => r.id));
+    const neighbours = /* @__PURE__ */ new Map();
+    const neighboursOn = (router, mine) => {
+      let list = neighbours.get(mine);
+      if (!list) {
+        list = ripNeighboursOn(router, mine, ripRouters, speaking, viewFor);
+        neighbours.set(mine, list);
+      }
+      return list;
+    };
     for (let iter = 0; iter < MAX_ITERATIONS; iter++) {
       let changed = false;
       iterations = iter + 1;
@@ -7868,20 +7971,19 @@ Full legal text: https://creativecommons.org/publicdomain/zero/1.0/legalcode</pr
         const rip = router.config.rip;
         const advertisements = buildRipAdvertisements(view, rip.learnedRoutes || []);
         const passiveInterfaces = rip.passiveInterfaces || [];
-        for (const { iface, ripActive } of view.ripIfaces) {
+        for (const mine of view.ripIfaces) {
+          const { iface, ripActive } = mine;
           if (!iface.peer || !ripActive || iface.link?.shutdown) continue;
           if (passiveInterfaces.includes(iface.name)) continue;
-          const neighbor = getDevice(iface.peer.id);
-          if (!neighbor || neighbor.type !== "router" || !neighbor.config?.rip?.enabled) continue;
-          const neighborView = viewFor(neighbor);
-          const facing = neighborView.ripIfaces.find((ni) => ni.iface.peer && ni.iface.peer.id === router.id);
-          if (!facing || !facing.iface.config?.ipv4Address || !facing.ripActive) continue;
-          const neighborIface = facing.iface;
-          const neighborPassive = neighbor.config.rip.passiveInterfaces || [];
-          if (neighborPassive.includes(neighborIface.name)) continue;
-          const result = applyRipUpdates(neighborView, neighborIface, advertisements, iface.name, iface.config.ipv4Address);
-          if (result.changed) changed = true;
-          totalExchanged += result.exchanged;
+          for (const { view: neighborView, facing } of neighboursOn(router, mine)) {
+            if (!facing.iface.config?.ipv4Address || !facing.ripActive) continue;
+            const neighborIface = facing.iface;
+            const neighborPassive = neighborView.device.config.rip.passiveInterfaces || [];
+            if (neighborPassive.includes(neighborIface.name)) continue;
+            const result = applyRipUpdates(neighborView, neighborIface, advertisements, iface.name, iface.config.ipv4Address);
+            if (result.changed) changed = true;
+            totalExchanged += result.exchanged;
+          }
         }
       }
       if (!changed) break;

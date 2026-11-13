@@ -14,8 +14,9 @@
  */
 import type { Device, RouteEntry, RouterInterface, NamedRouterIface, RipRoute } from "./types";
 import { state } from "./state";
-import { getDevice, routerInterfacesWithNames } from "./devices";
+import { routerInterfacesWithNames } from "./devices";
 import { normaliseStaticRoutes } from "./normalise";
+import { routerIfacesShareSegment } from "./simulation";
 import { prefixOf, internetGatewayIp, parseIpv4, cidrOf, cidrText, cachedCidr, cidrHas } from "./utils";
 
 export function buildRoutingTable(router: Device): RouteEntry[] {
@@ -161,7 +162,12 @@ interface RipAdvertisement {
 interface RipIface {
   iface: NamedRouterIface;
   ripActive: boolean;   // a `network` statement covers the interface's address
+  network: string | null;   // the interface's connected network ("10.0.0.0/24"), null when unaddressed
 }
+
+// A RIP speaker that hears what one interface sends: the neighbour, and the
+// interface of its that receives the update.
+interface RipNeighbour { view: RipRouterView; facing: RipIface }
 
 // A router as RIP convergence sees it — built once per convergence, on first
 // touch (as a sender or as a neighbour).
@@ -186,9 +192,9 @@ function buildRipRouterView(device: Device): RipRouterView {
     const addr = parseIpv4(iface.config?.ipv4Address ?? "");
     // `network <cidr>` enables RIP for interfaces whose address that cidr covers.
     const ripActive = addr !== null && networks.some(c => c !== null && cidrHas(c, addr));
-    ripIfaces.push({ iface, ripActive });
-    if (addr === null || !iface.peer) continue;
-    const network = cidrText(cidrOf(addr, prefixOf(iface.config)));
+    const network = addr === null ? null : cidrText(cidrOf(addr, prefixOf(iface.config)));
+    ripIfaces.push({ iface, ripActive, network });
+    if (network === null || !iface.peer) continue;
     connectedNets.add(network);   // (a shut cable still counts here — as before)
     if (ripActive && !iface.link?.shutdown) {   // a shut cable carries no routes / RIP
       connectedAds.push({ network, metric: 1, sourceInterface: iface.name });
@@ -275,6 +281,41 @@ function applyRipUpdates(
   return { changed, exchanged };
 }
 
+// Who hears a RIP update sent out of `mine`. RIPv2 multicasts on the segment,
+// so the answer is not just "the device at the other end of the cable":
+//  - cabled straight to a router: that router, on its interface facing us;
+//  - cabled to a switch, hub or access point: every RIP router with an
+//    interface in the same subnet on the same L2 segment (same VLAN, a live
+//    path between them) — routers joined through a core switch used to form no
+//    adjacency at all and fail with "No route", unexplained (review R19).
+// Whether each end actually runs RIP there (a covering `network`, not passive)
+// is the caller's check. The topology is fixed for the whole convergence, so
+// the caller computes this once per interface.
+function ripNeighboursOn(
+  router: Device, mine: RipIface, ripRouters: Device[], speaking: Set<string>,
+  viewFor: (device: Device) => RipRouterView
+): RipNeighbour[] {
+  const peer = mine.iface.peer;
+  if (!peer) return [];
+  if (peer.type === "router") {
+    if (!speaking.has(peer.id)) return [];
+    const view = viewFor(peer);
+    const facing = view.ripIfaces.find((ni) => ni.iface.peer && ni.iface.peer.id === router.id);
+    return facing ? [{ view, facing }] : [];
+  }
+  if (mine.network === null) return [];
+  const neighbours: RipNeighbour[] = [];
+  for (const other of ripRouters) {
+    if (other === router) continue;
+    const view = viewFor(other);
+    for (const theirs of view.ripIfaces) {
+      if (theirs.network !== mine.network) continue;
+      if (routerIfacesShareSegment(mine.iface, theirs.iface)) neighbours.push({ view, facing: theirs });
+    }
+  }
+  return neighbours;
+}
+
 export function runRipConvergence(): { iterations: number; routesExchanged: number } {
   const ripRouters = state.devices.filter(d => d.type === "router" && !d.hidden && !d.poweredOff && d.config?.rip?.enabled);
   if (ripRouters.length === 0) return { iterations: 0, routesExchanged: 0 };
@@ -302,6 +343,19 @@ export function runRipConvergence(): { iterations: number; routesExchanged: numb
     return view;
   };
 
+  // Each interface's listeners, found once (the cabling does not change while
+  // convergence runs) on the first round that sends out of it.
+  const speaking = new Set(ripRouters.map(r => r.id));
+  const neighbours = new Map<RipIface, RipNeighbour[]>();
+  const neighboursOn = (router: Device, mine: RipIface): RipNeighbour[] => {
+    let list = neighbours.get(mine);
+    if (!list) {
+      list = ripNeighboursOn(router, mine, ripRouters, speaking, viewFor);
+      neighbours.set(mine, list);
+    }
+    return list;
+  };
+
   for (let iter = 0; iter < MAX_ITERATIONS; iter++) {
     let changed = false;
     iterations = iter + 1;
@@ -319,24 +373,22 @@ export function runRipConvergence(): { iterations: number; routesExchanged: numb
       // active for an exchange. Before this, `networks` shaped only what was
       // advertised, so a router with an EMPTY network list still learned routes
       // and a transit interface left out of RIP still carried them.
-      for (const { iface, ripActive } of view.ripIfaces) {
+      for (const mine of view.ripIfaces) {
+        const { iface, ripActive } = mine;
         if (!iface.peer || !ripActive || iface.link?.shutdown) continue;
         if (passiveInterfaces.includes(iface.name)) continue;
 
-        const neighbor = getDevice(iface.peer.id);
-        if (!neighbor || neighbor.type !== "router" || !neighbor.config?.rip?.enabled) continue;
+        for (const { view: neighborView, facing } of neighboursOn(router, mine)) {
+          if (!facing.iface.config?.ipv4Address || !facing.ripActive) continue;
+          const neighborIface = facing.iface;
 
-        const neighborView = viewFor(neighbor);
-        const facing = neighborView.ripIfaces.find((ni) => ni.iface.peer && ni.iface.peer.id === router.id);
-        if (!facing || !facing.iface.config?.ipv4Address || !facing.ripActive) continue;
-        const neighborIface = facing.iface;
+          const neighborPassive: string[] = neighborView.device.config.rip!.passiveInterfaces || [];
+          if (neighborPassive.includes(neighborIface.name)) continue;
 
-        const neighborPassive: string[] = neighbor.config.rip.passiveInterfaces || [];
-        if (neighborPassive.includes(neighborIface.name)) continue;
-
-        const result = applyRipUpdates(neighborView, neighborIface, advertisements, iface.name, iface.config.ipv4Address!);
-        if (result.changed) changed = true;
-        totalExchanged += result.exchanged;
+          const result = applyRipUpdates(neighborView, neighborIface, advertisements, iface.name, iface.config.ipv4Address!);
+          if (result.changed) changed = true;
+          totalExchanged += result.exchanged;
+        }
       }
     }
 

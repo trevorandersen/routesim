@@ -366,6 +366,34 @@ describe("processAtRouter", () => {
     expect(state.simulation.pendingArp["rtr:192.168.20.10"]).toBeDefined();
   });
 
+  // R17: the buffered frame shares its payload with the inbound frame, which
+  // the capture, the wire's frame history and the inspector hold by reference.
+  it("the deferred forward decrements TTL on a fresh payload, not the inbound frame's", () => {
+    const topo = routedTopology();
+    state.devices = topo.devices as any;
+    state.links = topo.links as any;
+    state.simulation.pendingArp = {};
+    const rtr = state.devices.find(d => d.id === "rtr")!;
+    rtr.config.interfaces![1].arpTable = [];
+    const inbound = createIcmpEchoRequest(
+      "02:00:00:00:10:10", "02:01:00:00:01:01",
+      "192.168.10.10", "192.168.20.10", 64
+    );
+    processAtRouter(rtr, inbound, "sw-a");                       // ARP miss: buffered
+    const reply = createArpReply("02:00:00:00:20:10", "192.168.20.10", "02:01:00:00:02:01", "192.168.20.1");
+    const outgoing = processAtRouter(rtr, reply, "sw-b");       // ARP answered: flushed
+    expect(outgoing).toHaveLength(1);
+    const forwarded = outgoing[0].frame;
+    expect((forwarded.payload as any).ttl).toBe(63);
+    expect(forwarded.srcMac).toBe("02:01:00:00:02:01");
+    expect(forwarded.dstMac).toBe("02:00:00:00:20:10");
+    // The frame that arrived from PC-A is untouched: still TTL 64, still
+    // addressed to the router's ingress interface.
+    expect((inbound.payload as any).ttl).toBe(64);
+    expect(inbound.dstMac).toBe("02:01:00:00:01:01");
+    expect(forwarded.payload).not.toBe(inbound.payload);
+  });
+
   it("returns empty array when device is powered off", () => {
     const topo = routedTopology();
     state.devices = topo.devices as any;

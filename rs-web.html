@@ -9406,12 +9406,15 @@ Full legal text: https://creativecommons.org/publicdomain/zero/1.0/legalcode</pr
           const ipv4 = pf.payload;
           const route = routingLookup(device, ipv4.dstIp, table);
           if (route && route.nextHopIp === arp.senderIp) {
-            pf.srcMac = route.egressIface.macAddress;
-            pf.dstMac = arp.senderMac;
-            pf.vlanTag = route.egressIface.vlanTag ?? null;
+            const forwarded = {
+              ...pf,
+              srcMac: route.egressIface.macAddress,
+              dstMac: arp.senderMac,
+              vlanTag: route.egressIface.vlanTag ?? null,
+              payload: { ...ipv4, ttl: ipv4.ttl - 1 }
+            };
             logStep(device, "sim-forward", `Forward deferred ${frameLabel(pf)} to ${ipv4.dstIp} via ${ifaceName(device, route.egressIface)} (TTL ${ipv4.ttl}\u2192${ipv4.ttl - 1})`);
-            ipv4.ttl--;
-            outgoing.push({ frame: pf, toDeviceId: route.egressIface.peerId });
+            outgoing.push({ frame: forwarded, toDeviceId: route.egressIface.peerId });
           } else {
             logStep(device, "sim-drop", `Deferred frame to ${ipv4.dstIp}: no route via ${arp.senderIp} \u2014 dropping`);
           }

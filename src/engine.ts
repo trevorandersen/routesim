@@ -2024,12 +2024,20 @@ function handleRouterArp(device: Device, frame: EthernetFrame, ifaces: any[], in
         // so the egress lookup must use the route, not the final destination.
         const route = routingLookup(device, ipv4.dstIp, table);
         if (route && route.nextHopIp === arp.senderIp) {
-          pf.srcMac = route.egressIface.macAddress;
-          pf.dstMac = arp.senderMac;
-          pf.vlanTag = route.egressIface.vlanTag ?? null;
+          // A fresh frame with a fresh payload, as the immediate-forward path
+          // builds: the buffered frame shares its payload object with the
+          // inbound frame the capture, the wire's history and the inspector
+          // still hold, so decrementing the TTL in place rewrote those rows
+          // too (PC→router shown at TTL 63).
+          const forwarded: EthernetFrame = {
+            ...pf,
+            srcMac: route.egressIface.macAddress,
+            dstMac: arp.senderMac,
+            vlanTag: route.egressIface.vlanTag ?? null,
+            payload: { ...ipv4, ttl: ipv4.ttl - 1 }
+          };
           logStep(device, "sim-forward", `Forward deferred ${frameLabel(pf)} to ${ipv4.dstIp} via ${ifaceName(device, route.egressIface)} (TTL ${ipv4.ttl}→${ipv4.ttl - 1})`);
-          ipv4.ttl--;
-          outgoing.push({ frame: pf, toDeviceId: route.egressIface.peerId });
+          outgoing.push({ frame: forwarded, toDeviceId: route.egressIface.peerId });
         } else {
           logStep(device, "sim-drop", `Deferred frame to ${ipv4.dstIp}: no route via ${arp.senderIp} — dropping`);
         }

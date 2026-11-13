@@ -953,10 +953,12 @@ function routerRipCommand(router: Device, command: string, lower: string): boole
     const target = routerInterfaceByName(router, passiveMatch[1]);
     if (!target) { terminalLine("error", `% Unknown interface ${passiveMatch[1]}`); return true; }
     const ifaceName = target.name;   // canonical spelling, so the send loop's name check matches
-    pushUndo();
-    if (!router.config.rip!.passiveInterfaces.includes(ifaceName)) {
-      router.config.rip!.passiveInterfaces.push(ifaceName);
+    if (router.config.rip!.passiveInterfaces.includes(ifaceName)) {
+      terminalLine("", `${ifaceName} is already passive.`);   // nothing changes: no undo point
+      return true;
     }
+    pushUndo();
+    router.config.rip!.passiveInterfaces.push(ifaceName);
     sync().syncPanel();
     terminalLine("", `Set ${ifaceName} as passive (no RIP updates sent/received).`);
     return true;
@@ -967,9 +969,20 @@ function routerRipCommand(router: Device, command: string, lower: string): boole
       terminalLine("error", "% Enter router rip mode first.");
       return true;
     }
-    const ifaceName = noPassiveMatch[1];
+    // Resolve the name as `passive-interface` does, so `ethernet1` removes
+    // what `Ethernet1` stored. Comparing the raw token meant a case variant
+    // removed nothing, yet reported success and took an undo point. An entry
+    // whose port has since gone is still matched, ignoring case.
+    const typed = noPassiveMatch[1];
+    const passive: string[] = router.config.rip!.passiveInterfaces || [];
+    const ifaceName = routerInterfaceByName(router, typed)?.name
+      ?? passive.find(n => n.toLowerCase() === typed.toLowerCase());
+    if (!ifaceName || !passive.includes(ifaceName)) {
+      terminalLine("error", `% ${ifaceName ?? typed} is not a passive interface on this router.`);
+      return true;
+    }
     pushUndo();
-    router.config.rip!.passiveInterfaces = router.config.rip!.passiveInterfaces.filter((n: string) => n !== ifaceName);
+    router.config.rip!.passiveInterfaces = passive.filter((n: string) => n !== ifaceName);
     sync().syncPanel();
     terminalLine("", `Removed ${ifaceName} from passive interfaces.`);
     return true;

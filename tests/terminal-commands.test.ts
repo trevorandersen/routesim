@@ -750,6 +750,24 @@ describe("P3 sweep — router shell", () => {
     expect(run("no ip nat inside source static tcp 10.0.0.5 80 203.0.113.1 80")).toContain("No port-forward");
     expect(state.undoStack.length).toBe(before);
   });
+  // R84: `no passive-interface` compared the raw token, so a case variant
+  // removed nothing, yet reported success and took an undo point.
+  it("no passive-interface resolves the name as passive-interface does, and a no-op takes no undo point", () => {
+    const { r1, run } = router("rip");
+    r1.config!.rip = { enabled: true, networks: [], passiveInterfaces: [], learnedRoutes: [] } as any;
+    run("passive-interface Ethernet1");
+    let depth = state.undoStack.length;
+    expect(run("passive-interface ethernet1")).toBe("Ethernet1 is already passive.");
+    expect(state.undoStack.length).toBe(depth);
+    expect(run("no passive-interface ETHERNET1")).toBe("Removed Ethernet1 from passive interfaces.");
+    expect(r1.config!.rip!.passiveInterfaces).toEqual([]);
+    expect(state.undoStack.length).toBe(depth + 1);
+    depth = state.undoStack.length;
+    expect(run("no passive-interface Ethernet1")).toBe("% Ethernet1 is not a passive interface on this router.");
+    expect(run("no passive-interface Ethernet9")).toBe("% Ethernet9 is not a passive interface on this router.");
+    expect(state.undoStack.length).toBe(depth);
+  });
+
   it("passive-interface validates the interface and canonicalises its name", () => {
     const { r1, run } = router("rip");
     r1.config!.rip = { enabled: true, networks: [], passiveInterfaces: [], learnedRoutes: [] } as any;

@@ -12307,10 +12307,12 @@ ${body}
         return true;
       }
       const ifaceName2 = target.name;
-      pushUndo();
-      if (!router.config.rip.passiveInterfaces.includes(ifaceName2)) {
-        router.config.rip.passiveInterfaces.push(ifaceName2);
+      if (router.config.rip.passiveInterfaces.includes(ifaceName2)) {
+        terminalLine("", `${ifaceName2} is already passive.`);
+        return true;
       }
+      pushUndo();
+      router.config.rip.passiveInterfaces.push(ifaceName2);
       sync().syncPanel();
       terminalLine("", `Set ${ifaceName2} as passive (no RIP updates sent/received).`);
       return true;
@@ -12321,9 +12323,15 @@ ${body}
         terminalLine("error", "% Enter router rip mode first.");
         return true;
       }
-      const ifaceName2 = noPassiveMatch[1];
+      const typed = noPassiveMatch[1];
+      const passive = router.config.rip.passiveInterfaces || [];
+      const ifaceName2 = routerInterfaceByName(router, typed)?.name ?? passive.find((n) => n.toLowerCase() === typed.toLowerCase());
+      if (!ifaceName2 || !passive.includes(ifaceName2)) {
+        terminalLine("error", `% ${ifaceName2 ?? typed} is not a passive interface on this router.`);
+        return true;
+      }
       pushUndo();
-      router.config.rip.passiveInterfaces = router.config.rip.passiveInterfaces.filter((n) => n !== ifaceName2);
+      router.config.rip.passiveInterfaces = passive.filter((n) => n !== ifaceName2);
       sync().syncPanel();
       terminalLine("", `Removed ${ifaceName2} from passive interfaces.`);
       return true;

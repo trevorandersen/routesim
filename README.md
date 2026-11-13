@@ -54,7 +54,7 @@ routesim/
     ├── commands.ts     # Console command engine (also window.routesim + scripts)
     ├── console.ts      # Command console panel UI
     ├── scenarios.ts    # Scenario model, registry, goal checking
-    ├── scenario-library.ts # The built-in 29-scenario curriculum
+    ├── scenario-library.ts # The built-in 28-scenario curriculum
     ├── scenario-ui.ts  # Scenario goal banner
     ├── canvas.ts       # Canvas rendering (devices, links, labels, pan/zoom)
     ├── inspector.ts    # Right-side panel (device details, link history, options)

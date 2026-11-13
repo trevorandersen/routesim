@@ -34,7 +34,7 @@ committed scope — it's a menu for "what next".
 > for a red-vs-blue detection exercise, and a **stateful firewall**
 > (connection tracking — `-m state`/`--ctstate` ESTABLISHED,RELATED — plus a real
 > REJECT that sends a RST / ICMP unreachable) — with the curriculum now at
-> **25 scenarios** (including WiFi joins, 802.1X port authentication, MACsec link
+> **28 scenarios** (including WiFi joins, 802.1X port authentication, MACsec link
 > encryption, breaking an L2 loop with spanning tree, catching an intruder
 > with an IDS, writing a Snort rule to detect a Red Team port scan, and building
 > a stateful firewall that blocks inbound scans while hosts browse out), every

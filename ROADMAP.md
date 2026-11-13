@@ -74,11 +74,12 @@ committed scope — it's a menu for "what next".
 
 ### Requested features (GitHub issues, 2026-11)
 
-Five requests raised on GitHub by a colleague who teaches with the tool, ranked
-by value for effort. Each names the issue, what exists today, and where the work
-lands.
+Five requests raised on GitHub by a colleague who teaches with the tool. **All
+five have shipped and their issues are closed** (#1–#5, closed 2026-11-13 with a
+summary comment on each). The notes below record what each one delivered and
+what it leaves for later.
 
-> **Placement ghost, and only left-click places — shipped (2026-11)**
+> **Placement ghost, and only left-click places — shipped, issue closed (2026-11)**
 > ([#3](https://github.com/trevorandersen/routesim/issues/3)). While a placement
 > tool is armed a **translucent copy of the device a click would drop** follows
 > the cursor, with its managed / border badge and the name it will get
@@ -89,7 +90,7 @@ lands.
 > drops a device. The status line says how to leave for as long as the tool is
 > armed.
 
-> **Kali as a real man-in-the-middle — shipped (2026-11)**
+> **Kali as a real man-in-the-middle — shipped, issues closed (2026-11)**
 > ([#4](https://github.com/trevorandersen/routesim/issues/4) +
 > [#5](https://github.com/trevorandersen/routesim/issues/5)). **IP forwarding**
 > (`config.ipForward`, `sysctl -w net.ipv4.ip_forward=1`): `forwardIntercepted`
@@ -107,9 +108,7 @@ lands.
 > the victim; the IDS or a static ARP entry catches it), and the IPv6 forwarding
 > knob once IPv6 lands.
 
-All five requests are now shipped (the #2 note below records the full feature).
-
-> **Packet callouts — shipped (2026-11)**
+> **Packet callouts — shipped, issue closed (2026-11)**
 > ([#2](https://github.com/trevorandersen/routesim/issues/2)). A View-tab
 > **Packet callouts** toggle (off by default, `state.options.packetCallouts`)
 > draws a small field callout beside each frame in flight (`frameCalloutLines`
@@ -124,7 +123,7 @@ All five requests are now shipped (the #2 note below records the full feature).
 > `touchNat`, stripped from the payload). Capped (`CALLOUT_CAP`, inspected frame
 > first) to stay legible; proven in `tests/callouts.test.ts` + `tests/nat.test.ts`.
 
-> **nftables alongside iptables — shipped (2026-11)**
+> **nftables alongside iptables — shipped, issue closed (2026-11)**
 > ([#1](https://github.com/trevorandersen/routesim/issues/1)). `terminal/nftables.ts`
 > is a second parser + printer over the one netfilter model (`config.rules` /
 > `config.policy`): both the `iptables` and `nft` shells always parse into the

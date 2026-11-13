@@ -844,6 +844,24 @@ describe("router shell — a CLI mode whose target is gone falls back to config 
     expect(run("ip nat inside")).toBe("% Interface mode required.");
     expect(run("ipt -L")).not.toContain("Interface mode");   // a real abbreviation of iptables still expands
   });
+  // R11: `ip` is not an abbreviation of `iptables`, so an ABBREVIATED interface
+  // command in the wrong mode is diagnosed too (the fully spelled one already was).
+  it("an abbreviated interface command in config or privileged mode is not rewritten as iptables", () => {
+    const { run } = shell();
+    for (const mode of ["config", "privileged"] as const) {
+      state.terminal.mode = mode;
+      expect(run("ip add 10.0.0.9/24")).toBe("% Interface mode required.");
+      expect(run("ip addr 10.0.0.9/24")).toBe("% Interface mode required.");
+      expect(run("ip nat in")).toBe("% Interface mode required.");
+      expect(run("no ip addr")).toBe("% Interface mode required.");
+      expect(run("ip")).not.toContain("iptables");
+      state.terminal.mode = mode;
+    }
+    state.terminal.mode = "config";
+    expect(run("ipt -L")).toContain("Chain");                  // three letters still abbreviate it
+    expect(run("iptables -L")).toContain("Chain");
+    expect(run("ip ro 10.9.0.0/24 192.168.10.2")).not.toContain("%");   // and `ip route` still abbreviates
+  });
 
   it("an unplugged cable ends interface mode instead of configuring a phantom interface", () => {
     const { r1, run } = shell();

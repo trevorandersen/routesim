@@ -11687,7 +11687,7 @@ ${body}
     { tokens: ["no", "ip", "nat", "inside", "source", "static", "tcp"], args: true, modes: ["config"] },
     { tokens: ["show", "ip", "nat", "translations"], modes: ALL_ROUTER_MODES },
     { tokens: ["clear", "ip", "nat", "translation"], args: true, modes: ["privileged", "config"] },
-    { tokens: ["iptables"], args: true, modes: ["privileged", "config"] },
+    { tokens: ["iptables"], args: true, modes: ["privileged", "config"], min: 3 },
     { tokens: ["ip", "neigh", "flush", "all"], modes: ["privileged", "config"] },
     { tokens: ["encapsulation", "dot1q"], args: true, modes: ["interface"] },
     { tokens: ["no", "encapsulation", "dot1q"], modes: ["interface"] },
@@ -11764,6 +11764,7 @@ ${body}
   function routerCmdMatches(tokens, spec) {
     const k = spec.tokens.length;
     if (spec.args ? tokens.length < k : tokens.length !== k) return false;
+    if (spec.min && tokens[0].length < spec.min) return false;
     for (let i = 0; i < k; i++) {
       if (!spec.tokens[i].startsWith(tokens[i].toLowerCase())) return false;
     }

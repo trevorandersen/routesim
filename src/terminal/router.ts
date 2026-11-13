@@ -222,7 +222,13 @@ export function clearRouterInterfaceIp(router: Device, peerId: string, vlanTag?:
 // they still work when typed in full (expansion returns null → pass through).
 type RouterMode = "exec" | "privileged" | "config" | "interface" | "rip";
 const ALL_ROUTER_MODES: RouterMode[] = ["exec", "privileged", "config", "interface", "rip"];
-interface RouterCmdSpec { tokens: string[]; args?: boolean; modes: RouterMode[] }
+// `min`: the fewest characters of the FIRST keyword that may abbreviate it
+// (default 1). `iptables` is a program, not a vtysh keyword, and it shares its
+// first two letters with every `ip …` command: with no minimum, `ip add
+// 10.0.0.1/24` typed in config mode (the commonest slip — forgetting
+// `interface Ethernet1`) expanded to `iptables add …` and answered
+// `iptables: unknown operation "add"` instead of "% Interface mode required."
+interface RouterCmdSpec { tokens: string[]; args?: boolean; modes: RouterMode[]; min?: number }
 const ROUTER_COMMANDS: RouterCmdSpec[] = [
   { tokens: ["enable"], modes: ["exec", "privileged"] },
   { tokens: ["configure", "terminal"], modes: ["privileged"] },
@@ -249,7 +255,7 @@ const ROUTER_COMMANDS: RouterCmdSpec[] = [
   { tokens: ["no", "ip", "nat", "inside", "source", "static", "tcp"], args: true, modes: ["config"] },
   { tokens: ["show", "ip", "nat", "translations"], modes: ALL_ROUTER_MODES },
   { tokens: ["clear", "ip", "nat", "translation"], args: true, modes: ["privileged", "config"] },
-  { tokens: ["iptables"], args: true, modes: ["privileged", "config"] },
+  { tokens: ["iptables"], args: true, modes: ["privileged", "config"], min: 3 },
   { tokens: ["ip", "neigh", "flush", "all"], modes: ["privileged", "config"] },
   { tokens: ["encapsulation", "dot1q"], args: true, modes: ["interface"] },
   { tokens: ["no", "encapsulation", "dot1q"], modes: ["interface"] },
@@ -358,6 +364,7 @@ function routerMode(): RouterMode {
 function routerCmdMatches(tokens: string[], spec: RouterCmdSpec): boolean {
   const k = spec.tokens.length;
   if (spec.args ? tokens.length < k : tokens.length !== k) return false;
+  if (spec.min && tokens[0].length < spec.min) return false;
   for (let i = 0; i < k; i++) {
     if (!spec.tokens[i].startsWith(tokens[i].toLowerCase())) return false;
   }

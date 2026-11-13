@@ -2230,6 +2230,8 @@
       line-height: 1.5;
       color: var(--muted);
     }
+    .about-body a { color: var(--accent); text-decoration: none; }
+    .about-body a:hover { text-decoration: underline; }
     .about-license {
       margin: 0;
       padding: 12px;

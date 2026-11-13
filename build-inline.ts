@@ -24,12 +24,18 @@ function occurrences(text: string, needle: string): number {
  * close its own inline element early. Before this a renamed placeholder shipped
  * an artefact with no script in it, which the commit workflow would have pushed.
  */
-export function inlineTemplate(template: string, css: string, js: string): string {
-  for (const placeholder of PLACEHOLDERS) {
+export function inlineTemplate(template: string, css: string, js: string, version?: string): string {
+  // {{VERSION}} is filled only when the build supplies a version (from
+  // package.json). Passing no version leaves it in the "nothing fills" set, so
+  // a template that references it without a version still fails loudly.
+  const allowed: string[] = [...PLACEHOLDERS];
+  const required: string[] = [...PLACEHOLDERS];
+  if (version !== undefined) { allowed.push("{{VERSION}}"); required.push("{{VERSION}}"); }
+  for (const placeholder of required) {
     const count = occurrences(template, placeholder);
     if (count !== 1) throw new Error(`template.html must contain ${placeholder} exactly once (found ${count}).`);
   }
-  const unknown = (template.match(/\{\{[A-Z_]+\}\}/g) ?? []).filter(token => !(PLACEHOLDERS as readonly string[]).includes(token));
+  const unknown = (template.match(/\{\{[A-Z_]+\}\}/g) ?? []).filter(token => !allowed.includes(token));
   if (unknown.length) throw new Error(`template.html has a placeholder nothing fills: ${[...new Set(unknown)].join(", ")}.`);
   if (!css.trim()) throw new Error("styles.css is empty — refusing to build a page with no styles.");
   if (!js.trim()) throw new Error("The bundle is empty — refusing to build a page with no script.");
@@ -38,9 +44,11 @@ export function inlineTemplate(template: string, css: string, js: string): strin
   // Replacer functions, so the inserted content is taken literally. A plain
   // string replacement would interpret `$\``, `$'`, `$&`, `$$` in css/js as
   // special patterns and corrupt the output.
-  return template
+  let out = template
     .replace("{{STYLES}}", () => css)
     .replace("{{SCRIPT}}", () => js);
+  if (version !== undefined) out = out.replace("{{VERSION}}", () => version);
+  return out;
 }
 
 if (import.meta.main) {
@@ -48,7 +56,9 @@ if (import.meta.main) {
   const template = await Bun.file("template.html").text();
   const css = await Bun.file("styles.css").text();
   const js = await Bun.file(".bundle.js").text();
-  const html = inlineTemplate(template, css, js);
+  const pkg = JSON.parse(await Bun.file("package.json").text()) as { version?: string };
+  if (!pkg.version) throw new Error("package.json has no version — refusing to build without a version to stamp.");
+  const html = inlineTemplate(template, css, js, pkg.version);
   await Bun.write(outfile, html);
-  console.log(`Built ${outfile} (${Math.round(html.length / 1024)} KB)`);
+  console.log(`Built ${outfile} v${pkg.version} (${Math.round(html.length / 1024)} KB)`);
 }

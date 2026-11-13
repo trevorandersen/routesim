@@ -55,10 +55,19 @@ describe("build — inlineTemplate guards the artefact (R117)", () => {
     expect(() => inlineTemplate(TEMPLATE, "a::after { content: '</STYLE>' }", JS)).toThrow("</style");
   });
 
+  it("stamps the version when one is supplied, and requires {{VERSION}} for it", () => {
+    const template = TEMPLATE.replace("<body>", "<body><span>v{{VERSION}}</span>");
+    expect(inlineTemplate(template, CSS, JS, "9.9.9-test")).toContain("v9.9.9-test");
+    // A version with no slot to fill is as much a build break as a missing one.
+    expect(() => inlineTemplate(TEMPLATE, CSS, JS, "9.9.9-test")).toThrow("{{VERSION}} exactly once (found 0)");
+  });
+
   it("the real template and stylesheet satisfy the guards", () => {
     const root = join(import.meta.dir, "..");
-    const html = inlineTemplate(readFileSync(join(root, "template.html"), "utf8"), readFileSync(join(root, "styles.css"), "utf8"), JS);
+    const version = (JSON.parse(readFileSync(join(root, "package.json"), "utf8")) as { version: string }).version;
+    const html = inlineTemplate(readFileSync(join(root, "template.html"), "utf8"), readFileSync(join(root, "styles.css"), "utf8"), JS, version);
     expect(html).toContain(JS);
+    expect(html).toContain(`v${version}`);
     expect(html).not.toMatch(/\{\{[A-Z_]+\}\}/);
   });
 });

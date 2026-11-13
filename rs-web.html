@@ -6907,6 +6907,14 @@ Full legal text: https://creativecommons.org/publicdomain/zero/1.0/legalcode</pr
     }
     return hasTrunkPort(from, to.id) || hasTrunkPort(to, from.id);
   }
+  function linkStatusLabel(s) {
+    if (s.shut) return { text: "down", tone: "danger" };
+    if (s.unauth) return { text: "auth failed", tone: "danger" };
+    if (s.macsec === "failed") return { text: "MACsec \u2717", tone: "danger" };
+    if (s.blocked) return { text: "STP blocked", tone: "stp" };
+    if (s.macsec === "secured") return { text: "MACsec \u2713", tone: "secure" };
+    return null;
+  }
   function drawLink(link) {
     const from = getDevice(link.from);
     const to = getDevice(link.to);
@@ -6968,14 +6976,14 @@ Full legal text: https://creativecommons.org/publicdomain/zero/1.0/legalcode</pr
     ctx.stroke();
     const labelParts = [];
     if (link.name) labelParts.push(link.name);
-    if (shut) labelParts.push("down");
-    else if (blocked) labelParts.push("STP blocked");
+    const status = linkStatusLabel({ shut, unauth, blocked, macsec });
+    if (status) labelParts.push(status.text);
     if (labelParts.length) {
       ctx.globalAlpha = 1;
       ctx.font = FONT_SMALL;
       ctx.textAlign = "center";
       ctx.textBaseline = "bottom";
-      ctx.fillStyle = shut ? cssColor("--danger") : blocked ? cssColor("--stp-block") : cssColor("--muted");
+      ctx.fillStyle = status ? status.tone === "danger" ? cssColor("--danger") : status.tone === "stp" ? cssColor("--stp-block") : status.tone === "secure" ? "#14b8a6" : cssColor("--muted") : cssColor("--muted");
       ctx.fillText(labelParts.join(" \xB7 "), midX, midY - 8);
     }
     ctx.restore();

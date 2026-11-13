@@ -7,6 +7,7 @@ import { state } from "../src/state";
 import { runSimulationHeadless } from "../src/engine";
 import { buildPingEvents } from "../src/simulation";
 import { linkName, deleteLink, deleteSelection, addLink, toggleLinkShutdown } from "../src/devices";
+import { linkStatusLabel } from "../src/canvas";
 import { buildConfigPayload, parseConfig } from "../src/config";
 import { runConsoleScript, runConsoleCommand as exec } from "../src/commands";
 import { registerNoopCallbacks, resetState } from "./helpers";
@@ -215,5 +216,26 @@ describe("links — bandwidth / latency / loss", () => {
     expect(r.success).toBe(true);   // deterministic — loss never drops headless frames
     const notes = state.simulation.log.filter(l => l.action.includes("not applied in this headless run"));
     expect(notes.length).toBe(1);   // once per link per run, though several frames crossed it
+  });
+});
+
+describe("link state carries a non-colour marker (R54 — perceivable by everyone)", () => {
+  it("every colour-only state yields a text marker", () => {
+    expect(linkStatusLabel({ shut: true })).toEqual({ text: "down", tone: "danger" });
+    expect(linkStatusLabel({ unauth: true })).toEqual({ text: "auth failed", tone: "danger" });
+    expect(linkStatusLabel({ macsec: "failed" })).toEqual({ text: "MACsec ✗", tone: "danger" });
+    expect(linkStatusLabel({ macsec: "secured" })).toEqual({ text: "MACsec ✓", tone: "secure" });
+    expect(linkStatusLabel({ blocked: true })).toEqual({ text: "STP blocked", tone: "stp" });
+  });
+
+  it("an open/healthy link has no marker", () => {
+    expect(linkStatusLabel({})).toBeNull();
+    expect(linkStatusLabel({ macsec: "open" })).toBeNull();
+  });
+
+  it("precedence matches the link colour: danger before stp before secured", () => {
+    expect(linkStatusLabel({ shut: true, macsec: "secured" })).toEqual({ text: "down", tone: "danger" });
+    expect(linkStatusLabel({ blocked: true, macsec: "failed" })).toEqual({ text: "MACsec ✗", tone: "danger" });
+    expect(linkStatusLabel({ blocked: true, macsec: "secured" })).toEqual({ text: "STP blocked", tone: "stp" });
   });
 });

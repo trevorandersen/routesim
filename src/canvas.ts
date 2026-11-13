@@ -106,6 +106,22 @@ export function isTrunkLink(from: any, to: any): boolean {
   return hasTrunkPort(from, to.id) || hasTrunkPort(to, from.id);
 }
 
+// The non-colour, always-drawn partner for a link's state. Colour alone is not
+// perceivable by everyone (CLAUDE.md), so an unauthenticated WiFi link, a failed
+// or secured MACsec link and a shut/blocked link each carry a midpoint text
+// marker. Precedence mirrors the colour precedence in drawLink. Pure and exported
+// so the precedence is unit-testable — drawLink itself needs a live canvas.
+export function linkStatusLabel(
+  s: { shut?: boolean; unauth?: boolean; blocked?: boolean; macsec?: string | null },
+): { text: string; tone: "danger" | "stp" | "secure" | "muted" } | null {
+  if (s.shut) return { text: "down", tone: "danger" };
+  if (s.unauth) return { text: "auth failed", tone: "danger" };
+  if (s.macsec === "failed") return { text: "MACsec ✗", tone: "danger" };
+  if (s.blocked) return { text: "STP blocked", tone: "stp" };
+  if (s.macsec === "secured") return { text: "MACsec ✓", tone: "secure" };
+  return null;
+}
+
 export function drawLink(link: any): void {
   const from = getDevice(link.from);
   const to = getDevice(link.to);
@@ -178,17 +194,25 @@ export function drawLink(link: any): void {
   ctx.fill();
   ctx.stroke();
 
-  // Label: an explicit name (opt-in canvas label), plus a "down"/"blocked" marker.
+  // Label: an explicit name (opt-in canvas label), plus a non-colour state marker
+  // ("down", "auth failed", "MACsec ✗/✓", "STP blocked"). Drawn unconditionally —
+  // like "down"/"STP blocked" always were — so selecting an endpoint (which
+  // repaints the wire the active colour) can no longer hide the cue.
   const labelParts: string[] = [];
   if (link.name) labelParts.push(link.name);
-  if (shut) labelParts.push("down");
-  else if (blocked) labelParts.push("STP blocked");
+  const status = linkStatusLabel({ shut, unauth, blocked, macsec });
+  if (status) labelParts.push(status.text);
   if (labelParts.length) {
     ctx.globalAlpha = 1;
     ctx.font = FONT_SMALL;
     ctx.textAlign = "center";
     ctx.textBaseline = "bottom";
-    ctx.fillStyle = shut ? cssColor("--danger") : blocked ? cssColor("--stp-block") : cssColor("--muted");
+    ctx.fillStyle = status
+      ? status.tone === "danger" ? cssColor("--danger")
+        : status.tone === "stp" ? cssColor("--stp-block")
+        : status.tone === "secure" ? "#14b8a6"
+        : cssColor("--muted")
+      : cssColor("--muted");
     ctx.fillText(labelParts.join(" · "), midX, midY - 8);
   }
   ctx.restore();

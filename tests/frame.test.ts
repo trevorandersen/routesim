@@ -6,6 +6,7 @@ import {
   createDhcpRequest, createDhcpAck,
   frameLabel, frameColor, frameGlyph, toneGlyph,
   createTcpSegment, createIcmpTimeExceeded,
+  packetColumns, dhcpXidText,
   BROADCAST_MAC,
 } from "../src/frame";
 
@@ -348,5 +349,32 @@ describe("frameGlyph / toneGlyph — the redundant, non-colour channel", () => {
     const rst = createTcpSegment(M, M, "192.168.1.10", "192.168.1.20", 80, 1234, "rst");
     expect(frameColor(rst)).toBe("#ef4444");     // still red for sighted users
     expect(frameGlyph(rst)).toBe("✕");           // and a shape for everyone
+  });
+});
+
+// R73: the Info column showed the last eight characters of the engine's
+// internal id — "cp-254ad" for `dhcp-254ad`.
+describe("DHCP Info shows the transaction id as 0x… (R73)", () => {
+  it("strips the internal tag and prints hex", () => {
+    expect(dhcpXidText("dhcp-254ad")).toBe("0x254ad");
+    expect(dhcpXidText("dhcp-1000")).toBe("0x1000");
+    expect(dhcpXidText("dhcp-FFFFF")).toBe("0xfffff");
+    expect(dhcpXidText("t1")).toBe("t1");                 // not hex: shown as it is
+  });
+
+  it("every DHCP message's packet-list row carries it", () => {
+    const mac = "02:00:00:00:00:01";
+    const frames = [
+      createDhcpDiscover(mac, "dhcp-254ad"),
+      createDhcpOffer("02:00:00:00:00:02", "10.0.0.1", mac, "10.0.0.100", "dhcp-254ad"),
+      createDhcpRequest(mac, "10.0.0.100", "10.0.0.1", "dhcp-254ad"),
+      createDhcpAck("02:00:00:00:00:02", "10.0.0.1", mac, "10.0.0.100", "dhcp-254ad"),
+    ];
+    expect(frames.map(f => packetColumns(f).info)).toEqual([
+      "DHCP Discover - Transaction ID 0x254ad",
+      "DHCP Offer - Transaction ID 0x254ad",
+      "DHCP Request - Transaction ID 0x254ad",
+      "DHCP ACK - Transaction ID 0x254ad",
+    ]);
   });
 });

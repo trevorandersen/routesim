@@ -6075,6 +6075,10 @@ Full legal text: https://creativecommons.org/publicdomain/zero/1.0/legalcode</pr
     const ipv4 = { type: "ipv4", srcIp, dstIp, ttl, protocol: 17, payload: dns };
     return { id: nextFrameId(), srcMac, dstMac, etherType: 2048, vlanTag, payload: ipv4 };
   }
+  function dhcpXidText(transactionId) {
+    const xid = String(transactionId ?? "").replace(/^dhcp-/i, "");
+    return /^[0-9a-f]+$/i.test(xid) ? `0x${xid.toLowerCase()}` : xid;
+  }
   function createDhcpDiscover(clientMac, transactionId, vlanTag = null) {
     const dhcp = { type: "dhcp", messageType: "discover", transactionId, clientMac };
     const ipv4 = { type: "ipv4", srcIp: "0.0.0.0", dstIp: "255.255.255.255", ttl: 64, protocol: 17, payload: dhcp };
@@ -6234,7 +6238,7 @@ Full legal text: https://creativecommons.org/publicdomain/zero/1.0/legalcode</pr
     }
     if (p.type === "dhcp") {
       const names = { discover: "DHCP Discover", offer: "DHCP Offer", request: "DHCP Request", ack: "DHCP ACK" };
-      return { src, dst, protocol: "DHCP", info: `${names[p.messageType] || "DHCP"} - Transaction ID ${p.transactionId.slice(-8)}`, tone: "dhcp" };
+      return { src, dst, protocol: "DHCP", info: `${names[p.messageType] || "DHCP"} - Transaction ID ${dhcpXidText(p.transactionId)}`, tone: "dhcp" };
     }
     return { src, dst, protocol: "IPv4", info: "", tone: "" };
   }

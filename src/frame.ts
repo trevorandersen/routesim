@@ -218,6 +218,15 @@ export function createDnsResponse(
   return { id: nextFrameId(), srcMac, dstMac, etherType: 0x0800, vlanTag, payload: ipv4 };
 }
 
+// A DHCP transaction id as Wireshark prints it: `0x254ad`. The engine's ids
+// carry an internal `dhcp-` tag in front of the hex xid; the Info column used
+// to show the last eight characters of the whole string — "cp-254ad". An id
+// that is not hex (a test's "t1") is shown as it is.
+export function dhcpXidText(transactionId: string): string {
+  const xid = String(transactionId ?? "").replace(/^dhcp-/i, "");
+  return /^[0-9a-f]+$/i.test(xid) ? `0x${xid.toLowerCase()}` : xid;
+}
+
 export function createDhcpDiscover(clientMac: string, transactionId: string, vlanTag: number | null = null): EthernetFrame {
   const dhcp: DhcpPayload = { type: "dhcp", messageType: "discover", transactionId, clientMac };
   const ipv4: Ipv4Payload = { type: "ipv4", srcIp: "0.0.0.0", dstIp: "255.255.255.255", ttl: 64, protocol: 17, payload: dhcp };
@@ -390,7 +399,7 @@ export function packetColumns(frame: EthernetFrame): PacketColumns {
   }
   if (p.type === "dhcp") {
     const names: Record<string, string> = { discover: "DHCP Discover", offer: "DHCP Offer", request: "DHCP Request", ack: "DHCP ACK" };
-    return { src, dst, protocol: "DHCP", info: `${names[p.messageType] || "DHCP"} - Transaction ID ${p.transactionId.slice(-8)}`, tone: "dhcp" };
+    return { src, dst, protocol: "DHCP", info: `${names[p.messageType] || "DHCP"} - Transaction ID ${dhcpXidText(p.transactionId)}`, tone: "dhcp" };
   }
   return { src, dst, protocol: "IPv4", info: "", tone: "" };
 }

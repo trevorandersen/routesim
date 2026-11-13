@@ -7,7 +7,7 @@
  * tests. See docs/scripting.md for the command reference.
  */
 import type { Device, DeviceType } from "./types";
-import { state, undo, redo, undoBlockReason, sync, pushUndo, THEMES, linksChanged } from "./state";
+import { state, undo, redo, undoBlockReason, sync, pushUndo, pushUndoSnapshot, networkSnapshot, THEMES, linksChanged } from "./state";
 import { USER_ADDABLE_TYPES, isHost, isDot1xSupplicant, defaultPortCount } from "./device-registry";
 import { dom } from "./dom";
 import {
@@ -814,7 +814,13 @@ function cmdRun(args: string[]): CommandResult {
     if (typeof host === "string") return err(host);
     const setup = buildDhcpEvents(host);
     if (typeof setup === "string") return err(setup);
+    // The one `run` that changes saved configuration: a lease re-addresses the
+    // host (and records a binding on the server). So it is an undo point, like
+    // the animated `dhcp` — taken only when the run changed something, so a
+    // run nobody answered leaves no dead entry and keeps the redo branch.
+    const before = networkSnapshot();
     const r = runSimulationHeadless(setup, host.id, "", "dhcp", null, purpose);
+    if (!state.isApplyingCompositeChange && networkSnapshot() !== before) pushUndoSnapshot(before);
     return runOutput(r, r.success ? `dhcp: assigned ${r.assignedIp} (gw ${r.assignedGateway})` : "dhcp: no response");
   }
   if (mode === "resolve" || mode === "dns") {

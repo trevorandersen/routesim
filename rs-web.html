@@ -18838,7 +18838,9 @@ Snort successfully validated the configuration${bad ? " (with errors)" : "."}`);
       if (typeof host === "string") return err(host);
       const setup = buildDhcpEvents(host);
       if (typeof setup === "string") return err(setup);
+      const before = networkSnapshot();
       const r = runSimulationHeadless(setup, host.id, "", "dhcp", null, purpose);
+      if (!state.isApplyingCompositeChange && networkSnapshot() !== before) pushUndoSnapshot(before);
       return runOutput(r, r.success ? `dhcp: assigned ${r.assignedIp} (gw ${r.assignedGateway})` : "dhcp: no response");
     }
     if (mode === "resolve" || mode === "dns") {

@@ -106,7 +106,7 @@ Param keys and boolean values are case-insensitive. Adding a setting is a one-ro
 | `stp` | Animate the **spanning-tree** BPDU flood: each root bridge floods Configuration BPDUs out its designated ports toward the other switches. |
 | `attack <node> [scan\|sweep\|arp-spoof] [target]` | Launch an offensive host's simulated **attack(s)** (sim mode `"attack"`). Works on **both** a Kali PC (`kali`) and a Red Team actor (`attacker`); any other type is rejected with "is not a Kali PC or Red Team host". With an explicit kind, run just that one — for `scan`/`sweep` an optional `target` overrides **and remembers** `config.attackTarget`; for `arp-spoof` the argument is the IP to impersonate (not a target). With no kind, a bare `target` sets `config.attackTarget`, then **all enabled attacks** run (`buildAttackEvents`). The nmap-style report lands in the node's terminal session. |
 | `run ping <src> <dst>` | **Headless** ping → returns reachable/unreachable + TTL + step count. |
-| `run dhcp <host>` | **Headless** DHCP → returns the assigned lease (or no response). When nothing answers it leaves the host as it is — with APIPA fallback on, the animated `dhcp` (or Play) would self-assign a 169.254.x.y address, and the run says so rather than doing it silently. |
+| `run dhcp <host>` | **Headless** DHCP → returns the assigned lease (or no response). When nothing answers it leaves the host as it is — with APIPA fallback on, the animated `dhcp` (or Play) would self-assign a 169.254.x.y address, and the run says so rather than doing it silently. A lease it does assign is **one undo point** (the only `run` that changes saved configuration), like the animated `dhcp`. |
 | `run resolve <src> <name>` | **Headless** DNS lookup → returns the resolved IP (or NXDOMAIN). Alias: `run dns`. |
 | `run connect <src> <dst> <port>` | **Headless** TCP connect → open / refused (RST) / timed out. |
 | `run associate <laptop>` | **Headless** 802.11 association → joined / did-not-complete + frame count. |
@@ -122,7 +122,7 @@ Param keys and boolean values are case-insensitive. Adding a setting is a one-ro
 |---------|--------|
 | `topology <basic\|vlan-roas\|router-mesh\|wifi-vlan>` | Load a built-in topology. `wifi-vlan` is a campus WiFi with staff (secured SSID, VLAN 10) and guest (open SSID, VLAN 20) separated by VLAN, plus a shared server on a Servers VLAN (30) reachable by all VLANs, routed by a gateway that isolates guests from the staff subnet. |
 | `save <name>` / `load <name>` | Save/load to the in-memory config store. |
-| `undo` / `redo` | Undo / redo the last change. Refused, with the reason, while the tutorial is playing (its one undo snapshot is the learner's own network). |
+| `undo` / `redo` | Undo / redo the last change. Refused, with the reason, while the tutorial is playing (its one undo snapshot is the learner's own network) or the port dialog is open. |
 | `export` | Print the current topology as a reproducible command script. |
 | `stress [seed] [steps]` | **Destructive dev tool — replaces the current topology and mutates it randomly; the run is far longer than the 80-entry undo stack, so your work is not recoverable.** Runs a repeatable mutation/invariant test from a fresh Basic topology (defaults: seed `20260706`, 250 actions; maximum 5000). The full action log is returned in `data`; failures include a replay command. |
 

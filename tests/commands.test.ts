@@ -837,3 +837,39 @@ describe("`run dhcp` with no server leaves the host as it is (R67)", () => {
     expect(exec("run dhcp PC1").output.join(" ")).not.toContain("APIPA");
   });
 });
+
+// R98: the animated `dhcp` is an undo point; the headless `run dhcp` assigned
+// the same lease with none, so Undo could not take it back.
+describe("`run dhcp` that assigns a lease is one undo point (R98)", () => {
+  beforeEach(() => {
+    resetState();
+    runConsoleScript(`
+      add router R1 at 0 0
+      add computer PC1 at 200 0
+      link PC1 R1
+      interface R1 PC1 ip 192.168.1.1/24
+    `);
+  });
+  const pc = () => state.devices.find(d => d.name === "PC1")!;
+
+  it("undo takes the lease back, and redo gives it again", () => {
+    const depth = state.undoStack.length;
+    const result = exec("run dhcp PC1");
+    expect(result.ok).toBe(true);
+    expect(pc().config.ipv4Address).toBe("192.168.1.100");
+    expect(state.undoStack.length).toBe(depth + 1);
+    exec("undo");
+    expect(pc().config.ipv4Address || "").toBe("");
+    expect(state.devices.find(d => d.name === "R1")!.config.interfaces![0].dhcpLeases || []).toEqual([]);
+    exec("redo");
+    expect(pc().config.ipv4Address).toBe("192.168.1.100");
+  });
+
+  it("a run nobody answers takes no undo point", () => {
+    exec("interface R1 PC1 ip 0.0.0.0/24");
+    state.devices.find(d => d.name === "R1")!.config.interfaces![0].ipv4Address = "";
+    const depth = state.undoStack.length;
+    expect(exec("run dhcp PC1").ok).toBe(false);
+    expect(state.undoStack.length).toBe(depth);
+  });
+});

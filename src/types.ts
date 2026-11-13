@@ -167,6 +167,7 @@ export interface RouteEntry {
   vlanTag?: number | null;
   type: "C" | "S" | "R"; // Connected, Static, RIP
   metric: number;        // 0=connected, 1=static, 2+=RIP
+  inactive?: boolean;    // a static whose next hop is unreachable: listed, but never used to forward (R18)
 }
 
 export interface StaticRoute {

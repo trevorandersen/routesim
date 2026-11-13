@@ -16,7 +16,7 @@ import type { Device, RouteEntry, RouterInterface, NamedRouterIface, RipRoute } 
 import { state } from "./state";
 import { getDevice, routerInterfacesWithNames } from "./devices";
 import { normaliseStaticRoutes } from "./normalise";
-import { sameSubnet, prefixOf, internetGatewayIp, parseIpv4, cidrOf, cidrText, cachedCidr, cidrHas } from "./utils";
+import { prefixOf, internetGatewayIp, parseIpv4, cidrOf, cidrText, cachedCidr, cidrHas } from "./utils";
 
 export function buildRoutingTable(router: Device): RouteEntry[] {
   const table: RouteEntry[] = [];
@@ -34,12 +34,19 @@ export function buildRoutingTable(router: Device): RouteEntry[] {
     table.push({ network, cidr, nextHop: "", interface: iface.name, type: "C", metric: 0, peerId: iface.peerId, vlanTag: iface.config?.vlanTag ?? null });
   }
 
-  // 2. Static routes
+  // 2. Static routes — active only when the next hop resolves through a live
+  // connected route. An inactive static (next hop down, shut, or just wrong) is
+  // listed for `show ip route` but never forwards, and never shadows RIP or the
+  // internet default for its prefix (review R18) — FRR marks such a static
+  // inactive too. Previously every static was installed and added to `seen`, so
+  // a mistyped next hop black-holed the prefix and hid a working default/RIP.
   const statics = normaliseStaticRoutes(router.config?.staticRoutes || []);
   for (const sr of statics) {
     if (seen.has(sr.network)) continue;
-    seen.add(sr.network);
-    table.push({ network: sr.network, cidr: cachedCidr(sr.network), nextHop: sr.nextHop, type: "S", metric: 1 });
+    const hop = parseIpv4(sr.nextHop);
+    const active = hop !== null && longestMatch(table, hop, true) !== null;
+    table.push({ network: sr.network, cidr: cachedCidr(sr.network), nextHop: sr.nextHop, type: "S", metric: 1, inactive: !active });
+    if (active) seen.add(sr.network);   // only an active static shadows RIP / the default
   }
 
   // 3. Implicit internet default — a router cabled to an Internet cloud reaches
@@ -86,12 +93,6 @@ function internetDefaultGateway(ifaces: NamedRouterIface[]): { gateway: string; 
   return null;
 }
 
-// The interface whose connected network contains the address (per-iface prefix).
-// Takes the FLAT RouterInterface[] (address at the top level), not the named view.
-function ifaceOnSubnet(ifaces: RouterInterface[], ip: string): RouterInterface | undefined {
-  return ifaces.find((iface) => iface.ipv4Address && sameSubnet(iface.ipv4Address, ip, prefixOf(iface)));
-}
-
 // Longest-prefix match of an address integer over the table (optionally only
 // connected routes); ties keep the first — the lower metric, as the table is
 // metric-sorted. Integer compares only: no parsing, no allocation.
@@ -101,7 +102,7 @@ function longestMatch(table: RouteEntry[], addr: number, connectedOnly: boolean)
   for (let i = 0; i < table.length; i++) {
     const r = table[i];
     const cidr = r.cidr;
-    if (cidr === null || (connectedOnly && r.type !== "C") || !cidrHas(cidr, addr)) continue;
+    if (cidr === null || r.inactive || (connectedOnly && r.type !== "C") || !cidrHas(cidr, addr)) continue;
     if (cidr.prefix > bestLen) { best = r; bestLen = cidr.prefix; }
   }
   return best;
@@ -129,7 +130,8 @@ export function routingLookup(router: Device, dstIp: string, prebuilt?: RouteEnt
     peerId ? ifaces.find((i) => i.peerId === peerId && (i.vlanTag ?? null) === (vlanTag ?? null)) : undefined;
 
   if (route.type === "C") {
-    const egressIface = storedIface(route.peerId, route.vlanTag) ?? ifaceOnSubnet(ifaces, dstIp);
+    // No ifaceOnSubnet fallback: it ignored shutdown/peer state (review R18).
+    const egressIface = storedIface(route.peerId, route.vlanTag);
     return egressIface ? { egressIface, nextHopIp: dstIp } : null;
   }
 
@@ -140,7 +142,7 @@ export function routingLookup(router: Device, dstIp: string, prebuilt?: RouteEnt
   const hop = nextHop ? parseIpv4(nextHop) : null;
   if (hop === null) return null;
   const via = longestMatch(table, hop, true);
-  const egressIface = (via ? storedIface(via.peerId, via.vlanTag) : undefined) ?? ifaceOnSubnet(ifaces, nextHop);
+  const egressIface = via ? storedIface(via.peerId, via.vlanTag) : undefined;
   return egressIface ? { egressIface, nextHopIp: nextHop } : null;
 }
 

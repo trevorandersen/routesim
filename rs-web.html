@@ -7411,8 +7411,10 @@ Full legal text: https://creativecommons.org/publicdomain/zero/1.0/legalcode</pr
     const statics = normaliseStaticRoutes(router.config?.staticRoutes || []);
     for (const sr of statics) {
       if (seen.has(sr.network)) continue;
-      seen.add(sr.network);
-      table.push({ network: sr.network, cidr: cachedCidr(sr.network), nextHop: sr.nextHop, type: "S", metric: 1 });
+      const hop = parseIpv4(sr.nextHop);
+      const active2 = hop !== null && longestMatch(table, hop, true) !== null;
+      table.push({ network: sr.network, cidr: cachedCidr(sr.network), nextHop: sr.nextHop, type: "S", metric: 1, inactive: !active2 });
+      if (active2) seen.add(sr.network);
     }
     if (!seen.has("0.0.0.0/0")) {
       const def = internetDefaultGateway(ifaces);
@@ -7440,16 +7442,13 @@ Full legal text: https://creativecommons.org/publicdomain/zero/1.0/legalcode</pr
     }
     return null;
   }
-  function ifaceOnSubnet(ifaces, ip) {
-    return ifaces.find((iface) => iface.ipv4Address && sameSubnet(iface.ipv4Address, ip, prefixOf(iface)));
-  }
   function longestMatch(table, addr, connectedOnly) {
     let best = null;
     let bestLen = -1;
     for (let i = 0; i < table.length; i++) {
       const r = table[i];
       const cidr = r.cidr;
-      if (cidr === null || connectedOnly && r.type !== "C" || !cidrHas(cidr, addr)) continue;
+      if (cidr === null || r.inactive || connectedOnly && r.type !== "C" || !cidrHas(cidr, addr)) continue;
       if (cidr.prefix > bestLen) {
         best = r;
         bestLen = cidr.prefix;
@@ -7466,14 +7465,14 @@ Full legal text: https://creativecommons.org/publicdomain/zero/1.0/legalcode</pr
     if (!route) return null;
     const storedIface = (peerId, vlanTag) => peerId ? ifaces.find((i) => i.peerId === peerId && (i.vlanTag ?? null) === (vlanTag ?? null)) : void 0;
     if (route.type === "C") {
-      const egressIface2 = storedIface(route.peerId, route.vlanTag) ?? ifaceOnSubnet(ifaces, dstIp);
+      const egressIface2 = storedIface(route.peerId, route.vlanTag);
       return egressIface2 ? { egressIface: egressIface2, nextHopIp: dstIp } : null;
     }
     const nextHop = route.nextHop;
     const hop = nextHop ? parseIpv4(nextHop) : null;
     if (hop === null) return null;
     const via = longestMatch(table, hop, true);
-    const egressIface = (via ? storedIface(via.peerId, via.vlanTag) : void 0) ?? ifaceOnSubnet(ifaces, nextHop);
+    const egressIface = via ? storedIface(via.peerId, via.vlanTag) : void 0;
     return egressIface ? { egressIface, nextHopIp: nextHop } : null;
   }
   function buildRipRouterView(device) {
@@ -11212,7 +11211,7 @@ ${body}
           return `C>* ${route.network} is directly connected, ${route.interface || "?"}`;
         }
         if (route.type === "S") {
-          return `S>* ${route.network} via ${route.nextHop}`;
+          return route.inactive ? `S   ${route.network} [1/0] via ${route.nextHop} inactive` : `S>* ${route.network} via ${route.nextHop}`;
         }
         return `R>* ${route.network} via ${route.nextHop} [${route.metric}]`;
       })

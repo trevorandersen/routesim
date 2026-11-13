@@ -60,7 +60,11 @@ export function showRouterRoute(router: Device): string {
         return `C>* ${route.network} is directly connected, ${route.interface || "?"}`;
       }
       if (route.type === "S") {
-        return `S>* ${route.network} via ${route.nextHop}`;
+        // An inactive static (unreachable next hop) is listed without the
+        // selected marker, like FRR — it never forwards (review R18).
+        return route.inactive
+          ? `S   ${route.network} [1/0] via ${route.nextHop} inactive`
+          : `S>* ${route.network} via ${route.nextHop}`;
       }
       // RIP
       return `R>* ${route.network} via ${route.nextHop} [${route.metric}]`;

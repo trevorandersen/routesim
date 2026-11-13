@@ -1387,3 +1387,60 @@ describe("traceroute honours Instant DNS (R16)", () => {
     expect(typeof on === "object" && (on as any).reached).toBe(true);
   });
 });
+
+// R18: a static route with an unresolvable next hop used to be installed and
+// added to `seen` — so it black-holed its prefix and hid a working RIP route or
+// internet default. It is now marked inactive: listed, but never used to
+// forward and never shadowing another route for the same prefix.
+import { showRouterRoute } from "../src/terminal";
+
+describe("a static with an unreachable next hop is inactive (R18)", () => {
+  beforeEach(() => resetState());
+
+  function router1() {
+    runConsoleScript(`
+      add router R1 at 0 0
+      add computer H at 200 0
+      link R1 H
+      ip H 10.0.0.2/24
+      interface R1 H ip 10.0.0.1/24
+    `);
+    return state.devices.find(d => d.name === "R1")!;
+  }
+
+  it("an active static (next hop on a connected subnet) forwards; an unreachable one does not", () => {
+    const r = router1();
+    r.config!.staticRoutes = [
+      { network: "172.16.0.0/16", nextHop: "10.0.0.2" },     // reachable → active
+      { network: "192.168.50.0/24", nextHop: "10.88.88.88" } // unreachable → inactive
+    ] as any;
+    const table = buildRoutingTable(r);
+    expect(table.find(x => x.network === "172.16.0.0/16")?.inactive).toBeFalsy();
+    expect(table.find(x => x.network === "192.168.50.0/24")?.inactive).toBe(true);
+
+    expect(routingLookup(r, "172.16.5.5")?.nextHopIp).toBe("10.0.0.2");   // active forwards
+    expect(routingLookup(r, "192.168.50.5")).toBeNull();                  // inactive black-holes nothing — it isn't used
+  });
+
+  it("does not shadow a RIP route for the same prefix", () => {
+    const r = router1();
+    r.config!.staticRoutes = [{ network: "192.168.9.0/24", nextHop: "10.77.77.77" }] as any;   // dead
+    r.config!.rip = { enabled: true, networks: [], passiveInterfaces: [],
+      learnedRoutes: [{ network: "192.168.9.0/24", nextHop: "10.0.0.2", interface: "Ethernet1", metric: 2 }] } as any;
+    const hit = routingLookup(r, "192.168.9.5");
+    expect(hit).not.toBeNull();
+    expect(hit!.nextHopIp).toBe("10.0.0.2");   // the RIP route is used, not the dead static
+  });
+
+  it("show ip route lists an inactive static without the selected marker", () => {
+    const r = router1();
+    r.config!.staticRoutes = [
+      { network: "172.16.0.0/16", nextHop: "10.0.0.2" },
+      { network: "192.168.50.0/24", nextHop: "10.88.88.88" }
+    ] as any;
+    const out = showRouterRoute(r);
+    expect(out).toContain("S>* 172.16.0.0/16 via 10.0.0.2");
+    expect(out).toMatch(/192\.168\.50\.0\/24 .*inactive/);
+    expect(out).not.toContain("S>* 192.168.50.0/24");
+  });
+});

@@ -267,6 +267,10 @@ export interface StpConfig {
 export interface SwitchConfig {
   managed: boolean;
   ethernetPorts: number;
+  // The switch's base MAC: the tie-break half of its spanning-tree bridge id.
+  // Set from the name when the switch is added; absent on older saves, which
+  // present an id-derived one (bridgeMacOf in utils.ts).
+  macAddress?: string;
   macTable: MacTableEntry[];
   vlans?: Vlan[];
   portVlans?: Record<string, number>;

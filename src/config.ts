@@ -3,7 +3,7 @@ import { dom } from "./dom";
 import type { SerialisedTopology, Device, Link } from "./types";
 
 type NormalisedConfig = { devices: Device[]; links: Link[] };
-import { clampPortCount, clampApPortCount, clampRouterPortCount, normaliseSsid, normaliseWifiPassword } from "./utils";
+import { clampPortCount, clampApPortCount, clampRouterPortCount, normaliseSsid, normaliseWifiPassword, bridgeMacOf } from "./utils";
 import { DEFAULT_SSID } from "./device-registry";
 import {
   normaliseArpTable, normaliseMacTable, normaliseVlans, normalisePortVlans,
@@ -64,6 +64,10 @@ export function buildConfigPayload(): SerialisedTopology {
         config: {
           managed: Boolean(config?.managed),
           ethernetPorts: clampPortCount(config?.ethernetPorts ?? defaultPortCount(type)),
+          // A managed switch's base MAC decides spanning-tree ties, so it is
+          // written out (the one it presents — bridgeMacOf) and a reload or a
+          // script replay elects the same root.
+          ...(config?.managed ? { macAddress: bridgeMacOf({ id, config }) } : {}),
           macTable: normaliseMacTable(config?.macTable || []),
           ...(config?.managed ? {
             vlans: normaliseVlans(config?.vlans || []),

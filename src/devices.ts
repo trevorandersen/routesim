@@ -2,7 +2,7 @@ import type { PortOption, Device, Link, DeviceType, DeviceConfig, NamedRouterIfa
 import { state, sync, pushUndo, networkSnapshot, dropTerminalSessions, resetCaptureState, linksChanged } from "./state";
 import { dom } from "./dom";
 import { deviceSize, defaultDeviceConfig, ensureConfig, normaliseRouterInterfaces, normalisePortVlans, normalisePortModes } from "./normalise";
-import { clampPortCount, clampApPortCount, clampRouterPortCount, escapeHtml, randomMac, isValidHostname, MAX_PHYSICAL_PORT, deriveMac, normaliseMacAddress, clampFirewallPortCount } from "./utils";
+import { clampPortCount, clampApPortCount, clampRouterPortCount, escapeHtml, randomMac, isValidHostname, MAX_PHYSICAL_PORT, deriveMac, normaliseMacAddress, clampFirewallPortCount, defaultBridgeMac, bridgeMacOf } from "./utils";
 import { quoteArg } from "./tokenize";
 import { DEVICE_SPECS, USER_ADDABLE_TYPES, freshNameCounters, hasSingleNic, isHost, isDot1xSupplicant, defaultPortCount } from "./device-registry";
 
@@ -48,6 +48,15 @@ export function applyHostname(device: Device, name: string): string | null {
   return null;
 }
 
+// The default bridge MAC for a switch name, stepped past any MAC another
+// switch already presents (a switch renamed away from this name keeps its MAC).
+function freeBridgeMac(name: string): string {
+  const taken = new Set(state.devices.filter(d => d.type === "switch").map(bridgeMacOf));
+  let mac = defaultBridgeMac(name);
+  for (let n = 2; taken.has(mac); n++) mac = defaultBridgeMac(`${name}#${n}`);
+  return mac;
+}
+
 export function addDevice(type: DeviceType, x: number, y: number, name?: string): Device {
   pushUndo();
   const device: Device = {
@@ -62,6 +71,10 @@ export function addDevice(type: DeviceType, x: number, y: number, name?: string)
   };
   // A new host gets a NIC MAC so it can communicate immediately.
   if (isHost(type)) device.config.macAddress = randomMac();
+  // A new switch gets its base MAC (the spanning-tree bridge id's tie-break)
+  // from its name — never from its random id, so a replayed script builds the
+  // same tree. A name reused after a rename takes the next free variant.
+  if (type === "switch") device.config.macAddress = freeBridgeMac(device.name);
   state.devices.push(device as any);
   state.selectedId = device.id;
   sync().syncPanel();

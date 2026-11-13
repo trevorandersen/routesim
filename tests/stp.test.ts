@@ -283,3 +283,94 @@ describe("STP — an administratively-down cable is not seeded forwarding (LOW s
     expect(ports.Ethernet1?.state).not.toBe("forwarding");
   });
 });
+
+// R12: the bridge MAC was derived from the device id — a random UUID — so the
+// same script elected a different root, and blocked a different link, on each
+// replay. A switch's base MAC now comes from its name and is saved with it.
+describe("STP — the same script builds the same tree (R12)", () => {
+  beforeEach(reset);
+
+  const TRIANGLE = `
+    clear
+    add switch SW1 at 100 0
+    add switch SW2 at 300 0
+    add switch SW3 at 200 200
+    managed SW1
+    managed SW2
+    managed SW3
+    link SW1 SW2
+    link SW2 SW3
+    link SW3 SW1
+  `;
+  const name = (id: string) => getDevice(id)!.name;
+  const tree = () => {
+    runStpConvergence();
+    const root = state.devices.find(d => d.type === "switch" && isRootBridge(d))!.name;
+    const blocked = blockedLinks().map(l => [name(l.from), name(l.to)].sort().join("-")).sort();
+    return `root ${root}, blocked ${blocked.join(",")}`;
+  };
+
+  it("replaying the triangle script elects the same root and blocks the same link every time", () => {
+    const seen = new Set<string>();
+    for (let i = 0; i < 12; i++) {
+      expect(runConsoleScript(TRIANGLE).filter(r => !r.ok)).toEqual([]);
+      seen.add(tree());
+    }
+    expect([...seen].length).toBe(1);
+    expect(blockedLinks().length).toBe(1);
+  });
+
+  it("a switch's base MAC comes from its name, not its id, and a rename keeps it", () => {
+    exec("add switch SW1 at 0 0");
+    const first = state.devices.find(d => d.name === "SW1")!;
+    const mac = first.config.macAddress!;
+    exec("clear");
+    exec("add switch sw1 at 0 0");                               // names are case-insensitive
+    const again = state.devices.find(d => d.name === "sw1")!;
+    expect(again.id).not.toBe(first.id);
+    expect(again.config.macAddress).toBe(mac);
+    exec("rename sw1 CORE");
+    expect(again.config.macAddress).toBe(mac);                  // a real switch keeps its MAC through a hostname change
+    exec("add switch sw1 at 100 0");                             // the freed name does not hand out the same MAC twice
+    expect(state.devices.find(d => d.name === "sw1")!.config.macAddress).not.toBe(mac);
+  });
+
+  it("the tree survives a JSON save and reload, and an export and replay", () => {
+    runConsoleScript(TRIANGLE);
+    exec("rename SW2 EDGE");                                     // its MAC is no longer its name's default
+    const before = tree();
+    const saved = JSON.parse(JSON.stringify(buildConfigPayload()));
+    const script = exportTopologyScript();
+    expect(script).toMatch(/^mac EDGE [0-9A-F:]{17}$/m);          // written because it differs from `add`'s default
+    expect(script).not.toMatch(/^mac SW1 /m);                    // …and not when it is the default
+
+    exec("clear");
+    const loaded = normaliseConfig(saved);
+    state.devices = loaded.devices as any; state.links = loaded.links as any;
+    expect(tree()).toBe(before);
+
+    expect(runConsoleScript(script).filter(r => !r.ok)).toEqual([]);
+    expect(tree()).toBe(before);
+  });
+
+  it("a saved switch with no stored MAC keeps presenting its id-derived one", () => {
+    runConsoleScript(TRIANGLE);
+    for (const d of state.devices) delete d.config.macAddress;   // an older save: fixed ids, no MAC
+    const before = tree();
+    const payload = buildConfigPayload();
+    const macs = payload.devices.map((d: any) => d.config.macAddress);
+    expect(macs.every((m: string) => /^[0-9A-F:]{17}$/.test(m))).toBe(true);   // made explicit on the way out
+    const loaded = normaliseConfig(JSON.parse(JSON.stringify(payload)));
+    state.devices = loaded.devices as any; state.links = loaded.links as any;
+    expect(tree()).toBe(before);
+  });
+
+  it("`mac <switch> <addr>` re-elects the root", () => {
+    runConsoleScript(TRIANGLE);
+    runStpConvergence();
+    const loser = state.devices.find(d => d.type === "switch" && !isRootBridge(d))!;
+    expect(exec(`mac ${loser.name} 02:00:00:00:00:01`).ok).toBe(true);
+    runStpConvergence();
+    expect(isRootBridge(loser)).toBe(true);
+  });
+});

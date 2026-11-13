@@ -18,7 +18,7 @@
 import type { Device, StpRole, StpState, StpPortInfo } from "./types";
 import { state } from "./state";
 import { linkedPortsFor, isPhysicalLink } from "./devices";
-import { deriveMac } from "./utils";
+import { bridgeMacOf } from "./utils";
 
 export const DEFAULT_BRIDGE_PRIORITY = 32768;
 
@@ -100,7 +100,7 @@ export function runStpConvergence(): { participants: number; roots: number; bloc
   const portsOut = new Map<string, Record<string, StpPortInfo>>();
   for (const dev of participants) {
     const priority = bridgePriority(dev);
-    const mac = dev.config?.macAddress || deriveMac(dev.id);
+    const mac = bridgeMacOf(dev);
     bridges.set(dev.id, { dev, priority, mac, id: bridgeIdString(priority, mac) });
     portsOut.set(dev.id, {});
   }

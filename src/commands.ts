@@ -29,7 +29,7 @@ import { buildConfigPayload, applyConfig, loadTopology } from "./config";
 import { normaliseConfig, ensureConfig } from "./normalise";
 import { setTool, setTheme } from "./ui";
 import { setZoom, fitNetwork } from "./canvas";
-import { isValidMac, normaliseMacAddress, prefixOf, networkOf, normaliseSsid, normaliseWifiPassword, clampPortCount, clampRouterPortCount, clampApPortCount, mutationText, clampFirewallPortCount } from "./utils";
+import { isValidMac, normaliseMacAddress, prefixOf, networkOf, normaliseSsid, normaliseWifiPassword, clampPortCount, clampRouterPortCount, clampApPortCount, mutationText, clampFirewallPortCount, defaultBridgeMac } from "./utils";
 import { SCENARIOS, getScenario, loadScenario, checkScenario } from "./scenarios";
 import { SCENARIO_GROUPS } from "./scenario-library";
 import { SPEED_MIN, SPEED_MAX } from "./settings-url";
@@ -262,6 +262,9 @@ function cmdMac(args: string[]): CommandResult {
   pushUndo();
   ensureConfig(device);
   device.config.macAddress = mac;
+  // A switch's MAC is the tie-break in its bridge id: the tree may change.
+  if (device.type === "switch") sync().recomputeStp();
+  sync().syncPanel();
   sync().render();
   return ok(`Set ${device.name} MAC to ${mac}.`);
 }
@@ -1168,7 +1171,7 @@ const HELP: Record<string, string> = {
   shut: "shut <a> <b> (administratively down the link)", noshut: "noshut <a> <b> (bring the link up)",
   move: "move <device> <x> <y>", rename: "rename <device> <name>", clear: "remove all devices",
   collapse: "collapse <switch> into a LAN", expand: "expand <lan>",
-  ip: "ip <host> <addr/prefix>", gateway: "gateway <host> <ip>", nameserver: "nameserver <host> <ip>", mac: "mac <host> <addr>",
+  ip: "ip <host> <addr/prefix>", gateway: "gateway <host> <ip>", nameserver: "nameserver <host> <ip>", mac: "mac <host|switch> <addr>",
   ssid: "ssid <laptop|access-point> <name> [password] (omit password = open; \"\" clears the name)",
   supplicant: "supplicant <host> <identity> <password> (set 802.1X credentials)",
   portauth: "portauth <switch> <EthN> <auto|force-authorized|force-unauthorized>",
@@ -1371,6 +1374,11 @@ export function exportTopologyScript(): string {
     } else if (d.type === "switch") {
       if (c.managed) {
         lines.push(`managed ${quoteArg(d.name)}`);   // a managed switch needs its management plane on before VLAN/STP config
+        // The base MAC breaks spanning-tree ties. `add` derives it from the
+        // name, so it is written only when it is something else (a renamed
+        // switch, a `mac` edit, a saved network's id-derived one) — the replay
+        // then elects the same root and blocks the same link.
+        if (c.macAddress && c.macAddress !== defaultBridgeMac(d.name)) lines.push(`mac ${quoteArg(d.name)} ${c.macAddress}`);
         // A VLAN's name is written when it is not the default — `Sales` used to
         // come back as `Vlan10`.
         for (const v of (c.vlans || [])) {

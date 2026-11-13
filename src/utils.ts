@@ -256,6 +256,22 @@ export function deriveMac(seed: string): string {
   return bytes.map(b => b.toString(16).padStart(2, "0").toUpperCase()).join(":");
 }
 
+// A switch's base MAC — the tie-break half of its spanning-tree bridge id.
+// `defaultBridgeMac` is what a newly added switch is given: derived from its
+// NAME, so replaying the same script elects the same root and blocks the same
+// link every time (a device id is a random UUID, so a MAC derived from it made
+// the same triangle block a different link on each replay — review R12).
+// `bridgeMacOf` is the MAC a switch presents: the stored one, else the old
+// id-derived value, which keeps a saved network whose switches carry no MAC
+// (built-ins, scenarios, older JSON — all with fixed ids) on the tree it had.
+export function defaultBridgeMac(name: string): string {
+  return deriveMac(`bridge:${name.toLowerCase()}`);
+}
+export function bridgeMacOf(device: { id: string; config?: { macAddress?: string } | null }): string {
+  const stored = normaliseMacAddress(device.config?.macAddress || "");
+  return isValidMac(stored) ? stored : deriveMac(device.id);
+}
+
 // A WiFi network name: a single trimmed token, capped at the 802.11 limit of 32
 // octets. SSIDs are case-sensitive; whitespace-only collapses to "" (no SSID).
 export function normaliseSsid(value: any): string {

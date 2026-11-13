@@ -118,7 +118,8 @@ describe("device registry — behaviour agrees with the spec for every addable t
     for (const t of USER_ADDABLE_TYPES) {
       resetState();
       const d = addDevice(t, 0, 0, "D");
-      expect(!!d.config.macAddress).toBe(isHost(t));
+      // A switch gets one too — its base MAC, the spanning-tree tie-break (R12).
+      expect(!!d.config.macAddress).toBe(isHost(t) || t === "switch");
       d.config.ipv4Address = "10.9.9.9";
       expect(findPingTarget("10.9.9.9")?.id === d.id).toBe(isHost(t));
       expect(findPingTarget("D")?.id === d.id).toBe(isHost(t));

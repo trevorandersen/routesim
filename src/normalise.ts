@@ -345,9 +345,13 @@ export function normaliseDeviceConfig(device: any): DeviceConfig {
   if (device.type === "switch") {
     const ethernetPorts = clampPortCount(device.config?.ethernetPorts ?? device.ethernetPorts ?? defaultPortCount("switch"));
     const managed = Boolean(device.config?.managed ?? device.managed ?? false);
+    // The base MAC (bridge id tie-break) is kept when valid; absent, the
+    // switch presents its id-derived one (bridgeMacOf).
+    const baseMac = normaliseMacAddress(device.config?.macAddress || "");
     return {
       managed,
       ethernetPorts,
+      ...(isValidMac(baseMac) ? { macAddress: baseMac } : {}),
       macTable: normaliseMacTable(device.config?.macTable || device.macTable || []),
       ...(managed ? {
         vlans: normaliseVlans(device.config?.vlans || device.vlans || []),

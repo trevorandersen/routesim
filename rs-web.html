@@ -3116,6 +3116,13 @@ Full legal text: https://creativecommons.org/publicdomain/zero/1.0/legalcode</pr
     bytes[0] = bytes[0] & 254 | 2;
     return bytes.map((b) => b.toString(16).padStart(2, "0").toUpperCase()).join(":");
   }
+  function defaultBridgeMac(name) {
+    return deriveMac(`bridge:${name.toLowerCase()}`);
+  }
+  function bridgeMacOf(device) {
+    const stored = normaliseMacAddress(device.config?.macAddress || "");
+    return isValidMac(stored) ? stored : deriveMac(device.id);
+  }
   function normaliseSsid(value) {
     return truncateOctets(String(value ?? "").trim(), 32);
   }
@@ -3755,9 +3762,11 @@ Full legal text: https://creativecommons.org/publicdomain/zero/1.0/legalcode</pr
     if (device.type === "switch") {
       const ethernetPorts = clampPortCount(device.config?.ethernetPorts ?? device.ethernetPorts ?? defaultPortCount("switch"));
       const managed = Boolean(device.config?.managed ?? device.managed ?? false);
+      const baseMac = normaliseMacAddress(device.config?.macAddress || "");
       return {
         managed,
         ethernetPorts,
+        ...isValidMac(baseMac) ? { macAddress: baseMac } : {},
         macTable: normaliseMacTable(device.config?.macTable || device.macTable || []),
         ...managed ? {
           vlans: normaliseVlans(device.config?.vlans || device.vlans || []),
@@ -4811,6 +4820,12 @@ Full legal text: https://creativecommons.org/publicdomain/zero/1.0/legalcode</pr
     sync().render();
     return null;
   }
+  function freeBridgeMac(name) {
+    const taken = new Set(state.devices.filter((d) => d.type === "switch").map(bridgeMacOf));
+    let mac = defaultBridgeMac(name);
+    for (let n = 2; taken.has(mac); n++) mac = defaultBridgeMac(`${name}#${n}`);
+    return mac;
+  }
   function addDevice(type, x, y, name) {
     pushUndo();
     const device = {
@@ -4824,6 +4839,7 @@ Full legal text: https://creativecommons.org/publicdomain/zero/1.0/legalcode</pr
       config: defaultDeviceConfig(type)
     };
     if (isHost(type)) device.config.macAddress = randomMac();
+    if (type === "switch") device.config.macAddress = freeBridgeMac(device.name);
     state.devices.push(device);
     state.selectedId = device.id;
     sync().syncPanel();
@@ -5814,7 +5830,7 @@ Full legal text: https://creativecommons.org/publicdomain/zero/1.0/legalcode</pr
     const portsOut = /* @__PURE__ */ new Map();
     for (const dev of participants) {
       const priority = bridgePriority(dev);
-      const mac = dev.config?.macAddress || deriveMac(dev.id);
+      const mac = bridgeMacOf(dev);
       bridges.set(dev.id, { dev, priority, mac, id: bridgeIdString(priority, mac) });
       portsOut.set(dev.id, {});
     }
@@ -17655,6 +17671,10 @@ Snort successfully validated the configuration${bad ? " (with errors)" : "."}`);
           config: {
             managed: Boolean(config?.managed),
             ethernetPorts: clampPortCount(config?.ethernetPorts ?? defaultPortCount(type)),
+            // A managed switch's base MAC decides spanning-tree ties, so it is
+            // written out (the one it presents — bridgeMacOf) and a reload or a
+            // script replay elects the same root.
+            ...config?.managed ? { macAddress: bridgeMacOf({ id, config }) } : {},
             macTable: normaliseMacTable(config?.macTable || []),
             ...config?.managed ? {
               vlans: normaliseVlans(config?.vlans || []),
@@ -18277,6 +18297,8 @@ Snort successfully validated the configuration${bad ? " (with errors)" : "."}`);
     pushUndo();
     ensureConfig(device);
     device.config.macAddress = mac;
+    if (device.type === "switch") sync().recomputeStp();
+    sync().syncPanel();
     sync().render();
     return ok(`Set ${device.name} MAC to ${mac}.`);
   }
@@ -19167,7 +19189,7 @@ Snort successfully validated the configuration${bad ? " (with errors)" : "."}`);
     ip: "ip <host> <addr/prefix>",
     gateway: "gateway <host> <ip>",
     nameserver: "nameserver <host> <ip>",
-    mac: "mac <host> <addr>",
+    mac: "mac <host|switch> <addr>",
     ssid: 'ssid <laptop|access-point> <name> [password] (omit password = open; "" clears the name)',
     supplicant: "supplicant <host> <identity> <password> (set 802.1X credentials)",
     portauth: "portauth <switch> <EthN> <auto|force-authorized|force-unauthorized>",
@@ -19330,6 +19352,7 @@ Snort successfully validated the configuration${bad ? " (with errors)" : "."}`);
       } else if (d.type === "switch") {
         if (c.managed) {
           lines.push(`managed ${quoteArg(d.name)}`);
+          if (c.macAddress && c.macAddress !== defaultBridgeMac(d.name)) lines.push(`mac ${quoteArg(d.name)} ${c.macAddress}`);
           for (const v of c.vlans || []) {
             const defaultName = v.id === 1 ? "default" : `Vlan${v.id}`;
             const named = v.name && v.name !== defaultName ? ` ${quoteArg(v.name)}` : "";

@@ -71,7 +71,7 @@ Param keys and boolean values are case-insensitive. Adding a setting is a one-ro
 | `ip <host> <addr/prefix>` | Set a host IPv4 (e.g. `192.168.1.10/24`). |
 | `gateway <host> <ip>` | Set a host default gateway. |
 | `nameserver <host> <ip>` | Set a host DNS server (`/etc/resolv.conf`). |
-| `mac <host> <addr>` | Set a host MAC. |
+| `mac <host\|switch> <addr>` | Set a host MAC, or a switch's base MAC — the tie-break in its spanning-tree bridge id (the tree is recomputed). |
 | `ssid <laptop\|access-point> <name> [password]` | Set the WiFi network a laptop joins or an access point broadcasts. Omitting the password opens the network (and clears any existing one). A laptop only associates if its SSID — and password, if set — match the AP's. `ssid <laptop> ""` clears the name (a laptop with no network configured). |
 | `supplicant <host> <identity> <password>` | Set a host's 802.1X credentials (the supplicant). |
 | `portauth <switch> <EthN> <auto\|force-authorized\|force-unauthorized>` | Set a switch port's 802.1X control. `auto` blocks data until the host authenticates; `force-authorized` (default) is open. `force-unauthorized` is closed whatever the host presents (a login gets an immediate failure). Changing the mode ends the port's 802.1X session, so the host must authenticate again. |
@@ -205,6 +205,7 @@ route R1 10.0.0.0/24 192.168.10.254
 
 - Device-level fields replay through console verbs (`ip`, `interface`, `route`, `ports`, `power`, `portcount`, …).
 - Anything whose natural home is a device's own CLI replays through **`cli <device> …`** exactly as a person would type it: a router's `router rip` / `network` / `passive-interface`, `interface EthernetN` + `ip nat inside|outside`, static port-forwards, and the netfilter ruleset in the device's chosen language — `iptables -P`/`iptables -A …` (via `ruleToIptables`) or `nft add chain … { policy … }`/`nft add rule …` (via `ruleToNft`), preceded by a top-level `rulelang <device> nftables` line when the device is set to nftables so the dialect round-trips; a firewall's rules the same way.
+- **A managed switch's base MAC** is written (`mac <switch> <addr>`) when it is not the one `add` derives from the switch's name — a renamed switch, a `mac` edit, a saved network's id-derived MAC — so the replay elects the same spanning-tree root and blocks the same link (review R12).
 - **Power state is emitted last**, after every `cli` line: a powered-off device has no working shell (review R42), so its shell-set configuration must replay while it is still on.
 - **Cables are emitted before per-device config**, because port and interface names (`port SW Ethernet2 …`, `mirror … Ethernet3`, the CLI's `interface Ethernet1`) only resolve once the link exists.
 

@@ -727,7 +727,7 @@ function deliverCompletedTransits(): void {
       // A frame crossing a MACsec-secured link is protected on the wire — shown
       // encrypted in the packet list (the engine still processes the real inner
       // frame at the far end, where MACsec would have decrypted it).
-      const macsec = !!wireLink && t.frame.payload.type !== "dot11" && t.frame.payload.type !== "dot1x" && t.frame.payload.type !== "bpdu" && macsecState(wireLink) === "secured";
+      const macsec = !!wireLink && !isControlFrame(t.frame) && macsecState(wireLink) === "secured";
       // A strictly increasing capture number — derived from the last entry, not
       // the array length, so it stays unique after the 1000-entry cap shifts
       // older rows out (the packet list keys row clicks + selection on it).
@@ -999,8 +999,6 @@ function handleDot11(device: Device, frame: EthernetFrame, fromDeviceId: string 
 
 // ─── 802.1X port authentication ──────────────────────────────────────────────
 
-const PAE_GROUP_MAC = "01:80:C2:00:00:03"; // the real 802.1X PAE group address
-
 // The RADIUS server directly attached to an authenticator switch (the demo keeps
 // the back-end adjacent; real RADIUS would route over IP).
 function radiusServerFor(sw: Device): Device | null {
@@ -1051,8 +1049,12 @@ function supplicantByIdentity(sw: Device, identity: string): { host: Device; lin
 function handleDot1x(device: Device, frame: EthernetFrame, fromDeviceId: string | null): OutgoingFrame[] {
   const p = frame.payload as Dot1xPayload;
   const identity = p.identity || "";
+  // Source replies from THIS device's own unicast MAC, never the frame's
+  // destination — an EAPOL frame is addressed TO the PAE group address, so
+  // echoing frame.dstMac put that multicast group address in the source MAC (R94).
+  const ownMac = device.config?.macAddress || deriveMac(device.id);
   const back = (subtype: Dot1xPayload["subtype"], id?: string) =>
-    fromDeviceId ? [{ frame: createDot1xFrame(frame.dstMac, frame.srcMac, subtype, id), toDeviceId: fromDeviceId }] : [];
+    fromDeviceId ? [{ frame: createDot1xFrame(ownMac, frame.srcMac, subtype, id), toDeviceId: fromDeviceId }] : [];
 
   switch (p.subtype) {
     case "eapol-start": { // authenticator: obey the port's control mode, then kick off the identity request
@@ -1102,7 +1104,7 @@ function handleDot1x(device: Device, frame: EthernetFrame, fromDeviceId: string 
       if (!sup) return [];
       sup.link.dot1xAuthorized = true;
       logStep(device, "sim-dot1x", `Access-Accept — authorising ${sup.host.name}`);
-      return [{ frame: createDot1xFrame(PAE_GROUP_MAC, sup.host.config?.macAddress || "", "eap-success", identity), toDeviceId: sup.host.id }];
+      return [{ frame: createDot1xFrame(ownMac, sup.host.config?.macAddress || "", "eap-success", identity), toDeviceId: sup.host.id }];
     }
     case "radius-reject": { // authenticator: keep the port closed
       const sup = supplicantByMac(device, p.supplicantMac) ?? supplicantByIdentity(device, identity);
@@ -1110,7 +1112,7 @@ function handleDot1x(device: Device, frame: EthernetFrame, fromDeviceId: string 
       sup.link.dot1xAuthorized = false;
       state.simulation.dot1xFailure = `RADIUS rejected "${identity}" — the identity or password ${sup.host.name} presents does not match a user on the server`;
       logStep(device, "sim-drop", `Access-Reject — ${sup.host.name} stays unauthorized`);
-      return [{ frame: createDot1xFrame(PAE_GROUP_MAC, sup.host.config?.macAddress || "", "eap-failure", identity), toDeviceId: sup.host.id }];
+      return [{ frame: createDot1xFrame(ownMac, sup.host.config?.macAddress || "", "eap-failure", identity), toDeviceId: sup.host.id }];
     }
     case "eap-success": // supplicant: authenticated
       state.simulation.dot1xAuthorized = true;
@@ -2180,11 +2182,20 @@ function noteArpDrop(frame: EthernetFrame, headedTo: Device | undefined, reason:
   (state.simulation.arpDrops[ip] ||= []).push({ reason, atOwner: !!headedTo && ownsIp(headedTo, ip) });
 }
 
+// Link-layer control frames bypass the data gate (they key the auth/STP state
+// the gate reads). 802.1X EAPOL/EAP between supplicant and authenticator is such
+// control, but the RADIUS leg (switch↔server) models RADIUS/UDP — real data, so
+// it must face the gate (and a failed must-secure MACsec link) like any data (R94).
+function isControlFrame(frame: EthernetFrame): boolean {
+  const t = frame.payload.type;
+  if (t === "dot11" || t === "bpdu") return true;
+  if (t === "dot1x") return !(frame.payload as Dot1xPayload).subtype.startsWith("radius-");
+  return false;
+}
+
 function admitOnLink(device: Device, link: Link, frame: EthernetFrame): boolean {
   const sim = state.simulation;
-  const ptype = frame.payload.type;
-  const ctrl = ptype === "dot11" || ptype === "dot1x" || ptype === "bpdu";
-  const blocked = ctrl ? null : linkDataBlockReason(link);
+  const blocked = isControlFrame(frame) ? null : linkDataBlockReason(link);
   if (blocked) {
     logStep(device, "sim-drop", `${blocked} — ${frameLabel(frame)} dropped`);
     // A spanning-tree block never explains an unanswered ARP: the tree keeps

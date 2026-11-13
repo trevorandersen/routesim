@@ -79,6 +79,23 @@ describe("802.1X — port authentication", () => {
     expect(exec("run ping PC1 10.0.0.1").ok).toBe(false);
   });
 
+  it("802.1X frames never source from the PAE group (multicast) address (R94)", () => {
+    const pc = topology("secret123");
+    authenticate(pc);
+    const srcs = state.simulation.capture.map(c => c.frame.srcMac);
+    expect(srcs.length).toBeGreaterThan(0);
+    expect(srcs).not.toContain("01:80:C2:00:00:03");   // a source MAC is never a group address
+  });
+
+  it("a failed must-secure MACsec link blocks the RADIUS leg, so 802.1X can't authenticate (R94)", () => {
+    const pc = topology("secret123");
+    // Secure the switch↔RADIUS link in must mode with mismatched keys → macsecState "failed".
+    runConsoleScript("macsec SW RAD keyAAA must\nmacsec RAD SW keyBBB must");
+    authenticate(pc);
+    // RADIUS/UDP is data, so the failed encrypted link drops it — no Access-Accept, no auth.
+    expect(state.simulation.dot1xAuthorized).toBe(false);
+  });
+
   it("force-authorized (the default) and force-unauthorized gate without any exchange", () => {
     topology("secret123");
     const sw = byName("SW"), link = state.links.find(l => {

@@ -8529,7 +8529,7 @@ Full legal text: https://creativecommons.org/publicdomain/zero/1.0/legalcode</pr
     for (const t of completed) {
       if (!sim.headless && !t.silent) {
         const wireLink = linkById(t.linkId);
-        const macsec = !!wireLink && t.frame.payload.type !== "dot11" && t.frame.payload.type !== "dot1x" && t.frame.payload.type !== "bpdu" && macsecState(wireLink) === "secured";
+        const macsec = !!wireLink && !isControlFrame(t.frame) && macsecState(wireLink) === "secured";
         const lastNo = sim.capture.length ? sim.capture[sim.capture.length - 1].no : 0;
         sim.capture.push({
           no: lastNo + 1,
@@ -8745,7 +8745,6 @@ Full legal text: https://creativecommons.org/publicdomain/zero/1.0/legalcode</pr
     }
     return [];
   }
-  var PAE_GROUP_MAC = "01:80:C2:00:00:03";
   function radiusServerFor(sw) {
     for (const link of linksFor(sw.id)) {
       if (!isPhysicalLink(link) || link.shutdown) continue;
@@ -8776,7 +8775,8 @@ Full legal text: https://creativecommons.org/publicdomain/zero/1.0/legalcode</pr
   function handleDot1x(device, frame, fromDeviceId) {
     const p = frame.payload;
     const identity = p.identity || "";
-    const back2 = (subtype, id) => fromDeviceId ? [{ frame: createDot1xFrame(frame.dstMac, frame.srcMac, subtype, id), toDeviceId: fromDeviceId }] : [];
+    const ownMac = device.config?.macAddress || deriveMac(device.id);
+    const back2 = (subtype, id) => fromDeviceId ? [{ frame: createDot1xFrame(ownMac, frame.srcMac, subtype, id), toDeviceId: fromDeviceId }] : [];
     switch (p.subtype) {
       case "eapol-start": {
         const port = dot1xPortFacing(device, fromDeviceId);
@@ -8822,7 +8822,7 @@ Full legal text: https://creativecommons.org/publicdomain/zero/1.0/legalcode</pr
         if (!sup) return [];
         sup.link.dot1xAuthorized = true;
         logStep(device, "sim-dot1x", `Access-Accept \u2014 authorising ${sup.host.name}`);
-        return [{ frame: createDot1xFrame(PAE_GROUP_MAC, sup.host.config?.macAddress || "", "eap-success", identity), toDeviceId: sup.host.id }];
+        return [{ frame: createDot1xFrame(ownMac, sup.host.config?.macAddress || "", "eap-success", identity), toDeviceId: sup.host.id }];
       }
       case "radius-reject": {
         const sup = supplicantByMac(device, p.supplicantMac) ?? supplicantByIdentity(device, identity);
@@ -8830,7 +8830,7 @@ Full legal text: https://creativecommons.org/publicdomain/zero/1.0/legalcode</pr
         sup.link.dot1xAuthorized = false;
         state.simulation.dot1xFailure = `RADIUS rejected "${identity}" \u2014 the identity or password ${sup.host.name} presents does not match a user on the server`;
         logStep(device, "sim-drop", `Access-Reject \u2014 ${sup.host.name} stays unauthorized`);
-        return [{ frame: createDot1xFrame(PAE_GROUP_MAC, sup.host.config?.macAddress || "", "eap-failure", identity), toDeviceId: sup.host.id }];
+        return [{ frame: createDot1xFrame(ownMac, sup.host.config?.macAddress || "", "eap-failure", identity), toDeviceId: sup.host.id }];
       }
       case "eap-success":
         state.simulation.dot1xAuthorized = true;
@@ -9666,11 +9666,15 @@ Full legal text: https://creativecommons.org/publicdomain/zero/1.0/legalcode</pr
     const ip = arp.operation === "request" ? arp.targetIp : arp.senderIp;
     (state.simulation.arpDrops[ip] ||= []).push({ reason, atOwner: !!headedTo && ownsIp(headedTo, ip) });
   }
+  function isControlFrame(frame) {
+    const t = frame.payload.type;
+    if (t === "dot11" || t === "bpdu") return true;
+    if (t === "dot1x") return !frame.payload.subtype.startsWith("radius-");
+    return false;
+  }
   function admitOnLink(device, link, frame) {
     const sim = state.simulation;
-    const ptype = frame.payload.type;
-    const ctrl = ptype === "dot11" || ptype === "dot1x" || ptype === "bpdu";
-    const blocked = ctrl ? null : linkDataBlockReason(link);
+    const blocked = isControlFrame(frame) ? null : linkDataBlockReason(link);
     if (blocked) {
       logStep(device, "sim-drop", `${blocked} \u2014 ${frameLabel(frame)} dropped`);
       if (!link.stpBlocked) noteArpDrop(frame, linkPeer(device, link), blocked);

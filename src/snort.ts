@@ -13,12 +13,13 @@
  *   dir     — -> | <>  (<> matches either orientation)
  * Supported options: msg, sid, rev, gid, priority, itype (ICMP type),
  *   flags (TCP flag letters S/A/F/R; exact by default,
- *   `+` = these plus any others, `*` = any of these), content (substring, matched against a DNS
- *   query name — the one payload "content" the frame model carries).
+ *   `+` = these plus any others, `*` = any of these), content (substring, matched
+ *   against the frame's content buffer: a DNS query name, or an HTTP request line
+ *   (method/path/Host) or response (status/title)).
  *
  * Out of scope (documented): pcre, byte_test, flow, thresholds, rule variables.
  */
-import type { EthernetFrame, Ipv4Payload } from "./types";
+import type { EthernetFrame, Ipv4Payload, HttpInfo } from "./types";
 import { cidrContains, isValidIpv4 } from "./utils";
 
 export interface SnortRule {
@@ -38,7 +39,7 @@ export interface SnortRule {
   itype?: number;
   flags?: string;          // required TCP flag letters, e.g. "S" or "SA"
   flagsMode?: "exact" | "+" | "*";   // Snort: `S` = exactly these bits, `S+` = these plus any, `S*` = any of these
-  content?: string;        // substring to find in a DNS query name
+  content?: string;        // substring to find in the content buffer (a DNS query name or HTTP request/response)
 }
 
 const HEADER_RE = /^\s*(\w+)\s+(\w+)\s+(\S+)\s+(\S+)\s+(->|<>)\s+(\S+)\s+(\S+)\s*(?:\((.*)\)\s*)?$/;
@@ -165,10 +166,19 @@ interface FrameCtx {
   srcPort: number | null; dstPort: number | null;
   icmpType?: number;
   flags?: string;     // TCP flag letters present, e.g. "SA"
-  dnsName?: string;
+  content?: string;   // the buffer a `content:` option matches — a DNS query name or the HTTP request line / response
 }
 
 const TCP_FLAG_LETTERS: Record<string, string> = { "syn": "S", "syn-ack": "SA", "ack": "A", "rst": "R" };
+
+// The text a `content:` rule matches against an HTTP segment: the request line
+// plus Host for a GET, or the status and served title for a response. Optional
+// fields fall back to "" so no literal "undefined" leaks into the buffer.
+function httpContentBuffer(http: HttpInfo): string {
+  return http.kind === "request"
+    ? `${http.method ?? "GET"} ${http.path ?? ""} Host: ${http.host ?? ""}`
+    : `${http.status ?? ""} ${http.statusText ?? ""} ${http.title ?? ""}`;
+}
 
 function frameCtx(frame: EthernetFrame): FrameCtx | null {
   const p = frame.payload;
@@ -179,9 +189,9 @@ function frameCtx(frame: EthernetFrame): FrameCtx | null {
     proto: ipv4.protocol === 1 ? "icmp" : ipv4.protocol === 6 ? "tcp" : ipv4.protocol === 17 ? "udp" : "ip",
     srcIp: ipv4.srcIp, dstIp: ipv4.dstIp, srcPort: null, dstPort: null,
   };
-  if (inner.type === "tcp") { ctx.srcPort = inner.srcPort; ctx.dstPort = inner.dstPort; ctx.flags = TCP_FLAG_LETTERS[inner.flags] || ""; }
+  if (inner.type === "tcp") { ctx.srcPort = inner.srcPort; ctx.dstPort = inner.dstPort; ctx.flags = TCP_FLAG_LETTERS[inner.flags] || ""; if (inner.http) ctx.content = httpContentBuffer(inner.http); }
   else if (inner.type === "icmp") { ctx.icmpType = inner.icmpType; }
-  else if (inner.type === "dns") { ctx.srcPort = 53; ctx.dstPort = 53; ctx.dnsName = inner.name; }   // DNS over UDP/53
+  else if (inner.type === "dns") { ctx.srcPort = 53; ctx.dstPort = 53; ctx.content = inner.name; }   // DNS over UDP/53
   else if (inner.type === "dhcp") { ctx.srcPort = inner.messageType === "offer" || inner.messageType === "ack" ? 67 : 68; ctx.dstPort = inner.messageType === "offer" || inner.messageType === "ack" ? 68 : 67; }
   return ctx;
 }
@@ -231,7 +241,7 @@ function optionsMatch(rule: SnortRule, ctx: FrameCtx): boolean {
     if (mode === "+" && ![...want].every(f => have.includes(f))) return false;
     if (mode === "*" && ![...want].some(f => have.includes(f))) return false;
   }
-  if (rule.content && !(ctx.dnsName || "").toLowerCase().includes(rule.content.toLowerCase())) return false;
+  if (rule.content && !(ctx.content || "").toLowerCase().includes(rule.content.toLowerCase())) return false;
   return true;
 }
 

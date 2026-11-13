@@ -7577,6 +7577,9 @@ Full legal text: https://creativecommons.org/publicdomain/zero/1.0/legalcode</pr
     return rule;
   }
   var TCP_FLAG_LETTERS = { "syn": "S", "syn-ack": "SA", "ack": "A", "rst": "R" };
+  function httpContentBuffer(http) {
+    return http.kind === "request" ? `${http.method ?? "GET"} ${http.path ?? ""} Host: ${http.host ?? ""}` : `${http.status ?? ""} ${http.statusText ?? ""} ${http.title ?? ""}`;
+  }
   function frameCtx(frame) {
     const p = frame.payload;
     if (p.type !== "ipv4") return null;
@@ -7593,12 +7596,13 @@ Full legal text: https://creativecommons.org/publicdomain/zero/1.0/legalcode</pr
       ctx2.srcPort = inner.srcPort;
       ctx2.dstPort = inner.dstPort;
       ctx2.flags = TCP_FLAG_LETTERS[inner.flags] || "";
+      if (inner.http) ctx2.content = httpContentBuffer(inner.http);
     } else if (inner.type === "icmp") {
       ctx2.icmpType = inner.icmpType;
     } else if (inner.type === "dns") {
       ctx2.srcPort = 53;
       ctx2.dstPort = 53;
-      ctx2.dnsName = inner.name;
+      ctx2.content = inner.name;
     } else if (inner.type === "dhcp") {
       ctx2.srcPort = inner.messageType === "offer" || inner.messageType === "ack" ? 67 : 68;
       ctx2.dstPort = inner.messageType === "offer" || inner.messageType === "ack" ? 68 : 67;
@@ -7643,7 +7647,7 @@ Full legal text: https://creativecommons.org/publicdomain/zero/1.0/legalcode</pr
       if (mode === "+" && ![...want].every((f) => have.includes(f))) return false;
       if (mode === "*" && ![...want].some((f) => have.includes(f))) return false;
     }
-    if (rule.content && !(ctx2.dnsName || "").toLowerCase().includes(rule.content.toLowerCase())) return false;
+    if (rule.content && !(ctx2.content || "").toLowerCase().includes(rule.content.toLowerCase())) return false;
     return true;
   }
   function matchSnortRule(rule, frame) {

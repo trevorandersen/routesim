@@ -14,7 +14,7 @@ import { showIdsRules, addIdsRule, runIdsTerminalCommand } from "../src/terminal
 import { renderMirrorSection } from "../src/inspector";
 import { buildConfigPayload } from "../src/config";
 import { normaliseConfig } from "../src/normalise";
-import { createIcmpEchoRequest, createIcmpEchoReply, createTcpSegment, createArpRequest, createDnsQuery } from "../src/frame";
+import { createIcmpEchoRequest, createIcmpEchoReply, createTcpSegment, createArpRequest, createDnsQuery, createHttpRequest, createHttpResponse } from "../src/frame";
 import { registerNoopCallbacks, resetState } from "./helpers";
 import { freshNameCounters } from "../src/device-registry";
 
@@ -295,6 +295,33 @@ describe("snort — flags exactness, port specs, non-IP alerts (LOW sweep)", () 
     const r = rule("");
     expect(() => formatAlert(r, createArpRequest("02:00:00:00:00:01", "10.0.0.1", "10.0.0.2"))).not.toThrow();
     expect(formatAlert(r, createArpRequest("02:00:00:00:00:01", "10.0.0.1", "10.0.0.2"))).toContain("NON-IP");
+  });
+});
+
+describe("Snort content matches HTTP, not only DNS (R25)", () => {
+  const macA = "02:00:00:00:00:01", macB = "02:00:00:00:00:02";
+  const cRule = (content: string, ports = "any any -> any 80") => parseSnortRule(`alert tcp ${ports} (msg:"c"; content:"${content}"; sid:1;)`)!;
+
+  it("a content rule fires on an HTTP request's path and Host, not a bare SYN", () => {
+    const req = createHttpRequest(macA, macB, "10.0.0.1", "10.0.0.2", 40000, 80, "/admin", "srv.example");
+    expect(matchSnortRule(cRule("/admin"), req)).toBe(true);
+    expect(matchSnortRule(cRule("srv.example"), req)).toBe(true);
+    expect(matchSnortRule(cRule("/login"), req)).toBe(false);
+    const syn = createTcpSegment(macA, macB, "10.0.0.1", "10.0.0.2", 40000, 80, "syn", 64, null);
+    expect(matchSnortRule(cRule("/admin"), syn)).toBe(false);   // no HTTP content on a bare SYN
+  });
+
+  it("a content rule fires on an HTTP response's status text and served title", () => {
+    const resp = createHttpResponse(macB, macA, "10.0.0.2", "10.0.0.1", 80, 40000, 200, "OK", "Welcome");
+    expect(matchSnortRule(cRule("Welcome", "any 80 -> any any"), resp)).toBe(true);
+    expect(matchSnortRule(cRule("OK", "any 80 -> any any"), resp)).toBe(true);
+    expect(matchSnortRule(cRule("Forbidden", "any 80 -> any any"), resp)).toBe(false);
+  });
+
+  it("DNS-name content matching still works (regression on the content-buffer rename)", () => {
+    const q = createDnsQuery(macA, macB, "10.0.0.1", "10.0.0.2", "evil.example");
+    expect(matchSnortRule(parseSnortRule(`alert udp any any -> any 53 (msg:"d"; content:"evil"; sid:1;)`)!, q)).toBe(true);
+    expect(matchSnortRule(parseSnortRule(`alert udp any any -> any 53 (msg:"d"; content:"good"; sid:1;)`)!, q)).toBe(false);
   });
 });
 

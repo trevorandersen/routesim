@@ -19,6 +19,9 @@ export type SyncCallbacks = {
   // Redraw the dock chrome (tab strip, pane visibility) after showDock changes
   // it. Bridged so the engine can open the Sim Log without importing the dock.
   syncDock?: () => void;
+  // Bring the port-picker dialog in line with state.portSelection (closes it
+  // when the selection is gone). Bridged: state.ts cannot import the dialog.
+  syncPortPicker?: () => void;
 };
 
 // Available colour themes. The id is written to `<html data-theme>` and matched
@@ -729,6 +732,9 @@ export function restoreSnapshot(snapshot: string): void {
   state.selectedLinkId = null;
   state.drag = null;
   state.panDrag = null;
+  // A half-made cable belongs to the network that was just replaced.
+  state.portSelection = null;
+  sync().syncPortPicker?.();
   // The restored topology may not contain the devices/links the saved captures
   // reference — clear the capture archive so the packet list can't dangle.
   resetCaptureState();
@@ -765,9 +771,12 @@ function cancelActiveRun(): void {
 // is frozen while the tutorial is up; every caller (shortcut, ribbon, console)
 // goes through undo()/redo() and surfaces this reason.
 export function undoBlockReason(): string | null {
-  return state.tutorialActive
-    ? "Undo and redo are paused while the tutorial plays — exit the tutorial first; one Undo then brings your own network back."
-    : null;
+  if (state.tutorialActive) return "Undo and redo are paused while the tutorial plays — exit the tutorial first; one Undo then brings your own network back.";
+  // The port dialog holds the ids of the two devices it is about to cable. An
+  // undo behind it could remove one, and Confirm then made a cable to a device
+  // that no longer existed — a file that would not load again (review R31).
+  if (state.portSelection) return "Undo and redo are paused while the port dialog is open — choose the ports or cancel first.";
+  return null;
 }
 
 export function undo(): void {

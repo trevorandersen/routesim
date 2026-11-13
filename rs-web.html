@@ -4601,6 +4601,8 @@ Full legal text: https://creativecommons.org/publicdomain/zero/1.0/legalcode</pr
     state.selectedLinkId = null;
     state.drag = null;
     state.panDrag = null;
+    state.portSelection = null;
+    sync().syncPortPicker?.();
     resetCaptureState();
     linksChanged();
     sync().syncPanel();
@@ -4613,7 +4615,9 @@ Full legal text: https://creativecommons.org/publicdomain/zero/1.0/legalcode</pr
     if (state.simulation.status === "running" || state.simulation.status === "paused") sync().stopSimulation?.();
   }
   function undoBlockReason() {
-    return state.tutorialActive ? "Undo and redo are paused while the tutorial plays \u2014 exit the tutorial first; one Undo then brings your own network back." : null;
+    if (state.tutorialActive) return "Undo and redo are paused while the tutorial plays \u2014 exit the tutorial first; one Undo then brings your own network back.";
+    if (state.portSelection) return "Undo and redo are paused while the port dialog is open \u2014 choose the ports or cancel first.";
+    return null;
   }
   function undo() {
     if (undoBlockReason()) return;
@@ -15512,10 +15516,16 @@ Snort successfully validated the configuration${bad ? " (with errors)" : "."}`);
   }
   function syncPortSelectionModal() {
     const ps = state.portSelection;
-    if (!ps) return;
+    if (!ps) {
+      dom.portSelectionOverlay.classList.remove("open");
+      return;
+    }
     const fromDevice = getDevice(ps.fromId);
     const toDevice = getDevice(ps.toId);
-    if (!fromDevice || !toDevice) return;
+    if (!fromDevice || !toDevice) {
+      cancelPortSelection();
+      return;
+    }
     const columns = [];
     if (ps.showFromPicker) {
       columns.push(renderPortColumn(fromDevice.name, ps.fromPorts, ps.selectedFrom, "from"));
@@ -17114,15 +17124,13 @@ Snort successfully validated the configuration${bad ? " (with errors)" : "."}`);
       }
       return;
     }
-    if (!inField && (event.metaKey || event.ctrlKey) && event.key.toLowerCase() === "z") {
+    const undoKey = !inField && (event.metaKey || event.ctrlKey) && ["z", "y"].includes(event.key.toLowerCase());
+    if (undoKey) {
       event.preventDefault();
-      if (event.shiftKey) redo();
+      const paused2 = undoBlockReason();
+      if (paused2) dom.modeLabel.textContent = paused2;
+      else if (event.key.toLowerCase() === "y" || event.shiftKey) redo();
       else undo();
-      return;
-    }
-    if (!inField && (event.metaKey || event.ctrlKey) && event.key.toLowerCase() === "y") {
-      event.preventDefault();
-      redo();
       return;
     }
     if (event.key === "Escape") {
@@ -17840,6 +17848,8 @@ Snort successfully validated the configuration${bad ? " (with errors)" : "."}`);
     state.drag = null;
     state.panDrag = null;
     state.pointer = null;
+    state.portSelection = null;
+    syncPortSelectionModal();
     for (const type of DEVICE_TYPES) state.nameCounters[type] = nextDeviceNumber(type);
     resetCaptureState();
     state.activeScenarioId = null;
@@ -19845,7 +19855,8 @@ Snort successfully validated the configuration${bad ? " (with errors)" : "."}`);
     },
     syncSimLog,
     stopSimulation,
-    syncDock
+    syncDock,
+    syncPortPicker: syncPortSelectionModal
   });
   registerDeviceCallbacks({
     setTool,

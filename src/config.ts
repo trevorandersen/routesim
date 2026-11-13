@@ -18,6 +18,7 @@ import { syncPanel } from "./inspector";
 import { syncTerminal } from "./terminal";
 import { stopSimulation } from "./engine";
 import { setTool } from "./ui";
+import { syncPortSelectionModal } from "./port-picker";
 import { defaultConfig, vlanRoasConfig, routerMeshConfig, wifiVlanConfig } from "./state";
 
 export function buildConfigPayload(): SerialisedTopology {
@@ -257,6 +258,9 @@ export function applyConfigWithoutUndo(config: NormalisedConfig): void {
   state.drag = null;
   state.panDrag = null;
   state.pointer = null;
+  // A port dialog left open names devices of the network being replaced.
+  state.portSelection = null;
+  syncPortSelectionModal();
   // Recompute auto-name counters from the loaded devices for every type — a
   // loaded FW-2 must make the next firewall FW-3, not a duplicate FW-1.
   for (const type of DEVICE_TYPES) state.nameCounters[type] = nextDeviceNumber(type);

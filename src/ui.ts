@@ -277,14 +277,14 @@ export function handleGlobalKeydown(event: KeyboardEvent): void {
   }
   // Undo/redo — but NOT while typing in a field: there, Ctrl/Cmd+Z must drive
   // the browser's native text undo, not revert an unrelated topology change.
-  if (!inField && (event.metaKey || event.ctrlKey) && event.key.toLowerCase() === "z") {
+  const undoKey = !inField && (event.metaKey || event.ctrlKey) && ["z", "y"].includes(event.key.toLowerCase());
+  if (undoKey) {
     event.preventDefault();
-    if (event.shiftKey) redo(); else undo();
-    return;
-  }
-  if (!inField && (event.metaKey || event.ctrlKey) && event.key.toLowerCase() === "y") {
-    event.preventDefault();
-    redo();
+    // Paused (the port dialog is open): say why instead of doing nothing.
+    const paused = undoBlockReason();
+    if (paused) dom.modeLabel.textContent = paused;
+    else if (event.key.toLowerCase() === "y" || event.shiftKey) redo();
+    else undo();
     return;
   }
   // Escape is handled before the input guard so it also works while a field

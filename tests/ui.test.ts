@@ -3,8 +3,13 @@
  * setupUI() so the shortcut/Escape logic can be unit-tested by passing plain
  * event-shaped objects.
  */
-import { describe, it, expect, beforeAll, beforeEach } from "bun:test";
-import { state, THEMES, DEFAULT_THEME, undo as undoState, redo as redoState } from "../src/state";
+import { describe, it, expect, beforeAll, beforeEach, afterAll } from "bun:test";
+import { state, THEMES, DEFAULT_THEME, undo as undoState, redo as redoState, restoreSnapshot, networkSnapshot } from "../src/state";
+import { dom } from "../src/dom";
+import { openPortSelectionModal, confirmPortSelection, cancelPortSelection, syncPortSelectionModal } from "../src/port-picker";
+import { addLink } from "../src/devices";
+import { applyConfigWithoutUndo, buildConfigPayload } from "../src/config";
+import { normaliseConfig } from "../src/normalise";
 import { handleGlobalKeydown, setTheme, toggleTheme } from "../src/ui";
 import { runConsoleCommand as exec } from "../src/commands";
 import { registerNoopCallbacks, resetState } from "./helpers";
@@ -151,6 +156,92 @@ describe("handleGlobalKeydown — modifier keys and open dialogs (R44)", () => {
     }
     handleGlobalKeydown(key("Delete"));                       // with nothing open it deletes again
     expect(state.devices).toHaveLength(0);
+  });
+});
+
+// R31: with the port dialog open, Ctrl+Z could remove one of the two devices it
+// was about to cable; Confirm then made a link to a device that no longer
+// existed, and the saved file was rejected ("Link 1 references a missing device").
+describe("the port dialog pauses undo and never outlives its devices (R31)", () => {
+  beforeEach(() => {
+    resetState();
+    registerNoopCallbacks({ syncPortPicker: syncPortSelectionModal });
+    exec("add switch SW1 at 100 100");
+    exec("add switch SW2 at 300 100");
+  });
+  afterAll(() => registerNoopCallbacks());
+
+  const ids = () => state.devices.map(d => d.id);
+  const openDialog = () => {
+    const [a, b] = ids();
+    openPortSelectionModal(a, b);
+    state.portSelection!.selectedFrom = 2;
+    state.portSelection!.selectedTo = 3;
+  };
+  const chord = (k: string, extra: any = {}) => ({ key: k, target: {}, ctrlKey: true, preventDefault() {}, ...extra } as any);
+
+  it("Ctrl+Z, Ctrl+Y and Ctrl+Shift+Z do nothing but say why", () => {
+    openDialog();
+    const before = { devices: state.devices.length, undo: state.undoStack.length, redo: state.redoStack.length };
+    for (const event of [chord("z"), chord("y"), chord("Z", { shiftKey: true })]) {
+      dom.modeLabel.textContent = "";
+      handleGlobalKeydown(event);
+      expect(dom.modeLabel.textContent).toContain("paused while the port dialog is open");
+    }
+    expect({ devices: state.devices.length, undo: state.undoStack.length, redo: state.redoStack.length }).toEqual(before);
+    expect(state.portSelection).not.toBeNull();
+  });
+
+  it("the console's undo and redo are refused the same way, and Delete is ignored", () => {
+    openDialog();
+    state.selectedId = ids()[1];
+    expect(exec("undo").ok).toBe(false);
+    expect(exec("undo").output.join(" ")).toContain("port dialog is open");
+    expect(exec("redo").ok).toBe(false);
+    handleGlobalKeydown(key("Delete"));
+    expect(state.devices).toHaveLength(2);
+  });
+
+  it("confirming after the attempts makes a cable between two devices that exist — and the save loads", () => {
+    openDialog();
+    handleGlobalKeydown(chord("z"));
+    handleGlobalKeydown(key("Delete"));
+    confirmPortSelection();
+    expect(state.links).toHaveLength(1);
+    expect(state.links.every(l => ids().includes(l.from) && ids().includes(l.to))).toBe(true);
+    expect(() => normaliseConfig(JSON.parse(JSON.stringify(buildConfigPayload())))).not.toThrow();
+  });
+
+  it("once the dialog is closed, undo works again", () => {
+    openDialog();
+    cancelPortSelection();
+    handleGlobalKeydown(chord("z"));
+    expect(state.devices).toHaveLength(1);
+  });
+
+  it("a restore or a load takes the dialog down with the network it belonged to", () => {
+    const overlay = document.getElementById("portSelectionOverlay")!;
+    openDialog();
+    expect(overlay.classList.contains("open")).toBe(true);
+    restoreSnapshot(networkSnapshot());
+    expect(state.portSelection).toBeNull();
+    expect(overlay.classList.contains("open")).toBe(false);
+
+    openDialog();
+    applyConfigWithoutUndo(normaliseConfig(buildConfigPayload()));
+    expect(state.portSelection).toBeNull();
+    expect(overlay.classList.contains("open")).toBe(false);
+  });
+
+  it("a dialog whose device has gone closes itself; addLink refuses a missing end", () => {
+    openDialog();
+    const [a, b] = ids();
+    state.devices = state.devices.filter(d => d.id !== b);
+    syncPortSelectionModal();
+    expect(state.portSelection).toBeNull();
+    const result = addLink(a, b, 2, 3);
+    expect(result.ok).toBe(false);
+    expect(state.links).toHaveLength(0);
   });
 });
 

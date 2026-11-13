@@ -13,6 +13,7 @@ import { setupTutorial } from "./tutorial";
 import { runConsoleCommand, runConsoleScript, exportTopologyScript } from "./commands";
 import { stopSimulation } from "./engine";
 import { syncSimLog } from "./simlog-view";
+import { syncPortSelectionModal } from "./port-picker";
 import { parseSettingsFromUrl, buildSettingsQuery } from "./settings-url";
 import { diagnoseRuntimeState } from "./diagnostics";
 import * as io from "./io";
@@ -32,6 +33,7 @@ registerCallbacks({
   syncSimLog,
   stopSimulation,
   syncDock,
+  syncPortPicker: syncPortSelectionModal,
 });
 
 // Register UI callbacks that devices.ts needs without circular imports.

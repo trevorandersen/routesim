@@ -52,11 +52,15 @@ export function openPortSelectionModal(fromId: string, toId: string): void {
 
 export function syncPortSelectionModal(): void {
   const ps = state.portSelection;
-  if (!ps) return;
+  // No selection, no dialog: a restore or a load clears the selection and
+  // calls this to take the dialog down with it.
+  if (!ps) { dom.portSelectionOverlay.classList.remove("open"); return; }
 
   const fromDevice = getDevice(ps.fromId);
   const toDevice = getDevice(ps.toId);
-  if (!fromDevice || !toDevice) return;
+  // An end that no longer exists cannot be cabled — close rather than leave a
+  // dialog whose Confirm stays armed with the last ports picked.
+  if (!fromDevice || !toDevice) { cancelPortSelection(); return; }
 
   const columns: string[] = [];
 

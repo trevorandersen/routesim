@@ -38,7 +38,7 @@ Almost every module imports `state`. Mutations are made directly on `state.*`; t
 
 ## Undo can be refused: `undoBlockReason()`
 
-`undo()` and `redo()` return without acting while `undoBlockReason()` is non-null. Today the one cause is the tutorial (`state.tutorialActive`): its single undo snapshot is the only copy of the learner's network, so the stack is frozen until it exits (see [tutorial.md](tutorial.md)). Callers that report to the user — the console's `undo`/`redo`, the keyboard shortcut — ask for the reason and show it rather than failing silently.
+`undo()` and `redo()` return without acting while `undoBlockReason()` is non-null. There are two causes. The tutorial (`state.tutorialActive`): its single undo snapshot is the only copy of the learner's network, so the stack is frozen until it exits (see [tutorial.md](tutorial.md)). And an open **port dialog** (`state.portSelection`): it holds the ids of the two devices it is about to cable, and an undo behind it could remove one — Confirm then made a cable to a device that no longer existed, and the saved file was rejected on load ("Link 1 references a missing device", review R31). `restoreSnapshot` also clears `state.portSelection` and calls the optional `syncPortPicker` callback, so a restore reached any other way takes the dialog down with the network it belonged to (`applyConfigWithoutUndo` does the same for a load). Callers that report to the user — the console's `undo`/`redo`, the keyboard shortcut — ask for the reason and show it rather than failing silently.
 
 ## Lifecycle: an active run is torn down before the topology is replaced
 

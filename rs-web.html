@@ -3588,10 +3588,15 @@ Full legal text: https://creativecommons.org/publicdomain/zero/1.0/legalcode</pr
   }
   function normaliseRouterInterfaces(entries, routerId) {
     if (!Array.isArray(entries)) return [];
+    const taken = /* @__PURE__ */ new Set();
+    for (const raw of entries) {
+      const supplied = normaliseMacAddress(asObject(raw).macAddress || "");
+      if (isValidMac(supplied)) taken.add(supplied);
+    }
     return entries.map((raw, index) => {
       const entry = asObject(raw);
       const suppliedMac = normaliseMacAddress(entry.macAddress || "");
-      const macAddress = isValidMac(suppliedMac) ? suppliedMac : generateRouterIfaceMac(routerId || "", index);
+      const macAddress = isValidMac(suppliedMac) ? suppliedMac : freeRouterIfaceMac(routerId || "", index, taken);
       return {
         peerId: String(entry.peerId || entry.peer || entry.linkedDeviceId || "").trim(),
         type: entry.type === "serial" ? "serial" : "ethernet",
@@ -3632,6 +3637,12 @@ Full legal text: https://creativecommons.org/publicdomain/zero/1.0/legalcode</pr
     const validPort = (p) => Number.isInteger(p) && p >= 1 && p <= 65535;
     return forwards.filter((r) => r && isValidIpv4(String(r.outsideIp)) && isValidIpv4(String(r.insideIp)) && validPort(Number(r.outsidePort)) && validPort(Number(r.insidePort))).map((r) => ({ proto: "tcp", outsideIp: String(r.outsideIp).trim(), outsidePort: Number(r.outsidePort), insideIp: String(r.insideIp).trim(), insidePort: Number(r.insidePort) }));
   }
+  function freeRouterIfaceMac(routerId, index, taken) {
+    let mac = generateRouterIfaceMac(routerId, index);
+    for (let ordinal = 0; taken.has(mac) && ordinal < 255; ordinal++) mac = generateRouterIfaceMac(routerId, ordinal);
+    taken.add(mac);
+    return mac;
+  }
   function generateRouterIfaceMac(routerId, ifaceIndex) {
     let hash = 0;
     for (let i = 0; i < routerId.length; i++) {
@@ -3640,7 +3651,7 @@ Full legal text: https://creativecommons.org/publicdomain/zero/1.0/legalcode</pr
     const h = hash >>> 0;
     const b = (shift) => (h >>> shift & 255).toString(16).padStart(2, "0");
     const ii = ((ifaceIndex + 1) % 256).toString(16).padStart(2, "0");
-    return `02:${b(0)}:${b(8)}:${b(16)}:${ii}:01`;
+    return `02:${b(0)}:${b(8)}:${b(16)}:${ii}:01`.toUpperCase();
   }
   var FIREWALL_TARGETS = /* @__PURE__ */ new Set(["accept", "drop", "reject"]);
   var FIREWALL_PROTOCOLS = /* @__PURE__ */ new Set(["icmp", "udp", "tcp", "all"]);

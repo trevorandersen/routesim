@@ -495,3 +495,43 @@ describe("normalise — LOW sweep", () => {
     expect(cfg.links[0].wireless).toBe(true);
   });
 });
+
+// R77: the generated MAC's ordinal was the entry's array index alone. A reload
+// compacts the array (empty entries are dropped), so a new interface could be
+// given the ordinal a kept interface was created with — two interfaces of one
+// router with the same MAC, one stored upper-case and one generated lower-case.
+describe("router interface MACs stay unique after the array is compacted (R77)", () => {
+  const macs = (ifaces: any[]) => ifaces.map(i => i.macAddress);
+
+  it("a new interface never repeats a MAC a kept interface already carries", () => {
+    // Three interfaces as first built: ordinals 1, 2, 3.
+    const built = normaliseRouterInterfaces([{ peerId: "a" }, { peerId: "" }, { peerId: "c" }], "rtr-1");
+    expect(built.map(i => i.peerId)).toEqual(["a", "c"]);            // the empty middle entry is dropped
+    const kept = built.map(i => ({ ...i }));                          // "c" keeps the MAC with ordinal 3
+    // A reload, then a new cable: the new entry lands at index 2 — ordinal 3 again.
+    const after = normaliseRouterInterfaces([...kept, { peerId: "d" }], "rtr-1");
+    expect(new Set(macs(after)).size).toBe(3);
+    expect(macs(after).slice(0, 2)).toEqual(macs(kept));              // kept MACs are untouched
+  });
+
+  it("generated MACs are upper-case, like every stored MAC", () => {
+    const result = normaliseRouterInterfaces([{ peerId: "a" }, { peerId: "b" }], "router-with-letters-abcdef");
+    for (const mac of macs(result)) expect(mac).toBe(mac.toUpperCase());
+    expect(macs(result).every(m => /^02(:[0-9A-F]{2}){5}$/.test(m))).toBe(true);
+  });
+
+  it("a supplied lower-case MAC is recognised as taken", () => {
+    const first = normaliseRouterInterfaces([{ peerId: "a" }, { peerId: "b" }], "rtr-1");
+    const lower = first[1].macAddress.toLowerCase();
+    // Entry 0 has lost its MAC; entry 1 still carries its own, typed in lower case.
+    const result = normaliseRouterInterfaces([{ peerId: "x" }, { peerId: "b", macAddress: lower }, { peerId: "y" }], "rtr-1");
+    expect(new Set(macs(result)).size).toBe(3);
+    expect(result[1].macAddress).toBe(first[1].macAddress);
+  });
+
+  it("a freshly built router still numbers its interfaces in order", () => {
+    const result = normaliseRouterInterfaces([{ peerId: "a" }, { peerId: "b" }, { peerId: "c" }], "rtr-1");
+    expect(macs(result).map(m => m.split(":")[4])).toEqual(["01", "02", "03"]);
+    expect(normaliseRouterInterfaces(result, "rtr-1").map(i => i.macAddress)).toEqual(macs(result));   // stable on re-normalise
+  });
+});

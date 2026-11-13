@@ -124,7 +124,7 @@ fixed enums may be interpolated raw.
 | `terminal/` | Per-device CLIs, one module per NOS — Linux host, dnsmasq server, FRRouting router, SONiC switch, iptables firewall — plus the dock/session UI in `core.ts`; public API re-exported via `terminal/index.ts`. See `docs/src/terminal.md` and `docs/src/dns.md`. |
 | `inspector.ts` | Right panel: device config, link name/history/Delete link, the frame breakdown. See `docs/src/inspector.md`. |
 | `devices.ts` | Device/link CRUD (single-NIC host guard), hit testing, lazy lookup indexes, LAN collapse/expand, device-callback bridge. See `docs/src/devices.md`. |
-| `normalise.ts` | Defensive normalisation for all config shapes; deterministic router MACs (`02:RR:HH:HH:II:01`, 24 hash bits + iface index). See `docs/src/normalise.md`. |
+| `normalise.ts` | Defensive normalisation for all config shapes; deterministic router MACs (`02:RR:HH:HH:II:01`, 24 hash bits + an interface ordinal no other interface of the router uses, upper-case). See `docs/src/normalise.md`. |
 | `config.ts` | Topology serialise/apply + built-in topologies; persistence is JSON import/export only (no fetch/FSA). See `docs/src/config.md`. |
 | `io.ts` | JSON import/export (config/scenario/script/log), exposed on `window.routesim`. See `docs/scripting.md`. |
 | `settings-url.ts` | URL query-string settings (`parseSettingsFromUrl` applied in `app.ts` on load; `buildSettingsQuery` inverse). One-row registry to add a setting. See `docs/src/settings-url.md`. |

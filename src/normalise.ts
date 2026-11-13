@@ -116,13 +116,25 @@ export function normaliseTrunkAllowedVlans(allowed: unknown): Record<string, num
 
 export function normaliseRouterInterfaces(entries: unknown, routerId?: string): RouterInterface[] {
   if (!Array.isArray(entries)) return [];
+  // The MACs the entries already carry are kept; an entry without one gets a
+  // generated MAC that none of them — and no earlier generated one — uses. The
+  // ordinal used to be the entry's array index, alone: once a reload had
+  // compacted the array (empty entries are dropped below), a new interface's
+  // index could repeat the ordinal a kept interface was created with, and one
+  // router presented the same MAC on two interfaces — one stored upper-case,
+  // the other generated lower-case, so they did not even look alike.
+  const taken = new Set<string>();
+  for (const raw of entries) {
+    const supplied = normaliseMacAddress(asObject(raw).macAddress || "");
+    if (isValidMac(supplied)) taken.add(supplied);
+  }
   return entries.map((raw, index) => {
     const entry = asObject(raw);
     // Normalise a supplied MAC (upper-case, ":"-separated) and fall back to the
     // deterministic one if it's missing or malformed — matching how host MACs are
     // handled, rather than storing whatever the import provided verbatim.
     const suppliedMac = normaliseMacAddress(entry.macAddress || "");
-    const macAddress = isValidMac(suppliedMac) ? suppliedMac : generateRouterIfaceMac(routerId || "", index);
+    const macAddress = isValidMac(suppliedMac) ? suppliedMac : freeRouterIfaceMac(routerId || "", index, taken);
     return {
       peerId: String(entry.peerId || entry.peer || entry.linkedDeviceId || "").trim(),
       type: (entry.type === "serial" ? "serial" : "ethernet") as "serial" | "ethernet",
@@ -173,6 +185,16 @@ export function normalisePortForwards(forwards: unknown): { proto: "tcp"; outsid
     .map(r => ({ proto: "tcp" as const, outsideIp: String(r.outsideIp).trim(), outsidePort: Number(r.outsidePort), insideIp: String(r.insideIp).trim(), insidePort: Number(r.insidePort) }));
 }
 
+// The generated MAC for an interface with none: the one its array position
+// names when that is free (so a freshly built router numbers 1, 2, 3 … as
+// before), otherwise the lowest ordinal no interface of this router uses.
+function freeRouterIfaceMac(routerId: string, index: number, taken: Set<string>): string {
+  let mac = generateRouterIfaceMac(routerId, index);
+  for (let ordinal = 0; taken.has(mac) && ordinal < 255; ordinal++) mac = generateRouterIfaceMac(routerId, ordinal);
+  taken.add(mac);
+  return mac;
+}
+
 function generateRouterIfaceMac(routerId: string, ifaceIndex: number): string {
   // Deterministic MAC from a hash of the router id + interface index. Folds 24
   // bits of the hash into octets 2–4 (02:RR:HH:HH:II:01) so two router ids no
@@ -184,7 +206,7 @@ function generateRouterIfaceMac(routerId: string, ifaceIndex: number): string {
   const h = hash >>> 0;
   const b = (shift: number) => ((h >>> shift) & 0xff).toString(16).padStart(2, "0");
   const ii = ((ifaceIndex + 1) % 256).toString(16).padStart(2, "0");
-  return `02:${b(0)}:${b(8)}:${b(16)}:${ii}:01`;
+  return `02:${b(0)}:${b(8)}:${b(16)}:${ii}:01`.toUpperCase();   // as every stored MAC is written
 }
 
 const FIREWALL_TARGETS = new Set(["accept", "drop", "reject"]);

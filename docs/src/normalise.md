@@ -7,7 +7,7 @@ Defensive normalisation for every config shape. Whenever config enters the app f
 ### Field normalisers
 - **`normaliseArpTable`, `normaliseDhcpLeases`, `normaliseMacTable`** — coerce table entries to the canonical shape.
 - **`normaliseVlans`, `normalisePortVlans`, `normalisePortModes`, `normaliseTrunkAllowedVlans`** — switch VLAN data.
-- **`normaliseRouterInterfaces`** — router interfaces; a supplied MAC is upper-cased/validated (falling back to the generated one if malformed), and interfaces that lack one get an **auto-generated deterministic MAC** (`02:RR:HH:HH:II:01` — 24 bits of the router-id hash plus the interface index, so distinct router ids don't collide).
+- **`normaliseRouterInterfaces`** — router interfaces; a supplied MAC is upper-cased/validated (falling back to the generated one if malformed), and interfaces that lack one get an **auto-generated deterministic MAC** (`02:RR:HH:HH:II:01` — 24 bits of the router-id hash plus the interface index, so distinct router ids don't collide). **Generated MACs never collide within a router and are upper-case**: the MACs the entries already carry are collected first, and an entry without one takes its array position's ordinal when that MAC is free, else the lowest ordinal nothing uses (`freeRouterIfaceMac`). The ordinal used to be the array index alone, so after a reload had compacted the array a new interface could repeat a kept interface's MAC — one stored upper-case, the other generated lower-case (review R77).
 - **`normaliseRipConfig`, `normaliseStaticRoutes`** — router routing config.
 
 ### Whole-config normalisers

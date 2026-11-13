@@ -4945,7 +4945,7 @@ Full legal text: https://creativecommons.org/publicdomain/zero/1.0/legalcode</pr
         return link.dot1xAuthorized ? "secured" : mustEither ? "failed" : "open";
       if (aCfg.derive || bCfg.derive)
         return mustEither ? "failed" : "open";
-      return aCfg.cak === bCfg.cak ? "secured" : "failed";
+      return aCfg.cak === bCfg.cak ? "secured" : mustEither ? "failed" : "open";
     }
     const cfg = aCfg || bCfg;
     return cfg.mode === "must" ? "failed" : "open";

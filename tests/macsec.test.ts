@@ -60,6 +60,19 @@ describe("MACsec — 802.1AE link encryption", () => {
     expect(exec("run ping PC1 10.0.0.2").ok).toBe(false);
   });
 
+  it("a should-secure CAK mismatch falls back to plaintext; must-secure fails it (R47)", () => {
+    const { pc1, sw } = topology();
+    // Both ends key MACsec with a static CAK but the keys differ, and neither is
+    // must-secure (the default): should-secure carries plaintext, not a dead link.
+    runConsoleScript("macsec PC1 SW keyAAA should\nmacsec SW PC1 keyBBB should");
+    expect(macsecState(linkOf(pc1, sw))).toBe("open");
+    expect(exec("run ping PC1 10.0.0.2").ok).toBe(true);
+    // Flip either end to must-secure and the same mismatch now fails the link.
+    runConsoleScript("macsec SW PC1 keyBBB must");
+    expect(macsecState(linkOf(pc1, sw))).toBe("failed");
+    expect(exec("run ping PC1 10.0.0.2").ok).toBe(false);
+  });
+
   it("should-secure falls back to plaintext against a bare peer; must-secure does not", () => {
     const { pc1, sw } = topology();
     runConsoleScript("macsec PC1 SW keyX should"); // only PC1 configured

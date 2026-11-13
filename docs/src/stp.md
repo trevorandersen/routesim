@@ -24,7 +24,7 @@ Each port gets `{ role: "root" | "designated" | "alternate", state: "forwarding"
 
 ## How the block takes effect
 
-`link.stpBlocked` is folded into **`linkAuthorizedForData(link)`** ([devices.ts](devices.md)) alongside the WiFi / 802.1X / MACsec gates, so all three data-path chokepoints (`l2Reachable`, `findFirstHop`, the engine transit step) drop data on a blocked link with no extra wiring. BPDUs (and the other control frames) bypass it — see [engine.md](engine.md).
+`link.stpBlocked` is folded into **`linkAuthorizedForData(link)`** ([devices.ts](devices.md)) alongside the WiFi / 802.1X / MACsec gates, so both frame-path chokepoints (`findFirstHop` for a run's first hop, the engine transit step for every later one) drop data on a blocked link with no extra wiring, and `l2Reachable`, the L2 path query behind RIP's neighbour discovery, routes around it. BPDUs (and the other control frames) bypass it — see [engine.md](engine.md).
 
 ## Simplifications (documented teaching scope)
 

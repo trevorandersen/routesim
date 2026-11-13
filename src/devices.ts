@@ -366,8 +366,9 @@ function dot1xNextStep(peer: Device): string {
 }
 
 // Why this link drops DATA frames right now, in the learner's words — or null
-// when it carries data. The single data-path gate, behind all three chokepoints
-// (l2Reachable / findFirstHop / the engine transit step), so a drop names its
+// when it carries data. The single data-path gate, behind both frame-path
+// chokepoints (findFirstHop / the engine transit step) and the l2Reachable
+// path query RIP's neighbour discovery uses, so a drop names its
 // real cause instead of "no link": an administratively down cable, a
 // spanning-tree alternate port (cut to break a loop), a WiFi association that
 // never authenticated, an unauthorized 802.1X port, or a MACsec link that could

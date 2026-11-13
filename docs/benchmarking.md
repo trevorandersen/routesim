@@ -43,7 +43,7 @@ The budget is still a **p99** — the gate didn't move to p50. Stated exactly, t
 | `bench: getDevice` | The lazy device index lookup at 5/50/100 devices |
 | `bench: linkedPortsFor` | Link adjacency + port resolution at several link counts |
 | `bench: connectedIds` | Neighbour lookup via the link index |
-| `bench: l2Reachable` | VLAN-aware BFS reachability (runs on every ping/DHCP validation) |
+| `bench: l2Reachable` | VLAN-aware BFS reachability — the L2 path query behind RIP's neighbour discovery across a shared segment (once per interface per convergence; no run builder calls it) |
 | `bench: render-path helpers` | `getVlanForDevice` and `isTrunkLink` — the memoised per-frame port-map reads the render loop runs once per host/link |
 | `bench: linkById` | The lazy by-id link index (replaces per-frame `state.links.find`) |
 | `bench: linkAuthorizedForData` | The data-path gate every transit runs (`linkDataBlockReason` through its boolean wrapper — the open-link path builds no reason string) — the common open port, and the worst 802.1X case (all 24 ports under port control, the link on the last, so the port-name resolution walks the whole list) |

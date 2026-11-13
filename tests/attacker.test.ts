@@ -45,6 +45,10 @@ describe("Red Team — port scan", () => {
     expect([...state.simulation.scanOpen].sort((a, b) => a - b)).toEqual([22, 80]);
     expect(state.simulation.scanClosed).toContain(23);   // telnet closed
     expect(state.simulation.scanClosed).toContain(443);
+    // R48: the report lists both open and closed ports.
+    const report = ((dev("RT1").config as any).attackLog || []).join("\n");
+    expect(report).toContain("22/tcp    open");
+    expect(report).toContain("23/tcp    closed");
   });
 
   it("the scan trips an IDS Telnet rule via the port-23 probe (red vs blue)", () => {
@@ -131,9 +135,13 @@ describe("Red Team — ping sweep + ARP spoof", () => {
     exec("link PC1 SW1");
 
     const setup = buildArpSpoofEvents(dev("RT1"), "10.0.0.1");   // impersonate the gateway
-    runSimulationHeadless(setup as any, dev("RT1").id, "", "attack");
+    const r = runSimulationHeadless(setup as any, dev("RT1").id, "", "attack");
     const poisoned = (dev("PC1").config.arpTable || []).find((e: any) => e.ipv4Address === "10.0.0.1");
     expect(poisoned?.macAddress).toBe(dev("RT1").config.macAddress);   // gateway now points at the attacker
+    // R48: the poison is now tallied, counts as success, and is reported.
+    expect(state.simulation.arpPoisoned).toContain("PC1");
+    expect(r.success).toBe(true);                                       // used to report failure
+    expect(((dev("RT1").config as any).attackLog || []).join("\n")).toContain("ARP cache poisoned on: PC1");
   });
 
   it("buildAttackEvents merges the enabled attacks; the attacker is a passive sink for replies (success flag)", () => {

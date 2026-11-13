@@ -190,7 +190,7 @@ function resetRunState(setup: PingSetup, originDeviceId: string, targetIp: strin
   sim.stormDetected = false;
   sim.diagnosis = [];
   sim.arpDrops = {};
-  sim.scanOpen = []; sim.scanClosed = []; sim.sweepLive = [];
+  sim.scanOpen = []; sim.scanClosed = []; sim.sweepLive = []; sim.arpPoisoned = [];
   sim.conntrack = {};   // connection tracking starts empty each run
   sim.dnatSessions = {};
   sim.lossNoted = new Set();
@@ -232,7 +232,7 @@ function runSucceeded(mode: SimMode): boolean {
     case "associate": return sim.wifiAssociated;
     case "dot1x": return sim.dot1xAuthorized;
     case "stp": return !sim.stormDetected;
-    case "attack": return sim.scanOpen.length > 0 || sim.sweepLive.length > 0;
+    case "attack": return sim.scanOpen.length > 0 || sim.sweepLive.length > 0 || sim.arpPoisoned.length > 0;
     case "ping": return sim.pingSuccess;
   }
 }
@@ -1161,6 +1161,7 @@ export function processAtComputer(device: Device, frame: EthernetFrame, fromDevi
     } else if (arp.operation === "reply") {
       // Learn sender
       learnArp(config, arp.senderIp, arp.senderMac);
+      recordArpPoison(device, arp);
       logStep(device, "sim-arp", `Received ARP Reply: ${arp.senderIp} is-at ${arp.senderMac}`);
 
       // Check if we have a pending ICMP to send
@@ -2009,6 +2010,7 @@ function handleRouterArp(device: Device, frame: EthernetFrame, ifaces: any[], in
       return outgoing;
     }
     learnRouterArp(ingressIface, arp.senderIp, arp.senderMac);
+    recordArpPoison(device, arp);
     logStep(device, "sim-arp", `Received ARP Reply on ${ifaceName(device, ingressIface)}: ${arp.senderIp} is-at ${arp.senderMac}`);
 
     // Check for buffered frames
@@ -2813,6 +2815,25 @@ function learnArp(config: any, ip: string, mac: string): void {
   }
 }
 
+// Count an ARP-cache poison towards the attack report. A spoof is a gratuitous
+// reply whose sender MAC is the attack origin's but whose sender IP is some
+// other host's; an honest reply's sender MAC and IP belong to the same device,
+// so this fires only on a spoof (review R48). Called at each ARP-reply learn
+// site (host and router), so a forward or reverse poison is both tallied.
+function recordArpPoison(victim: Device, arp: ArpPayload): void {
+  const sim = state.simulation;
+  if (sim.mode !== "attack") return;
+  const atk = getDevice(sim.originDeviceId);
+  if (!atk?.config || victim.id === atk.id) return;
+  const atkMac = normaliseMacAddress(atk.config.macAddress || "");
+  if (!atkMac || normaliseMacAddress(arp.senderMac) !== atkMac) return;
+  if (arp.senderIp === atk.config.ipv4Address) return;   // an honest self-announcement, not a poison
+  if (!sim.arpPoisoned.includes(victim.name)) {
+    sim.arpPoisoned.push(victim.name);
+    logStep(victim, "sim-attack", `ARP cache poisoned: ${arp.senderIp} is-at ${arp.senderMac}`);
+  }
+}
+
 // A link-layer group address (broadcast or multicast): the I/G bit — the least
 // significant bit of the first octet — is set.
 function isGroupMac(mac: string): boolean {
@@ -3098,9 +3119,15 @@ function finishSimulation(): void {
     // nmap-style report of what the Red Team run found; also stash it on the
     // attacker for the inspector.
     const open = [...sim.scanOpen].sort((a, b) => a - b);
+    const closed = [...sim.scanClosed].sort((a, b) => a - b);
     const lines: string[] = [];
-    if (open.length) { lines.push("PORT      STATE  SERVICE"); for (const p of open) lines.push(`${String(p + "/tcp").padEnd(10)}open   ${SERVICE_NAMES[p] || "unknown"}`); }
+    if (open.length || closed.length) {
+      lines.push("PORT      STATE  SERVICE");
+      for (const p of open) lines.push(`${String(p + "/tcp").padEnd(10)}open   ${SERVICE_NAMES[p] || "unknown"}`);
+      for (const p of closed) lines.push(`${String(p + "/tcp").padEnd(10)}closed ${SERVICE_NAMES[p] || "unknown"}`);
+    }
     if (sim.sweepLive.length) lines.push(`Hosts up: ${sim.sweepLive.length} (${[...sim.sweepLive].sort().join(", ")})`);
+    if (sim.arpPoisoned.length) lines.push(`ARP cache poisoned on: ${[...sim.arpPoisoned].sort().join(", ")}`);
     if (!lines.length) lines.push("No open ports or live hosts found (target unreachable, filtered, or no attack target set).");
     const origin = getDevice(sim.originDeviceId);
     if (origin?.config) (origin.config as any).attackLog = lines;

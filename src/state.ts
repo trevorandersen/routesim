@@ -125,6 +125,7 @@ export function freshSimulationState(): AppState["simulation"] {
     scanOpen: [],
     scanClosed: [],
     sweepLive: [],
+    arpPoisoned: [],
     conntrack: {},
     dnatSessions: {},
     loopTrace: new Set(),

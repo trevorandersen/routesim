@@ -786,6 +786,7 @@ export interface SimulationState {
   scanOpen: number[];
   scanClosed: number[];
   sweepLive: string[];
+  arpPoisoned: string[];   // names of devices whose ARP cache an arp-spoof run poisoned; reset each run
   // Netfilter connection tracking, per filtering device (firewall/router), reset
   // each run — drives stateful `-m state` rule matching. deviceId → flow entries.
   conntrack: Record<string, ConntrackEntry[]>;

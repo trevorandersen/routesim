@@ -115,6 +115,9 @@ describe("the poison lands in the right caches (headless run)", () => {
     runSimulationHeadless(setup as any, dev("KALI").id, "", "attack");
     expect(arp("VICTIM", "10.0.0.1")).toBe(dev("KALI").config!.macAddress);   // victim fooled
     expect(arp("BYSTANDER", "10.0.0.1")).not.toBe(dev("KALI").config!.macAddress);  // bystander untouched
+    // R48: only the poisoned victim is tallied for the report.
+    expect(state.simulation.arpPoisoned).toContain("VICTIM");
+    expect(state.simulation.arpPoisoned).not.toContain("BYSTANDER");
   });
 
   it("-r also poisons the gateway's entry for the victim", () => {
@@ -125,6 +128,8 @@ describe("the poison lands in the right caches (headless run)", () => {
     const rtrIface: any = (dev("RTR").config!.interfaces as any)[0];
     const learned = (rtrIface.arpTable || []).find((e: any) => e.ipv4Address === "10.0.0.9")?.macAddress;
     expect(learned).toBe(dev("KALI").config!.macAddress);
+    // R48: the reverse poison lands on the router (exercises the router ARP path).
+    expect(state.simulation.arpPoisoned).toContain("RTR");
   });
 });
 

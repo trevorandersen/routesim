@@ -4057,6 +4057,7 @@ Full legal text: https://creativecommons.org/publicdomain/zero/1.0/legalcode</pr
       scanOpen: [],
       scanClosed: [],
       sweepLive: [],
+      arpPoisoned: [],
       conntrack: {},
       dnatSessions: {},
       loopTrace: /* @__PURE__ */ new Set(),
@@ -8013,6 +8014,7 @@ Full legal text: https://creativecommons.org/publicdomain/zero/1.0/legalcode</pr
     sim.scanOpen = [];
     sim.scanClosed = [];
     sim.sweepLive = [];
+    sim.arpPoisoned = [];
     sim.conntrack = {};
     sim.dnatSessions = {};
     sim.lossNoted = /* @__PURE__ */ new Set();
@@ -8064,7 +8066,7 @@ Full legal text: https://creativecommons.org/publicdomain/zero/1.0/legalcode</pr
       case "stp":
         return !sim.stormDetected;
       case "attack":
-        return sim.scanOpen.length > 0 || sim.sweepLive.length > 0;
+        return sim.scanOpen.length > 0 || sim.sweepLive.length > 0 || sim.arpPoisoned.length > 0;
       case "ping":
         return sim.pingSuccess;
     }
@@ -8724,6 +8726,7 @@ Full legal text: https://creativecommons.org/publicdomain/zero/1.0/legalcode</pr
         }
       } else if (arp.operation === "reply") {
         learnArp(config, arp.senderIp, arp.senderMac);
+        recordArpPoison(device, arp);
         logStep(device, "sim-arp", `Received ARP Reply: ${arp.senderIp} is-at ${arp.senderMac}`);
         const pendingKey = `${device.id}:${arp.senderIp}`;
         const pending = sim.pendingArp[pendingKey];
@@ -9394,6 +9397,7 @@ Full legal text: https://creativecommons.org/publicdomain/zero/1.0/legalcode</pr
         return outgoing;
       }
       learnRouterArp(ingressIface, arp.senderIp, arp.senderMac);
+      recordArpPoison(device, arp);
       logStep(device, "sim-arp", `Received ARP Reply on ${ifaceName(device, ingressIface)}: ${arp.senderIp} is-at ${arp.senderMac}`);
       if (pending && pending.length > 0) {
         const table = buildRoutingTable(device);
@@ -9981,6 +9985,19 @@ Full legal text: https://creativecommons.org/publicdomain/zero/1.0/legalcode</pr
       config.arpTable.push({ ipv4Address: ip, macAddress: mac });
     }
   }
+  function recordArpPoison(victim, arp) {
+    const sim = state.simulation;
+    if (sim.mode !== "attack") return;
+    const atk = getDevice(sim.originDeviceId);
+    if (!atk?.config || victim.id === atk.id) return;
+    const atkMac = normaliseMacAddress(atk.config.macAddress || "");
+    if (!atkMac || normaliseMacAddress(arp.senderMac) !== atkMac) return;
+    if (arp.senderIp === atk.config.ipv4Address) return;
+    if (!sim.arpPoisoned.includes(victim.name)) {
+      sim.arpPoisoned.push(victim.name);
+      logStep(victim, "sim-attack", `ARP cache poisoned: ${arp.senderIp} is-at ${arp.senderMac}`);
+    }
+  }
   function isGroupMac(mac) {
     const first = parseInt(mac.slice(0, 2), 16);
     return Number.isFinite(first) && (first & 1) === 1;
@@ -10214,12 +10231,15 @@ Full legal text: https://creativecommons.org/publicdomain/zero/1.0/legalcode</pr
       }
     } else if (sim.mode === "attack") {
       const open = [...sim.scanOpen].sort((a, b) => a - b);
+      const closed = [...sim.scanClosed].sort((a, b) => a - b);
       const lines = [];
-      if (open.length) {
+      if (open.length || closed.length) {
         lines.push("PORT      STATE  SERVICE");
         for (const p of open) lines.push(`${String(p + "/tcp").padEnd(10)}open   ${SERVICE_NAMES[p] || "unknown"}`);
+        for (const p of closed) lines.push(`${String(p + "/tcp").padEnd(10)}closed ${SERVICE_NAMES[p] || "unknown"}`);
       }
       if (sim.sweepLive.length) lines.push(`Hosts up: ${sim.sweepLive.length} (${[...sim.sweepLive].sort().join(", ")})`);
+      if (sim.arpPoisoned.length) lines.push(`ARP cache poisoned on: ${[...sim.arpPoisoned].sort().join(", ")}`);
       if (!lines.length) lines.push("No open ports or live hosts found (target unreachable, filtered, or no attack target set).");
       const origin = getDevice(sim.originDeviceId);
       if (origin?.config) origin.config.attackLog = lines;

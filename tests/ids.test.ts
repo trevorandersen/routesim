@@ -193,6 +193,20 @@ describe("IDS — console, CLI, and round-trip", () => {
     expect(showSwitchMirror(sw)).toContain("Ethernet2");
   });
 
+  it("the SONiC mirror CLI warns that a tx/both direction isn't simulated (R96)", () => {
+    build();
+    const sw = state.devices.find(d => d.name === "SW1")!;
+    state.terminal.lines = [];
+    runSwitchTerminalCommand(sw, "config mirror_session span add MON Ethernet2 Ethernet1 tx");
+    // The session is still created (rx is what we model), but the ignored direction is called out.
+    expect(sw.config.mirror).toEqual({ name: "MON", dest: "Ethernet2", sources: ["Ethernet1"] });
+    expect(state.terminal.lines.at(-1)!.text).toContain("only rx");
+    // An explicit rx carries no warning.
+    state.terminal.lines = [];
+    runSwitchTerminalCommand(sw, "config mirror_session span add MON Ethernet2 Ethernet1 rx");
+    expect(state.terminal.lines.at(-1)!.text).not.toContain("only rx");
+  });
+
   it("the inspector mirror GUI renders source-port checkboxes (all ticked = whole switch; a subset ticks only those, and the monitor port is excluded)", () => {
     const { sw } = spanTopology();   // PC1=Ethernet1, PC2=Ethernet2, IDS1=Ethernet3 (the dest)
     const cbState = (html: string, port: string) => {

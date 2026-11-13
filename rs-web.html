@@ -12886,10 +12886,19 @@ ${body}
       terminalLine("", showSwitchMirror(device));
       return;
     }
-    const mirrorAddMatch = command.match(/^(?:sudo\s+)?config\s+mirror_session\s+span\s+add\s+(\S+)\s+(\S+)(?:\s+(\S+))?(?:\s+\S+)*$/i);
+    const mirrorAddMatch = command.match(/^(?:sudo\s+)?config\s+mirror_session\s+span\s+add\s+(\S+)\s+(\S+)(?:\s+(?!(?:rx|tx|both)\b)(\S+))?(?:\s+(rx|tx|both))?(?:\s+\S+)*$/i);
     if (mirrorAddMatch) {
+      const dir = (mirrorAddMatch[4] || "rx").toLowerCase();
       const result = setSwitchMirror(device, { name: mirrorAddMatch[1], dest: mirrorAddMatch[2], sources: mirrorAddMatch[3] ? mirrorAddMatch[3].split(",") : [] });
-      terminalLine(/^Unknown/.test(result) ? "error" : "", result);
+      if (/^Unknown/.test(result)) {
+        terminalLine("error", result);
+        return;
+      }
+      if (dir !== "rx") {
+        terminalLine("muted", `${result} Note: only rx (ingress) SPAN is simulated \u2014 the ${dir} direction is ignored, so traffic sent out ${mirrorAddMatch[3] || "the source ports"} is not mirrored.`);
+        return;
+      }
+      terminalLine("", result);
       return;
     }
     const mirrorRemoveMatch = command.match(/^(?:sudo\s+)?config\s+mirror_session\s+remove\s+\S+$/i);

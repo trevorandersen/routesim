@@ -477,11 +477,17 @@ export function runSwitchTerminalCommand(device: Device, command: string): void 
     terminalLine("", showSwitchMirror(device));
     return;
   }
-  // SONiC `config mirror_session span add <name> <dst> [src] [dir]` (only dst + src used).
-  const mirrorAddMatch = command.match(/^(?:sudo\s+)?config\s+mirror_session\s+span\s+add\s+(\S+)\s+(\S+)(?:\s+(\S+))?(?:\s+\S+)*$/i);
+  // SONiC `config mirror_session span add <name> <dst> [src] [direction]`. Only
+  // rx (ingress) SPAN is simulated, so a tx/both direction is warned about and
+  // ignored rather than silently applied as rx (R96). The source group's
+  // negative lookahead keeps a bare direction token (`… <dst> rx`) out of it.
+  const mirrorAddMatch = command.match(/^(?:sudo\s+)?config\s+mirror_session\s+span\s+add\s+(\S+)\s+(\S+)(?:\s+(?!(?:rx|tx|both)\b)(\S+))?(?:\s+(rx|tx|both))?(?:\s+\S+)*$/i);
   if (mirrorAddMatch) {
+    const dir = (mirrorAddMatch[4] || "rx").toLowerCase();
     const result = setSwitchMirror(device, { name: mirrorAddMatch[1], dest: mirrorAddMatch[2], sources: mirrorAddMatch[3] ? mirrorAddMatch[3].split(",") : [] });
-    terminalLine(/^Unknown/.test(result) ? "error" : "", result);
+    if (/^Unknown/.test(result)) { terminalLine("error", result); return; }
+    if (dir !== "rx") { terminalLine("muted", `${result} Note: only rx (ingress) SPAN is simulated — the ${dir} direction is ignored, so traffic sent out ${mirrorAddMatch[3] || "the source ports"} is not mirrored.`); return; }
+    terminalLine("", result);
     return;
   }
   const mirrorRemoveMatch = command.match(/^(?:sudo\s+)?config\s+mirror_session\s+remove\s+\S+$/i);

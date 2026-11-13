@@ -106,7 +106,7 @@ Param keys and boolean values are case-insensitive. Adding a setting is a one-ro
 | `stp` | Animate the **spanning-tree** BPDU flood: each root bridge floods Configuration BPDUs out its designated ports toward the other switches. |
 | `attack <node> [scan\|sweep\|arp-spoof] [target]` | Launch an offensive host's simulated **attack(s)** (sim mode `"attack"`). Works on **both** a Kali PC (`kali`) and a Red Team actor (`attacker`); any other type is rejected with "is not a Kali PC or Red Team host". With an explicit kind, run just that one — for `scan`/`sweep` an optional `target` overrides **and remembers** `config.attackTarget`; for `arp-spoof` the argument is the IP to impersonate (not a target). With no kind, a bare `target` sets `config.attackTarget`, then **all enabled attacks** run (`buildAttackEvents`). The nmap-style report lands in the node's terminal session. |
 | `run ping <src> <dst>` | **Headless** ping → returns reachable/unreachable + TTL + step count. |
-| `run dhcp <host>` | **Headless** DHCP → returns the assigned lease (or no response). |
+| `run dhcp <host>` | **Headless** DHCP → returns the assigned lease (or no response). When nothing answers it leaves the host as it is — with APIPA fallback on, the animated `dhcp` (or Play) would self-assign a 169.254.x.y address, and the run says so rather than doing it silently. |
 | `run resolve <src> <name>` | **Headless** DNS lookup → returns the resolved IP (or NXDOMAIN). Alias: `run dns`. |
 | `run connect <src> <dst> <port>` | **Headless** TCP connect → open / refused (RST) / timed out. |
 | `run associate <laptop>` | **Headless** 802.11 association → joined / did-not-complete + frame count. |

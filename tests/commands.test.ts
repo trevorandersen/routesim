@@ -794,3 +794,46 @@ describe("cli — the shell's verdict is the command's verdict (R56)", () => {
     expect(r.ok).toBe(false);
   });
 });
+
+// R67: a headless DHCP run that got no answer self-assigned an APIPA address —
+// over a static one too — while `run dhcp` printed only "no response": no log
+// line, no undo point. A headless run observes; it does not re-address.
+describe("`run dhcp` with no server leaves the host as it is (R67)", () => {
+  beforeEach(() => {
+    resetState();
+    state.options.apipaFallback = true;
+    runConsoleScript(`
+      add switch SW at 0 0
+      add computer PC1 at 100 0
+      add computer PC2 at 200 0
+      link PC1 SW
+      link PC2 SW
+      ip PC1 10.0.0.5/24
+    `);
+  });
+  const pc = (name: string) => state.devices.find(d => d.name === name)!;
+
+  it("a static address survives, and the run says the animated path would have fallen back", () => {
+    const depth = state.undoStack.length;
+    const result = exec("run dhcp PC1");
+    expect(result.ok).toBe(false);
+    expect(pc("PC1").config.ipv4Address).toBe("10.0.0.5");
+    expect(pc("PC1").config.ipSource).not.toBe("apipa");
+    expect(result.output[0]).toBe("dhcp: no response");
+    expect(result.output.join(" ")).toContain("a headless run leaves PC1 as it is (its address stays 10.0.0.5)");
+    expect(result.output.join(" ")).toContain("would self-assign a 169.254.x.y link-local address");
+    expect(state.simulation.log.some(l => l.deviceName === "PC1" && l.action.includes("APIPA fallback is on"))).toBe(true);
+    expect(state.undoStack.length).toBe(depth);
+  });
+
+  it("an unassigned host stays unassigned", () => {
+    const result = exec("run dhcp PC2");
+    expect(pc("PC2").config.ipv4Address || "").toBe("");
+    expect(result.output.join(" ")).toContain("it stays unassigned");
+  });
+
+  it("with APIPA fallback off there is nothing to say about it", () => {
+    state.options.apipaFallback = false;
+    expect(exec("run dhcp PC1").output.join(" ")).not.toContain("APIPA");
+  });
+});

@@ -3179,12 +3179,23 @@ function finishSimulation(): void {
   } else if (sim.mode === "dhcp") {
     if (sim.dhcpSuccess) {
       if (!sim.headless) out("", `DHCP configured:\n  IP address: ${sim.dhcpAssignedIp}\n  Default gateway: ${sim.dhcpAssignedGateway}`);
+    } else if (state.options.apipaFallback && sim.headless) {
+      // A headless run observes; it does not re-address the host. It used to
+      // self-assign 169.254.x.y here — over a static address too — while `run
+      // dhcp` and the scenario check printed only "no response", with no log
+      // line and no undo point. The animated path does fall back, so the
+      // difference is said out loud (in the diagnosis `run` prints, and the log).
+      const origin = getDevice(sim.originDeviceId);
+      const kept = origin?.config?.ipv4Address ? `its address stays ${origin.config.ipv4Address}` : "it stays unassigned";
+      const note = `No DHCP server answered. APIPA fallback is on, but a headless run leaves ${origin?.name ?? "the host"} as it is (${kept}) — the animated dhcp, or Play, would self-assign a 169.254.x.y link-local address.`;
+      sim.diagnosis.push(note);
+      if (origin) logStep(origin, "sim-drop", note);
     } else if (state.options.apipaFallback) {
       // APIPA fallback — link-local 169.254.0.0/16
       const origin = getDevice(sim.originDeviceId);
       const apipaIp = origin ? assignApipa(origin) : generateApipaAddress();
       sim.dhcpAssignedIp = apipaIp;
-      if (!sim.headless) out("error", `DHCP: no response from server.\nAPIPA: assigned link-local ${apipaIp}`);
+      out("error", `DHCP: no response from server.\nAPIPA: assigned link-local ${apipaIp}`);
     } else {
       // APIPA disabled (pedagogical) — no DHCP, no fallback: the host has no address.
       if (!sim.headless) out("error", "DHCP: no response from server.\nAPIPA disabled — no address assigned.");

@@ -10397,11 +10397,17 @@ Full legal text: https://creativecommons.org/publicdomain/zero/1.0/legalcode</pr
         if (!sim.headless) out("", `DHCP configured:
   IP address: ${sim.dhcpAssignedIp}
   Default gateway: ${sim.dhcpAssignedGateway}`);
+      } else if (state.options.apipaFallback && sim.headless) {
+        const origin = getDevice(sim.originDeviceId);
+        const kept = origin?.config?.ipv4Address ? `its address stays ${origin.config.ipv4Address}` : "it stays unassigned";
+        const note = `No DHCP server answered. APIPA fallback is on, but a headless run leaves ${origin?.name ?? "the host"} as it is (${kept}) \u2014 the animated dhcp, or Play, would self-assign a 169.254.x.y link-local address.`;
+        sim.diagnosis.push(note);
+        if (origin) logStep(origin, "sim-drop", note);
       } else if (state.options.apipaFallback) {
         const origin = getDevice(sim.originDeviceId);
         const apipaIp = origin ? assignApipa(origin) : generateApipaAddress();
         sim.dhcpAssignedIp = apipaIp;
-        if (!sim.headless) out("error", `DHCP: no response from server.
+        out("error", `DHCP: no response from server.
 APIPA: assigned link-local ${apipaIp}`);
       } else {
         if (!sim.headless) out("error", "DHCP: no response from server.\nAPIPA disabled \u2014 no address assigned.");

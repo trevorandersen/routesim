@@ -7680,6 +7680,7 @@ Full legal text: https://creativecommons.org/publicdomain/zero/1.0/legalcode</pr
           const raw = unquote(val).trim();
           rule.flagsMode = raw.endsWith("+") ? "+" : raw.endsWith("*") ? "*" : "exact";
           rule.flags = raw.replace(/[^SAFRPU]/gi, "").toUpperCase();
+          rule.flagsSet = true;
           break;
         }
         case "content":
@@ -7752,10 +7753,10 @@ Full legal text: https://creativecommons.org/publicdomain/zero/1.0/legalcode</pr
   }
   function optionsMatch(rule, ctx2) {
     if (rule.itype != null && ctx2.icmpType !== rule.itype) return false;
-    if (rule.flags) {
+    if (rule.flagsSet) {
       const have = [...ctx2.flags || ""].sort().join("");
-      const want = [...rule.flags].sort().join("");
-      const mode = rule.flagsMode || "exact";
+      const want = [...rule.flags || ""].sort().join("");
+      const mode = want === "" ? "exact" : rule.flagsMode || "exact";
       if (mode === "exact" && have !== want) return false;
       if (mode === "+" && ![...want].every((f) => have.includes(f))) return false;
       if (mode === "*" && ![...want].some((f) => have.includes(f))) return false;

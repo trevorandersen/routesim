@@ -37,7 +37,8 @@ export interface SnortRule {
   rev: number;
   priority?: number;
   itype?: number;
-  flags?: string;          // required TCP flag letters, e.g. "S" or "SA"
+  flags?: string;          // required TCP flag letters, e.g. "S" or "SA" ("" for flags:0 = no flags set)
+  flagsSet?: boolean;      // the flags option was present at all (so flags:0 constrains, not matches-all)
   flagsMode?: "exact" | "+" | "*";   // Snort: `S` = exactly these bits, `S+` = these plus any, `S*` = any of these
   content?: string;        // substring to find in the content buffer (a DNS query name or HTTP request/response)
 }
@@ -151,6 +152,7 @@ export function parseSnortRule(line: string): SnortRule | null {
         const raw = unquote(val).trim();
         rule.flagsMode = raw.endsWith("+") ? "+" : raw.endsWith("*") ? "*" : "exact";
         rule.flags = raw.replace(/[^SAFRPU]/gi, "").toUpperCase();
+        rule.flagsSet = true;   // mark presence: flags:0 strips to "" but must still constrain (match no flags), not match every TCP segment (R75)
         break;
       }
       case "content": rule.content = unquote(val); break;
@@ -231,12 +233,15 @@ function protoMatches(rule: SnortRule, ctx: FrameCtx): boolean {
 
 function optionsMatch(rule: SnortRule, ctx: FrameCtx): boolean {
   if (rule.itype != null && ctx.icmpType !== rule.itype) return false;
-  if (rule.flags) {
+  if (rule.flagsSet) {
     // Snort's `flags:S` means EXACTLY S (a SYN-ACK does not match); `S+` is a
     // superset match, `S*` any-of. The old subset match fired `flags:S` on SYN-ACKs.
     const have = [...(ctx.flags || "")].sort().join("");
-    const want = [...rule.flags].sort().join("");
-    const mode = rule.flagsMode || "exact";
+    const want = [...(rule.flags || "")].sort().join("");
+    // flags:0 names no bits (want === "") — a NULL-scan rule that fires only on a
+    // segment with no flags set, never on every TCP segment. The +/* modifiers are
+    // meaningless with no bits, so an empty want always matches exactly (R75).
+    const mode = want === "" ? "exact" : (rule.flagsMode || "exact");
     if (mode === "exact" && have !== want) return false;
     if (mode === "+" && ![...want].every(f => have.includes(f))) return false;
     if (mode === "*" && ![...want].some(f => have.includes(f))) return false;

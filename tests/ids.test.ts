@@ -307,6 +307,14 @@ describe("snort — flags exactness, port specs, non-IP alerts (LOW sweep)", () 
     expect(matchSnortRule(rule("flags:A*;"), syn())).toBe(false);
   });
 
+  it("`flags:0` matches only a segment with no flags set, not every TCP segment (R75)", () => {
+    // A NULL scan (no flag bits) is the only thing flags:0 should fire on; our
+    // sim's segments always carry a flag, so it matches none of them — the point
+    // is that it no longer fires on SYN/SYN-ACK the way the strip-to-empty guard did.
+    expect(matchSnortRule(rule("flags:0;"), syn())).toBe(false);
+    expect(matchSnortRule(rule("flags:0;"), synAck())).toBe(false);
+  });
+
   it("port specs: ranges, open ranges, lists, and negation", () => {
     const to = (ports: string) => matchSnortRule(rule("", `any any -> any ${ports}`), syn());   // dst port 80
     expect(to("80:443")).toBe(true);

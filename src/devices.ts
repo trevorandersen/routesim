@@ -1261,6 +1261,7 @@ export function switchInterfacesWithNames(device: any): any[] {
       name,
       portNumber: index + 1,
       peer: ports[index]?.peer || null,
+      link: ports[index]?.link || null,   // the cable, so status views can honour an admin-down (shut) link
       vlan: portVlans[name] || 1,
       mode: portModes[name] || "access",
       nativeVlan: trunkNativeVlans[name] || 1

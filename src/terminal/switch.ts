@@ -18,10 +18,13 @@ export function showSwitchInterfaces(device: Device): string {
     ...interfaces.map((iface: any) => {
       const mode = iface.mode || "access";
       const vlanDisplay = mode === "trunk" ? `-` : String(iface.vlan);
+      // A shut cable is admin-down with the line protocol down — not up/up
+      // (review R41). Admin status was hardcoded "up".
+      const shut = !!iface.link?.shutdown;
       return [
         iface.name.padEnd(11),
-        "up".padEnd(7),
-        (iface.peer ? "up" : "down").padEnd(6),
+        (shut ? "down" : "up").padEnd(7),
+        ((iface.peer && !shut) ? "up" : "down").padEnd(6),
         mode.padEnd(8),
         vlanDisplay.padEnd(6),
         iface.peer?.name || "-"

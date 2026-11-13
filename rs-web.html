@@ -5634,6 +5634,8 @@ Full legal text: https://creativecommons.org/publicdomain/zero/1.0/legalcode</pr
         name,
         portNumber: index + 1,
         peer: ports[index]?.peer || null,
+        link: ports[index]?.link || null,
+        // the cable, so status views can honour an admin-down (shut) link
         vlan: portVlans[name] || 1,
         mode: portModes[name] || "access",
         nativeVlan: trunkNativeVlans[name] || 1
@@ -11177,14 +11179,17 @@ ${body}
     const interfaces = routerInterfacesWithNames(router);
     if (!interfaces.length) return "No interfaces configured.";
     return [
-      "Interface     IP-Address         Status  Protocol  VLAN  Connected to",
+      ["Interface".padEnd(14), "IP-Address".padEnd(19), "Status".padEnd(22), "Protocol".padEnd(10), "VLAN".padEnd(6), "Connected to"].join(""),
       ...interfaces.map((iface) => {
         const vlanDisplay = iface.config.vlanTag != null ? String(iface.config.vlanTag) : "-";
+        const shut = !!iface.link?.shutdown;
+        const status = shut ? "administratively down" : iface.peer ? "up" : "down";
+        const protocol = iface.peer && !shut ? "up" : "down";
         return [
           iface.name.padEnd(14),
           (iface.config.ipv4Address ? `${iface.config.ipv4Address}/${prefixOf(iface.config)}` : "unassigned").padEnd(19),
-          (iface.peer ? "up" : "down").padEnd(8),
-          (iface.peer ? "up" : "down").padEnd(10),
+          status.padEnd(22),
+          protocol.padEnd(10),
           vlanDisplay.padEnd(6),
           iface.peer?.name || "-"
         ].join("");
@@ -11989,10 +11994,11 @@ ${body}
       ...interfaces.map((iface) => {
         const mode = iface.mode || "access";
         const vlanDisplay = mode === "trunk" ? `-` : String(iface.vlan);
+        const shut = !!iface.link?.shutdown;
         return [
           iface.name.padEnd(11),
-          "up".padEnd(7),
-          (iface.peer ? "up" : "down").padEnd(6),
+          (shut ? "down" : "up").padEnd(7),
+          (iface.peer && !shut ? "up" : "down").padEnd(6),
           mode.padEnd(8),
           vlanDisplay.padEnd(6),
           iface.peer?.name || "-"

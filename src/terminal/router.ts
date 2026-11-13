@@ -17,14 +17,20 @@ export function showRouterInterfaceBrief(router: Device): string {
   const interfaces = routerInterfacesWithNames(router);
   if (!interfaces.length) return "No interfaces configured.";
   return [
-    "Interface     IP-Address         Status  Protocol  VLAN  Connected to",
+    ["Interface".padEnd(14), "IP-Address".padEnd(19), "Status".padEnd(22), "Protocol".padEnd(10), "VLAN".padEnd(6), "Connected to"].join(""),
     ...interfaces.map((iface: any) => {
       const vlanDisplay = iface.config.vlanTag != null ? String(iface.config.vlanTag) : "-";
+      // A shut cable is "administratively down" with the line protocol down, as
+      // on IOS — not "up/up" (review R41). The routing table already drops its
+      // connected route, so the two views now agree.
+      const shut = !!iface.link?.shutdown;
+      const status = shut ? "administratively down" : (iface.peer ? "up" : "down");
+      const protocol = (iface.peer && !shut) ? "up" : "down";
       return [
         iface.name.padEnd(14),
         (iface.config.ipv4Address ? `${iface.config.ipv4Address}/${prefixOf(iface.config)}` : "unassigned").padEnd(19),
-        (iface.peer ? "up" : "down").padEnd(8),
-        (iface.peer ? "up" : "down").padEnd(10),
+        status.padEnd(22),
+        protocol.padEnd(10),
         vlanDisplay.padEnd(6),
         iface.peer?.name || "-"
       ].join("");

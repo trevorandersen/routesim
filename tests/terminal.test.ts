@@ -361,3 +361,53 @@ describe("showHostRoute — flush drops the default route", () => {
     expect(showHostRoute(pc)).toBe("No default route configured.");
   });
 });
+
+// R41: a shut cable used to read "up/up" in the interface tables (admin status
+// was hardcoded on the switch, and both views keyed off `iface.peer` alone),
+// contradicting the routing table, which already drops its connected route.
+import { runConsoleScript } from "../src/commands";
+
+describe("shut links read as down in the interface tables (R41)", () => {
+  beforeEach(() => resetState());
+
+  function routerSwitch() {
+    runConsoleScript(`
+      add router R1 at 100 100
+      add switch SW at 300 100
+      add computer PC at 500 100
+      link R1 SW
+      link SW PC
+      interface R1 SW ip 10.0.0.1/24
+    `);
+    return {
+      r1: state.devices.find(d => d.name === "R1")!,
+      sw: state.devices.find(d => d.name === "SW")!,
+    };
+  }
+
+  it("an up cable reads up/up on the router and the switch", () => {
+    const { r1, sw } = routerSwitch();
+    const rb = showRouterInterfaceBrief(r1);
+    expect(rb).toMatch(/Ethernet1\s+10\.0\.0\.1\/24\s+up\s+up/);
+    expect(showSwitchInterfaces(sw)).toMatch(/Ethernet1\s+up\s+up/);
+  });
+
+  it("a shut cable reads administratively down / down, agreeing with show ip route", () => {
+    const { r1, sw } = routerSwitch();
+    runConsoleScript("shut R1 SW");
+    const rb = showRouterInterfaceBrief(r1);
+    expect(rb).toContain("administratively down");
+    // The line protocol is down, and the row is not up/up.
+    expect(rb).not.toMatch(/Ethernet1.*\bup\s+up/);
+    // The switch port facing the router is admin-down too.
+    expect(showSwitchInterfaces(sw)).toMatch(/down/);
+    expect(showSwitchInterfaces(sw)).not.toMatch(/Ethernet1\s+up\s+up/);
+  });
+
+  it("the other (up) switch port still reads up/up while one is shut", () => {
+    const { sw } = routerSwitch();
+    runConsoleScript("shut R1 SW");
+    // SW↔PC is still up.
+    expect(showSwitchInterfaces(sw)).toMatch(/Ethernet2\s+up\s+up/);
+  });
+});

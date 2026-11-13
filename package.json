@@ -12,6 +12,7 @@
   "scripts": {
     "build": "./build.sh",
     "build:minify": "./build.sh --minify",
+    "stamp-docs": "bun stamp-docs.ts",
     "test": "bun test",
     "typecheck": "bunx tsc --noEmit && bunx tsc --noEmit -p tsconfig.tests.json"
   }

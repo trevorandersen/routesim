@@ -12,11 +12,13 @@ bash build.sh --minify   # minified build
 ## Pipeline
 
 ```
+bun stamp-docs.ts
 esbuild src/app.ts --bundle --format=iife --target=es2022 [--minify] --outfile=.bundle.js
 bun build-inline.ts rs-web.html
 rm .bundle.js
 ```
 
+0. **`stamp-docs.ts`** rewrites build-derived figures in the Markdown docs from the code, so they can't drift. A doc marks a spot with an invisible HTML-comment pair — `the <!--param:SCENARIO_COUNT-->28<!--/param-->-scenario curriculum` — and `stampDoc` (pure, exported) replaces the value between the markers from its parameter map (today just `SCENARIO_COUNT` ← `CURRICULUM.length`). GitHub renders only the number; editing it by hand is pointless because the next build resets it. Markers must sit in prose — inside a ``` code fence the comments render literally. `bun stamp-docs.ts --check` fails instead of writing, and `tests/stamp-docs.test.ts` asserts the committed docs are already stamped (so a new scenario fails CI until the docs are rebuilt).
 1. **esbuild** bundles `src/app.ts` and all its imports into a single IIFE (`.bundle.js`); it strips TypeScript types but does **not** type-check (run `bunx tsc --noEmit` for that).
 2. **`build-inline.ts`** reads `template.html` and substitutes `{{STYLES}}` ← `styles.css`, `{{SCRIPT}}` ← the JS bundle, and `{{VERSION}}` ← `package.json`'s `version` (shown in the About box), producing the single portable **`rs-web.html`**.
 

@@ -7,8 +7,9 @@ committed scope — it's a menu for "what next".
 
 > **Released:** [`v0.5.0-alpha`](https://github.com/trevorandersen/routesim/releases/tag/v0.5.0-alpha)
 > (2026-11) — the first tagged release, bundling everything shipped below (the
-> netfilter/NAT/STP/IDS model, the Kali offensive hosts, the 28-scenario
-> curriculum, and the five requested features #1&ndash;#5). The portable
+> netfilter/NAT/STP/IDS model, the Kali offensive hosts, the
+> <!--param:SCENARIO_COUNT-->28<!--/param-->-scenario curriculum, and the five
+> requested features #1&ndash;#5). The portable
 > `rs-web.html` is attached to the release, and `package.json`'s `version` now
 > drives the number shown in the About box.
 
@@ -34,7 +35,7 @@ committed scope — it's a menu for "what next".
 > for a red-vs-blue detection exercise, and a **stateful firewall**
 > (connection tracking — `-m state`/`--ctstate` ESTABLISHED,RELATED — plus a real
 > REJECT that sends a RST / ICMP unreachable) — with the curriculum now at
-> **28 scenarios** (including WiFi joins, 802.1X port authentication, MACsec link
+> **<!--param:SCENARIO_COUNT-->28<!--/param--> scenarios** (including WiFi joins, 802.1X port authentication, MACsec link
 > encryption, breaking an L2 loop with spanning tree, catching an intruder
 > with an IDS, writing a Snort rule to detect a Red Team port scan, and building
 > a stateful firewall that blocks inbound scans while hosts browse out), every

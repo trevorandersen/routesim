@@ -2,7 +2,7 @@
 
 A portable, single-file network topology simulator. Build a network of PCs, servers, switches, routers, and firewalls on an interactive canvas, then open device terminals to run CLI commands like `ping`, `arp -n`, `nslookup`, and `show ip interface brief`. The simulator models L2/L3 reachability with VLAN enforcement, ARP/MAC learning, subnet-aware routing, NAT, netfilter chains, and DNS/DHCP services.
 
-The app builds into a single self-contained **`rs-web.html`** — no server, no runtime dependencies, no network requests. Just open it in a browser. Default topologies and scenarios are built in; configs, scenarios, scripts, and logs import/export as JSON files.
+The app builds into a single self-contained **`rs-web.html`** — no server, no runtime dependencies, no network requests. Just open it in a browser. Default topologies and a <!--param:SCENARIO_COUNT-->28<!--/param-->-scenario teaching curriculum are built in; configs, scenarios, scripts, and logs import/export as JSON files.
 
 ## Quick start
 
@@ -54,7 +54,7 @@ routesim/
     ├── commands.ts     # Console command engine (also window.routesim + scripts)
     ├── console.ts      # Command console panel UI
     ├── scenarios.ts    # Scenario model, registry, goal checking
-    ├── scenario-library.ts # The built-in 28-scenario curriculum
+    ├── scenario-library.ts # The built-in scenario curriculum
     ├── scenario-ui.ts  # Scenario goal banner
     ├── canvas.ts       # Canvas rendering (devices, links, labels, pan/zoom)
     ├── inspector.ts    # Right-side panel (device details, link history, options)

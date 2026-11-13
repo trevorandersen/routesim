@@ -1337,3 +1337,53 @@ describe("a device deleted mid-run does not leave the simulation stuck (LOW swee
     expect(state.simulation.status).not.toBe("running");   // used to sit on "running" forever
   });
 });
+
+// R16: runTraceroute matched a device NAME unconditionally (findPingTarget),
+// bypassing the Instant DNS setting — so with no nameserver `ping PC-B` said
+// "cannot resolve" while `traceroute PC-B` quietly succeeded.
+describe("traceroute honours Instant DNS (R16)", () => {
+  beforeEach(() => resetState());
+
+  function routedByName() {
+    runConsoleScript(`
+      add computer PC-A at 0 0
+      add switch SW at 200 0
+      add router R1 at 400 0
+      add switch SW2 at 600 0
+      add computer PC-B at 800 0
+      link PC-A SW
+      link SW R1
+      link R1 SW2
+      link SW2 PC-B
+      ip PC-A 10.0.0.9/24
+      ip PC-B 10.0.1.9/24
+      gateway PC-A 10.0.0.1
+      gateway PC-B 10.0.1.1
+      interface R1 SW ip 10.0.0.1/24
+      interface R1 SW2 ip 10.0.1.1/24
+    `);
+    return state.devices.find(d => d.name === "PC-A")!;
+  }
+
+  it("with Instant DNS off and no nameserver, a NAME cannot be traced", () => {
+    const pcA = routedByName();
+    state.options.instantDns = false;
+    const byName = runTraceroute(pcA, "PC-B");
+    expect(typeof byName).toBe("string");
+    expect(byName as string).toContain("unknown host");
+  });
+
+  it("a bare IP always traces, regardless of Instant DNS", () => {
+    const pcA = routedByName();
+    state.options.instantDns = false;
+    const byIp = runTraceroute(pcA, "10.0.1.9");
+    expect(typeof byIp === "object" && (byIp as any).reached).toBe(true);
+  });
+
+  it("with Instant DNS on, the name shortcut still works", () => {
+    const pcA = routedByName();
+    state.options.instantDns = true;
+    const on = runTraceroute(pcA, "PC-B");
+    expect(typeof on === "object" && (on as any).reached).toBe(true);
+  });
+});

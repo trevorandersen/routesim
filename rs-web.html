@@ -8159,7 +8159,8 @@ Full legal text: https://creativecommons.org/publicdomain/zero/1.0/legalcode</pr
   }
   function runTraceroute(source, targetText, maxHops = 30) {
     const purpose = `a traceroute from ${source.name}`;
-    const target = findPingTarget(targetText);
+    const instant = state.options?.instantDns !== false;
+    const target = instant ? findPingTarget(targetText) : null;
     let targetIp = target ? target.config?.ipv4Address || targetText : targetText.trim();
     if (!target && !isValidIpv4(targetIp)) {
       const lookup = buildResolveEvents(source, targetIp, null, null);

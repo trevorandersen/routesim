@@ -577,7 +577,12 @@ export interface TracerouteResult { targetIp: string; hops: TracerouteHop[]; rea
 // destination's Echo Reply (final hop). Reuses runSimulationHeadless per probe.
 export function runTraceroute(source: Device, targetText: string, maxHops = 30): TracerouteResult | string {
   const purpose = `a traceroute from ${source.name}`;   // names it if it stops an animated run
-  const target = findPingTarget(targetText);
+  // Honour Instant DNS like ping/connect do (review R16): with it off, a device
+  // NAME must resolve through a real DNS query (below), not shortcut to the
+  // device's IP — otherwise `ping PC-B` says "cannot resolve" while
+  // `traceroute PC-B` quietly succeeds. A bare IP never needs resolving.
+  const instant = state.options?.instantDns !== false;   // default on
+  const target = instant ? findPingTarget(targetText) : null;
   let targetIp = target ? (target.config?.ipv4Address || targetText) : targetText.trim();
   if (!target && !isValidIpv4(targetIp)) {
     // A real hostname: resolve it headlessly via the configured nameserver

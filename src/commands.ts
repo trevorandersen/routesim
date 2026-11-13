@@ -34,7 +34,7 @@ import { SCENARIOS, getScenario, loadScenario, checkScenario } from "./scenarios
 import { SCENARIO_GROUPS } from "./scenario-library";
 import { SPEED_MIN, SPEED_MAX } from "./settings-url";
 import { setSeedOverride, getSeedOverride, currentSimSeed } from "./prng";
-import { parseSnortRule } from "./snort";
+import { parseSnortRule, snortRuleIssue } from "./snort";
 import { tokenizeCommand, quoteArg } from "./tokenize";
 import { ruleToIptables, ruleLangOf } from "./terminal/iptables";
 import { ruleToNft } from "./terminal/nftables";
@@ -640,6 +640,8 @@ function cmdIdsRule(args: string[], _rest: string, tail: (n: number) => string):
   if (/^(clear|flush)$/i.test(ruleText)) { pushUndo(); ensureConfig(ids); (ids.config as any).idsRules = []; sync().syncPanel(); return ok(`${ids.name}: rules cleared.`); }
   // Validate the rule BEFORE pushUndo — a bad rule must not push a spurious
   // snapshot (which would also wipe the redo stack).
+  const ruleIssue = snortRuleIssue(ruleText);
+  if (ruleIssue) return err(`ERROR: ${ruleIssue}`);
   if (!parseSnortRule(ruleText)) return err(`ERROR: bad rule (expected: alert proto src sport -> dst dport (msg:"..."; sid:N;))`);
   pushUndo();
   const result = addIdsRule(ids, ruleText);

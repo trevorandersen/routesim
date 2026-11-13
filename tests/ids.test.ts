@@ -8,7 +8,7 @@ import { undo as undoState } from "../src/state";
 import { state } from "../src/state";
 import { runConsoleCommand as exec, runConsoleScript, exportTopologyScript } from "../src/commands";
 import { linkedPortsFor } from "../src/devices";
-import { parseSnortRule, matchSnortRule, runIdsRules, formatAlert } from "../src/snort";
+import { parseSnortRule, matchSnortRule, runIdsRules, formatAlert, snortRuleIssue } from "../src/snort";
 import { runSwitchTerminalCommand, showSwitchMirror } from "../src/terminal/switch";
 import { showIdsRules, addIdsRule, runIdsTerminalCommand } from "../src/terminal/ids";
 import { renderMirrorSection } from "../src/inspector";
@@ -85,6 +85,32 @@ describe("Snort rule engine", () => {
     expect(reply.itype).toBe(0);
     expect(matchSnortRule(reply, createIcmpEchoReply("x", "y", "1.1.1.1", "1.1.1.2", 64))).toBe(true);   // itype 0 matches
     expect(matchSnortRule(reply, createIcmpEchoRequest("x", "y", "1.1.1.1", "1.1.1.2", 64))).toBe(false); // itype 8 does not
+  });
+
+  it("rejects a header-shaped rule that can never match, with a reason (R26)", () => {
+    // Each used to parse to a rule, load, and silently never fire.
+    const cases: [string, RegExp][] = [
+      [`alert tcp $EXTERNAL_NET any -> $HOME_NET 22 (sid:1;)`, /invalid source IP/],
+      [`alert tcp any any -> !10.0.0.0/24 any (sid:1;)`, /invalid destination IP/],
+      [`alert tcp any any -> [10.0.0.1,10.0.0.2] any (sid:1;)`, /invalid destination IP/],
+      [`alert tpc any any -> any any (sid:1;)`, /unknown protocol "tpc"/],
+      [`alert tcp any any -> any 99999 (sid:1;)`, /invalid destination port/],
+      [`alert tcp any any -> any any (flow:established; sid:1;)`, /unsupported option "flow"/],
+    ];
+    for (const [rule, reason] of cases) {
+      expect(snortRuleIssue(rule)).toMatch(reason);
+      expect(parseSnortRule(rule)).toBeNull();   // not loaded into the active set
+    }
+    // A blank/comment line is not an error, and a good rule has no issue.
+    expect(snortRuleIssue("# note")).toBeNull();
+    expect(snortRuleIssue(`alert tcp 10.0.0.0/24 any -> any [22,80,443] (msg:"ok"; flags:S; sid:1;)`)).toBeNull();
+  });
+
+  it("addIdsRule surfaces the reason instead of a generic error (R26)", () => {
+    const cfg: any = { idsRules: [] };
+    const msg = addIdsRule({ config: cfg } as any, `alert tcp $HOME_NET any -> any 22 (sid:1;)`);
+    expect(msg).toMatch(/invalid source IP/);
+    expect(cfg.idsRules).toEqual([]);   // nothing loaded
   });
 
   it("a rule added after the first parse is not lost to the memo cache (regression)", () => {

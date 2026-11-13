@@ -1157,6 +1157,7 @@
       font-size: 11px;
       color: var(--muted);
     }
+    .field-note.error { color: var(--danger); }
 
     /* A field label carrying a status pill (the IP address-source badge). */
     .label-with-badge { display: flex; align-items: center; gap: 8px; }

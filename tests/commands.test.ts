@@ -533,7 +533,7 @@ describe("commands — a rejected command pushes no spurious undo entry", () => 
     ["linkset EDGE SW loss -1", "must be a non-negative number"],
     ["ports EDGE 99999", "each port must be an integer 1–65535"],
     ["ports SW 80", "not a host"],
-    ["idsrule IDS not a valid rule", "bad rule"],
+    ["idsrule IDS not a valid rule", "valid Snort rule"],
     ["portauth SW Ethernet1 sometimes", "portauth mode"],
     ["stp SW priority 5000", "Bridge priority must be"],
     ["portcount SW 99", "outside the switch's supported range"],

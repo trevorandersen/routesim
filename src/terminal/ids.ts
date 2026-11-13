@@ -9,7 +9,7 @@ import type { Device } from "../types";
 import { state, pushUndo } from "../state";
 import { ensureConfig } from "../normalise";
 import { applyHostname } from "../devices";
-import { parseSnortRule } from "../snort";
+import { parseSnortRule, snortRuleIssue } from "../snort";
 import { terminalLine } from "./core";
 
 const RULES_FILE = "/etc/snort/rules/local.rules";
@@ -36,6 +36,8 @@ export function showIdsAlerts(device: Device): string {
 
 // Append a Snort rule to local.rules (validated). Shared with the console.
 export function addIdsRule(device: Device, ruleText: string): string {
+  const issue = snortRuleIssue(ruleText);
+  if (issue) return `ERROR: ${issue}`;
   const rule = parseSnortRule(ruleText);
   if (!rule) return `ERROR: bad rule (expected: alert proto src sport -> dst dport (msg:"..."; sid:N;))`;
   pushUndo();   // after validation, before the mutation — the undo contract every other shell keeps
@@ -66,9 +68,11 @@ export function runIdsTerminalCommand(device: Device, command: string): void {
   if (lower === "clear") { state.terminal.lines = []; return; }
   if (lower === "snort -v" || lower === "snort --version") { terminalLine("", SNORT_VERSION); return; }
   if (lower === "snort -t" || lower === "snort -t -c /etc/snort/snort.lua") {
-    const rules = device.config?.idsRules || [];
-    const bad = rules.filter(r => !parseSnortRule(r)).length;
-    terminalLine(bad ? "error" : "", `Loaded ${rules.length - bad} rules${bad ? `, ${bad} with errors` : ""}.\nSnort successfully validated the configuration${bad ? " (with errors)" : "."}`);
+    const rules: string[] = device.config?.idsRules || [];
+    const issues = rules.map(snortRuleIssue).filter((x): x is string => !!x);
+    const loaded = rules.filter(r => parseSnortRule(r)).length;
+    const bad = issues.length;
+    terminalLine(bad ? "error" : "", `Loaded ${loaded} rules${bad ? `, ${bad} with errors` : ""}.${issues.map(i => `\n  ERROR: ${i}`).join("")}\nSnort successfully validated the configuration${bad ? " (with errors)" : "."}`);
     return;
   }
   if (/^cat\s+\/etc\/snort\/rules\/local\.rules$/i.test(command)) { terminalLine("", showIdsRules(device)); return; }

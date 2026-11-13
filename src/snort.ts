@@ -43,15 +43,83 @@ export interface SnortRule {
 
 const HEADER_RE = /^\s*(\w+)\s+(\w+)\s+(\S+)\s+(\S+)\s+(->|<>)\s+(\S+)\s+(\S+)\s*(?:\((.*)\)\s*)?$/;
 
+const SNORT_ACTIONS = ["alert", "log", "pass", "drop", "reject"];
+const SNORT_PROTOS = ["ip", "icmp", "tcp", "udp"];
+// The options this sensor evaluates. An unknown one (flow, pcre, byte_test,
+// threshold, …) is rejected rather than silently dropped — dropping it would
+// make the rule fire more widely than written.
+const SNORT_OPTIONS = ["msg", "sid", "rev", "gid", "priority", "itype", "flags", "content"];
+
 function unquote(s: string): string {
   const t = s.trim();
   return t.startsWith('"') && t.endsWith('"') ? t.slice(1, -1) : t;
+}
+
+// An IP spec this sensor can match: `any`, an address, or an address/len CIDR.
+// No rule variables ($HOME_NET), negation (!x) or lists ([a,b]) — matching the
+// grammar `ipMatches` actually evaluates.
+function isIpSpec(spec: string): boolean {
+  if (spec === "any") return true;
+  if (spec.includes("/")) {
+    const [ip, len] = spec.split("/");
+    return isValidIpv4(ip) && /^\d+$/.test(len) && Number(len) <= 32;
+  }
+  return isValidIpv4(spec);
+}
+
+// A port spec `portMatches` can evaluate: `any`, a port, a range (`80:443`,
+// `:1024`, `1024:`), a list (`[80,443,8000:8080]`), or any of those negated with
+// a leading `!`. Each port must be 0–65535 and a range must have a bound.
+function isPortSpec(spec: string): boolean {
+  const s = spec.trim();
+  if (s === "any") return true;
+  const body = s.startsWith("!") ? s.slice(1).trim() : s;
+  const items = body.startsWith("[") && body.endsWith("]") ? body.slice(1, -1).split(",") : [body];
+  if (!items.length || items.some(i => i.trim() === "")) return false;
+  return items.every(item => {
+    const t = item.trim();
+    const range = t.match(/^(\d*):(\d*)$/);
+    if (range) {
+      if (range[1] === "" && range[2] === "") return false;   // ":" names no range
+      const lo = range[1] === "" ? 0 : Number(range[1]);
+      const hi = range[2] === "" ? 65535 : Number(range[2]);
+      return lo <= 65535 && hi <= 65535 && lo <= hi;
+    }
+    return /^\d+$/.test(t) && Number(t) <= 65535;
+  });
+}
+
+// Why a header-shaped rule can never match (or would match more widely than
+// written), or null when it is a blank/comment line or a rule this sensor can
+// faithfully evaluate. Surfaced by `addIdsRule`, `snort -T` and the inspector,
+// and used by `parseSnortRule` to refuse loading a rule that can't work (R26).
+export function snortRuleIssue(line: string): string | null {
+  const text = (line || "").trim();
+  if (!text || text.startsWith("#")) return null;
+  const m = text.match(HEADER_RE);
+  if (!m) return `not a valid Snort rule — expected "action proto src sport -> dst dport (options)"`;
+  const [, action, proto, srcIp, srcPort, , dstIp, dstPort, optsRaw] = m;
+  if (!SNORT_ACTIONS.includes(action.toLowerCase())) return `unknown action "${action}" (use alert, log, pass, drop or reject)`;
+  if (!SNORT_PROTOS.includes(proto.toLowerCase())) return `unknown protocol "${proto}" (use ip, icmp, tcp or udp)`;
+  if (!isIpSpec(srcIp)) return `invalid source IP "${srcIp}" — use any, an address or a CIDR (no variables, negation or lists)`;
+  if (!isIpSpec(dstIp)) return `invalid destination IP "${dstIp}" — use any, an address or a CIDR (no variables, negation or lists)`;
+  if (!isPortSpec(srcPort)) return `invalid source port "${srcPort}"`;
+  if (!isPortSpec(dstPort)) return `invalid destination port "${dstPort}"`;
+  for (const opt of (optsRaw || "").split(";")) {
+    const o = opt.trim();
+    if (!o) continue;
+    const ci = o.indexOf(":");
+    const key = (ci < 0 ? o : o.slice(0, ci)).trim().toLowerCase();
+    if (!SNORT_OPTIONS.includes(key)) return `unsupported option "${key}" — this sensor supports ${SNORT_OPTIONS.join(", ")} (pcre, flow, byte_test, thresholds and rule variables are out of scope)`;
+  }
+  return null;
 }
 
 // Parse one Snort rule line. Returns null for blank/comment/malformed lines.
 export function parseSnortRule(line: string): SnortRule | null {
   const text = (line || "").trim();
   if (!text || text.startsWith("#")) return null;
+  if (snortRuleIssue(text)) return null;   // header-shaped but invalid — don't load a rule that can't work as written
   const m = text.match(HEADER_RE);
   if (!m) return null;
   const [, action, proto, srcIp, srcPort, dir, dstIp, dstPort, optsRaw] = m;

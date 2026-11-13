@@ -1166,6 +1166,7 @@
       font-size: 11px;
       color: var(--muted);
     }
+    .field-note.error { color: var(--danger); }
 
     /* A field label carrying a status pill (the IP address-source badge). */
     .label-with-badge { display: flex; align-items: center; gap: 8px; }
@@ -7457,6 +7458,233 @@ Full legal text: https://creativecommons.org/publicdomain/zero/1.0/legalcode</pr
     render();
   }
 
+  // src/snort.ts
+  var HEADER_RE = /^\s*(\w+)\s+(\w+)\s+(\S+)\s+(\S+)\s+(->|<>)\s+(\S+)\s+(\S+)\s*(?:\((.*)\)\s*)?$/;
+  var SNORT_ACTIONS = ["alert", "log", "pass", "drop", "reject"];
+  var SNORT_PROTOS = ["ip", "icmp", "tcp", "udp"];
+  var SNORT_OPTIONS = ["msg", "sid", "rev", "gid", "priority", "itype", "flags", "content"];
+  function unquote(s) {
+    const t = s.trim();
+    return t.startsWith('"') && t.endsWith('"') ? t.slice(1, -1) : t;
+  }
+  function isIpSpec(spec) {
+    if (spec === "any") return true;
+    if (spec.includes("/")) {
+      const [ip, len] = spec.split("/");
+      return isValidIpv4(ip) && /^\d+$/.test(len) && Number(len) <= 32;
+    }
+    return isValidIpv4(spec);
+  }
+  function isPortSpec(spec) {
+    const s = spec.trim();
+    if (s === "any") return true;
+    const body = s.startsWith("!") ? s.slice(1).trim() : s;
+    const items = body.startsWith("[") && body.endsWith("]") ? body.slice(1, -1).split(",") : [body];
+    if (!items.length || items.some((i) => i.trim() === "")) return false;
+    return items.every((item) => {
+      const t = item.trim();
+      const range = t.match(/^(\d*):(\d*)$/);
+      if (range) {
+        if (range[1] === "" && range[2] === "") return false;
+        const lo = range[1] === "" ? 0 : Number(range[1]);
+        const hi = range[2] === "" ? 65535 : Number(range[2]);
+        return lo <= 65535 && hi <= 65535 && lo <= hi;
+      }
+      return /^\d+$/.test(t) && Number(t) <= 65535;
+    });
+  }
+  function snortRuleIssue(line) {
+    const text = (line || "").trim();
+    if (!text || text.startsWith("#")) return null;
+    const m = text.match(HEADER_RE);
+    if (!m) return `not a valid Snort rule \u2014 expected "action proto src sport -> dst dport (options)"`;
+    const [, action, proto, srcIp, srcPort, , dstIp, dstPort, optsRaw] = m;
+    if (!SNORT_ACTIONS.includes(action.toLowerCase())) return `unknown action "${action}" (use alert, log, pass, drop or reject)`;
+    if (!SNORT_PROTOS.includes(proto.toLowerCase())) return `unknown protocol "${proto}" (use ip, icmp, tcp or udp)`;
+    if (!isIpSpec(srcIp)) return `invalid source IP "${srcIp}" \u2014 use any, an address or a CIDR (no variables, negation or lists)`;
+    if (!isIpSpec(dstIp)) return `invalid destination IP "${dstIp}" \u2014 use any, an address or a CIDR (no variables, negation or lists)`;
+    if (!isPortSpec(srcPort)) return `invalid source port "${srcPort}"`;
+    if (!isPortSpec(dstPort)) return `invalid destination port "${dstPort}"`;
+    for (const opt of (optsRaw || "").split(";")) {
+      const o = opt.trim();
+      if (!o) continue;
+      const ci = o.indexOf(":");
+      const key = (ci < 0 ? o : o.slice(0, ci)).trim().toLowerCase();
+      if (!SNORT_OPTIONS.includes(key)) return `unsupported option "${key}" \u2014 this sensor supports ${SNORT_OPTIONS.join(", ")} (pcre, flow, byte_test, thresholds and rule variables are out of scope)`;
+    }
+    return null;
+  }
+  function parseSnortRule(line) {
+    const text = (line || "").trim();
+    if (!text || text.startsWith("#")) return null;
+    if (snortRuleIssue(text)) return null;
+    const m = text.match(HEADER_RE);
+    if (!m) return null;
+    const [, action, proto, srcIp, srcPort, dir, dstIp, dstPort, optsRaw] = m;
+    const rule = {
+      raw: text,
+      action: action.toLowerCase(),
+      proto: proto.toLowerCase(),
+      srcIp,
+      srcPort,
+      dir,
+      dstIp,
+      dstPort,
+      msg: "",
+      gid: 1,
+      sid: 0,
+      rev: 0
+    };
+    for (const opt of (optsRaw || "").split(";")) {
+      const o = opt.trim();
+      if (!o) continue;
+      const ci = o.indexOf(":");
+      const key = (ci < 0 ? o : o.slice(0, ci)).trim().toLowerCase();
+      const val = ci < 0 ? "" : o.slice(ci + 1).trim();
+      switch (key) {
+        case "msg":
+          rule.msg = unquote(val);
+          break;
+        case "sid":
+          rule.sid = Number(val) || 0;
+          break;
+        case "rev":
+          rule.rev = Number(val) || 0;
+          break;
+        case "gid":
+          rule.gid = Number(val) || 1;
+          break;
+        case "priority":
+          rule.priority = Number(val) || void 0;
+          break;
+        case "itype": {
+          const n = Number(val);
+          if (Number.isFinite(n)) rule.itype = n;
+          break;
+        }
+        // keep itype:0 (echo reply); ignore non-numeric
+        case "flags": {
+          const raw = unquote(val).trim();
+          rule.flagsMode = raw.endsWith("+") ? "+" : raw.endsWith("*") ? "*" : "exact";
+          rule.flags = raw.replace(/[^SAFRPU]/gi, "").toUpperCase();
+          break;
+        }
+        case "content":
+          rule.content = unquote(val);
+          break;
+      }
+    }
+    return rule;
+  }
+  var TCP_FLAG_LETTERS = { "syn": "S", "syn-ack": "SA", "ack": "A", "rst": "R" };
+  function frameCtx(frame) {
+    const p = frame.payload;
+    if (p.type !== "ipv4") return null;
+    const ipv4 = p;
+    const inner = ipv4.payload;
+    const ctx2 = {
+      proto: ipv4.protocol === 1 ? "icmp" : ipv4.protocol === 6 ? "tcp" : ipv4.protocol === 17 ? "udp" : "ip",
+      srcIp: ipv4.srcIp,
+      dstIp: ipv4.dstIp,
+      srcPort: null,
+      dstPort: null
+    };
+    if (inner.type === "tcp") {
+      ctx2.srcPort = inner.srcPort;
+      ctx2.dstPort = inner.dstPort;
+      ctx2.flags = TCP_FLAG_LETTERS[inner.flags] || "";
+    } else if (inner.type === "icmp") {
+      ctx2.icmpType = inner.icmpType;
+    } else if (inner.type === "dns") {
+      ctx2.srcPort = 53;
+      ctx2.dstPort = 53;
+      ctx2.dnsName = inner.name;
+    } else if (inner.type === "dhcp") {
+      ctx2.srcPort = inner.messageType === "offer" || inner.messageType === "ack" ? 67 : 68;
+      ctx2.dstPort = inner.messageType === "offer" || inner.messageType === "ack" ? 68 : 67;
+    }
+    return ctx2;
+  }
+  function ipMatches(spec, ip) {
+    if (spec === "any") return true;
+    if (!ip) return false;
+    if (spec.includes("/")) return cidrContains(spec, ip);
+    return isValidIpv4(spec) ? spec === ip : false;
+  }
+  function portMatches(spec, port) {
+    const s = spec.trim();
+    if (s === "any") return true;
+    if (s.startsWith("!")) return !portMatches(s.slice(1), port);
+    if (port == null) return false;
+    const items = s.startsWith("[") && s.endsWith("]") ? s.slice(1, -1).split(",") : [s];
+    return items.some((item) => {
+      const t = item.trim();
+      const range = t.match(/^(\d*):(\d*)$/);
+      if (range) {
+        const lo = range[1] ? Number(range[1]) : 0;
+        const hi = range[2] ? Number(range[2]) : 65535;
+        return port >= lo && port <= hi;
+      }
+      const n = Number(t);
+      return Number.isFinite(n) && port === n;
+    });
+  }
+  function protoMatches(rule, ctx2) {
+    if (rule.proto === "ip") return ctx2.proto !== "other";
+    return rule.proto === ctx2.proto;
+  }
+  function optionsMatch(rule, ctx2) {
+    if (rule.itype != null && ctx2.icmpType !== rule.itype) return false;
+    if (rule.flags) {
+      const have = [...ctx2.flags || ""].sort().join("");
+      const want = [...rule.flags].sort().join("");
+      const mode = rule.flagsMode || "exact";
+      if (mode === "exact" && have !== want) return false;
+      if (mode === "+" && ![...want].every((f) => have.includes(f))) return false;
+      if (mode === "*" && ![...want].some((f) => have.includes(f))) return false;
+    }
+    if (rule.content && !(ctx2.dnsName || "").toLowerCase().includes(rule.content.toLowerCase())) return false;
+    return true;
+  }
+  function matchSnortRule(rule, frame) {
+    if (rule.action === "pass") return false;
+    const ctx2 = frameCtx(frame);
+    if (!ctx2) return false;
+    if (!protoMatches(rule, ctx2)) return false;
+    if (!optionsMatch(rule, ctx2)) return false;
+    const forward2 = ipMatches(rule.srcIp, ctx2.srcIp) && portMatches(rule.srcPort, ctx2.srcPort) && ipMatches(rule.dstIp, ctx2.dstIp) && portMatches(rule.dstPort, ctx2.dstPort);
+    if (forward2) return true;
+    if (rule.dir === "<>") {
+      return ipMatches(rule.srcIp, ctx2.dstIp) && portMatches(rule.srcPort, ctx2.dstPort) && ipMatches(rule.dstIp, ctx2.srcIp) && portMatches(rule.dstPort, ctx2.srcPort);
+    }
+    return false;
+  }
+  function formatAlert(rule, frame) {
+    const ctx2 = frameCtx(frame);
+    if (!ctx2) return `[**] [${rule.gid}:${rule.sid}:${rule.rev}] ${rule.msg} [**] [Priority: ${rule.priority ?? 3}] {NON-IP}`;
+    const proto = ctx2.proto.toUpperCase();
+    const src = ctx2.srcPort != null ? `${ctx2.srcIp}:${ctx2.srcPort}` : ctx2.srcIp;
+    const dst = ctx2.dstPort != null ? `${ctx2.dstIp}:${ctx2.dstPort}` : ctx2.dstIp;
+    return `[**] [${rule.gid}:${rule.sid}:${rule.rev}] ${rule.msg} [**] [Priority: ${rule.priority ?? 3}] {${proto}} ${src} -> ${dst}`;
+  }
+  var _parsed = /* @__PURE__ */ new WeakMap();
+  function parseRules(lines) {
+    if (!Array.isArray(lines)) return [];
+    let hit = _parsed.get(lines);
+    if (!hit) {
+      hit = lines.map(parseSnortRule).filter((r) => r !== null);
+      _parsed.set(lines, hit);
+    }
+    return hit;
+  }
+  function runIdsRules(idsRules, frame) {
+    const out = [];
+    for (const rule of parseRules(idsRules || [])) {
+      if (matchSnortRule(rule, frame)) out.push({ rule, alert: formatAlert(rule, frame) });
+    }
+    return out;
+  }
+
   // src/routing.ts
   function buildRoutingTable(router) {
     const table = [];
@@ -7649,182 +7877,6 @@ Full legal text: https://creativecommons.org/publicdomain/zero/1.0/legalcode</pr
       if (!changed) break;
     }
     return { iterations, routesExchanged: totalExchanged };
-  }
-
-  // src/snort.ts
-  var HEADER_RE = /^\s*(\w+)\s+(\w+)\s+(\S+)\s+(\S+)\s+(->|<>)\s+(\S+)\s+(\S+)\s*(?:\((.*)\)\s*)?$/;
-  function unquote(s) {
-    const t = s.trim();
-    return t.startsWith('"') && t.endsWith('"') ? t.slice(1, -1) : t;
-  }
-  function parseSnortRule(line) {
-    const text = (line || "").trim();
-    if (!text || text.startsWith("#")) return null;
-    const m = text.match(HEADER_RE);
-    if (!m) return null;
-    const [, action, proto, srcIp, srcPort, dir, dstIp, dstPort, optsRaw] = m;
-    const rule = {
-      raw: text,
-      action: action.toLowerCase(),
-      proto: proto.toLowerCase(),
-      srcIp,
-      srcPort,
-      dir,
-      dstIp,
-      dstPort,
-      msg: "",
-      gid: 1,
-      sid: 0,
-      rev: 0
-    };
-    for (const opt of (optsRaw || "").split(";")) {
-      const o = opt.trim();
-      if (!o) continue;
-      const ci = o.indexOf(":");
-      const key = (ci < 0 ? o : o.slice(0, ci)).trim().toLowerCase();
-      const val = ci < 0 ? "" : o.slice(ci + 1).trim();
-      switch (key) {
-        case "msg":
-          rule.msg = unquote(val);
-          break;
-        case "sid":
-          rule.sid = Number(val) || 0;
-          break;
-        case "rev":
-          rule.rev = Number(val) || 0;
-          break;
-        case "gid":
-          rule.gid = Number(val) || 1;
-          break;
-        case "priority":
-          rule.priority = Number(val) || void 0;
-          break;
-        case "itype": {
-          const n = Number(val);
-          if (Number.isFinite(n)) rule.itype = n;
-          break;
-        }
-        // keep itype:0 (echo reply); ignore non-numeric
-        case "flags": {
-          const raw = unquote(val).trim();
-          rule.flagsMode = raw.endsWith("+") ? "+" : raw.endsWith("*") ? "*" : "exact";
-          rule.flags = raw.replace(/[^SAFRPU]/gi, "").toUpperCase();
-          break;
-        }
-        case "content":
-          rule.content = unquote(val);
-          break;
-      }
-    }
-    return rule;
-  }
-  var TCP_FLAG_LETTERS = { "syn": "S", "syn-ack": "SA", "ack": "A", "rst": "R" };
-  function frameCtx(frame) {
-    const p = frame.payload;
-    if (p.type !== "ipv4") return null;
-    const ipv4 = p;
-    const inner = ipv4.payload;
-    const ctx2 = {
-      proto: ipv4.protocol === 1 ? "icmp" : ipv4.protocol === 6 ? "tcp" : ipv4.protocol === 17 ? "udp" : "ip",
-      srcIp: ipv4.srcIp,
-      dstIp: ipv4.dstIp,
-      srcPort: null,
-      dstPort: null
-    };
-    if (inner.type === "tcp") {
-      ctx2.srcPort = inner.srcPort;
-      ctx2.dstPort = inner.dstPort;
-      ctx2.flags = TCP_FLAG_LETTERS[inner.flags] || "";
-    } else if (inner.type === "icmp") {
-      ctx2.icmpType = inner.icmpType;
-    } else if (inner.type === "dns") {
-      ctx2.srcPort = 53;
-      ctx2.dstPort = 53;
-      ctx2.dnsName = inner.name;
-    } else if (inner.type === "dhcp") {
-      ctx2.srcPort = inner.messageType === "offer" || inner.messageType === "ack" ? 67 : 68;
-      ctx2.dstPort = inner.messageType === "offer" || inner.messageType === "ack" ? 68 : 67;
-    }
-    return ctx2;
-  }
-  function ipMatches(spec, ip) {
-    if (spec === "any") return true;
-    if (!ip) return false;
-    if (spec.includes("/")) return cidrContains(spec, ip);
-    return isValidIpv4(spec) ? spec === ip : false;
-  }
-  function portMatches(spec, port) {
-    const s = spec.trim();
-    if (s === "any") return true;
-    if (s.startsWith("!")) return !portMatches(s.slice(1), port);
-    if (port == null) return false;
-    const items = s.startsWith("[") && s.endsWith("]") ? s.slice(1, -1).split(",") : [s];
-    return items.some((item) => {
-      const t = item.trim();
-      const range = t.match(/^(\d*):(\d*)$/);
-      if (range) {
-        const lo = range[1] ? Number(range[1]) : 0;
-        const hi = range[2] ? Number(range[2]) : 65535;
-        return port >= lo && port <= hi;
-      }
-      const n = Number(t);
-      return Number.isFinite(n) && port === n;
-    });
-  }
-  function protoMatches(rule, ctx2) {
-    if (rule.proto === "ip") return ctx2.proto !== "other";
-    return rule.proto === ctx2.proto;
-  }
-  function optionsMatch(rule, ctx2) {
-    if (rule.itype != null && ctx2.icmpType !== rule.itype) return false;
-    if (rule.flags) {
-      const have = [...ctx2.flags || ""].sort().join("");
-      const want = [...rule.flags].sort().join("");
-      const mode = rule.flagsMode || "exact";
-      if (mode === "exact" && have !== want) return false;
-      if (mode === "+" && ![...want].every((f) => have.includes(f))) return false;
-      if (mode === "*" && ![...want].some((f) => have.includes(f))) return false;
-    }
-    if (rule.content && !(ctx2.dnsName || "").toLowerCase().includes(rule.content.toLowerCase())) return false;
-    return true;
-  }
-  function matchSnortRule(rule, frame) {
-    if (rule.action === "pass") return false;
-    const ctx2 = frameCtx(frame);
-    if (!ctx2) return false;
-    if (!protoMatches(rule, ctx2)) return false;
-    if (!optionsMatch(rule, ctx2)) return false;
-    const forward2 = ipMatches(rule.srcIp, ctx2.srcIp) && portMatches(rule.srcPort, ctx2.srcPort) && ipMatches(rule.dstIp, ctx2.dstIp) && portMatches(rule.dstPort, ctx2.dstPort);
-    if (forward2) return true;
-    if (rule.dir === "<>") {
-      return ipMatches(rule.srcIp, ctx2.dstIp) && portMatches(rule.srcPort, ctx2.dstPort) && ipMatches(rule.dstIp, ctx2.srcIp) && portMatches(rule.dstPort, ctx2.srcPort);
-    }
-    return false;
-  }
-  function formatAlert(rule, frame) {
-    const ctx2 = frameCtx(frame);
-    if (!ctx2) return `[**] [${rule.gid}:${rule.sid}:${rule.rev}] ${rule.msg} [**] [Priority: ${rule.priority ?? 3}] {NON-IP}`;
-    const proto = ctx2.proto.toUpperCase();
-    const src = ctx2.srcPort != null ? `${ctx2.srcIp}:${ctx2.srcPort}` : ctx2.srcIp;
-    const dst = ctx2.dstPort != null ? `${ctx2.dstIp}:${ctx2.dstPort}` : ctx2.dstIp;
-    return `[**] [${rule.gid}:${rule.sid}:${rule.rev}] ${rule.msg} [**] [Priority: ${rule.priority ?? 3}] {${proto}} ${src} -> ${dst}`;
-  }
-  var _parsed = /* @__PURE__ */ new WeakMap();
-  function parseRules(lines) {
-    if (!Array.isArray(lines)) return [];
-    let hit = _parsed.get(lines);
-    if (!hit) {
-      hit = lines.map(parseSnortRule).filter((r) => r !== null);
-      _parsed.set(lines, hit);
-    }
-    return hit;
-  }
-  function runIdsRules(idsRules, frame) {
-    const out = [];
-    for (const rule of parseRules(idsRules || [])) {
-      if (matchSnortRule(rule, frame)) out.push({ rule, alert: formatAlert(rule, frame) });
-    }
-    return out;
   }
 
   // src/engine.ts
@@ -12651,6 +12703,8 @@ ${body}
     return alerts.length ? alerts.join("\n") : "(no alerts \u2014 run a simulation past the monitored switch)";
   }
   function addIdsRule(device, ruleText) {
+    const issue = snortRuleIssue(ruleText);
+    if (issue) return `ERROR: ${issue}`;
     const rule = parseSnortRule(ruleText);
     if (!rule) return `ERROR: bad rule (expected: alert proto src sport -> dst dport (msg:"..."; sid:N;))`;
     pushUndo();
@@ -12685,8 +12739,11 @@ ${body}
     }
     if (lower === "snort -t" || lower === "snort -t -c /etc/snort/snort.lua") {
       const rules = device.config?.idsRules || [];
-      const bad = rules.filter((r) => !parseSnortRule(r)).length;
-      terminalLine(bad ? "error" : "", `Loaded ${rules.length - bad} rules${bad ? `, ${bad} with errors` : ""}.
+      const issues = rules.map(snortRuleIssue).filter((x) => !!x);
+      const loaded = rules.filter((r) => parseSnortRule(r)).length;
+      const bad = issues.length;
+      terminalLine(bad ? "error" : "", `Loaded ${loaded} rules${bad ? `, ${bad} with errors` : ""}.${issues.map((i) => `
+  ERROR: ${i}`).join("")}
 Snort successfully validated the configuration${bad ? " (with errors)" : "."}`);
       return;
     }
@@ -14281,14 +14338,17 @@ Snort successfully validated the configuration${bad ? " (with errors)" : "."}`);
     return destField + sourceField;
   }
   function renderIdsSection(device) {
-    const rules = (device.config?.idsRules || []).join("\n");
+    const ruleLines = device.config?.idsRules || [];
+    const rules = ruleLines.join("\n");
     const alerts = device.config?.alerts || [];
+    const issues = ruleLines.map((r) => ({ r, issue: snortRuleIssue(r) })).filter((x) => !!x.issue);
     return `
     <p class="field-note">A passive Snort sensor. Cable it to a switch SPAN/monitor port; it inspects the mirrored copy of traffic and raises alerts on rule matches. It is not in the data path, so it can watch but never block.</p>
     <div class="field">
       <label for="selectedIdsRules">Rules (/etc/snort/rules/local.rules)</label>
       <textarea id="selectedIdsRules" class="ids-rules" spellcheck="false" rows="6">${escapeHtml(rules)}</textarea>
       <span class="field-note">One Snort rule per line, e.g. <code>alert tcp any any -&gt; any 23 (msg:"Telnet"; sid:1000002;)</code></span>
+      ${issues.length ? `<span class="field-note error">${issues.length} rule${issues.length === 1 ? "" : "s"} won't load:${issues.map((x) => `<br>\u2022 <code>${escapeHtml(x.r)}</code> \u2014 ${escapeHtml(x.issue)}`).join("")}</span>` : ""}
     </div>
     <div class="field">
       <label>Alerts (${alerts.length})</label>
@@ -14303,6 +14363,7 @@ Snort successfully validated the configuration${bad ? " (with errors)" : "."}`);
       captureUndoOnFocus(rules);
       rules.addEventListener("change", () => {
         device.config.idsRules = rules.value.split("\n").map((l) => l.trim()).filter(Boolean);
+        syncPanel();
       });
     }
     document.getElementById("clearIdsAlerts")?.addEventListener("click", () => {
@@ -18357,6 +18418,8 @@ Snort successfully validated the configuration${bad ? " (with errors)" : "."}`);
       sync().syncPanel();
       return ok(`${ids.name}: rules cleared.`);
     }
+    const ruleIssue = snortRuleIssue(ruleText);
+    if (ruleIssue) return err(`ERROR: ${ruleIssue}`);
     if (!parseSnortRule(ruleText)) return err(`ERROR: bad rule (expected: alert proto src sport -> dst dport (msg:"..."; sid:N;))`);
     pushUndo();
     const result = addIdsRule(ids, ruleText);

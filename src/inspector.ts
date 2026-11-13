@@ -4,6 +4,7 @@ import { DEVICE_SPECS, isHost, offersTerminal, defaultPortCount } from "./device
 import { dom } from "./dom";
 import { escapeHtml, isValidIpv4, isValidMac, normaliseMacAddress, randomMac, parseIpv4Token, prefixOf, networkOf, normaliseSsid, normaliseWifiPassword, mutationText, clampFirewallPortCount, FIREWALL_PORT_RANGE } from "./utils";
 import { ensureConfig, normaliseVlans, normaliseDnsRecords, normaliseDhcpLeases, normaliseRadiusUsers } from "./normalise";
+import { snortRuleIssue } from "./snort";
 import {
   getDevice, isVisibleDevice, connectedIds, linkedPortsFor, linksFor, wifiLinkAuthenticated,
   routerInterfacesWithNames, routerInterfaceFor, routerInterfaceForName, switchInterfacesWithNames,
@@ -662,14 +663,19 @@ export function renderMirrorSection(device: any): string {
 // The IDS sensor panel: the Snort rule set (editable as local.rules) and the
 // alert log. Wired by bindIdsControls.
 export function renderIdsSection(device: any): string {
-  const rules = (device.config?.idsRules || []).join("\n");
+  const ruleLines: string[] = device.config?.idsRules || [];
+  const rules = ruleLines.join("\n");
   const alerts: string[] = device.config?.alerts || [];
+  // Surface any rule that won't load (and why), so a silently-inert rule — a
+  // bad protocol, IP spec, port or unsupported option — is explained (R26).
+  const issues = ruleLines.map(r => ({ r, issue: snortRuleIssue(r) })).filter((x): x is { r: string; issue: string } => !!x.issue);
   return `
     <p class="field-note">A passive Snort sensor. Cable it to a switch SPAN/monitor port; it inspects the mirrored copy of traffic and raises alerts on rule matches. It is not in the data path, so it can watch but never block.</p>
     <div class="field">
       <label for="selectedIdsRules">Rules (/etc/snort/rules/local.rules)</label>
       <textarea id="selectedIdsRules" class="ids-rules" spellcheck="false" rows="6">${escapeHtml(rules)}</textarea>
       <span class="field-note">One Snort rule per line, e.g. <code>alert tcp any any -&gt; any 23 (msg:"Telnet"; sid:1000002;)</code></span>
+      ${issues.length ? `<span class="field-note error">${issues.length} rule${issues.length === 1 ? "" : "s"} won't load:${issues.map(x => `<br>• <code>${escapeHtml(x.r)}</code> — ${escapeHtml(x.issue)}`).join("")}</span>` : ""}
     </div>
     <div class="field">
       <label>Alerts (${alerts.length})</label>
@@ -686,6 +692,7 @@ export function bindIdsControls(device: any): void {
     captureUndoOnFocus(rules as any);
     rules.addEventListener("change", () => {
       device.config.idsRules = rules.value.split("\n").map(l => l.trim()).filter(Boolean);
+      syncPanel();   // re-render so the "won't load" note reflects the edited rules
     });
   }
   document.getElementById("clearIdsAlerts")?.addEventListener("click", () => {

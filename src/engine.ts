@@ -2524,7 +2524,8 @@ function ruleMatchesParsed(rule: FirewallRule, ipv4: Ipv4Payload, srcAddr: numbe
   if (rule.src && !addressMatches(srcAddr, rule.src)) return false;
   if (rule.dst && !addressMatches(dstAddr, rule.dst)) return false;
   // -m state --state / -m conntrack --ctstate: the frame's connection state must
-  // be one the rule lists. ("related"/"invalid" never match — never assigned.)
+  // be one the rule lists. "related" is assigned to ICMP errors (see
+  // connectionState); "invalid" is still never assigned.
   if (rule.states && rule.states.length && !rule.states.includes(conn)) return false;
   return true;
 }
@@ -2563,6 +2564,21 @@ export function connectionState(device: Device, ipv4: Ipv4Payload): ConnState {
     if (e.proto === proto && e.srcIp === ipv4.dstIp && e.dstIp === ipv4.srcIp && e.srcPort === dport && e.dstPort === sport) return "established";
     // A later original-direction packet of a flow that already saw a reply.
     if (e.established && e.proto === proto && e.srcIp === ipv4.srcIp && e.dstIp === ipv4.dstIp && e.srcPort === sport && e.dstPort === dport) return "established";
+  }
+  // An ICMP error (Time-Exceeded / Dest-Unreachable) is sourced by an
+  // intermediate router, so its own tuple is "new" — but netfilter classifies it
+  // RELATED to the flow its quoted datagram belongs to. Match the embedded
+  // original (the packet that triggered the error) against the tracked flows, so
+  // a stateful default-drop + accept-ESTABLISHED,RELATED ruleset lets traceroute
+  // hops and path-MTU/unreachable messages back in (review R20).
+  const p = ipv4.payload;
+  if (p.type === "icmp" && (p.icmpType === 11 || p.icmpType === 3) && p.original) {
+    const o = p.original;
+    for (const e of table) {
+      // TCP flows key on the source port (= flowId); ICMP/UDP key on the address
+      // pair alone (srcPort 0), so only compare flowId when the entry carries one.
+      if (e.proto === o.proto && e.srcIp === o.srcIp && e.dstIp === o.dstIp && (e.srcPort === 0 || e.srcPort === o.flowId)) return "related";
+    }
   }
   return "new";
 }

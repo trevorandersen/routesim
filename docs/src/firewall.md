@@ -81,9 +81,14 @@ of a flow we already let out, matched on the swapped 5-tuple, or a later packet
 of such a flow). On an ACCEPT, `trackConnection` records the flow so its reply
 matches. The key is `(proto, srcIp, dstIp, srcPort, dstPort)` — TCP carries the
 ports; ICMP/UDP key on the address pair (so a DNS reply still matches its query).
-**`related`/`invalid` parse in a rule but are never assigned** — a documented
-simplification; the common `ESTABLISHED,RELATED` accept rule still works because
-it lists `established`. Conntrack only runs when a rule uses `-m state`
+**`related` is assigned to ICMP errors** — a Time-Exceeded or
+Destination-Unreachable (ICMP type 11 / 3) is sourced by an intermediate router,
+so its own tuple reads `new`, but `connectionState` matches the **embedded quoted
+datagram** (`icmp.original`, the packet that triggered it) against the tracked
+flows and returns `related`. So the canonical `ESTABLISHED,RELATED` accept rule
+lets those errors back in, and **traceroute past a default-drop firewall still
+shows its hops** (review R20) rather than `* * *`. **`invalid` is still never
+assigned** (a documented simplification). Conntrack only runs when a rule uses `-m state`
 (`firewallUsesConntrack`), so a stateless ruleset has no per-frame overhead.
 NAT composes correctly: the un-NAT happens before the FORWARD chain, so both
 directions present consistent tuples to conntrack.

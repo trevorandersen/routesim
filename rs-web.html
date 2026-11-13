@@ -9714,6 +9714,13 @@ Full legal text: https://creativecommons.org/publicdomain/zero/1.0/legalcode</pr
       if (e.proto === proto && e.srcIp === ipv4.dstIp && e.dstIp === ipv4.srcIp && e.srcPort === dport && e.dstPort === sport) return "established";
       if (e.established && e.proto === proto && e.srcIp === ipv4.srcIp && e.dstIp === ipv4.dstIp && e.srcPort === sport && e.dstPort === dport) return "established";
     }
+    const p = ipv4.payload;
+    if (p.type === "icmp" && (p.icmpType === 11 || p.icmpType === 3) && p.original) {
+      const o = p.original;
+      for (const e of table) {
+        if (e.proto === o.proto && e.srcIp === o.srcIp && e.dstIp === o.dstIp && (e.srcPort === 0 || e.srcPort === o.flowId)) return "related";
+      }
+    }
     return "new";
   }
   function trackConnection(device, ipv4) {

@@ -5,7 +5,7 @@
  */
 import { describe, it, expect, beforeAll, beforeEach } from "bun:test";
 import { state } from "../src/state";
-import { runSimulationHeadless, connectionState } from "../src/engine";
+import { runSimulationHeadless, connectionState, runTraceroute } from "../src/engine";
 import { buildPingEvents, buildConnectEvents } from "../src/simulation";
 import { runConsoleScript, runConsoleCommand as exec } from "../src/commands";
 import { buildConfigPayload } from "../src/config";
@@ -104,5 +104,62 @@ describe("stateful firewall — persistence", () => {
     expect(re.config.rules![0].states).toEqual(["established", "related"]);
     expect(re.config.rules![1].target).toBe("reject");
     expect(re.config.rules![1].rejectWith).toBe("tcp-reset");
+  });
+});
+
+// R20: an ICMP error (Time-Exceeded / Dest-Unreachable) is sourced by an
+// intermediate router, so a stateful default-drop firewall read it as NEW and
+// dropped it — traceroute showed `* * *` past the firewall. It must be RELATED
+// to the flow its quoted datagram belongs to.
+
+describe("stateful firewall lets ICMP errors back as RELATED (R20)", () => {
+  beforeEach(() => resetState());
+
+  it("connectionState classifies an ICMP error quoting a tracked flow as related", () => {
+    const pc1 = buildInlineFirewall();
+    exec("cli FW1 iptables -A FORWARD -m state --state ESTABLISHED,RELATED -j ACCEPT");
+    exec("cli FW1 iptables -A FORWARD -s 192.168.1.10 -j ACCEPT");
+    ping(pc1, "192.168.1.20");   // tracks the icmp flow PC1 → PC2 at FW1
+
+    const errorIpv4: any = {
+      type: "ipv4", srcIp: "192.168.1.99", dstIp: "192.168.1.10", ttl: 64, protocol: 1,
+      payload: { type: "icmp", icmpType: 11, sequence: 1,
+        original: { proto: "icmp", srcIp: "192.168.1.10", dstIp: "192.168.1.20", flowId: 1 } },
+    };
+    expect(connectionState(dev("FW1"), errorIpv4)).toBe("related");
+
+    // An error quoting an UNTRACKED flow stays new.
+    const unrelated = { ...errorIpv4, payload: { ...errorIpv4.payload, original: { proto: "icmp", srcIp: "10.9.9.9", dstIp: "10.8.8.8", flowId: 1 } } };
+    expect(connectionState(dev("FW1"), unrelated)).toBe("new");
+  });
+
+  it("traceroute past a stateful default-drop firewall still sees the hop", () => {
+    runConsoleScript(`
+      add computer PC1 at 0 0
+      add firewall FW1 at 100 0
+      add router R1 at 200 0
+      add switch SW2 at 300 0
+      add computer PC2 at 400 0
+      link PC1 FW1
+      link FW1 R1
+      link R1 SW2
+      link SW2 PC2
+      ip PC1 10.0.0.10/24
+      gateway PC1 10.0.0.1
+      ip PC2 10.0.1.10/24
+      gateway PC2 10.0.1.1
+      interface R1 FW1 ip 10.0.0.1/24
+      interface R1 SW2 ip 10.0.1.1/24
+      cli FW1 iptables -P FORWARD DROP
+      cli FW1 iptables -A FORWARD -m state --state ESTABLISHED,RELATED -j ACCEPT
+      cli FW1 iptables -A FORWARD -s 10.0.0.10 -j ACCEPT
+    `);
+    const pc1 = dev("PC1");
+    const res = runTraceroute(pc1, "10.0.1.10");
+    expect(typeof res).toBe("object");
+    const r = res as any;
+    expect(r.reached).toBe(true);
+    // R1 (the Time-Exceeded responder) shows up — not a vanished `*` hop.
+    expect(r.hops.some((h: any) => h.ip === "10.0.0.1")).toBe(true);
   });
 });

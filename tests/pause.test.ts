@@ -105,3 +105,36 @@ describe("pause freezes the run (R10)", () => {
     stopSimulation();
   });
 });
+
+// R64: the animation loop used to redraw the full canvas at ~60fps for as long
+// as a run stayed paused (the common inspect-a-frame flow). The R10 fix makes
+// animationTick a no-op while not running, so a paused tick does no render and
+// never reschedules itself — the idle redraw is gone.
+describe("a paused run does no idle redraw (R64)", () => {
+  beforeEach(() => resetState());
+  afterAll(() => registerNoopCallbacks());   // restore the file's default callbacks
+
+  it("a tick while paused neither re-renders nor reschedules the loop", () => {
+    let renders = 0;
+    let scheduled = 0;
+    registerNoopCallbacks({ render: () => { renders++; } });
+    const prevRaf = (globalThis as any).requestAnimationFrame;
+    (globalThis as any).requestAnimationFrame = () => { scheduled++; return 1; };
+
+    startPing();
+    const t0 = state.simulation.transits[0];
+    animationTick(t0.startTime + 0.3 * span(t0));   // running: this draws and reschedules
+    expect(renders).toBeGreaterThan(0);
+    expect(scheduled).toBeGreaterThan(0);
+
+    pauseSimulation();
+    const rendersAtPause = renders;
+    const scheduledAtPause = scheduled;
+    animationTick(t0.startTime + 1000 * span(t0));   // a late paused tick
+    expect(renders).toBe(rendersAtPause);            // no redraw
+    expect(scheduled).toBe(scheduledAtPause);        // and not rescheduled
+
+    (globalThis as any).requestAnimationFrame = prevRaf;
+    stopSimulation();
+  });
+});

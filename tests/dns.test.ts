@@ -209,6 +209,41 @@ describe("dns — resolution", () => {
   });
 });
 
+// R68: a query sent to a host that is not a nameserver vanished without a word.
+describe("dns — a query to a host with no DNS service is refused, with the reason", () => {
+  beforeEach(() => {
+    resetState();
+    state.options.instantDns = false;
+    runConsoleScript(`
+      add switch SW at 0 0
+      add computer PC1 at -200 0
+      add computer PC2 at 200 0
+      link PC1 SW
+      link PC2 SW
+      ip PC1 10.0.0.1/24
+      ip PC2 10.0.0.2/24
+      nameserver PC1 10.0.0.2
+    `);
+  });
+
+  it("the plain host logs that it runs no DNS service and answers ICMP Port Unreachable", () => {
+    const pc1 = state.devices.find(d => d.name === "PC1")!;
+    const r = runSimulationHeadless(buildResolveEvents(pc1, "web.corp", null, null) as any, pc1.id, "web.corp", "dns");
+    expect(r.success).toBe(false);
+    expect(r.unreachableFrom).toBe("10.0.0.2");
+    const pc2Lines = r.log.filter(l => l.deviceName === "PC2").map(l => l.action);
+    expect(pc2Lines).toContain("DNS query for web.corp — PC2 runs no DNS service (UDP/53 closed), sending ICMP Port Unreachable");
+    expect(r.log.some(l => l.deviceName === "PC1" && l.action === "Received ICMP Destination Unreachable from 10.0.0.2")).toBe(true);
+  });
+
+  it("a ping by name fails the same explained way", () => {
+    const pc1 = state.devices.find(d => d.name === "PC1")!;
+    const r = runSimulationHeadless(buildPingEvents(pc1, "web.corp") as any, pc1.id, "web.corp", "ping");
+    expect(r.success).toBe(false);
+    expect(r.log.some(l => l.action.includes("runs no DNS service (UDP/53 closed)"))).toBe(true);
+  });
+});
+
 describe("dns — resolve-then-act (ping/nc by name)", () => {
   beforeEach(() => resetState());
 

@@ -8976,6 +8976,19 @@ Full legal text: https://creativecommons.org/publicdomain/zero/1.0/legalcode</pr
       } else if (ipv4.payload.type === "dns") {
         const dns = ipv4.payload;
         if (ipv4.dstIp !== config.ipv4Address) return outgoing;
+        if (dns.op === "query") {
+          logStep(device, "sim-drop", `DNS query for ${dns.name} \u2014 ${device.name} runs no DNS service (UDP/53 closed), sending ICMP Port Unreachable`);
+          emitHostReply(
+            device,
+            config,
+            hostReplyPath(config, ipv4.srcIp, frame.srcMac),
+            (dstMac) => createIcmpDestUnreachable(config.macAddress || "", dstMac, config.ipv4Address || "", ipv4.srcIp, 64, frame.vlanTag, icmpOriginalOf(ipv4)),
+            fromDeviceId,
+            outgoing,
+            frame.vlanTag
+          );
+          return outgoing;
+        }
         if (dns.op === "response" && device.id === sim.originDeviceId && dns.name === sim.dnsName) {
           if (dns.address) {
             sim.dnsResolvedIp = dns.address;

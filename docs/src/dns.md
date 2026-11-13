@@ -103,3 +103,7 @@ interplay, server DHCP, round-trips); scenarios `dns-service`,
 `troubleshoot-dns`, `server-dhcp` with reference solutions in
 `tests/scenarios.test.ts`; benchmark `processAtServer — DNS, 50 records`
 (p99 budget 100 µs).
+
+## A query to a host that is not a nameserver
+
+A host whose `resolv.conf` names a plain PC (or any host with no DNS service) gets an answer, not silence: `processAtComputer` logs `DNS query for <name> — <host> runs no DNS service (UDP/53 closed), sending ICMP Port Unreachable` and sends that ICMP error back through the usual reply path (`emitHostReply`). The asker records it (`sim.pingUnreachableFrom` → `SimResult.unreachableFrom`) and `nslookup` reads `;; communications error to <server>#53: connection refused` rather than a bare timeout. It used to be dropped without a log line — a stopped dnsmasq was explained, a plain host was not (review R68).

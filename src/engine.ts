@@ -1302,6 +1302,18 @@ export function processAtComputer(device: Device, frame: EthernetFrame, fromDevi
     } else if (ipv4.payload.type === "dns") {
       const dns = ipv4.payload as DnsPayload;
       if (ipv4.dstIp !== config.ipv4Address) return outgoing; // not for us
+      if (dns.op === "query") {
+        // A query sent to a host that is not a nameserver (a PC named in
+        // resolv.conf by mistake). It used to vanish without a word — a stopped
+        // dnsmasq was explained, a plain host was not. Nothing listens on
+        // UDP/53 here, so answer as a real host does: ICMP Port Unreachable,
+        // which the asker's nslookup reads as "connection refused".
+        logStep(device, "sim-drop", `DNS query for ${dns.name} — ${device.name} runs no DNS service (UDP/53 closed), sending ICMP Port Unreachable`);
+        emitHostReply(device, config, hostReplyPath(config, ipv4.srcIp, frame.srcMac),
+          dstMac => createIcmpDestUnreachable(config.macAddress || "", dstMac, config.ipv4Address || "", ipv4.srcIp, 64, frame.vlanTag, icmpOriginalOf(ipv4)),
+          fromDeviceId, outgoing, frame.vlanTag);
+        return outgoing;
+      }
       if (dns.op === "response" && device.id === sim.originDeviceId && dns.name === sim.dnsName) {
         if (dns.address) {
           sim.dnsResolvedIp = dns.address;

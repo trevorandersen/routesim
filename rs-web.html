@@ -9128,7 +9128,7 @@ Full legal text: https://creativecommons.org/publicdomain/zero/1.0/legalcode</pr
     const serverIp = config.ipv4Address || "";
     const routerIp = config.dhcpRouterIp || serverIp;
     if (dhcp.messageType === "discover") {
-      const allocatedIp = allocateServerDhcpIp(device);
+      const allocatedIp = allocateServerDhcpIp(device, dhcp.clientMac);
       if (!allocatedIp) {
         logStep(device, "sim-drop", `DHCP Discover from ${dhcp.clientMac}: no addresses available in dhcp-range`);
         return outgoing;
@@ -9171,17 +9171,23 @@ Full legal text: https://creativecommons.org/publicdomain/zero/1.0/legalcode</pr
     }
     return outgoing;
   }
-  function allocateServerDhcpIp(device) {
+  function allocateServerDhcpIp(device, clientMac) {
     const config = device.config;
     const start = ipv4ToInt(config.dhcpRangeStart);
     const end = ipv4ToInt(config.dhcpRangeEnd);
     if (end < start) return null;
     const used = /* @__PURE__ */ new Set();
     if (config.ipv4Address) used.add(config.ipv4Address);
-    for (const lease of normaliseDhcpLeases(config.dhcpLeases || [])) used.add(lease.ipv4Address);
+    const leases = normaliseDhcpLeases(config.dhcpLeases || []);
+    const mine = dhcpClientsOwn(clientMac, leases);
+    for (const lease of leases) if (lease !== mine.lease) used.add(lease.ipv4Address);
     for (const d of state.devices) {
       const ip = d.config?.ipv4Address;
-      if (ip && isValidIpv4(ip)) used.add(ip);
+      if (ip && isValidIpv4(ip) && d !== mine.device) used.add(ip);
+    }
+    if (mine.lease && isValidIpv4(mine.lease.ipv4Address) && !used.has(mine.lease.ipv4Address)) {
+      const bound = ipv4ToInt(mine.lease.ipv4Address);
+      if (bound >= start && bound <= end) return mine.lease.ipv4Address;
     }
     for (let i = start; i <= end; i++) {
       const candidate = intToIpv4(i);
@@ -9587,7 +9593,7 @@ Full legal text: https://creativecommons.org/publicdomain/zero/1.0/legalcode</pr
   function handleRouterDhcp(device, ingressIface, fromDeviceId, dhcp, ipv4) {
     const outgoing = [];
     if (dhcp.messageType === "discover") {
-      const allocatedIp = allocateDhcpIp(ingressIface, device);
+      const allocatedIp = allocateDhcpIp(ingressIface, device, dhcp.clientMac);
       if (!allocatedIp) {
         logStep(device, "sim-drop", `DHCP Discover from ${dhcp.clientMac}: no addresses available`);
         return outgoing;
@@ -10074,7 +10080,15 @@ Full legal text: https://creativecommons.org/publicdomain/zero/1.0/legalcode</pr
     }
     return apipaIp;
   }
-  function allocateDhcpIp(iface, router) {
+  function dhcpClientsOwn(clientMac, leases) {
+    if (!clientMac) return { lease: void 0, device: void 0 };
+    const mac = normaliseMacAddress(clientMac);
+    return {
+      lease: leases.find((l) => normaliseMacAddress(l.macAddress) === mac),
+      device: state.devices.find((d) => !!d.config?.macAddress && normaliseMacAddress(d.config.macAddress) === mac)
+    };
+  }
+  function allocateDhcpIp(iface, router, clientMac) {
     if (!iface.ipv4Address || !isValidIpv4(iface.ipv4Address)) return null;
     const ifPrefix = prefixOf(iface);
     const net = ifPrefix <= 0 ? 0 : (ipv4ToInt(iface.ipv4Address) & 4294967295 << 32 - ifPrefix) >>> 0;
@@ -10088,16 +10102,22 @@ Full legal text: https://creativecommons.org/publicdomain/zero/1.0/legalcode</pr
         usedIps.add(ri.ipv4Address);
       }
     }
-    for (const lease of normaliseDhcpLeases(iface.dhcpLeases || [])) {
-      usedIps.add(lease.ipv4Address);
+    const leases = normaliseDhcpLeases(iface.dhcpLeases || []);
+    const mine = dhcpClientsOwn(clientMac, leases);
+    for (const lease of leases) {
+      if (lease !== mine.lease) usedIps.add(lease.ipv4Address);
     }
     for (const d of state.devices) {
       const ip = d.config?.ipv4Address;
-      if (ip && isValidIpv4(ip) && sameSubnet(ip, iface.ipv4Address, ifPrefix)) {
+      if (ip && isValidIpv4(ip) && d !== mine.device && sameSubnet(ip, iface.ipv4Address, ifPrefix)) {
         usedIps.add(ip);
       }
     }
     usedIps.add(iface.ipv4Address);
+    if (mine.lease && isValidIpv4(mine.lease.ipv4Address) && !usedIps.has(mine.lease.ipv4Address)) {
+      const bound = ipv4ToInt(mine.lease.ipv4Address);
+      if (bound >= first && bound <= last) return mine.lease.ipv4Address;
+    }
     const scan = (from, to) => {
       for (let v = from; v <= to; v++) {
         const c = intToIpv4(v);

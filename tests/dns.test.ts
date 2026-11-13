@@ -399,6 +399,66 @@ describe("dnsmasq — DHCP service", () => {
   });
 });
 
+// R69: both DHCP servers counted the requester's own lease (and its own current
+// address) as taken, so a client that asked again was offered the next address.
+describe("DHCP — a client that asks again keeps its address (R69)", () => {
+  beforeEach(() => resetState());
+  const host = (name: string) => state.devices.find(d => d.name === name)!;
+  const lease = (name: string) => { const r = exec(`run dhcp ${name}`); expect(r.ok).toBe(true); return host(name).config.ipv4Address; };
+
+  it("a router's pool: renewing three times gives the same address each time", () => {
+    runConsoleScript(`
+      add router R1 at 0 0
+      add switch SW at 200 0
+      add computer PC1 at 400 0
+      add computer PC2 at 400 200
+      link R1 SW
+      link PC1 SW
+      link PC2 SW
+      interface R1 SW ip 192.168.1.1/24
+    `);
+    expect([lease("PC1"), lease("PC1"), lease("PC1")]).toEqual(["192.168.1.100", "192.168.1.100", "192.168.1.100"]);
+    expect(lease("PC2")).toBe("192.168.1.101");            // a second client still gets its own
+    expect(lease("PC1")).toBe("192.168.1.100");
+    expect(lease("PC2")).toBe("192.168.1.101");
+    const bindings = host("R1").config.interfaces![0].dhcpLeases!.map(l => l.ipv4Address).sort();
+    expect(bindings).toEqual(["192.168.1.100", "192.168.1.101"]);
+  });
+
+  it("a dnsmasq range: the same", () => {
+    runConsoleScript(`
+      add server SRV at 0 0
+      add switch SW at 200 0
+      add computer PC1 at 400 0
+      add computer PC2 at 400 200
+      link SRV SW
+      link PC1 SW
+      link PC2 SW
+      ip SRV 10.0.0.2/24
+      cli SRV echo dhcp-range=10.0.0.50,10.0.0.60 >> /etc/dnsmasq.conf
+    `);
+    expect([lease("PC1"), lease("PC1"), lease("PC2"), lease("PC1"), lease("PC2")])
+      .toEqual(["10.0.0.50", "10.0.0.50", "10.0.0.51", "10.0.0.50", "10.0.0.51"]);
+  });
+
+  it("a binding another device now holds statically is not re-offered", () => {
+    runConsoleScript(`
+      add router R1 at 0 0
+      add switch SW at 200 0
+      add computer PC1 at 400 0
+      add computer PC2 at 400 200
+      link R1 SW
+      link PC1 SW
+      link PC2 SW
+      interface R1 SW ip 192.168.1.1/24
+    `);
+    expect(lease("PC1")).toBe("192.168.1.100");
+    exec("ip PC1 192.168.1.7/24");                          // PC1 goes static elsewhere…
+    exec("ip PC2 192.168.1.100/24");                        // …and PC2 takes its old address by hand
+    expect(lease("PC1")).toBe("192.168.1.101");
+  });
+});
+
 describe("dns — through NAT (UDP translation)", () => {
   beforeEach(() => resetState());
 

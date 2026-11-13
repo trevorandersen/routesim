@@ -1492,7 +1492,7 @@ function handleServerDhcp(device: Device, fromDeviceId: string, dhcp: DhcpPayloa
   const routerIp = config.dhcpRouterIp || serverIp;
 
   if (dhcp.messageType === "discover") {
-    const allocatedIp = allocateServerDhcpIp(device);
+    const allocatedIp = allocateServerDhcpIp(device, dhcp.clientMac);
     if (!allocatedIp) {
       logStep(device, "sim-drop", `DHCP Discover from ${dhcp.clientMac}: no addresses available in dhcp-range`);
       return outgoing;
@@ -1523,17 +1523,24 @@ function handleServerDhcp(device: Device, fromDeviceId: string, dhcp: DhcpPayloa
 
 // Allocate the next free address in [dhcp-range start, end], skipping the
 // server's own address, existing leases, and any device's static IP.
-function allocateServerDhcpIp(device: Device): string | null {
+function allocateServerDhcpIp(device: Device, clientMac?: string): string | null {
   const config = device.config;
   const start = ipv4ToInt(config.dhcpRangeStart!);
   const end = ipv4ToInt(config.dhcpRangeEnd!);
   if (end < start) return null;
   const used = new Set<string>();
   if (config.ipv4Address) used.add(config.ipv4Address);
-  for (const lease of normaliseDhcpLeases(config.dhcpLeases || [])) used.add(lease.ipv4Address);
+  const leases = normaliseDhcpLeases(config.dhcpLeases || []);
+  const mine = dhcpClientsOwn(clientMac, leases);
+  for (const lease of leases) if (lease !== mine.lease) used.add(lease.ipv4Address);
   for (const d of state.devices) {   // a host collapsed into a LAN still holds its address
     const ip = d.config?.ipv4Address;
-    if (ip && isValidIpv4(ip)) used.add(ip);
+    if (ip && isValidIpv4(ip) && d !== mine.device) used.add(ip);
+  }
+  // A client asking again is offered the address it is bound to, as dnsmasq does.
+  if (mine.lease && isValidIpv4(mine.lease.ipv4Address) && !used.has(mine.lease.ipv4Address)) {
+    const bound = ipv4ToInt(mine.lease.ipv4Address);
+    if (bound >= start && bound <= end) return mine.lease.ipv4Address;
   }
   for (let i = start; i <= end; i++) {
     const candidate = intToIpv4(i);
@@ -2103,7 +2110,7 @@ function handleRouterDhcp(device: Device, ingressIface: any, fromDeviceId: strin
   const outgoing: OutgoingFrame[] = [];
 
   if (dhcp.messageType === "discover") {
-    const allocatedIp = allocateDhcpIp(ingressIface, device);
+    const allocatedIp = allocateDhcpIp(ingressIface, device, dhcp.clientMac);
     if (!allocatedIp) {
       logStep(device, "sim-drop", `DHCP Discover from ${dhcp.clientMac}: no addresses available`);
       return outgoing;
@@ -2761,7 +2768,21 @@ function assignApipa(device: Device): string {
   return apipaIp;
 }
 
-export function allocateDhcpIp(iface: any, router: Device): string | null {
+// What a DHCP server must not count against the client that is asking: its own
+// binding, and the address it currently holds. Both servers used to treat the
+// requester's own lease (and its own current address) as taken, so a client
+// that asked again was offered the NEXT address — a renewing host alternated
+// between two (review R69).
+function dhcpClientsOwn<L extends { macAddress: string; ipv4Address: string }>(clientMac: string | undefined, leases: L[]): { lease: L | undefined; device: Device | undefined } {
+  if (!clientMac) return { lease: undefined, device: undefined };
+  const mac = normaliseMacAddress(clientMac);
+  return {
+    lease: leases.find(l => normaliseMacAddress(l.macAddress) === mac),
+    device: state.devices.find(d => !!d.config?.macAddress && normaliseMacAddress(d.config.macAddress) === mac),
+  };
+}
+
+export function allocateDhcpIp(iface: any, router: Device, clientMac?: string): string | null {
   if (!iface.ipv4Address || !isValidIpv4(iface.ipv4Address)) return null;
   const ifPrefix = prefixOf(iface);
   // The pool is the interface's USABLE range — network+1 … broadcast−1 for the
@@ -2783,20 +2804,27 @@ export function allocateDhcpIp(iface: any, router: Device): string | null {
       usedIps.add(ri.ipv4Address);
     }
   }
-  // Existing DHCP leases on this interface
-  for (const lease of normaliseDhcpLeases(iface.dhcpLeases || [])) {
-    usedIps.add(lease.ipv4Address);
+  // Existing DHCP leases on this interface — bar the asking client's own
+  const leases = normaliseDhcpLeases(iface.dhcpLeases || []);
+  const mine = dhcpClientsOwn(clientMac, leases);
+  for (const lease of leases) {
+    if (lease !== mine.lease) usedIps.add(lease.ipv4Address);
   }
   // Static IPs of all devices in this subnet (a host collapsed into a LAN
-  // still holds its address)
+  // still holds its address) — bar the address the asking client holds itself
   for (const d of state.devices) {
     const ip = d.config?.ipv4Address;
-    if (ip && isValidIpv4(ip) && sameSubnet(ip, iface.ipv4Address, ifPrefix)) {
+    if (ip && isValidIpv4(ip) && d !== mine.device && sameSubnet(ip, iface.ipv4Address, ifPrefix)) {
       usedIps.add(ip);
     }
   }
 
   usedIps.add(iface.ipv4Address);
+  // A client asking again is offered the address it is bound to.
+  if (mine.lease && isValidIpv4(mine.lease.ipv4Address) && !usedIps.has(mine.lease.ipv4Address)) {
+    const bound = ipv4ToInt(mine.lease.ipv4Address);
+    if (bound >= first && bound <= last) return mine.lease.ipv4Address;
+  }
   const scan = (from: number, to: number): string | null => {
     for (let v = from; v <= to; v++) { const c = intToIpv4(v); if (!usedIps.has(c)) return c; }
     return null;

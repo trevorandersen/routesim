@@ -136,9 +136,12 @@ export function syncDock(): void {
     const device = getDevice(s.deviceId);
     const name = device ? device.name : "(removed)";
     const active = dock.activeTab === "terminal" && s === state.terminal;
-    return `<button class="dock-tab ${active ? "active" : ""}" data-session="${escapeHtml(s.deviceId || "")}" type="button">
-      <span class="dock-tab-label">${escapeHtml(name)}</span><span class="dock-tab-close" data-close="${escapeHtml(s.deviceId || "")}" title="Close session">&times;</span>
-    </button>`;
+    // Two real buttons side by side — the tab and its close control. The close
+    // control used to be a <span> inside the tab's button: no focus, no name,
+    // no keyboard, and a button may not contain another interactive element.
+    return `<div class="dock-tab dock-tab-session ${active ? "active" : ""}" data-session="${escapeHtml(s.deviceId || "")}">
+      <button class="dock-tab-label" type="button" aria-pressed="${active}">${escapeHtml(name)}</button><button class="dock-tab-close" data-close="${escapeHtml(s.deviceId || "")}" type="button" title="Close session" aria-label="Close ${escapeHtml(name)} terminal session">&times;</button>
+    </div>`;
   });
   // A detached placeholder (failed open) still needs a visible terminal tab.
   if (state.terminalSessions.length === 0 && dock.activeTab === "terminal") {

@@ -3,6 +3,7 @@ import type { DisplayOptions } from "./types";
 import { dom } from "./dom";
 import { addLink, deleteSelection, clearNetwork, findDeviceAt, findLinkAt, getDevice, configureDevice, placeToolDevice, PLACEMENT_TOOLS, toggleLinkShutdown, setDevicePower, linkName } from "./devices";
 import { openPortSelectionModal, confirmPortSelection, cancelPortSelection } from "./port-picker";
+import { showDialog, hideDialog } from "./dialog";
 import { render, resizeCanvas, screenToWorld, setZoom, syncZoomLevel, fitNetwork, findTransitAt } from "./canvas";
 import { clearCssColorCache, escapeHtml, mutationText } from "./utils";
 import { syncPanel, syncOptionControls, syncNetworkPanel, setNetworkPanel, setInspectorWidth, startInspectorResize, moveInspectorResize, stopInspectorResize } from "./inspector";
@@ -39,7 +40,12 @@ export function setTool(tool: string): void {
   state.tool = tool;
   state.linkStartId = null;
   syncToolGroups(tool); // reflect the active variant on its split-button face first
-  dom.toolButtons.forEach(button => button.classList.toggle("active", (button as HTMLElement).dataset.tool === tool));
+  dom.toolButtons.forEach(button => {
+    const active = (button as HTMLElement).dataset.tool === tool;
+    button.classList.toggle("active", active);
+    // The armed tool is a toggle state: say so, not only by colour.
+    button.setAttribute("aria-pressed", String(active));
+  });
   dom.modeLabel.textContent = PLACEMENT_TOOLS.has(tool) ? `${toolCopy[tool][0]} — ${PLACEMENT_HINT}` : toolCopy[tool][0];
   dom.canvas.style.cursor = tool === "select" ? "default" : tool === "configure" ? "pointer" : "crosshair";
   render();
@@ -196,9 +202,9 @@ export function openAbout(): void {
   dom.aboutModal.style.left = "";
   dom.aboutModal.style.top = "";
   dom.aboutModal.style.margin = "";
-  dom.aboutOverlay.classList.add("open");
+  showDialog(dom.aboutOverlay, document.getElementById("aboutClose"));
 }
-export function closeAbout(): void { dom.aboutOverlay.classList.remove("open"); }
+export function closeAbout(): void { hideDialog(dom.aboutOverlay); }
 
 // The reference guide (Help → Guide): device + settings docs, rebuilt from
 // help.ts on open so it always reflects the current registries.
@@ -206,9 +212,9 @@ export function openHelp(): void {
   // (Only the About modal is draggable — the Guide has no positioning to reset.)
   dom.helpBody.innerHTML = buildHelpHtml();
   dom.helpBody.scrollTop = 0;
-  dom.helpOverlay.classList.add("open");
+  showDialog(dom.helpOverlay, document.getElementById("helpClose"));
 }
-export function closeHelp(): void { dom.helpOverlay.classList.remove("open"); }
+export function closeHelp(): void { hideDialog(dom.helpOverlay); }
 
 // Settings is a right-docked pane (like the device-config inspector), not a
 // modal: toggle a body class and reflow the canvas so the stage gives up width.
@@ -253,6 +259,42 @@ function endAboutDrag(event: PointerEvent): void {
 }
 
 // Global keyboard shortcuts. Extracted from setupUI() so it can be unit-tested.
+// Open a packet-list row's frame in the inspector (and glow its wire on the
+// canvas). Shared by the click and the keyboard path; `refocus` puts focus back
+// on the row afterwards, because the list is rebuilt and a keyboard user would
+// otherwise be dropped at the top of the page.
+export function inspectPacketRow(row: HTMLElement, refocus = false): void {
+  // Rows carry data-cap so a click resolves against the right capture (the live
+  // run, or a saved one shown via the capture selector / in compare mode).
+  const capId = row.dataset.cap || "live";
+  const no = row.dataset.no;
+  const entry = captureEntriesFor(capId).find(c => c.no === Number(no));
+  if (!entry) return;
+  state.inspectedFrame = entry.frame;
+  state.inspectedCapture = entry; // cross-link: highlight this wire + its endpoints on the canvas
+  pauseSimulation();
+  if (!state.options.networkPanelOpen) setNetworkPanel(true);
+  syncPanel();
+  render();
+  syncSimLog();
+  if (refocus) dom.simLogOutput.querySelector<HTMLElement>(`tr[data-no="${no}"][data-cap="${capId}"]`)?.focus?.();
+}
+
+// The packet list by keyboard: Enter or Space opens the focused row, the arrow
+// keys move between rows. (Rows are focusable — tabindex in simlog-view.)
+export function handlePacketRowKeydown(event: KeyboardEvent): void {
+  const row = (event.target as HTMLElement)?.closest?.("tr[data-no]") as HTMLElement | null;
+  if (!row) return;
+  if (event.key === "Enter" || event.key === " ") {
+    event.preventDefault();
+    event.stopPropagation();          // Space here is "open", not the global pause shortcut
+    inspectPacketRow(row, true);
+  } else if (event.key === "ArrowDown" || event.key === "ArrowUp") {
+    const next = (event.key === "ArrowDown" ? row.nextElementSibling : row.previousElementSibling) as HTMLElement | null;
+    if (next?.matches?.("tr[data-no]")) { event.preventDefault(); next.focus(); }
+  }
+}
+
 // A modal dialog is up — the Guide, About, or the port picker. (The Settings
 // pane is docked beside the canvas, not modal, so the canvas shortcuts stay.)
 function modalDialogOpen(): boolean {
@@ -750,20 +792,9 @@ export function setupUI(): void {
     const target = event.target as HTMLElement;
     if (target.closest("[data-action='clear-log-filter']")) { clearLogFilter(); return; }
     const row = target.closest("tr[data-no]") as HTMLElement | null;
-    if (!row) return;
-    // Rows carry data-cap so a click resolves against the right capture (the live
-    // run, or a saved one shown via the capture selector / in compare mode).
-    const capId = row.dataset.cap || "live";
-    const entry = captureEntriesFor(capId).find(c => c.no === Number(row.dataset.no));
-    if (!entry) return;
-    state.inspectedFrame = entry.frame;
-    state.inspectedCapture = entry; // cross-link: highlight this wire + its endpoints on the canvas
-    pauseSimulation();
-    if (!state.options.networkPanelOpen) setNetworkPanel(true);
-    syncPanel();
-    render();
-    syncSimLog();
+    if (row) inspectPacketRow(row);
   });
+  dom.simLogOutput.addEventListener("keydown", (event) => handlePacketRowKeydown(event as KeyboardEvent));
 
   // Packet-list display filter: the expression input, the device select, the
   // protocol chips, and Clear. All three dimensions are ANDed (packet-filter.ts).

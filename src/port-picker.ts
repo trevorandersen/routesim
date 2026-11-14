@@ -11,6 +11,7 @@ import { dom } from "./dom";
 import { escapeHtml, mutationText } from "./utils";
 import { hasSingleNic } from "./device-registry";
 import { addLink, buildPortList, classifyLink, getDevice } from "./devices";
+import { showDialog, hideDialog } from "./dialog";
 
 export function openPortSelectionModal(fromId: string, toId: string): void {
   const fromDevice = getDevice(fromId);
@@ -47,14 +48,14 @@ export function openPortSelectionModal(fromId: string, toId: string): void {
 
   // Auto-select first available port for non-picker side
   syncPortSelectionModal();
-  dom.portSelectionOverlay.classList.add("open");
+  showDialog(dom.portSelectionOverlay, dom.portSelectionCancel);
 }
 
 export function syncPortSelectionModal(): void {
   const ps = state.portSelection;
   // No selection, no dialog: a restore or a load clears the selection and
   // calls this to take the dialog down with it.
-  if (!ps) { dom.portSelectionOverlay.classList.remove("open"); return; }
+  if (!ps) { hideDialog(dom.portSelectionOverlay); return; }
 
   const fromDevice = getDevice(ps.fromId);
   const toDevice = getDevice(ps.toId);
@@ -102,7 +103,7 @@ function renderPortColumn(deviceName: string, ports: PortOption[], selected: num
       if (!p.available) classes.push("occupied");
       if (p.port === selected) classes.push("selected");
       const status = p.connectedTo ? `Connected to ${escapeHtml(p.connectedTo)}` : "Available";
-      return `<button class="${classes.join(" ")}" data-side="${side}" data-port="${p.port}">
+      return `<button class="${classes.join(" ")}" data-side="${side}" data-port="${p.port}" type="button" aria-pressed="${p.port === selected}"${p.available ? "" : " disabled"}>
         <span class="port-name">${escapeHtml(p.name)}</span>
         <span class="port-status">${status}</span>
       </button>`;
@@ -120,7 +121,7 @@ export function confirmPortSelection(): void {
 
 export function cancelPortSelection(): void {
   state.portSelection = null;
-  dom.portSelectionOverlay.classList.remove("open");
+  hideDialog(dom.portSelectionOverlay);
   state.linkStartId = null;
   sync().render();
 }

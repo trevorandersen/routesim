@@ -8,6 +8,7 @@ import { ensureConfig, normaliseVlans, normaliseDnsRecords, normaliseDhcpLeases,
 import { snortRuleIssue } from "./snort";
 import {
   getDevice, isVisibleDevice, connectedIds, linkedPortsFor, linksFor, wifiLinkAuthenticated,
+  linkName, isPhysicalLink,
   routerInterfacesWithNames, routerInterfaceFor, routerInterfaceForName, switchInterfacesWithNames,
   deleteSelection, deleteLink, collapseLan, expandLan, configureDevice, hasHostname, applyHostname, deviceNameBlockReason,
   setLinkShutdown, setDevicePower, setSwitchManaged
@@ -1694,12 +1695,32 @@ export function syncDeviceList(): void {
   }
   const visibleDevices = state.devices.filter(isVisibleDevice);
   dom.deviceList.innerHTML = visibleDevices.map(device => `
-    <button class="device-row ${device.id === state.selectedId ? "active" : ""}" data-id="${escapeHtml(device.id)}">
+    <button class="device-row ${device.id === state.selectedId ? "active" : ""}" data-id="${escapeHtml(device.id)}" type="button" aria-pressed="${device.id === state.selectedId}">
       <span class="device-name">${escapeHtml(device.name)}</span>
       <span class="device-type">${DEVICE_SPECS[device.type as DeviceType]?.label ?? "Device"}</span>
     </button>
   `).join("");
-  [...dom.deviceList.querySelectorAll(".device-row")].forEach((row: any) => {
+  // Cables, listed under the devices: a link could only be selected by clicking
+  // it on the canvas, so its inspector (name, shut, bandwidth, delete) had no
+  // keyboard path at all. Each row selects its link, as the canvas click does.
+  const cables = state.links.filter(link => isPhysicalLink(link) && !link.hidden);
+  if (cables.length) {
+    dom.deviceList.innerHTML += `<p class="device-list-heading" id="linkListHeading">Cables</p>` + cables.map(link => `
+    <button class="device-row link-row ${link.id === state.selectedLinkId ? "active" : ""}" data-link-id="${escapeHtml(link.id)}" type="button" aria-pressed="${link.id === state.selectedLinkId}">
+      <span class="device-name">${escapeHtml(linkName(link))}</span>
+      <span class="device-type">${link.shutdown ? "Down" : link.wireless ? "Wireless" : "Cable"}</span>
+    </button>`).join("");
+  }
+  [...dom.deviceList.querySelectorAll(".link-row")].forEach((row: any) => {
+    row.addEventListener("click", () => {
+      state.selectedId = null;
+      state.selectedLinkId = row.dataset.linkId;
+      state.configuringId = null;
+      syncPanel();
+      sync().render();
+    });
+  });
+  [...dom.deviceList.querySelectorAll(".device-row:not(.link-row)")].forEach((row: any) => {
     row.addEventListener("click", () => {
       state.selectedId = row.dataset.id;
       state.selectedLinkId = null;

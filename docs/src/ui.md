@@ -31,3 +31,16 @@ Wires every DOM event listener and owns the interaction model: tool switching, c
 
 - `handleGlobalKeydown`, `handleCanvasPointerDown` and `handleCanvasContextMenu` are registered by reference in `setupUI`, so the live handlers and the unit-tested functions are identical (`tests/ui.test.ts`, `tests/placement.test.ts`).
 - Ribbon buttons are wired by a single delegated click handler over `data-action`/`data-theme-id`; the drawing tools use `data-tool`; built-in topologies load from the File-tab `<select>`, and scenarios from the `#scenarioMenu` flyout. Tab switching lives in [ribbon.ts](ribbon.md).
+
+## Keyboard and assistive-technology reach (review R103)
+
+Five surfaces were mouse-only or invisible to a screen reader; each now has a keyboard path and a name:
+
+- **Tool buttons** carry `aria-pressed` (set by `setTool`), so the armed tool is a stated toggle, not only a colour.
+- **Packet-list rows** are focusable (`tabindex="0"`, `aria-selected`). `handlePacketRowKeydown` opens the focused row on Enter or Space (through `inspectPacketRow`, the click path's function, which then puts focus back on the rebuilt row) and moves between rows with the arrow keys. Space on a row stops there — it does not reach the global pause shortcut.
+- **A dock session tab** is two real buttons side by side — the tab (`.dock-tab-label`, `aria-pressed`) and its close control (`.dock-tab-close`, `aria-label="Close <device> terminal session"`). The close control was a `<span>` nested in the tab's `<button>`: unfocusable, unnamed, and invalid nesting.
+- **Cables** are listed under the devices in the inspector's device list (`syncDeviceList`, a "Cables" section): each row is a button that selects the link exactly as a canvas click does, which opens the link inspector (name, admin status, bandwidth/latency/loss, delete). A link had no keyboard path at all before.
+- **Modal dialogs** (Guide, About, the port picker) are `role="dialog"` + `aria-modal="true"` + `aria-labelledby` in `template.html`, and open/close through `showDialog`/`hideDialog` (`dialog.ts`): focus moves to the dialog's close button, Tab wraps inside it, and closing returns focus to whatever opened it. The port picker's options are buttons with `aria-pressed`, and an occupied port is `disabled`.
+
+`:focus-visible` outlines mark the new focus stops.
+

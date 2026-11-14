@@ -175,7 +175,9 @@ function renderPacketTable(rows: FilterRow[], capId: string): string {
     const selected = (selectedEntry
       ? (selectInPane && selectedEntry.no === row.no)
       : state.inspectedFrame === row.frame) ? " selected" : "";
-    return `<tr class="pkt-row pkt-${escapeHtml(cols.tone)}${selected}" data-no="${row.no}" data-cap="${escapeHtml(capId)}">
+    // Focusable, so the list can be read and a row opened without a mouse
+    // (Enter/Space opens it, the arrows move — handlePacketRowKeydown in ui.ts).
+    return `<tr class="pkt-row pkt-${escapeHtml(cols.tone)}${selected}" data-no="${row.no}" data-cap="${escapeHtml(capId)}" tabindex="0" aria-selected="${selected ? "true" : "false"}">
       <td class="pkt-num">${row.no}</td>
       <td class="pkt-num">${row.step}</td>
       <td>${escapeHtml(cols.src)}</td>

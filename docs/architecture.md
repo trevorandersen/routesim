@@ -61,7 +61,7 @@ The modules fall into seven layers, L0 to L6. Arrows point from importer to impo
 flowchart TB
   L6["<b>L6 Entry</b><br/>app.ts"]
   L5["<b>L5 Application</b><br/>ui · commands · console · config · io · settings-url<br/>scenarios · scenario-library · scenario-ui · ribbon · tutorial"]
-  L4["<b>L4 Presentation</b><br/>canvas · inspector · simlog-view · port-picker"]
+  L4["<b>L4 Presentation</b><br/>canvas · inspector · simlog-view · port-picker · dialog"]
   L3["<b>L3 Engine and device CLIs</b><br/>engine · terminal/*"]
   L2["<b>L2 Network logic</b><br/>simulation · routing · stp"]
   L1["<b>L1 Model</b><br/>state · devices · normalise · diagnostics"]
@@ -144,6 +144,7 @@ Every source file, grouped by layer. Line counts are approximate and indicate we
 | `canvas.ts` | 600 | All canvas drawing: grid, links, devices, badges, transit dots; pan and zoom; hit-testing transits. Reads `state`, never mutates the network. | `render`, `resizeCanvas`, `screenToWorld`, `fitNetwork`, `findTransitAt` | [canvas.md](src/canvas.md) |
 | `inspector.ts` | 1,600 | The right panel: per-type config forms, link details, the clicked-frame field view, display options. Host edits are replayed as visible terminal commands. | `syncPanel`, `renderFramePanel`, `syncOptionControls`, `setNetworkPanel` | [inspector.md](src/inspector.md) |
 | `port-picker.ts` | 120 | The port-picker dialog the Connect tool opens on Shift-click: renders each end's ports and makes the cable with the chosen pair. Rows come from `buildPortList`; the cable from `addLink`. | `openPortSelectionModal`, `confirmPortSelection`, `cancelPortSelection` | [ui.md](src/ui.md) |
+| `dialog.ts` | 50 | Modal-dialog mechanics shared by the Guide, About and port-picker overlays: opening moves focus in, Tab stays inside, closing returns focus to the opener. The roles (`role="dialog"`, `aria-modal`, `aria-labelledby`) are static in `template.html`. | `showDialog`, `hideDialog` | [ui.md](src/ui.md) |
 | `simlog-view.ts` | 300 | The Sim Log pane: the packet list, the event log, the display-filter toolbar and the saved-capture bar. Reads the run's capture and log from `state` and the filter model from `packet-filter.ts`; registered as the `syncSimLog` callback. | `syncSimLog` | [engine.md](src/engine.md) |
 
 ### L5 Application

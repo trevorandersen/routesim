@@ -69,7 +69,7 @@ function reach(start: string): Set<string> {
   return new Set([...seen].map(short));
 }
 
-const PRESENTATION = ["ui.ts", "inspector.ts", "canvas.ts", "simlog-view.ts", "port-picker.ts", "console.ts", "ribbon.ts", "scenario-ui.ts", "tutorial.ts", "app.ts"];
+const PRESENTATION = ["ui.ts", "inspector.ts", "canvas.ts", "simlog-view.ts", "port-picker.ts", "dialog.ts", "console.ts", "ribbon.ts", "scenario-ui.ts", "tutorial.ts", "app.ts"];
 const isTerminal = (file: string) => file.startsWith("terminal/");
 
 describe("import graph — the engine is out of the cycles (R106)", () => {

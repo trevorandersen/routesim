@@ -683,6 +683,27 @@
       border-bottom-color: var(--accent);
     }
 
+    /* A session tab is a pair of buttons (the tab, its close control). */
+    .dock-tab-session { padding-right: 6px; }
+    .dock-tab-session .dock-tab-label,
+    .dock-tab-close {
+      appearance: none;
+      border: 0;
+      background: transparent;
+      padding: 0;
+      font: inherit;
+      color: inherit;
+      cursor: pointer;
+    }
+    .dock-tab-session .dock-tab-label { align-self: stretch; }
+    .dock-tab-label:focus-visible,
+    .dock-tab-close:focus-visible,
+    .pkt-row:focus-visible,
+    .link-row:focus-visible {
+      outline: 2px solid var(--accent);
+      outline-offset: -2px;
+    }
+
     .dock-tab-close {
       display: inline-flex;
       align-items: center;
@@ -1789,6 +1810,15 @@
       cursor: pointer;
     }
 
+    .device-list-heading {
+      margin: 10px 10px 4px;
+      font-size: 11px;
+      font-weight: 700;
+      letter-spacing: 0.06em;
+      text-transform: uppercase;
+      color: var(--muted);
+    }
+
     .device-row:hover,
     .device-row.active {
       border-color: var(--line);
@@ -2796,9 +2826,9 @@
   </aside>
 
   <div class="port-selection-overlay" id="portSelectionOverlay">
-    <div class="port-selection-modal">
+    <div class="port-selection-modal" role="dialog" aria-modal="true" aria-labelledby="portSelectionTitle">
       <div class="port-selection-header">
-        <h3>Select Interfaces</h3>
+        <h3 id="portSelectionTitle">Select Interfaces</h3>
         <button class="panel-toggle" id="portSelectionCancel" type="button" title="Cancel" aria-label="Cancel interface selection">&#x2715;</button>
       </div>
       <div class="port-selection-body" id="portSelectionBody"></div>
@@ -2885,9 +2915,9 @@
   </aside>
 
   <div class="about-overlay" id="aboutOverlay">
-    <div class="about-modal" id="aboutModal">
+    <div class="about-modal" id="aboutModal" role="dialog" aria-modal="true" aria-labelledby="aboutTitle">
       <div class="about-header" id="aboutHeader">
-        <h3>About</h3>
+        <h3 id="aboutTitle">About</h3>
         <button class="panel-toggle" id="aboutClose" type="button" title="Close" aria-label="Close about dialog">&#x2715;</button>
       </div>
       <div class="about-body">
@@ -2913,9 +2943,9 @@ Full legal text: https://creativecommons.org/publicdomain/zero/1.0/legalcode</pr
   </div>
 
   <div class="about-overlay" id="helpOverlay">
-    <div class="about-modal help-modal" id="helpModal">
+    <div class="about-modal help-modal" id="helpModal" role="dialog" aria-modal="true" aria-labelledby="helpTitle">
       <div class="about-header" id="helpHeader">
-        <h3>RouteSim guide — devices &amp; settings</h3>
+        <h3 id="helpTitle">RouteSim guide — devices &amp; settings</h3>
         <button class="panel-toggle" id="helpClose" type="button" title="Close" aria-label="Close guide dialog">&#x2715;</button>
       </div>
       <div class="about-body help-body" id="helpBody"></div>
@@ -13272,9 +13302,9 @@ Snort successfully validated the configuration${bad ? " (with errors)" : "."}`);
       const device = getDevice(s.deviceId);
       const name = device ? device.name : "(removed)";
       const active2 = dock.activeTab === "terminal" && s === state.terminal;
-      return `<button class="dock-tab ${active2 ? "active" : ""}" data-session="${escapeHtml(s.deviceId || "")}" type="button">
-      <span class="dock-tab-label">${escapeHtml(name)}</span><span class="dock-tab-close" data-close="${escapeHtml(s.deviceId || "")}" title="Close session">&times;</span>
-    </button>`;
+      return `<div class="dock-tab dock-tab-session ${active2 ? "active" : ""}" data-session="${escapeHtml(s.deviceId || "")}">
+      <button class="dock-tab-label" type="button" aria-pressed="${active2}">${escapeHtml(name)}</button><button class="dock-tab-close" data-close="${escapeHtml(s.deviceId || "")}" type="button" title="Close session" aria-label="Close ${escapeHtml(name)} terminal session">&times;</button>
+    </div>`;
     });
     if (state.terminalSessions.length === 0 && dock.activeTab === "terminal") {
       sessionTabs.push(`<button class="dock-tab active" data-pane="terminal" type="button"><span class="dock-tab-label">Terminal</span></button>`);
@@ -14025,7 +14055,7 @@ Snort successfully validated the configuration${bad ? " (with errors)" : "."}`);
       const link = linkMap.get(row.linkId);
       const wire = link ? linkName(link) : `${row.fromName} \u2194 ${row.toName}`;
       const selected = (selectedEntry ? selectInPane && selectedEntry.no === row.no : state.inspectedFrame === row.frame) ? " selected" : "";
-      return `<tr class="pkt-row pkt-${escapeHtml(cols.tone)}${selected}" data-no="${row.no}" data-cap="${escapeHtml(capId)}">
+      return `<tr class="pkt-row pkt-${escapeHtml(cols.tone)}${selected}" data-no="${row.no}" data-cap="${escapeHtml(capId)}" tabindex="0" aria-selected="${selected ? "true" : "false"}">
       <td class="pkt-num">${row.no}</td>
       <td class="pkt-num">${row.step}</td>
       <td>${escapeHtml(cols.src)}</td>
@@ -15637,12 +15667,29 @@ Snort successfully validated the configuration${bad ? " (with errors)" : "."}`);
     }
     const visibleDevices = state.devices.filter(isVisibleDevice);
     dom.deviceList.innerHTML = visibleDevices.map((device) => `
-    <button class="device-row ${device.id === state.selectedId ? "active" : ""}" data-id="${escapeHtml(device.id)}">
+    <button class="device-row ${device.id === state.selectedId ? "active" : ""}" data-id="${escapeHtml(device.id)}" type="button" aria-pressed="${device.id === state.selectedId}">
       <span class="device-name">${escapeHtml(device.name)}</span>
       <span class="device-type">${DEVICE_SPECS[device.type]?.label ?? "Device"}</span>
     </button>
   `).join("");
-    [...dom.deviceList.querySelectorAll(".device-row")].forEach((row) => {
+    const cables = state.links.filter((link) => isPhysicalLink(link) && !link.hidden);
+    if (cables.length) {
+      dom.deviceList.innerHTML += `<p class="device-list-heading" id="linkListHeading">Cables</p>` + cables.map((link) => `
+    <button class="device-row link-row ${link.id === state.selectedLinkId ? "active" : ""}" data-link-id="${escapeHtml(link.id)}" type="button" aria-pressed="${link.id === state.selectedLinkId}">
+      <span class="device-name">${escapeHtml(linkName(link))}</span>
+      <span class="device-type">${link.shutdown ? "Down" : link.wireless ? "Wireless" : "Cable"}</span>
+    </button>`).join("");
+    }
+    [...dom.deviceList.querySelectorAll(".link-row")].forEach((row) => {
+      row.addEventListener("click", () => {
+        state.selectedId = null;
+        state.selectedLinkId = row.dataset.linkId;
+        state.configuringId = null;
+        syncPanel();
+        sync().render();
+      });
+    });
+    [...dom.deviceList.querySelectorAll(".device-row:not(.link-row)")].forEach((row) => {
       row.addEventListener("click", () => {
         state.selectedId = row.dataset.id;
         state.selectedLinkId = null;
@@ -15651,6 +15698,42 @@ Snort successfully validated the configuration${bad ? " (with errors)" : "."}`);
         sync().render();
       });
     });
+  }
+
+  // src/dialog.ts
+  var FOCUSABLE = 'button:not([disabled]), [href], input:not([disabled]), select:not([disabled]), textarea:not([disabled]), [tabindex]:not([tabindex="-1"])';
+  var openers = /* @__PURE__ */ new Map();
+  var trapped = /* @__PURE__ */ new Set();
+  function trapTab(overlay, event) {
+    if (event.key !== "Tab" || !overlay.classList.contains("open")) return;
+    const controls = [...overlay.querySelectorAll(FOCUSABLE)];
+    if (!controls.length) return;
+    const first = controls[0], last = controls[controls.length - 1];
+    const active2 = document.activeElement;
+    if (event.shiftKey && (active2 === first || !overlay.contains(active2))) {
+      event.preventDefault();
+      last.focus();
+    } else if (!event.shiftKey && (active2 === last || !overlay.contains(active2))) {
+      event.preventDefault();
+      first.focus();
+    }
+  }
+  function showDialog(overlay, focus) {
+    if (!overlay.classList.contains("open")) openers.set(overlay, document.activeElement);
+    overlay.classList.add("open");
+    if (!trapped.has(overlay)) {
+      trapped.add(overlay);
+      overlay.addEventListener("keydown", (event) => trapTab(overlay, event));
+    }
+    focus?.focus?.();
+  }
+  function hideDialog(overlay) {
+    const wasOpen = overlay.classList.contains("open");
+    overlay.classList.remove("open");
+    if (!wasOpen) return;
+    const opener = openers.get(overlay);
+    openers.delete(overlay);
+    if (opener && opener.isConnected !== false) opener.focus?.();
   }
 
   // src/port-picker.ts
@@ -15682,12 +15765,12 @@ Snort successfully validated the configuration${bad ? " (with errors)" : "."}`);
       showToPicker
     };
     syncPortSelectionModal();
-    dom.portSelectionOverlay.classList.add("open");
+    showDialog(dom.portSelectionOverlay, dom.portSelectionCancel);
   }
   function syncPortSelectionModal() {
     const ps = state.portSelection;
     if (!ps) {
-      dom.portSelectionOverlay.classList.remove("open");
+      hideDialog(dom.portSelectionOverlay);
       return;
     }
     const fromDevice = getDevice(ps.fromId);
@@ -15729,7 +15812,7 @@ Snort successfully validated the configuration${bad ? " (with errors)" : "."}`);
       if (!p.available) classes.push("occupied");
       if (p.port === selected) classes.push("selected");
       const status = p.connectedTo ? `Connected to ${escapeHtml(p.connectedTo)}` : "Available";
-      return `<button class="${classes.join(" ")}" data-side="${side}" data-port="${p.port}">
+      return `<button class="${classes.join(" ")}" data-side="${side}" data-port="${p.port}" type="button" aria-pressed="${p.port === selected}"${p.available ? "" : " disabled"}>
         <span class="port-name">${escapeHtml(p.name)}</span>
         <span class="port-status">${status}</span>
       </button>`;
@@ -15745,7 +15828,7 @@ Snort successfully validated the configuration${bad ? " (with errors)" : "."}`);
   }
   function cancelPortSelection() {
     state.portSelection = null;
-    dom.portSelectionOverlay.classList.remove("open");
+    hideDialog(dom.portSelectionOverlay);
     state.linkStartId = null;
     sync().render();
   }
@@ -17131,7 +17214,11 @@ Snort successfully validated the configuration${bad ? " (with errors)" : "."}`);
     state.tool = tool;
     state.linkStartId = null;
     syncToolGroups(tool);
-    dom.toolButtons.forEach((button) => button.classList.toggle("active", button.dataset.tool === tool));
+    dom.toolButtons.forEach((button) => {
+      const active2 = button.dataset.tool === tool;
+      button.classList.toggle("active", active2);
+      button.setAttribute("aria-pressed", String(active2));
+    });
     dom.modeLabel.textContent = PLACEMENT_TOOLS.has(tool) ? `${toolCopy[tool][0]} \u2014 ${PLACEMENT_HINT}` : toolCopy[tool][0];
     dom.canvas.style.cursor = tool === "select" ? "default" : tool === "configure" ? "pointer" : "crosshair";
     render();
@@ -17254,18 +17341,18 @@ Snort successfully validated the configuration${bad ? " (with errors)" : "."}`);
     dom.aboutModal.style.left = "";
     dom.aboutModal.style.top = "";
     dom.aboutModal.style.margin = "";
-    dom.aboutOverlay.classList.add("open");
+    showDialog(dom.aboutOverlay, document.getElementById("aboutClose"));
   }
   function closeAbout() {
-    dom.aboutOverlay.classList.remove("open");
+    hideDialog(dom.aboutOverlay);
   }
   function openHelp() {
     dom.helpBody.innerHTML = buildHelpHtml();
     dom.helpBody.scrollTop = 0;
-    dom.helpOverlay.classList.add("open");
+    showDialog(dom.helpOverlay, document.getElementById("helpClose"));
   }
   function closeHelp() {
-    dom.helpOverlay.classList.remove("open");
+    hideDialog(dom.helpOverlay);
   }
   function openSettings() {
     document.body.classList.add("settings-open");
@@ -17302,6 +17389,35 @@ Snort successfully validated the configuration${bad ? " (with errors)" : "."}`);
     try {
       dom.aboutHeader.releasePointerCapture(event.pointerId);
     } catch {
+    }
+  }
+  function inspectPacketRow(row, refocus = false) {
+    const capId = row.dataset.cap || "live";
+    const no = row.dataset.no;
+    const entry = captureEntriesFor(capId).find((c) => c.no === Number(no));
+    if (!entry) return;
+    state.inspectedFrame = entry.frame;
+    state.inspectedCapture = entry;
+    pauseSimulation();
+    if (!state.options.networkPanelOpen) setNetworkPanel(true);
+    syncPanel();
+    render();
+    syncSimLog();
+    if (refocus) dom.simLogOutput.querySelector(`tr[data-no="${no}"][data-cap="${capId}"]`)?.focus?.();
+  }
+  function handlePacketRowKeydown(event) {
+    const row = event.target?.closest?.("tr[data-no]");
+    if (!row) return;
+    if (event.key === "Enter" || event.key === " ") {
+      event.preventDefault();
+      event.stopPropagation();
+      inspectPacketRow(row, true);
+    } else if (event.key === "ArrowDown" || event.key === "ArrowUp") {
+      const next = event.key === "ArrowDown" ? row.nextElementSibling : row.previousElementSibling;
+      if (next?.matches?.("tr[data-no]")) {
+        event.preventDefault();
+        next.focus();
+      }
     }
   }
   function modalDialogOpen() {
@@ -17740,18 +17856,9 @@ Snort successfully validated the configuration${bad ? " (with errors)" : "."}`);
         return;
       }
       const row = target.closest("tr[data-no]");
-      if (!row) return;
-      const capId = row.dataset.cap || "live";
-      const entry = captureEntriesFor(capId).find((c) => c.no === Number(row.dataset.no));
-      if (!entry) return;
-      state.inspectedFrame = entry.frame;
-      state.inspectedCapture = entry;
-      pauseSimulation();
-      if (!state.options.networkPanelOpen) setNetworkPanel(true);
-      syncPanel();
-      render();
-      syncSimLog();
+      if (row) inspectPacketRow(row);
     });
+    dom.simLogOutput.addEventListener("keydown", (event) => handlePacketRowKeydown(event));
     dom.simLogFilterInput.addEventListener("input", () => {
       state.dock.logFilter.expr = dom.simLogFilterInput.value;
       syncSimLog();

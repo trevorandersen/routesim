@@ -5,7 +5,12 @@ that makes invisible network behaviour visible, faithfully and fast.* Each item
 notes rough effort and how it leverages what already exists. Nothing here is
 committed scope — it's a menu for "what next".
 
-> **Released:** [`v0.5.1-alpha`](https://github.com/trevorandersen/routesim/releases/tag/v0.5.1-alpha)
+> **Released:** [`v0.5.2-alpha`](https://github.com/trevorandersen/routesim/releases/tag/v0.5.2-alpha)
+> (2026-11) — a router interface's configuration now belongs to its port: an
+> address set before the port is cabled follows it onto the cable, and it
+> stays on the port when the cable is removed.
+>
+> **Earlier:** [`v0.5.1-alpha`](https://github.com/trevorandersen/routesim/releases/tag/v0.5.1-alpha)
 > (2026-11) — the code-review remediation release: all 117 findings of
 > `reviews/2026-11-review.md` are fixed, with no new features. Highlights: RIP
 > forms adjacencies across a switch, the same script always builds the same

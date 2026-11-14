@@ -325,6 +325,19 @@ export function handleGlobalKeydown(event: KeyboardEvent): void {
   // An open dialog owns the keyboard: Delete behind the Guide or About modal
   // deleted the selected device, unseen, and a letter armed a tool behind it.
   if (modalDialogOpen()) return;
+  // Space pauses or resumes the run in flight — the shortcut the transport
+  // pill's tooltip has always advertised and nothing implemented. Only while a
+  // run is active (idle Space must not start a network boot), and not when a
+  // button has focus, where Space is that button's own activation.
+  if (event.key === " " || event.code === "Space") {
+    const status = state.simulation.status;
+    const onControl = ["BUTTON", "A", "SUMMARY"].includes((event.target as HTMLElement)?.tagName);
+    if (!onControl && (status === "running" || status === "paused")) {
+      event.preventDefault?.();   // do not scroll the page
+      handleSimPlayPause();
+    }
+    return;
+  }
   if (event.key === "Delete" || event.key === "Backspace") deleteSelection();
   if (event.key.toLowerCase() === "v") setTool("select");
   if (event.key.toLowerCase() === "c") setTool("computer");

@@ -17348,6 +17348,15 @@ Snort successfully validated the configuration${bad ? " (with errors)" : "."}`);
     if (inField) return;
     if (event.ctrlKey || event.metaKey || event.altKey) return;
     if (modalDialogOpen()) return;
+    if (event.key === " " || event.code === "Space") {
+      const status = state.simulation.status;
+      const onControl = ["BUTTON", "A", "SUMMARY"].includes(event.target?.tagName);
+      if (!onControl && (status === "running" || status === "paused")) {
+        event.preventDefault?.();
+        handleSimPlayPause();
+      }
+      return;
+    }
     if (event.key === "Delete" || event.key === "Backspace") deleteSelection();
     if (event.key.toLowerCase() === "v") setTool("select");
     if (event.key.toLowerCase() === "c") setTool("computer");

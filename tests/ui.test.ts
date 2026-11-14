@@ -245,6 +245,35 @@ describe("the port dialog pauses undo and never outlives its devices (R31)", () 
   });
 });
 
+// R104: the transport pill's tooltip said "Pause / resume (Space)"; nothing did.
+describe("handleGlobalKeydown — Space pauses and resumes the run in flight (R104)", () => {
+  beforeEach(() => resetState());
+  const space = (target: any = {}, extra: any = {}) => ({ key: " ", code: "Space", target, preventDefault() {}, ...extra } as any);
+
+  it("running → paused → resumed", () => {
+    state.simulation.status = "running";
+    handleGlobalKeydown(space());
+    expect(state.simulation.status).toBe("paused");
+    handleGlobalKeydown(space());
+    expect(state.simulation.status).not.toBe("paused");     // resumed (an empty run then finishes at once)
+    state.simulation.status = "idle";
+  });
+
+  it("does nothing while idle, in a field, on a focused button, with a modifier, or behind a dialog", () => {
+    handleGlobalKeydown(space());
+    expect(state.simulation.status).toBe("idle");
+    state.simulation.status = "running";
+    handleGlobalKeydown(space({ tagName: "INPUT" }));
+    handleGlobalKeydown(space({ tagName: "BUTTON" }));
+    handleGlobalKeydown(space({}, { ctrlKey: true }));
+    state.portSelection = { fromId: "a", toId: "b" } as any;
+    handleGlobalKeydown(space());
+    state.portSelection = null;
+    expect(state.simulation.status).toBe("running");
+    state.simulation.status = "idle";
+  });
+});
+
 describe("undo / redo", () => {
   beforeEach(() => resetState());
 

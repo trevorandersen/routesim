@@ -244,6 +244,7 @@ Every link records frames that traverse it (`link.frameHistory[]`), capped at 20
 | `W` | Configure tool |
 | `Delete`/`Backspace` | Delete selected device or link |
 | `Escape` | Cancel, return to select |
+| `Space` | Pause / resume the run in flight (nothing while idle) |
 | `Ctrl/Cmd+Z` | Undo |
 | `Ctrl/Cmd+Shift+Z` / `Ctrl/Cmd+Y` | Redo |
 | Double-click device | Configure |

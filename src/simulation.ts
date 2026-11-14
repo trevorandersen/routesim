@@ -35,7 +35,7 @@ function portCarries(sw: Device, portName: string, vlanId: number): boolean {
 
 // The port of `sw` facing `peerId`, or null if no cable to that peer.
 function portToward(sw: Device, peerId: string): string | null {
-  const idx = linkedPortsFor(sw.id).findIndex((p: any) => p?.peer?.id === peerId);
+  const idx = linkedPortsFor(sw.id).findIndex((p) => p?.peer?.id === peerId);
   return idx < 0 ? null : `Ethernet${idx + 1}`;
 }
 
@@ -127,7 +127,7 @@ export function getVlanForDevice(deviceId: string): number {
     const sw = getDevice(switchId);
     if (!sw || sw.type !== "switch" || !sw.config?.managed) continue;
     const ports = linkedPortsFor(sw.id);
-    const portIdx = ports.findIndex((p: any) => p?.peer?.id === deviceId);
+    const portIdx = ports.findIndex((p) => p?.peer?.id === deviceId);
     if (portIdx === -1) continue;
     const portName = `Ethernet${portIdx + 1}`;
     const portVlans = memoPortVlans(sw.config.portVlans); // read-only; recomputed on edit
@@ -269,7 +269,7 @@ export function buildPingEvents(source: any, targetText: string, options: { ttl?
  * ARP-ing first when the next-hop MAC is unknown, exactly like ping. The
  * handshake itself (SYN-ACK / ACK / RST) runs in the engine.
  */
-export function buildConnectEvents(source: any, targetText: string, port: number): PingSetup | string {
+export function buildConnectEvents(source: Device, targetText: string, port: number): PingSetup | string {
   seedSimRng();   // reseed the run's PRNG (also covers buildHttpEvents, which delegates here)
   if (!source.config?.ipv4Address) return `${source.name}: eth0 has no IPv4 address.`;
   if (!source.config?.macAddress) return `${source.name}: eth0 has no MAC address.`;
@@ -302,7 +302,7 @@ export function buildConnectEvents(source: any, targetText: string, port: number
 
   let initialFrame: EthernetFrame;
   if (sameSubnet(srcIp, dstIp, prefixOf(source.config))) {
-    const arpEntry = (source.config.arpTable || []).find((e: any) => e.ipv4Address === dstIp);
+    const arpEntry = (source.config.arpTable || []).find((e) => e.ipv4Address === dstIp);
     if (arpEntry) {
       initialFrame = syn(arpEntry.macAddress);
     } else {
@@ -313,7 +313,7 @@ export function buildConnectEvents(source: any, targetText: string, port: number
     if (!source.config?.gatewayIpv4Address) return `nc: connect: Network is unreachable (no default gateway)`;
     const gwIp = source.config.gatewayIpv4Address;
     if (!sameSubnet(gwIp, srcIp, prefixOf(source.config))) return `nc: connect: Network is unreachable (gateway not on source subnet)`;
-    const gwArpEntry = (source.config.arpTable || []).find((e: any) => e.ipv4Address === gwIp);
+    const gwArpEntry = (source.config.arpTable || []).find((e) => e.ipv4Address === gwIp);
     if (gwArpEntry) {
       initialFrame = syn(gwArpEntry.macAddress);
     } else {
@@ -360,7 +360,7 @@ export function parseHttpTarget(text: string, fallbackPath = "/"): { host: strin
   return { host: s, port, path };
 }
 
-export function buildHttpEvents(source: any, targetText: string, port = 80, path = "/"): PingSetup | string {
+export function buildHttpEvents(source: Device, targetText: string, port = 80, path = "/"): PingSetup | string {
   const setup = buildConnectEvents(source, targetText, port);
   if (typeof setup === "string") return setup;
   setup.httpPath = path || "/";
@@ -375,7 +375,7 @@ export function buildHttpEvents(source: any, targetText: string, port = 80, path
  * the answer arrives — "ping"/"tcp" for ping/nc-by-name, null for a bare
  * lookup (nslookup). The engine handles the response (engine.ts).
  */
-export function buildResolveEvents(source: any, name: string, then: "ping" | "tcp" | "http" | null = null, port: number | null = null): PingSetup | string {
+export function buildResolveEvents(source: Device, name: string, then: "ping" | "tcp" | "http" | null = null, port: number | null = null): PingSetup | string {
   seedSimRng();   // reseed the run's PRNG (the DNS transaction id draws from it)
   if (!source.config?.ipv4Address) return `${source.name}: eth0 has no IPv4 address.`;
   if (!source.config?.macAddress) return `${source.name}: eth0 has no MAC address.`;
@@ -398,7 +398,7 @@ export function buildResolveEvents(source: any, name: string, then: "ping" | "tc
   }
 
   const pendingArp: Record<string, EthernetFrame[]> = {};
-  const arpEntry = (source.config.arpTable || []).find((e: any) => e.ipv4Address === nextHopIp);
+  const arpEntry = (source.config.arpTable || []).find((e) => e.ipv4Address === nextHopIp);
   const dnsId = simRandomInt(0x1000, 0x10000);   // seeded xid — reproducible when the seed is pinned (also the PAT flow id)
   let initialFrame: EthernetFrame;
   if (arpEntry) {
@@ -421,7 +421,7 @@ export function buildResolveEvents(source: any, name: string, then: "ping" | "tc
   };
 }
 
-export function buildDhcpEvents(source: any): PingSetup | string {
+export function buildDhcpEvents(source: Device): PingSetup | string {
   seedSimRng();   // reseed the run's PRNG (the DHCP transaction id draws from it)
   if (!source.config?.macAddress) return `${source.name}: eth0 has no MAC address.`;
   const firstHop = findFirstHop(source);
@@ -444,7 +444,7 @@ export function buildDhcpEvents(source: any): PingSetup | string {
 }
 
 // The access point a laptop is associated with (its wireless link peer), or null.
-export function associatedAp(laptop: any): { ap: any; linkId: string } | null {
+export function associatedAp(laptop: Device): { ap: Device; linkId: string } | null {
   for (const link of state.links) {
     if (!link.wireless || !isPhysicalLink(link) || link.shutdown) continue;
     if (link.from !== laptop.id && link.to !== laptop.id) continue;
@@ -456,7 +456,7 @@ export function associatedAp(laptop: any): { ap: any; linkId: string } | null {
 
 // Seed the 802.11 association handshake: a laptop probes the access point it is
 // linked to. The reactive chain in the engine (handleDot11) plays out the rest.
-export function buildAssociationEvents(laptop: any): PingSetup | string {
+export function buildAssociationEvents(laptop: Device): PingSetup | string {
   if (laptop.type !== "laptop") return `${laptop.name} is not a wireless client.`;
   const srcMac = laptop.config?.macAddress;
   if (!srcMac) return `${laptop.name}: the WiFi NIC has no MAC address.`;
@@ -477,7 +477,7 @@ export function buildAssociationEvents(laptop: any): PingSetup | string {
 
 // Seed the 802.1X exchange: a supplicant host sends EAPOL-Start to its
 // authenticator switch (the port it's on must be under 802.1X port control).
-export function buildDot1xEvents(host: any): PingSetup | string {
+export function buildDot1xEvents(host: Device): PingSetup | string {
   if (!isDot1xSupplicant(host.type)) return `${host.name} is not a host (802.1X supplicant).`;
   const srcMac = host.config?.macAddress;
   if (!srcMac) return `${host.name}: eth0 has no MAC address.`;
@@ -507,7 +507,7 @@ export function buildStpEvents(): PingSetup | string {
     const rootId = root.config!.stp!.rootId || "";
     const bridgeId = root.config!.stp!.bridgeId || "";
     const ports = linkedPortsFor(root.id);
-    ports.forEach((port: any, idx: number) => {
+    ports.forEach((port, idx: number) => {
       if (!port?.peer || !isStpParticipant(port.peer)) return;
       const name = `Ethernet${idx + 1}`;
       if (root.config?.stp?.ports?.[name]?.role !== "designated") return;
@@ -665,7 +665,7 @@ export function buildArpSpoofEvents(
     return { ip, mac: cached || macForIp(ip) || BROADCAST_MAC };
   };
 
-  const emit = (frame: any) => ({ type: "frame_arrive" as const, frame, deviceId: firstHop.peerId, fromDeviceId: attacker.id, linkId: firstHop.linkId });
+  const emit = (frame: EthernetFrame) => ({ type: "frame_arrive" as const, frame, deviceId: firstHop.peerId, fromDeviceId: attacker.id, linkId: firstHop.linkId });
 
   // No -t: the broadcast poison (every victim learns spoofIp → our MAC).
   if (!opts.victim) {

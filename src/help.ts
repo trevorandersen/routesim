@@ -100,7 +100,7 @@ export const SETTING_GROUPS: SettingGroup[] = [
 function deviceIcon(type: DeviceType): string {
   const spec = DEVICE_SPECS[type];
   const paths = spec.iconPaths.map(d => `<path d="${d}"></path>`).join("");
-  const sw = (spec as any).iconStrokeWidth ?? 1.6;
+  const sw = (spec).iconStrokeWidth ?? 1.6;
   return `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="${sw}" stroke-linecap="round" stroke-linejoin="round" style="color: var(--${spec.paletteVar}-icon, var(--${spec.paletteVar}-stroke))" aria-hidden="true">${paths}</svg>`;
 }
 

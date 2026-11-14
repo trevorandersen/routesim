@@ -48,7 +48,7 @@ export function renderScenarioOptions(): void {
   const leftovers = SCENARIOS.filter(s => !placed.has(s.id));
   const extraGroups = new Map<string, { id: string; name: string }[]>();
   for (const s of leftovers) {
-    const label = (s as any).group || "Other";
+    const label = (s).group || "Other";
     if (!extraGroups.has(label)) extraGroups.set(label, []);
     extraGroups.get(label)!.push(s);
   }

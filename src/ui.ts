@@ -765,8 +765,8 @@ export function setupUI(): void {
   // The bottom dock: terminal sessions, console, and sim log share one panel.
   dom.dockTabs.addEventListener("click", handleDockTabClick);
   dom.dockClose.addEventListener("click", closeDock);
-  dom.dockResizeHandle.addEventListener("pointerdown", startDockResize as any);
-  window.addEventListener("pointermove", moveDockResize as any);
+  dom.dockResizeHandle.addEventListener("pointerdown", startDockResize);
+  window.addEventListener("pointermove", moveDockResize);
   window.addEventListener("pointerup", stopDockResize);
   window.addEventListener("pointercancel", stopDockResize);
   dom.terminalForm.addEventListener("submit", submitTerminalCommand);
@@ -847,8 +847,8 @@ export function setupUI(): void {
   dom.detailsPanel.addEventListener("click", (event) => {
     if ((event.target as HTMLElement)?.closest?.("#inspectorCloseButton")) setNetworkPanel(false);
   });
-  dom.inspectorResizeHandle.addEventListener("pointerdown", startInspectorResize as any);
-  window.addEventListener("pointermove", moveInspectorResize as any);
+  dom.inspectorResizeHandle.addEventListener("pointerdown", startInspectorResize);
+  window.addEventListener("pointermove", moveInspectorResize);
   window.addEventListener("pointerup", stopInspectorResize);
   window.addEventListener("pointercancel", stopInspectorResize);
   bindOptionToggle(dom.showDeviceNames, "showDeviceNames");

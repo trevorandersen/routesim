@@ -645,7 +645,7 @@ export function linksChanged(deviceIds?: readonly string[]): void {
 // else still left a distinct undo point — and bloated every snapshot. Devices
 // with nothing derived are stored as they are (no copy).
 function persistentDevice(device: Device): Device {
-  const config = device.config as any;
+  const config = device.config;
   if (!config) return device;
   let kept = config;
   if (config.rip?.learnedRoutes?.length) kept = { ...kept, rip: { ...config.rip, learnedRoutes: [] } };
@@ -654,8 +654,8 @@ function persistentDevice(device: Device): Device {
     const { bridgeId, rootId, rootCost, ports, ...stpConfig } = stp;
     kept = { ...kept, stp: stpConfig };
   }
-  if (Array.isArray(config.macTable) && config.macTable.some((e: any) => e.type !== "STATIC")) {
-    kept = { ...kept, macTable: config.macTable.filter((e: any) => e.type === "STATIC") };
+  if (Array.isArray(config.macTable) && config.macTable.some((e) => e.type !== "STATIC")) {
+    kept = { ...kept, macTable: config.macTable.filter((e) => e.type === "STATIC") };
   }
   return kept === config ? device : { ...device, config: kept };
 }

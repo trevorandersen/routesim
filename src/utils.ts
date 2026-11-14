@@ -6,7 +6,7 @@ export function mutationText(result: { ok: boolean; error?: string; message?: st
   return result.ok ? [result.message, ...result.warnings].filter(Boolean).join(" ") : (result.error || "");
 }
 
-export function escapeHtml(value: any): string {
+export function escapeHtml(value: unknown): string {
   return String(value)
     .replaceAll("&", "&amp;")
     .replaceAll("<", "&lt;")
@@ -214,7 +214,7 @@ export function normalisePortNumber(value: unknown): number | undefined {
   return Number.isInteger(n) && n >= 1 && n <= MAX_PHYSICAL_PORT ? n : undefined;
 }
 
-export function clampPortCount(value: any): number {
+export function clampPortCount(value: unknown): number {
   const portCount = Number(value);
   if (!Number.isInteger(portCount)) return 8;
   return Math.min(24, Math.max(4, portCount));
@@ -225,13 +225,13 @@ export function clampPortCount(value: any): number {
 // and the normaliser applied the switch's 4–24, so a default two-port firewall
 // came back from a save with four ports.
 export const FIREWALL_PORT_RANGE = { min: 2, max: 8 } as const;
-export function clampFirewallPortCount(value: any): number {
+export function clampFirewallPortCount(value: unknown): number {
   const portCount = Number(value);
   if (!Number.isInteger(portCount)) return FIREWALL_PORT_RANGE.min;
   return Math.min(FIREWALL_PORT_RANGE.max, Math.max(FIREWALL_PORT_RANGE.min, portCount));
 }
 
-export function clampRouterPortCount(value: any): number {
+export function clampRouterPortCount(value: unknown): number {
   const portCount = Number(value);
   if (!Number.isInteger(portCount)) return 4;
   return Math.min(12, Math.max(0, portCount));
@@ -239,7 +239,7 @@ export function clampRouterPortCount(value: any): number {
 
 // An access point has a single wired uplink (some carry a couple of LAN ports);
 // its wireless clients are associations, not ports. Allow 1–4, default 1.
-export function clampApPortCount(value: any): number {
+export function clampApPortCount(value: unknown): number {
   const portCount = Number(value);
   if (!Number.isInteger(portCount)) return 1;
   return Math.min(4, Math.max(1, portCount));
@@ -274,7 +274,7 @@ export function bridgeMacOf(device: { id: string; config?: { macAddress?: string
 
 // A WiFi network name: a single trimmed token, capped at the 802.11 limit of 32
 // octets. SSIDs are case-sensitive; whitespace-only collapses to "" (no SSID).
-export function normaliseSsid(value: any): string {
+export function normaliseSsid(value: unknown): string {
   // 802.11 caps an SSID at 32 OCTETS, not 32 UTF-16 code units — a 32-character
   // CJK or emoji name is up to 128 bytes. Keep whole code points up to the cap.
   return truncateOctets(String(value ?? "").trim(), 32);
@@ -296,11 +296,11 @@ export function truncateOctets(s: string, max: number): string {
 
 // A WPA2 pre-shared key is 8–63 printable characters; we only cap the length and
 // trim — an empty result means an open network (no password).
-export function normaliseWifiPassword(value: any): string {
+export function normaliseWifiPassword(value: unknown): string {
   return String(value ?? "").trim().slice(0, 63);
 }
 
-export function parseIpv4Token(value: any): { address: string; prefixLength: number | null } | null {
+export function parseIpv4Token(value: unknown): { address: string; prefixLength: number | null } | null {
   const match = String(value || "").trim().match(/^([^/]+)(?:\/(\d{1,2}))?$/);
   if (!match) return null;
   const address = match[1];
@@ -313,7 +313,7 @@ export function parseIpv4Token(value: any): { address: string; prefixLength: num
   return { address, prefixLength };
 }
 
-export function normaliseVlanId(value: any): number | null {
+export function normaliseVlanId(value: unknown): number | null {
   const id = Number(value);
   if (!Number.isInteger(id) || id < 1 || id > 4094) return null;
   return id;

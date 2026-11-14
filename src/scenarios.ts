@@ -221,7 +221,7 @@ function evaluate(check: ScenarioCheck): boolean {
     if (!from) return false;
     const to = resolve(check.to)?.config?.ipv4Address || check.to;
     // Clear prior alerts so the check only sees this flow's detections.
-    for (const d of state.devices) if (d.type === "ids") (d.config as any).alerts = [];
+    for (const d of state.devices) if (d.type === "ids") (d.config).alerts = [];
     // A Red Team source launches its port scan against the target — the burst of
     // SYN probes is what an IDS rule matches. Any other source uses a TCP connect
     // (when a port is given) or a ping.
@@ -261,7 +261,7 @@ function tcpSucceeds(fromRef: string, toRef: string, port: number): boolean {
 // Take a device's traffic policy out of the way, in place, and name what was
 // removed (for the note). null = this device type has no policy to remove.
 function removePolicy(guard: Device): string | null {
-  const config: any = guard.config;
+  const config = guard.config;
   if (!config) return null;
   if (guard.type === "firewall" || guard.type === "router") {
     config.rules = [];

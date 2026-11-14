@@ -49,7 +49,7 @@ export function ipSourceInfo(config: any): { cls: string; text: string } {
   return { cls: "static", text: "static" };
 }
 
-function ipSourceBadge(config: any): string {
+function ipSourceBadge(config: unknown): string {
   const info = ipSourceInfo(config);
   return `<span class="ip-source ip-source-${info.cls}" id="ipSourceBadge">${info.text}</span>`;
 }
@@ -91,18 +91,18 @@ export function stopInspectorResize(): void {
   document.body.classList.remove("resizing-inspector");
 }
 
-function vlanOptions(device: any, current: number): string {
+function vlanOptions(device: Device, current: number): string {
   const vlans = normaliseVlans(device.config?.vlans || []);
-  if (!vlans.some((v: any) => v.id === current)) vlans.push({ id: current, name: current === 1 ? "default" : `Vlan${current}` });
+  if (!vlans.some((v) => v.id === current)) vlans.push({ id: current, name: current === 1 ? "default" : `Vlan${current}` });
   return vlans
-    .sort((a: any, b: any) => a.id - b.id)
-    .map((v: any) => `<option value="${v.id}" ${v.id === current ? "selected" : ""}>VLAN ${v.id}</option>`)
+    .sort((a, b) => a.id - b.id)
+    .map((v) => `<option value="${v.id}" ${v.id === current ? "selected" : ""}>VLAN ${v.id}</option>`)
     .join("");
 }
 
-export function renderSwitchVlans(device: any): string {
+export function renderSwitchVlans(device: Device): string {
   const vlans = normaliseVlans(device.config?.vlans || []);
-  const chips = vlans.map((v: any) => `
+  const chips = vlans.map((v) => `
     <span class="vlan-chip">
       ${v.id} ${escapeHtml(v.name)}
       ${v.id !== 1 ? `<button class="vlan-remove" data-vlan="${v.id}" type="button" title="Remove VLAN ${v.id}" aria-label="Remove VLAN ${v.id}">&times;</button>` : ""}
@@ -137,13 +137,13 @@ function renderWifiFields(config: any, hint: string): string {
       </div>`;
 }
 
-export function renderSwitchPorts(device: any): string {
+export function renderSwitchPorts(device: Device): string {
   const interfaces = switchInterfacesWithNames(device);
   const isManaged = Boolean(device.config?.managed);
   const stpOn = isManaged && (device.config?.stp ? device.config.stp.enabled !== false : true);
   const stpPorts = stpOn ? (device.config?.stp?.ports || {}) : {};
   const ports = linkedPortsFor(device.id);
-  return interfaces.map((iface: any, index: number) => {
+  return interfaces.map((iface, index: number) => {
     const port = ports[index];
     const peer = port?.peer;
     const si = peer ? stpPorts[iface.name] : null;
@@ -179,7 +179,7 @@ export function renderSwitchPorts(device: any): string {
 // The managed-switch spanning-tree control: an enable toggle, the bridge
 // priority, and a one-line status (root bridge, or root id + cost). Wired by
 // bindStpControls; the mutations run through setSwitchStp (pushUndo + reconverge).
-export function renderStpSection(device: any): string {
+export function renderStpSection(device: Device): string {
   const stp = device.config?.stp;
   const enabled = stp ? stp.enabled !== false : true;
   const priority = stp?.priority ?? 32768;
@@ -203,11 +203,11 @@ export function renderStpSection(device: any): string {
   `;
 }
 
-export function renderRouterInterfaces(device: any): string {
+export function renderRouterInterfaces(device: Device): string {
   const interfaces = routerInterfacesWithNames(device);
   return `
     <div class="interface-list">
-      ${interfaces.map((iface: any) => {
+      ${interfaces.map((iface) => {
         const vlanAttr = iface.config.vlanTag != null ? ` data-vlan-tag="${iface.config.vlanTag}"` : "";
         const peerLabel = iface.peer?.name || "not connected";
         // Empty ports persist an IP by name; connected ports key by peer.
@@ -241,14 +241,14 @@ function panelHeading(title: string): string {
     </div>`;
 }
 
-export function renderFirewallRules(device: any): string {
+export function renderFirewallRules(device: Device): string {
   const rules = (device.config?.rules || []);
   if (!rules.length) return `<p class="empty-state">No rules — the default policy applies to all traffic.</p>`;
   const nft = ruleLangOf(device) === "nftables";
   const del = (index: number) => `<button class="inline-button fw-rule-del" type="button" data-fw-del="${index}" title="Delete this rule" aria-label="Delete rule">&times;</button>`;
   // In nftables mode the whole rule is one statement (verdict last), coloured on
   // the device's chosen class; in iptables mode the TARGET leads, as `-L` shows.
-  return `<ol class="fw-rule-list">${rules.map((r: any, index: number) => {
+  return `<ol class="fw-rule-list">${rules.map((r, index: number) => {
     if (nft) {
       return `<li class="fw-nft-row fw-${escapeHtml(r.target)}">${escapeHtml(String(r.chain || "forward"))} ${escapeHtml(ruleToNft(r))}${del(index)}</li>`;
     }
@@ -275,7 +275,7 @@ export function renderFirewallRules(device: any): string {
 // entry a frame most recently created or used (`NatEntry.lastStep`, refreshed
 // live by `touchNat` while this panel is open). The flash is a highlighted row
 // plus a "●" marker, so the signal is not carried by colour alone.
-export function renderNatTranslations(device: any): string {
+export function renderNatTranslations(device: Device): string {
   const translations = (device.config?.natTranslations || []) as any[];
   if (!translations.length) return "";
   const maxStep = Math.max(-1, ...translations.map(t => t.lastStep ?? -1));
@@ -300,7 +300,7 @@ export function renderNatTranslations(device: any): string {
       </div>`;
 }
 
-export function renderFirewallControls(device: any, chains: string[]): string {
+export function renderFirewallControls(device: Device, chains: string[]): string {
   const policy = device.config?.policy || {};
   const lang = ruleLangOf(device);
   // Language selector + the native ruleset view it picks. Both front doors parse
@@ -356,7 +356,7 @@ export function renderFirewallControls(device: any, chains: string[]): string {
 
 // The dnsmasq service panel on a server: daemon state, DNS A-records (with
 // add/remove), the DHCP range + router option, and current leases.
-function renderDnsmasqSection(device: any): string {
+function renderDnsmasqSection(device: Device): string {
   const config = device.config || {};
   const records = normaliseDnsRecords(config.dnsRecords || []);
   const leases = normaliseDhcpLeases(config.dhcpLeases || []);
@@ -389,7 +389,7 @@ function renderDnsmasqSection(device: any): string {
       <table class="data-table">
         <thead><tr><th>Name</th><th>IPv4</th><th></th></tr></thead>
         <tbody>
-          ${records.map((r: any, i: number) => `
+          ${records.map((r, i: number) => `
             <tr>
               <td>${escapeHtml(r.name)}</td>
               <td>${escapeHtml(r.ip)}</td>
@@ -421,7 +421,7 @@ function renderDnsmasqSection(device: any): string {
       <table class="data-table">
         <thead><tr><th>MAC</th><th>IPv4</th></tr></thead>
         <tbody>
-          ${leases.map((l: any) => `<tr><td>${escapeHtml(l.macAddress)}</td><td>${escapeHtml(l.ipv4Address)}</td></tr>`).join("")}
+          ${leases.map((l) => `<tr><td>${escapeHtml(l.macAddress)}</td><td>${escapeHtml(l.ipv4Address)}</td></tr>`).join("")}
         </tbody>
       </table>
     </div>` : ""}
@@ -431,7 +431,7 @@ function renderDnsmasqSection(device: any): string {
       <table class="data-table">
         <thead><tr><th>Identity</th><th>Password</th><th></th></tr></thead>
         <tbody>
-          ${radiusUsers.map((u: any, i: number) => `
+          ${radiusUsers.map((u, i: number) => `
             <tr>
               <td>${escapeHtml(u.identity)}</td>
               <td>${escapeHtml(u.password)}</td>
@@ -456,7 +456,7 @@ function renderDnsmasqSection(device: any): string {
 
 // Wire the dnsmasq panel controls (no-ops when the selection isn't a server —
 // the elements simply aren't in the DOM).
-function bindDnsmasqControls(selected: any): void {
+function bindDnsmasqControls(selected: Device): void {
   const runningInput = document.getElementById("dnsmasqRunning") as HTMLInputElement | null;
   if (runningInput) {
     runningInput.addEventListener("change", (event: any) => {
@@ -499,7 +499,7 @@ function bindDnsmasqControls(selected: any): void {
       pushUndo();
       ensureConfig(selected);
       const records = normaliseDnsRecords(selected.config.dnsRecords || []);
-      const existing = records.find((r: any) => r.name === name);
+      const existing = records.find((r) => r.name === name);
       if (existing) existing.ip = ip;
       else records.push({ name, ip });
       selected.config.dnsRecords = records;
@@ -556,7 +556,7 @@ function bindDnsmasqControls(selected: any): void {
       pushUndo();
       ensureConfig(selected);
       const users = normaliseRadiusUsers(selected.config.radius?.users || []);
-      const existing = users.find((u: any) => u.identity === identity);
+      const existing = users.find((u) => u.identity === identity);
       if (existing) existing.password = password;
       else users.push({ identity, password });
       selected.config.radius = { users };
@@ -595,7 +595,7 @@ function bindDnsmasqControls(selected: any): void {
   }
 }
 
-export function renderArpTable(device: any): string {
+export function renderArpTable(device: Device): string {
   const entries = Array.isArray(device.config?.arpTable) ? device.config.arpTable : [];
   return `
     <table class="data-table">
@@ -603,7 +603,7 @@ export function renderArpTable(device: any): string {
         <tr><th>IPv4</th><th>MAC</th></tr>
       </thead>
       <tbody>
-        ${entries.length ? entries.map((entry: any) => `
+        ${entries.length ? entries.map((entry) => `
           <tr>
             <td>${escapeHtml(entry.ipv4Address || "")}</td>
             <td>${escapeHtml(entry.macAddress || "")}</td>
@@ -614,7 +614,7 @@ export function renderArpTable(device: any): string {
   `;
 }
 
-export function renderMacAddressTable(device: any): string {
+export function renderMacAddressTable(device: Device): string {
   const entries = Array.isArray(device.config?.macTable) ? device.config.macTable : [];
   const isManaged = Boolean(device.config?.managed);
   const columns = isManaged ? 4 : 3;
@@ -624,7 +624,7 @@ export function renderMacAddressTable(device: any): string {
         <tr>${isManaged ? "<th>VLAN</th>" : ""}<th>MAC Address</th><th>Type</th><th>Port</th></tr>
       </thead>
       <tbody>
-        ${entries.length ? entries.map((entry: any) => `
+        ${entries.length ? entries.map((entry) => `
           <tr>
             ${isManaged ? `<td>${escapeHtml(entry.vlan || "")}</td>` : ""}
             <td>${escapeHtml(entry.macAddress || "")}</td>
@@ -640,7 +640,7 @@ export function renderMacAddressTable(device: any): string {
 // SPAN port mirroring control (managed switches): a dropdown to pick the monitor
 // port that an IDS listens on (or "off"), plus per-port source checkboxes to
 // choose which ports' traffic is mirrored (all ticked = the whole switch).
-export function renderMirrorSection(device: any): string {
+export function renderMirrorSection(device: Device): string {
   const mirror = device.config?.mirror;
   const dest = mirror?.dest || "";
   const ports = switchInterfacesWithNames(device);
@@ -649,7 +649,7 @@ export function renderMirrorSection(device: any): string {
       <label for="selectedMirror">Port mirroring (SPAN)</label>
       <select id="selectedMirror" class="mirror-select">
         <option value="">off</option>
-        ${ports.map((p: any) => `<option value="${escapeHtml(p.name)}" ${p.name === dest ? "selected" : ""}>${escapeHtml(p.name)}${p.peer ? ` &rarr; ${escapeHtml(p.peer.name)}` : ""}</option>`).join("")}
+        ${ports.map((p) => `<option value="${escapeHtml(p.name)}" ${p.name === dest ? "selected" : ""}>${escapeHtml(p.name)}${p.peer ? ` &rarr; ${escapeHtml(p.peer.name)}` : ""}</option>`).join("")}
       </select>
       <span class="field-note">Copy traffic to this monitor port (cable an IDS sensor there).</span>
     </div>`;
@@ -657,13 +657,13 @@ export function renderMirrorSection(device: any): string {
   // Source-port selection: which cabled ports get mirrored. All ticked = the
   // whole switch (sources omitted); untick to mirror only specific ports.
   const sources: string[] | undefined = mirror?.sources;
-  const eligible = ports.filter((p: any) => p.peer && p.name !== dest);
+  const eligible = ports.filter((p) => p.peer && p.name !== dest);
   const sourceField = eligible.length
     ? `
     <div class="field">
       <label>Mirror sources</label>
       <div class="mirror-sources">
-        ${eligible.map((p: any) => {
+        ${eligible.map((p) => {
           const checked = !sources || sources.includes(p.name);
           return `<label class="mirror-source"><input type="checkbox" class="mirror-source-cb" data-port="${escapeHtml(p.name)}"${checked ? " checked" : ""}> <span>${escapeHtml(p.name)} &rarr; ${escapeHtml(p.peer.name)}</span></label>`;
         }).join("")}
@@ -677,7 +677,7 @@ export function renderMirrorSection(device: any): string {
 
 // The IDS sensor panel: the Snort rule set (editable as local.rules) and the
 // alert log. Wired by bindIdsControls.
-export function renderIdsSection(device: any): string {
+export function renderIdsSection(device: Device): string {
   const ruleLines: string[] = device.config?.idsRules || [];
   const rules = ruleLines.join("\n");
   const alerts: string[] = device.config?.alerts || [];
@@ -701,7 +701,7 @@ export function renderIdsSection(device: any): string {
 }
 
 // Wires the IDS rule editor (commit on blur) and the clear-alerts button.
-export function bindIdsControls(device: any): void {
+export function bindIdsControls(device: Device): void {
   const rules = document.getElementById("selectedIdsRules") as HTMLTextAreaElement | null;
   if (rules) {
     captureUndoOnFocus(rules as any);
@@ -765,7 +765,7 @@ export function bindAttackerControls(device: any): void {
 }
 
 // Wires the managed-switch SPAN mirror dropdown + the source-port checkboxes.
-export function bindMirrorControl(device: any): void {
+export function bindMirrorControl(device: Device): void {
   const name = device.config?.mirror?.name;
   const sel = document.getElementById("selectedMirror") as HTMLSelectElement | null;
   // Changing the monitor port resets the mirror to the whole switch (the new
@@ -795,7 +795,7 @@ export function bindMirrorControl(device: any): void {
 
 // Wires the spanning-tree enable toggle and bridge-priority field (managed
 // switches). setSwitchStp pushUndo()s, reconverges, and re-syncs the panel.
-export function bindStpControls(device: any): void {
+export function bindStpControls(device: Device): void {
   const toggle = document.getElementById("selectedStp") as HTMLInputElement | null;
   if (toggle) toggle.addEventListener("change", () => setSwitchStp(device, { enabled: toggle.checked }));
   const prio = document.getElementById("selectedStpPriority") as HTMLInputElement | null;
@@ -914,7 +914,7 @@ export function bindRouterInterfaceList(device: Device): void {
 // selects, per-rule delete buttons, and the add-rule form. Mutates the same
 // config.rules / config.policy as the iptables CLI, with the same validation
 // (a --dport needs -p tcp; src/dst must be a valid IPv4 or CIDR).
-export function bindFirewallControls(device: any, chains: string[]): void {
+export function bindFirewallControls(device: Device, chains: string[]): void {
   const langSel = document.querySelector("[data-fw-rulelang]") as HTMLSelectElement | null;
   langSel?.addEventListener("change", () => {
     pushUndo();
@@ -1076,8 +1076,8 @@ function renderLinkPanel(link: Link): void {
     input.addEventListener("input", (event: any) => {
       let value = Number(event.target.value);
       if (max != null && value > max) value = max;
-      if (Number.isFinite(value) && value > 0) (link as any)[key] = value;
-      else delete (link as any)[key];
+      if (Number.isFinite(value) && value > 0) (link)[key] = value;
+      else delete (link)[key];
     });
   };
   linkNumberField("selectedLinkBandwidth", "bandwidth");
@@ -1198,7 +1198,7 @@ function bindWifiControls(selected: Device): void {
         syncPanel();
         sync().render();
       });
-      input.addEventListener("keydown", (event: any) => { if (event.key === "Enter") input.blur(); });
+      input.addEventListener("keydown", (event) => { if (event.key === "Enter") input.blur(); });
     };
     bindWifiField("selectedSsid", "ssid", normaliseSsid);
     bindWifiField("selectedWifiPassword", "wifiPassword", normaliseWifiPassword);
@@ -1263,7 +1263,7 @@ export const INSPECTOR_SECTIONS: InspectorSection[] = [
           }
           nameInput.setCustomValidity("");
         });
-        nameInput.addEventListener("keydown", (event: any) => { if (event.key === "Enter") nameInput.blur(); });
+        nameInput.addEventListener("keydown", (event) => { if (event.key === "Enter") nameInput.blur(); });
       } else {
         // Everything else (LAN, hub, unmanaged switch, AP, cloud) keeps a plain
         // label with no hostname semantics, so free text stays fine.
@@ -1375,7 +1375,7 @@ export const INSPECTOR_SECTIONS: InspectorSection[] = [
         </div>
       </div>
       ${selected.type === "laptop" ? renderWifiFields(selected.config, "The WiFi network this laptop associates to (must match an access point).") + (() => {
-        const wlink = state.links.find((l: any) => l.wireless && (l.from === selected.id || l.to === selected.id));
+        const wlink = state.links.find((l) => l.wireless && (l.from === selected.id || l.to === selected.id));
         const warn = wlink && !wifiLinkAuthenticated(wlink) ? `<p class="field-note" style="color: var(--danger)">Associated but not authenticated — the password does not match the access point, so no traffic passes.</p>` : "";
         return `${warn}<div class="field"><button class="wide-button" id="associateLaptop" type="button">Show association handshake</button></div>`;
       })() : ""}
@@ -1398,7 +1398,7 @@ export const INSPECTOR_SECTIONS: InspectorSection[] = [
           const command = toCommand(input.value.trim());
           if (command) runDeviceCommand(selected, command);
         });
-        input.addEventListener("keydown", (event: any) => { if (event.key === "Enter") input.blur(); });
+        input.addEventListener("keydown", (event) => { if (event.key === "Enter") input.blur(); });
       };
       commitField("selectedIpv4", v => v ? `ip addr add ${v} dev eth0` : "ip addr flush dev eth0");
       commitField("selectedGateway", v => v ? `ip route add default via ${v}` : "ip route del default");

@@ -95,11 +95,11 @@ export function devicePalette(type: string): { fill: string; stroke: string; acc
 
 // Exported for benchmarking the per-frame render cost (memoised port-mode read).
 export function isTrunkLink(from: any, to: any): boolean {
-  function hasTrunkPort(sw: any, peerId: string): boolean {
+  function hasTrunkPort(sw: Device, peerId: string): boolean {
     if (sw.type !== "switch" || !sw.config?.managed) return false;
     const portModes = memoPortModes(sw.config.portModes);
     const ports = linkedPortsFor(sw.id);
-    const idx = ports.findIndex((p: any) => p?.peer?.id === peerId);   // linkedPortsFor can be sparse (null gaps)
+    const idx = ports.findIndex((p) => p?.peer?.id === peerId);   // linkedPortsFor can be sparse (null gaps)
     if (idx < 0) return false;
     return (portModes[`Ethernet${idx + 1}`] || "access") === "trunk";
   }
@@ -219,7 +219,7 @@ export function drawLink(link: any): void {
 }
 
 // Draws any device body + icon from its registry spec (size, radius, paths).
-export function drawIconDevice(device: any, palette: any): void {
+export function drawIconDevice(device: Device, palette: any): void {
   const spec = DEVICE_SPECS[device.type as DeviceType] ?? DEVICE_SPECS.switch;
   const radius = spec.iconRadius;
   const x = device.x - device.width / 2;
@@ -263,7 +263,7 @@ export function drawTablerIcon(centerX: number, centerY: number, paths: string[]
   ctx.restore();
 }
 
-export function drawManagedBadge(device: any, palette: any): void {
+export function drawManagedBadge(device: Device, palette: any): void {
   const x = device.x + device.width / 2 - 18;
   const y = device.y - device.height / 2 + 18;
   ctx.save();
@@ -294,7 +294,7 @@ export function drawManagedBadge(device: any, palette: any): void {
 
 // The spanning-tree root bridge carries a small indigo "R" badge (top-left, so
 // it doesn't collide with the managed badge top-right). Indigo ties it to BPDUs.
-function drawRootBridgeBadge(device: any): void {
+function drawRootBridgeBadge(device: Device): void {
   const x = device.x - device.width / 2 + 18;
   const y = device.y - device.height / 2 + 18;
   ctx.save();
@@ -315,7 +315,7 @@ function drawRootBridgeBadge(device: any): void {
 
 // A border/edge router carries a small amber "B" badge (top-right) — it faces
 // the outside, the natural place for NAT + a firewall.
-function drawBorderBadge(device: any): void {
+function drawBorderBadge(device: Device): void {
   const x = device.x + device.width / 2 - 18;
   const y = device.y - device.height / 2 + 18;
   ctx.save();
@@ -334,7 +334,7 @@ function drawBorderBadge(device: any): void {
   ctx.restore();
 }
 
-function drawDeviceIcon(device: any): void {
+function drawDeviceIcon(device: Device): void {
   if (device.hidden) return;
   const selected = state.selectedId === device.id;
   const linking = state.linkStartId === device.id;
@@ -362,7 +362,7 @@ function drawDeviceIcon(device: any): void {
   ctx.restore();
 }
 
-export function drawDevice(device: any): void {
+export function drawDevice(device: Device): void {
   if (device.hidden) return;
 
   ctx.save();
@@ -412,7 +412,7 @@ export function drawDevice(device: any): void {
   }
   // VLAN dots for managed switches
   if (device.type === "switch" && device.config?.managed && state.options.showIpAddresses) {
-    const vlans = (device.config.vlans || []).filter((v: any) => v.id !== 1);
+    const vlans = (device.config.vlans || []).filter((v) => v.id !== 1);
     if (vlans.length > 0) {
       const dotRadius = 3.5;
       const dotSpacing = 12;

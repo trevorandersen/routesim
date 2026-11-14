@@ -154,8 +154,8 @@ export function normaliseRipConfig(rip: any): RipConfig {
   if (!rip || typeof rip !== "object") return { enabled: false, networks: [], passiveInterfaces: [], learnedRoutes: [] };
   return {
     enabled: Boolean(rip.enabled),
-    networks: Array.isArray(rip.networks) ? rip.networks.map((n: any) => String(n).trim()).filter(Boolean) : [],
-    passiveInterfaces: Array.isArray(rip.passiveInterfaces) ? rip.passiveInterfaces.map((n: any) => String(n).trim()).filter(Boolean) : [],
+    networks: Array.isArray(rip.networks) ? rip.networks.map((n: unknown) => String(n).trim()).filter(Boolean) : [],
+    passiveInterfaces: Array.isArray(rip.passiveInterfaces) ? rip.passiveInterfaces.map((n: unknown) => String(n).trim()).filter(Boolean) : [],
     learnedRoutes: Array.isArray(rip.learnedRoutes) ? rip.learnedRoutes.map((r: any) => ({
       network: String(r?.network || "").trim(),
       nextHop: String(r?.nextHop || "").trim(),
@@ -213,9 +213,9 @@ const FIREWALL_TARGETS = new Set(["accept", "drop", "reject"]);
 const FIREWALL_PROTOCOLS = new Set(["icmp", "udp", "tcp", "all"]);
 const CONN_STATES = new Set(["new", "established", "related", "invalid"]);
 
-export function normaliseFirewallRules(raw: any): FirewallRule[] {
+export function normaliseFirewallRules(raw: unknown): FirewallRule[] {
   if (!Array.isArray(raw)) return [];
-  return raw.map((r: any) => {
+  return raw.map((r) => {
     const target = String(r?.target || "").toLowerCase();
     if (!FIREWALL_TARGETS.has(target)) return null;
     const rule: FirewallRule = { chain: String(r?.chain || "forward").toLowerCase(), target: target as any };
@@ -226,8 +226,8 @@ export function normaliseFirewallRules(raw: any): FirewallRule[] {
     if (r?.icmpType) rule.icmpType = String(r.icmpType).toLowerCase();
     if (r?.dport != null && Number.isFinite(Number(r.dport))) rule.dport = Number(r.dport);
     if (Array.isArray(r?.states)) {
-      const states = r.states.map((s: any) => String(s).toLowerCase()).filter((s: string) => CONN_STATES.has(s));
-      if (states.length) rule.states = states as any;
+      const states = r.states.map((s: unknown) => String(s).toLowerCase()).filter((s: string) => CONN_STATES.has(s));
+      if (states.length) rule.states = states;
     }
     if (r?.rejectWith && target === "reject") rule.rejectWith = String(r.rejectWith).toLowerCase();
     return rule;
@@ -237,7 +237,7 @@ export function normaliseFirewallRules(raw: any): FirewallRule[] {
 // dnsmasq A-records (`address=/name/ip`): drop entries with no name or a bad IP.
 export function normaliseDnsRecords(raw: unknown): DnsRecord[] {
   if (!Array.isArray(raw)) return [];
-  return raw.map((r: any) => ({
+  return raw.map((r) => ({
     name: String(r?.name || "").trim().toLowerCase(),
     ip: String(r?.ip || r?.address || "").trim(),
   })).filter(r => r.name && isValidIpv4(r.ip));
@@ -349,8 +349,8 @@ export function normaliseIdsRules(raw: unknown): string[] {
 export function normaliseRadiusUsers(raw: unknown): { identity: string; password: string }[] {
   if (!Array.isArray(raw)) return [];
   return raw
-    .filter((u: any) => u && u.identity)
-    .map((u: any) => ({ identity: String(u.identity), password: String(u.password ?? "") }));
+    .filter((u) => u && u.identity)
+    .map((u) => ({ identity: String(u.identity), password: String(u.password ?? "") }));
 }
 
 export function normaliseDeviceConfig(device: any): DeviceConfig {
@@ -416,7 +416,7 @@ export function normaliseDeviceConfig(device: any): DeviceConfig {
       ...(Object.keys(policy).length ? { policy } : {}),
       ...(device.config?.ruleLang === "nftables" ? { ruleLang: "nftables" as const } : {}),
       ...(Array.isArray(device.config?.natTranslations) && device.config.natTranslations.length
-        ? { natTranslations: (device.config.natTranslations as any[]).map(({ lastStep, ...e }: any) => e) } : {}),
+        ? { natTranslations: (device.config.natTranslations as unknown[]).map(({ lastStep, ...e }: any) => e) } : {}),
       ...((pf => pf.length ? { portForwards: pf } : {})(normalisePortForwards(device.config?.portForwards)))
     };
   }
@@ -455,10 +455,10 @@ export function normaliseDeviceConfig(device: any): DeviceConfig {
     return {
       anchorId: String(device.config?.anchorId || device.anchorId || ""),
       members: Array.isArray(device.config?.members || device.members)
-        ? (device.config?.members || device.members).map((id: any) => String(id))
+        ? (device.config?.members || device.members).map((id: unknown) => String(id))
         : [],
       absorbedLans: Array.isArray(device.config?.absorbedLans || device.absorbedLans)
-        ? (device.config?.absorbedLans || device.absorbedLans).map((id: any) => String(id))
+        ? (device.config?.absorbedLans || device.absorbedLans).map((id: unknown) => String(id))
         : []
     };
   }
@@ -514,7 +514,7 @@ export function normaliseConfig(parsed: any): { devices: Device[]; links: Link[]
   }
 
   const seenIds = new Set<string>();
-  const devices = parsed.devices.map((device: any, index: number) => {
+  const devices = parsed.devices.map((device: Device, index: number) => {
     if (!device || !DEVICE_TYPES.includes(device.type)) {
       throw new Error(`Device ${index + 1} has an unknown type "${device?.type}".`);
     }
@@ -562,7 +562,7 @@ export function normaliseConfig(parsed: any): { devices: Device[]; links: Link[]
     seenPorts.add(key);
     return port;
   };
-  parsed.links.forEach((link: any, index: number) => {
+  parsed.links.forEach((link: Link, index: number) => {
     if (!link || !seenIds.has(String(link.from)) || !seenIds.has(String(link.to))) {
       throw new Error(`Link ${index + 1} references a missing device.`);
     }
@@ -611,7 +611,7 @@ export function defaultDeviceConfig(type: DeviceType): DeviceConfig {
 // Translates a topology in place so every device sits at a positive coordinate
 // (top-left anchored at `margin`), preserving the relative layout. Returns the
 // same config object. Keeps the built-in topologies/scenarios positive.
-export function shiftToPositive(config: any, margin = 80): any {
+export function shiftToPositive(config: any, margin = 80): unknown {
   const devices = config?.devices || [];
   if (!devices.length) return config;
   const dx = margin - Math.min(...devices.map((d: any) => d.x));

@@ -75,7 +75,7 @@ export function addDevice(type: DeviceType, x: number, y: number, name?: string)
   // from its name — never from its random id, so a replayed script builds the
   // same tree. A name reused after a rename takes the next free variant.
   if (type === "switch") device.config.macAddress = freeBridgeMac(device.name);
-  state.devices.push(device as any);
+  state.devices.push(device);
   state.selectedId = device.id;
   sync().syncPanel();
   sync().render();
@@ -213,7 +213,7 @@ export function classifyLink(fromId: string, toId: string): { reject: string | n
 // *wrong password* does NOT block the link: the association forms but stays
 // unauthenticated (data is blocked and the WPA2 handshake fails), exactly like a
 // real client that associates then fails the 4-way key exchange.
-function wifiJoinReason(laptop: any, ap: any): string | null {
+function wifiJoinReason(laptop: Device, ap: Device): string | null {
   const apSsid = (ap.config?.ssid || "").trim();
   const lapSsid = (laptop.config?.ssid || "").trim();
   if (!apSsid) return `${ap.name} has no SSID set — give it a network name first.`;
@@ -228,7 +228,7 @@ function wifiJoinReason(laptop: any, ap: any): string | null {
 // re-pointed at another network after associating (`ssid …`) no longer passes —
 // and, on a secured AP, its password must match. Computed live (no stored
 // state), so it tracks SSID and password edits.
-export function wifiLinkBlockReason(link: any): string | null {
+export function wifiLinkBlockReason(link: Link): string | null {
   if (!link?.wireless) return null;
   const a = getDevice(link.from), b = getDevice(link.to);
   const ap = a?.type === "access-point" ? a : b?.type === "access-point" ? b : null;
@@ -245,7 +245,7 @@ export function wifiLinkBlockReason(link: any): string | null {
 
 // Boolean form: whether a wireless association is authenticated and carries
 // data. A wired link is always "authenticated".
-export function wifiLinkAuthenticated(link: any): boolean {
+export function wifiLinkAuthenticated(link: Link): boolean {
   return wifiLinkBlockReason(link) === null;
 }
 
@@ -288,7 +288,7 @@ function switchPortOfLink(switchId: string, linkId: string): string | null {
   let ports = _portIndex.get(switchId);
   if (!ports) {
     ports = new Map();
-    linkedPortsFor(switchId).forEach((p: any, idx: number) => {   // linkedPortsFor can be sparse (null gaps)
+    linkedPortsFor(switchId).forEach((p, idx: number) => {   // linkedPortsFor can be sparse (null gaps)
       if (p?.link?.id) ports!.set(p.link.id, `Ethernet${idx + 1}`);
     });
     _portIndex.set(switchId, ports);
@@ -352,7 +352,7 @@ export function dot1xPortAuthorized(link: Link | null | undefined): boolean {
 // static pre-shared `cak` (both must match), or `derive` — keys bootstrapped
 // from a successful 802.1X exchange on this link (MKA), so the link secures only
 // once `link.dot1xAuthorized` is set. Live — tracks key edits and authentication.
-export function macsecState(link: any): "open" | "secured" | "failed" {
+export function macsecState(link: Link): "open" | "secured" | "failed" {
   const a = getDevice(link?.from), b = getDevice(link?.to);
   const aCfg = a?.config?.macsec?.[link?.to];
   const bCfg = b?.config?.macsec?.[link?.from];
@@ -490,7 +490,7 @@ export function addLink(fromId: string, toId: string, fromPort?: number, toPort?
   // numbering space, so a router's first serial cable came out as Serial2.
   const refusedFrom = fromPort != null ? portBlockReason(fromId, toId, fromPort) : null;
   const refusedTo = toPort != null ? portBlockReason(toId, fromId, toPort) : null;
-  const link: any = {
+  const link: Link = {
     id: crypto.randomUUID ? crypto.randomUUID() : `${Date.now()}-${Math.random()}`,
     from: fromId,
     to: toId,
@@ -582,12 +582,12 @@ export function occupiedPorts(deviceId: string, media: PortMedia = "ethernet"): 
   if (media !== "ethernet") return taken;
   const ports = linkedPortsFor(deviceId);
   if (hasSingleNic(device.type)) {
-    const only = ports.find((port: any) => port);
+    const only = ports.find((port) => port);
     if (only) taken.set(1, only.peer ?? null);
     return taken;
   }
   // A wireless association is not a wired port (as in switchInterfacesWithNames).
-  ports.filter((port: any) => !port?.link?.wireless).forEach((port: any, index: number) => {
+  ports.filter((port) => !port?.link?.wireless).forEach((port, index: number) => {
     if (port) taken.set(index + 1, port.peer ?? null);
   });
   return taken;
@@ -622,11 +622,11 @@ export function linkPortName(link: Link, deviceId: string): string | null {
   const device = getDevice(deviceId);
   if (!device || link.wireless) return null;
   if (device.type === "router") {
-    const iface = routerInterfacesWithNames(device, true).find((i: any) => i.link?.id === link.id);
+    const iface = routerInterfacesWithNames(device, true).find((i) => i.link?.id === link.id);
     return iface ? iface.name.replace(/\..*$/, "") : null;
   }
   if (hasSingleNic(device.type)) return "eth0";
-  const index = linkedPortsFor(deviceId).filter((port: any) => !port?.link?.wireless).findIndex((port: any) => port?.link?.id === link.id);
+  const index = linkedPortsFor(deviceId).filter((port) => !port?.link?.wireless).findIndex((port) => port?.link?.id === link.id);
   return index >= 0 ? `Ethernet${index + 1}` : null;
 }
 
@@ -1108,7 +1108,7 @@ export function collapseLan(anchor: any): MutationResult {
   const boundaryIds = new Set<string>();
   state.links.forEach(link => {
     if (absorbedLanSet.has(link.from) || absorbedLanSet.has(link.to)) {
-      (link as any).visibleBeforeParentCollapse = !link.hidden;
+      (link).visibleBeforeParentCollapse = !link.hidden;
       link.hidden = true;
       link.collapsedBy = lanId;
       return;
@@ -1139,7 +1139,7 @@ export function collapseLan(anchor: any): MutationResult {
       to: routerId,
       proxy: true,
       collapsedBy: lanId
-    } as any);
+    });
   });
   state.devices.push(lan as any);
   state.selectedId = lanId;
@@ -1171,11 +1171,11 @@ export function expandLan(lan: any): MutationResult {
   state.links.forEach(link => {
     if (link.collapsedBy === lanId) {
       if (absorbedLanSet.has(link.from) || absorbedLanSet.has(link.to)) {
-        link.hidden = !(link as any).visibleBeforeParentCollapse;
+        link.hidden = !(link).visibleBeforeParentCollapse;
       } else {
         link.hidden = false;
       }
-      delete (link as any).visibleBeforeParentCollapse;
+      delete (link).visibleBeforeParentCollapse;
       delete link.collapsedBy;
     }
   });
@@ -1191,7 +1191,7 @@ export function expandLan(lan: any): MutationResult {
 export function routerInterfaceFor(router: any, peerId: string, vlanTag?: number | null): any {
   ensureConfig(router);
   router.config.interfaces = normaliseRouterInterfaces(router.config.interfaces || [], router.id);
-  let iface: any;
+  let iface;
   if (vlanTag != null) {
     // Find sub-interface with matching peerId AND vlanTag
     iface = router.config.interfaces.find((entry: any) => entry.peerId === peerId && entry.vlanTag === vlanTag);
@@ -1238,14 +1238,14 @@ export function routerInterfaceForName(router: any, name: string): any {
 // free ports: the routing table and RIP only ever read interfaces with a peer,
 // and they run per routed frame / per convergence, so they don't pay to build
 // (and garbage-collect) a placeholder for every unused port.
-export function routerInterfacesWithNames(router: any, cabledOnly = false): NamedRouterIface[] {
+export function routerInterfacesWithNames(router: Device, cabledOnly = false): NamedRouterIface[] {
   const ethernetPorts = clampRouterPortCount(router.config?.ethernetPorts ?? defaultPortCount("router"));
   const serialPorts = clampRouterPortCount(router.config?.serialPorts ?? 4);
   const configured = normaliseRouterInterfaces(router.config?.interfaces || [], router.id);
-  const linked = linkedPortsFor(router.id).filter((port: any) => port).map(port => {   // drop null gaps from sparse port arrays
+  const linked = linkedPortsFor(router.id).filter((port) => port).map(port => {   // drop null gaps from sparse port arrays
     const type = port.peer.type === "router" ? "serial" : "ethernet";
     // Find ALL configured interfaces for this peer (supports sub-interfaces)
-    const allConfigs = configured.filter((entry: any) => entry.peerId === port.peer.id);
+    const allConfigs = configured.filter((entry) => entry.peerId === port.peer.id);
     if (allConfigs.length === 0) {
       allConfigs.push({ peerId: port.peer.id, type, name: "", ipv4Address: "", macAddress: "", arpTable: [], dhcpLeases: [], vlanTag: null });
     }
@@ -1280,7 +1280,7 @@ export function routerInterfacesWithNames(router: any, cabledOnly = false): Name
     const index = entry.index;
     if (!index) continue;
     const baseName = entry.type === "serial" ? `Serial${index}` : `Ethernet${index}`;
-    const hasSubInterfaces = entry.configs.some((c: any) => c.vlanTag != null);
+    const hasSubInterfaces = entry.configs.some((c) => c.vlanTag != null);
     if (hasSubInterfaces) {
       // Show sub-interfaces (Ethernet1.10, Ethernet1.20, etc.)
       for (const config of entry.configs) {
@@ -1310,7 +1310,7 @@ export function routerInterfacesWithNames(router: any, cabledOnly = false): Name
   // Unconnected ports reuse any saved by-name config (so a pre-assigned IP
   // persists across renders), else a fresh placeholder.
   const emptyConfigFor = (name: string, type: string) =>
-    configured.find((c: any) => c.peerId === "" && c.name === name)
+    configured.find((c) => c.peerId === "" && c.name === name)
       || { peerId: "", name, type, ipv4Address: "", vlanTag: null };
   // Free ports are every unused number up to capacity (so a gap left by an
   // explicit pick is offered as free, not hidden).
@@ -1321,14 +1321,14 @@ export function routerInterfacesWithNames(router: any, cabledOnly = false): Name
   return [...occupied, ...emptyEthernet, ...emptySerial];
 }
 
-export function routerInterfaceByName(router: any, name: string): any {
+export function routerInterfaceByName(router: Device, name: string): any {
   const lower = String(name || "").trim().toLowerCase();
   return routerInterfacesWithNames(router).find(iface => iface.name.toLowerCase() === lower);
 }
 
 // A device's wired-port capacity by type — the same clamps the inspector and
 // normaliser apply, so the picker and the port view agree.
-export function wiredPortCapacity(device: any): number {
+export function wiredPortCapacity(device: Device): number {
   const n = device.config?.ethernetPorts;
   switch (device.type) {
     case "access-point": return clampApPortCount(n ?? 1);
@@ -1339,12 +1339,12 @@ export function wiredPortCapacity(device: any): number {
   }
 }
 
-export function switchInterfacesWithNames(device: any): any[] {
+export function switchInterfacesWithNames(device: Device): any[] {
   const portCount = wiredPortCapacity(device);
   // A wireless association (laptop ↔ access point) is not an ethernet port, so
   // it never occupies a wired-port slot in the inspector / port picker. The
   // engine still floods over every link (it uses linkedPortsFor directly).
-  const ports = linkedPortsFor(device.id).filter((p: any) => !p?.link?.wireless);   // keep null gaps (index alignment), drop wireless
+  const ports = linkedPortsFor(device.id).filter((p) => !p?.link?.wireless);   // keep null gaps (index alignment), drop wireless
   const portVlans = normalisePortVlans(device.config?.portVlans || {});
   const portModes = normalisePortModes(device.config?.portModes || {});
   const trunkNativeVlans = normalisePortVlans(device.config?.trunkNativeVlans || {});
@@ -1363,9 +1363,9 @@ export function switchInterfacesWithNames(device: any): any[] {
 }
 
 // Case-insensitive switch port lookup by name (e.g. "ethernet3" → Ethernet3).
-export function switchIfaceByName(device: any, portName: string): any {
+export function switchIfaceByName(device: Device, portName: string): any {
   const lower = String(portName || "").toLowerCase();
-  return switchInterfacesWithNames(device).find((p: any) => p.name.toLowerCase() === lower);
+  return switchInterfacesWithNames(device).find((p) => p.name.toLowerCase() === lower);
 }
 
 // ─── Port list (the data behind the port picker — the dialog is port-picker.ts) ──
@@ -1396,7 +1396,7 @@ export function buildPortList(deviceId: string, peerId?: string): PortOption[] {
     // to fall through to an empty list, leaving the picker with a blank column and
     // no way to confirm. Routers name ports per media type, below.
     const ifaces = switchInterfacesWithNames(device);
-    return ifaces.map((iface: any) => ({
+    return ifaces.map((iface) => ({
       name: iface.name,
       port: iface.portNumber,
       available: !iface.peer,
@@ -1408,9 +1408,9 @@ export function buildPortList(deviceId: string, peerId?: string): PortOption[] {
     const media = peerId ? portMediaFor(deviceId, peerId) : null;
     const ifaces = routerInterfacesWithNames(device);
     return ifaces
-      .filter((iface: any) => !iface.name.includes(".")) // skip sub-interfaces
-      .filter((iface: any) => !media || iface.type === media)
-      .map((iface: any) => ({
+      .filter((iface) => !iface.name.includes(".")) // skip sub-interfaces
+      .filter((iface) => !media || iface.type === media)
+      .map((iface) => ({
         name: iface.name,
         // The number the NAME carries is what becomes the link's fromPort/toPort,
         // and naming honours it back — so "Ethernet4" picked here is Ethernet4

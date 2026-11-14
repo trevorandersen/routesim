@@ -59,7 +59,7 @@ function cmpBridge(a: Bridge, b: Bridge): number {
 // path exactly. Null if the link isn't a visible wired port on the device.
 function portForLink(deviceId: string, linkId: string): { name: string; num: number } | null {
   const ports = linkedPortsFor(deviceId);
-  const idx = ports.findIndex((p: any) => p && p.link && p.link.id === linkId);
+  const idx = ports.findIndex((p) => p && p.link && p.link.id === linkId);
   if (idx < 0) return null;
   return { name: `Ethernet${idx + 1}`, num: idx + 1 };
 }
@@ -123,7 +123,7 @@ export function runStpConvergence(): { participants: number; roots: number; bloc
   for (const dev of participants) {
     const map = portsOut.get(dev.id)!;
     const ports = linkedPortsFor(dev.id);
-    ports.forEach((p: any, idx: number) => {
+    ports.forEach((p, idx: number) => {
       // An administratively-down cable takes no part in the tree at all (it is
       // excluded from the participant edges above too) — seeding it forwarding
       // showed a shut port as live in the inspector's STP view.

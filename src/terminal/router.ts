@@ -18,7 +18,7 @@ export function showRouterInterfaceBrief(router: Device): string {
   if (!interfaces.length) return "No interfaces configured.";
   return [
     ["Interface".padEnd(14), "IP-Address".padEnd(19), "Status".padEnd(22), "Protocol".padEnd(10), "VLAN".padEnd(6), "Connected to"].join(""),
-    ...interfaces.map((iface: any) => {
+    ...interfaces.map((iface) => {
       const vlanDisplay = iface.config.vlanTag != null ? String(iface.config.vlanTag) : "-";
       // A shut cable is "administratively down" with the line protocol down, as
       // on IOS — not "up/up" (review R41). The routing table already drops its
@@ -55,7 +55,7 @@ export function showRouterRoute(router: Device): string {
   return [
     "Codes: C - connected, S - static, R - RIP",
     "",
-    ...table.map((route: any) => {
+    ...table.map((route) => {
       if (route.type === "C") {
         return `C>* ${route.network} is directly connected, ${route.interface || "?"}`;
       }
@@ -73,13 +73,13 @@ export function showRouterRoute(router: Device): string {
 }
 
 export function showRouterArp(router: Device): string {
-  const rows = routerInterfacesWithNames(router).flatMap((iface: any) =>
-    normaliseArpTable(iface.config.arpTable || []).map((entry: any) => ({ ...entry, iface: iface.name }))
+  const rows = routerInterfacesWithNames(router).flatMap((iface) =>
+    normaliseArpTable(iface.config.arpTable || []).map((entry) => ({ ...entry, iface: iface.name }))
   );
   if (!rows.length) return "Address                  HWtype  HWaddress           Flags Mask            Iface";
   return [
     "Address                  HWtype  HWaddress           Flags Mask            Iface",
-    ...rows.map((entry: any) => `${entry.ipv4Address.padEnd(24)}ether   ${entry.macAddress.padEnd(19)}C                     ${entry.iface}`)
+    ...rows.map((entry) => `${entry.ipv4Address.padEnd(24)}ether   ${entry.macAddress.padEnd(19)}C                     ${entry.iface}`)
   ].join("\n");
 }
 
@@ -95,13 +95,13 @@ export function flushRouterArp(router: Device): string {
 }
 
 export function showRouterDhcpBindings(router: Device): string {
-  const rows = routerInterfacesWithNames(router).flatMap((iface: any) =>
-    normaliseDhcpLeases(iface.config.dhcpLeases || []).map((entry: any) => ({ ...entry, iface: iface.name }))
+  const rows = routerInterfacesWithNames(router).flatMap((iface) =>
+    normaliseDhcpLeases(iface.config.dhcpLeases || []).map((entry) => ({ ...entry, iface: iface.name }))
   );
   if (!rows.length) return "IP Address       Client MAC         Interface\n--- No active bindings ---";
   return [
     "IP Address       Client MAC         Interface",
-    ...rows.map((entry: any) => `${entry.ipv4Address.padEnd(17)}${entry.macAddress.padEnd(19)}${entry.iface}`)
+    ...rows.map((entry) => `${entry.ipv4Address.padEnd(17)}${entry.macAddress.padEnd(19)}${entry.iface}`)
   ].join("\n");
 }
 
@@ -133,19 +133,19 @@ export function showRouterRipRoutes(router: Device): string {
   if (!rip.learnedRoutes.length) return header.join("\n");
   return [
     ...header,
-    ...rip.learnedRoutes.map((r: any) =>
+    ...rip.learnedRoutes.map((r) =>
       `R(n) ${String(r.network).padEnd(21)}${String(r.nextHop).padEnd(17)}${String(r.metric).padEnd(7)}self`)
   ].join("\n");
 }
 
 // FRR `show ip route rip` — RIP entries as installed in the main routing table.
 export function showRouterRouteRip(router: Device): string {
-  const table = currentRoutingTable(router).filter((r: any) => r.type === "R");
+  const table = currentRoutingTable(router).filter((r) => r.type === "R");
   if (!table.length) return "Codes: C - connected, S - static, R - RIP\n\nNo RIP routes.";
   return [
     "Codes: C - connected, S - static, R - RIP",
     "",
-    ...table.map((r: any) => `R>* ${r.network} via ${r.nextHop} [${r.metric}]`)
+    ...table.map((r) => `R>* ${r.network} via ${r.nextHop} [${r.metric}]`)
   ].join("\n");
 }
 
@@ -156,7 +156,7 @@ export function showRouterRunningConfig(router: Device): string {
     "!",
     `hostname ${router.name}`,
     "!",
-    ...interfaces.filter((iface: any) => iface.peer || iface.config.ipv4Address).flatMap((iface: any) => {
+    ...interfaces.filter((iface) => iface.peer || iface.config.ipv4Address).flatMap((iface) => {
       const lines = [`interface ${iface.name}`];
       if (iface.config.vlanTag != null) lines.push(` encapsulation dot1q ${iface.config.vlanTag}`);
       lines.push(iface.config.ipv4Address ? ` ip address ${iface.config.ipv4Address}/${prefixOf(iface.config)}` : " no ip address");
@@ -164,11 +164,11 @@ export function showRouterRunningConfig(router: Device): string {
       lines.push(" exit", "!");
       return lines;
     }),
-    ...statics.map((r: any) => `ip route ${r.network} ${r.nextHop}`),
+    ...statics.map((r) => `ip route ${r.network} ${r.nextHop}`),
     ...(statics.length ? ["!"] : []),
     // Static port-forwards are configured in this same config mode; the
     // running-config used to omit them.
-    ...(router.config?.portForwards || []).map((r: any) => `ip nat inside source static ${r.proto} ${r.insideIp} ${r.insidePort} ${r.outsideIp} ${r.outsidePort}`),
+    ...(router.config?.portForwards || []).map((r) => `ip nat inside source static ${r.proto} ${r.insideIp} ${r.insidePort} ${r.outsideIp} ${r.outsidePort}`),
     ...((router.config?.portForwards || []).length ? ["!"] : []),
     ...(router.config?.rip?.enabled ? [
       "router rip",
@@ -200,7 +200,7 @@ export function setUncabledRouterInterfaceIp(router: Device, name: string, addre
   if (address !== "" && !parsed) return `Invalid IPv4 address: ${address}`;
   // Clearing an address that was never set changes nothing: no undo point (and
   // no empty by-name entry created just to hold nothing).
-  if (address === "" && !(router.config?.interfaces || []).some((i: any) => i.peerId === "" && i.name === name && i.ipv4Address)) return "";
+  if (address === "" && !(router.config?.interfaces || []).some((i) => i.peerId === "" && i.name === name && i.ipv4Address)) return "";
   pushUndo();
   const iface = routerInterfaceForName(router, name);
   iface.ipv4Address = parsed ? parsed.address : "";
@@ -212,7 +212,7 @@ export function setUncabledRouterInterfaceIp(router: Device, name: string, addre
 
 export function clearRouterInterfaceIp(router: Device, peerId: string, vlanTag?: number | null): void {
   // `no ip address` with no address set changes nothing: no undo point.
-  const set = (router.config?.interfaces || []).some((i: any) => i.peerId === peerId && (i.vlanTag ?? null) === (vlanTag ?? null) && i.ipv4Address);
+  const set = (router.config?.interfaces || []).some((i) => i.peerId === peerId && (i.vlanTag ?? null) === (vlanTag ?? null) && i.ipv4Address);
   if (!set) return;
   pushUndo();
   const iface = routerInterfaceFor(router, peerId, vlanTag);
@@ -299,7 +299,7 @@ export function reconcileRouterSession(session: TerminalSession, router: Device)
   if (!session.interfacePeerId && session.interfaceName) {
     // Configuring a port that had no cable. It may have gained one, or gone.
     const base = session.interfaceName.toLowerCase();
-    const now = routerInterfacesWithNames(router).find((i: any) => i.name.toLowerCase().split(".")[0] === base);
+    const now = routerInterfacesWithNames(router).find((i) => i.name.toLowerCase().split(".")[0] === base);
     if (now && !now.peer) return;                       // still there, still unplugged
     if (now) {
       // The port is the same port; it is keyed by its peer now that it has one.
@@ -318,9 +318,9 @@ export function reconcileRouterSession(session: TerminalSession, router: Device)
   const peerId = session.interfacePeerId;
   const tag = session.interfaceVlanTag;
   let gone: string | null = null;
-  if (!peerId || !linkedPortsFor(router.id).some((port: any) => port?.peer?.id === peerId)) {
+  if (!peerId || !linkedPortsFor(router.id).some((port) => port?.peer?.id === peerId)) {
     gone = "The interface you were configuring is no longer cabled";
-  } else if (tag != null && !(router.config?.interfaces || []).some((i: any) => i.peerId === peerId && i.vlanTag === tag)) {
+  } else if (tag != null && !(router.config?.interfaces || []).some((i) => i.peerId === peerId && i.vlanTag === tag)) {
     gone = `Sub-interface .${tag} no longer exists`;
   }
   if (!gone) return;
@@ -427,9 +427,9 @@ function routerHelp(mode: RouterMode, typed: string): string {
 export function showRouterNatTranslations(router: Device): string {
   const translations = router.config?.natTranslations || [];
   const marks = routerInterfacesWithNames(router)
-    .filter((i: any) => i.config?.natRole)
-    .map((i: any) => `${i.name}: ${i.config.natRole}`);
-  const forwards = (router.config?.portForwards || []).map((r: any) =>
+    .filter((i) => i.config?.natRole)
+    .map((i) => `${i.name}: ${i.config.natRole}`);
+  const forwards = (router.config?.portForwards || []).map((r) =>
     `  ${r.proto} ${r.outsideIp}:${r.outsidePort} → ${r.insideIp}:${r.insidePort}`);
   const fwBlock = forwards.length ? ["Static port-forwards:", ...forwards, ""] : [];
   const header = [...(marks.length ? [`NAT interfaces — ${marks.join(", ")}`, ""] : []), ...fwBlock];
@@ -455,9 +455,9 @@ function routerStaticNatCommand(router: Device, lower: string): boolean {
   const insideIp = m[3], insidePort = Number(m[4]), outsideIp = m[5], outsidePort = Number(m[6]);
   if (!isValidIpv4(insideIp) || !isValidIpv4(outsideIp)) { terminalLine("error", "% Invalid IPv4 address."); return true; }
   if (![insidePort, outsidePort].every(p => p >= 1 && p <= 65535)) { terminalLine("error", "% Port must be 1-65535."); return true; }
-  if (!router.config) (router as any).config = {};
+  if (!router.config) (router).config = {};
   const list = router.config.portForwards || (router.config.portForwards = []);
-  const idx = list.findIndex((r: any) => r.outsideIp === outsideIp && r.outsidePort === outsidePort);
+  const idx = list.findIndex((r) => r.outsideIp === outsideIp && r.outsidePort === outsidePort);
   if (m[1]) {
     if (idx < 0) { terminalLine("error", `% No port-forward for ${outsideIp}:${outsidePort}.`); return true; }
     pushUndo();
@@ -724,7 +724,7 @@ function routerShowCommand(router: Device, lower: string): boolean {
 function routerBaseOrNewSubInterface(router: Device, name: string): { peerId: string; vlanTag: number | null } | null {
   const m = name.match(/^(.+?)\.(\d+)$/);
   const baseName = (m ? m[1] : name).toLowerCase();
-  const entry = routerInterfacesWithNames(router).find((i: any) => i.peer && i.name.toLowerCase().split(".")[0] === baseName);
+  const entry = routerInterfacesWithNames(router).find((i) => i.peer && i.name.toLowerCase().split(".")[0] === baseName);
   if (!entry) return null;
   if (!m) return { peerId: entry.peerId, vlanTag: null };
   const vlan = normaliseVlanId(m[2]);
@@ -822,13 +822,13 @@ function routerInterfaceCommand(router: Device, command: string, lower: string):
     }
     const peerId = state.terminal.interfacePeerId!;
     const current = state.terminal.interfaceVlanTag;
-    const holder = (router.config?.interfaces || []).some((i: any) => i.peerId === peerId && i.vlanTag === vlanId);
+    const holder = (router.config?.interfaces || []).some((i) => i.peerId === peerId && i.vlanTag === vlanId);
     if (current != null && current !== vlanId && holder) {
       // Retagging this sub-interface onto a VLAN a sibling already carries
       // would leave two entries with one name: the second could never be
       // selected again and a later `ip address` overwrote the first. IOS
       // refuses it; so does the sibling `no encapsulation` path below.
-      const base = routerInterfacesWithNames(router).find((i: any) => i.peerId === peerId)?.name.split(".")[0] || "this port";
+      const base = routerInterfacesWithNames(router).find((i) => i.peerId === peerId)?.name.split(".")[0] || "this port";
       terminalLine("error", `% VLAN ${vlanId} is already carried by sub-interface ${base}.${vlanId} — a VLAN belongs to one sub-interface per port. Configure that one (interface ${base}.${vlanId}) or pick another VLAN.`);
       return true;
     }
@@ -869,7 +869,7 @@ function routerInterfaceCommand(router: Device, command: string, lower: string):
     }
     // Un-tagging a sub-interface would merge it into the base; refuse when a
     // base entry already exists rather than leaving two untagged entries.
-    if ((router.config?.interfaces || []).some((i: any) => i.peerId === state.terminal.interfacePeerId && i.vlanTag == null)) {
+    if ((router.config?.interfaces || []).some((i) => i.peerId === state.terminal.interfacePeerId && i.vlanTag == null)) {
       terminalLine("error", "% The base interface already exists — remove the sub-interface's address instead (no ip address).");
       return true;
     }

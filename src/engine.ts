@@ -200,11 +200,11 @@ function resetRunState(setup: PingSetup, originDeviceId: string, targetIp: strin
   // attacker findings (like sim.log / sim.capture) so they don't accumulate.
   for (const d of state.devices) {
     if (d.type === "ids" && d.config) d.config.alerts = [];
-    if ((d.type === "attacker" || d.type === "kali") && d.config) (d.config as any).attackLog = [];
+    if ((d.type === "attacker" || d.type === "kali") && d.config) (d.config).attackLog = [];
     // NAT/PAT translations are per-flow runtime state (like conntrack): a mapping
     // left over from an earlier run would let unsolicited inbound in on the PAT
     // port it once used (R72) — start each run with an empty table.
-    if (d.config && Array.isArray((d.config as any).natTranslations)) (d.config as any).natTranslations = [];
+    if (d.config && Array.isArray((d.config).natTranslations)) (d.config).natTranslations = [];
   }
 }
 
@@ -1030,7 +1030,7 @@ function radiusServerFor(sw: Device): Device | null {
   for (const link of linksFor(sw.id)) {
     if (!isPhysicalLink(link) || link.shutdown) continue;
     const peer = getDevice(link.from === sw.id ? link.to : link.from);
-    if (peer?.type === "server" && (peer.config as any)?.radius?.users?.length) return peer;
+    if (peer?.type === "server" && (peer.config)?.radius?.users?.length) return peer;
   }
   return null;
 }
@@ -1038,7 +1038,7 @@ function radiusServerFor(sw: Device): Device | null {
 // The supplicant host on one of this switch's ports with a given MAC — the
 // session key carried through the exchange, so the result lands on the port
 // that started it (two hosts may present the same identity).
-function supplicantByMac(sw: Device, mac: string | undefined): { host: Device; link: any } | null {
+function supplicantByMac(sw: Device, mac: string | undefined): { host: Device; link: Link } | null {
   if (!mac) return null;
   for (const link of linksFor(sw.id)) {
     if (!isPhysicalLink(link) || link.shutdown || link.wireless) continue;
@@ -1049,7 +1049,7 @@ function supplicantByMac(sw: Device, mac: string | undefined): { host: Device; l
 }
 
 // Fallback: the supplicant host on one of this switch's ports presenting a given identity.
-function supplicantByIdentity(sw: Device, identity: string): { host: Device; link: any } | null {
+function supplicantByIdentity(sw: Device, identity: string): { host: Device; link: Link } | null {
   for (const link of linksFor(sw.id)) {
     if (!isPhysicalLink(link) || link.shutdown || link.wireless) continue;
     const host = getDevice(link.from === sw.id ? link.to : link.from);
@@ -1112,13 +1112,13 @@ function handleDot1x(device: Device, frame: EthernetFrame, fromDeviceId: string 
       return [{ frame: createDot1xFrame(deriveMac(device.id), server.config?.macAddress || deriveMac(server.id), "radius-request", identity, frame.srcMac), toDeviceId: server.id }];
     }
     case "radius-request": { // RADIUS server: validate identity + the supplicant's password
-      const users = (device.config as any)?.radius?.users || [];
+      const users = (device.config)?.radius?.users || [];
       // The credentials of THIS session's supplicant (by MAC) — not whichever
       // device anywhere happens to present the same identity.
-      const sup = (p.supplicantMac ? state.devices.find((d: any) => d.config?.macAddress === p.supplicantMac) : undefined)
-        ?? state.devices.find((d: any) => d.config?.dot1x?.identity === identity);
+      const sup = (p.supplicantMac ? state.devices.find((d) => d.config?.macAddress === p.supplicantMac) : undefined)
+        ?? state.devices.find((d) => d.config?.dot1x?.identity === identity);
       const supPw = sup?.config?.dot1x?.identity === identity ? sup?.config?.dot1x?.password : undefined;
-      const ok = users.some((u: any) => u.identity === identity && u.password === supPw);
+      const ok = users.some((u) => u.identity === identity && u.password === supPw);
       logStep(device, "sim-dot1x", `RADIUS Access-Request "${identity}" — ${ok ? "Access-Accept" : "Access-Reject"}`);
       const reply = back(ok ? "radius-accept" : "radius-reject", identity);
       for (const r of reply) (r.frame.payload as Dot1xPayload).supplicantMac = p.supplicantMac;
@@ -1669,7 +1669,7 @@ export function processAtSwitch(device: Device, frame: EthernetFrame, fromDevice
   if (ingressPortName && frame.srcMac !== BROADCAST_MAC) {
     config.macTable = normaliseMacTable(config.macTable || []);
     const vlanStr = managed ? String(ingressVlan || 1) : "";
-    const existing = config.macTable.find((e: any) => e.macAddress === frame.srcMac);
+    const existing = config.macTable.find((e) => e.macAddress === frame.srcMac);
     if (existing) {
       existing.port = ingressPortName;
       if (vlanStr) existing.vlan = vlanStr;
@@ -1712,7 +1712,7 @@ export function processAtSwitch(device: Device, frame: EthernetFrame, fromDevice
   } else {
     // Lookup MAC table
     config.macTable = normaliseMacTable(config.macTable || []);
-    const entry = config.macTable.find((e: any) => {
+    const entry = config.macTable.find((e) => {
       if (e.macAddress !== frame.dstMac) return false;
       if (managed && ingressVlan != null && e.vlan && Number(e.vlan) !== ingressVlan) return false;
       return true;
@@ -1750,7 +1750,7 @@ export function processAtSwitch(device: Device, frame: EthernetFrame, fromDevice
   const mirror = managed ? config.mirror : undefined;
   let mirrorDestIdx = -1;
   if (mirror?.dest) {
-    mirrorDestIdx = ports.findIndex((p: any, idx: number) => p?.peer && `Ethernet${idx + 1}` === mirror.dest);
+    mirrorDestIdx = ports.findIndex((p, idx: number) => p?.peer && `Ethernet${idx + 1}` === mirror.dest);
     if (mirrorDestIdx >= 0) forwardPorts = forwardPorts.filter(idx => idx !== mirrorDestIdx);
   }
 
@@ -2003,17 +2003,17 @@ export function processAtRouter(device: Device, frame: EthernetFrame, fromDevice
 
   // Find ingress interface — support sub-interfaces (multiple ifaces with same peerId, different vlanTag)
   const ifaces: any[] = config.interfaces;
-  let ingressIface: any = null;
+  let ingressIface = null;
   if (fromDeviceId) {
-    const peerIfaces = ifaces.filter((iface: any) => iface.peerId === fromDeviceId);
+    const peerIfaces = ifaces.filter((iface) => iface.peerId === fromDeviceId);
     if (peerIfaces.length > 1) {
       // Sub-interfaces: match by vlanTag. Two interfaces on the same segment
       // (two cables to one hub or switch) share a tag, so prefer the one the
       // frame is addressed to — the L2 admission below checks that MAC.
-      const sameTag = peerIfaces.filter((iface: any) =>
+      const sameTag = peerIfaces.filter((iface) =>
         frame.vlanTag != null ? iface.vlanTag === frame.vlanTag : iface.vlanTag == null
       );
-      ingressIface = sameTag.find((iface: any) => normaliseMacAddress(iface.macAddress || "") === frame.dstMac) ?? sameTag[0] ?? null;
+      ingressIface = sameTag.find((iface) => normaliseMacAddress(iface.macAddress || "") === frame.dstMac) ?? sameTag[0] ?? null;
     } else {
       ingressIface = peerIfaces[0] || null;
     }
@@ -2345,7 +2345,7 @@ function natTranslateOutbound(device: Device, ipv4: Ipv4Payload, egressIface: an
 // interface IP. Returns null when no translation matches (the packet is then
 // genuinely for the router itself — INPUT chain + self handling apply).
 export function natRestoreInbound(device: Device, ipv4: Ipv4Payload, ifaces: any[]): Ipv4Payload | null {
-  const outsideIface = ifaces.find((i: any) => i.natRole === "outside" && i.ipv4Address === ipv4.dstIp);
+  const outsideIface = ifaces.find((i) => i.natRole === "outside" && i.ipv4Address === ipv4.dstIp);
   if (!outsideIface) return null;
   const translations: NatEntry[] = device.config?.natTranslations || [];
   if (ipv4.payload.type === "icmp" && ipv4.payload.icmpType === 0) {
@@ -2446,7 +2446,7 @@ function routeIpv4Frame(device: Device, frame: EthernetFrame, ifaces: any[], ing
   }
 
   // Check if it's for the router itself (e.g., ping the router's interface IP)
-  const selfIface = ifaces.find((iface: any) => iface.ipv4Address === ipv4.dstIp);
+  const selfIface = ifaces.find((iface) => iface.ipv4Address === ipv4.dstIp);
   if (selfIface) {
     // Router-destined traffic traverses the INPUT chain (netfilter is always
     // present on a router; an empty ruleset accepts).
@@ -2752,18 +2752,18 @@ export function processAtFirewall(device: Device, frame: EthernetFrame, fromDevi
   // Transparent bridge legs (every linked peer except the ingress one).
   // (linkedPortsFor can be sparse — null gaps — when explicit ports skip a slot.)
   const egressAll = linkedPortsFor(device.id)
-    .filter((p: any) => p?.peer)
-    .map((p: any) => p.peer.id)
+    .filter((p) => p?.peer)
+    .map((p) => p.peer.id)
     .filter((id: string) => id !== fromDeviceId);
 
   // L2 MAC learning, like the switch (review R93): learn the source MAC on the
   // ingress leg — even for a frame the filter then drops, as a real bridge does.
   // Without it the firewall flooded every accepted frame out all legs, leaking
   // unicast and ARP replies the moment it had three or more legs (a hub).
-  const cfg: any = device.config;
+  const cfg = device.config;
   if (fromDeviceId && frame.srcMac && frame.srcMac !== BROADCAST_MAC) {
     cfg.macTable = normaliseMacTable(cfg.macTable || []);
-    const existing = cfg.macTable.find((e: any) => e.macAddress === frame.srcMac);
+    const existing = cfg.macTable.find((e) => e.macAddress === frame.srcMac);
     if (existing) existing.port = fromDeviceId;
     else cfg.macTable.push({ macAddress: frame.srcMac, port: fromDeviceId, type: "DYNAMIC", vlan: "" });
   }
@@ -2792,7 +2792,7 @@ export function processAtFirewall(device: Device, frame: EthernetFrame, fromDevi
   // unknown unicast. A learnt leg that is no longer cabled falls back to flood.
   let targets = egressAll;
   if (frame.dstMac && frame.dstMac !== BROADCAST_MAC) {
-    const entry = (cfg.macTable || []).find((e: any) => e.macAddress === frame.dstMac);
+    const entry = (cfg.macTable || []).find((e) => e.macAddress === frame.dstMac);
     if (entry && egressAll.includes(entry.port)) targets = [entry.port];
   }
   targets.forEach((toDeviceId: string, i: number) => {
@@ -3283,7 +3283,7 @@ function finishSimulation(): void {
     if (sim.arpPoisoned.length) lines.push(`ARP cache poisoned on: ${[...sim.arpPoisoned].sort().join(", ")}`);
     if (!lines.length) lines.push("No open ports or live hosts found (target unreachable, filtered, or no attack target set).");
     const origin = getDevice(sim.originDeviceId);
-    if (origin?.config) (origin.config as any).attackLog = lines;
+    if (origin?.config) (origin.config).attackLog = lines;
     if (!sim.headless) out("", lines.join("\n"));
   } else if (sim.mode === "dhcp") {
     if (sim.dhcpSuccess) {

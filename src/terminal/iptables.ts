@@ -192,7 +192,7 @@ export function runIptablesCommand(device: Device, command: string, allowed: str
   // every command persisted `policy:{…:"accept"}` noise into the JSON payload.
   // Mutating operations materialise the fields they touch.
   const rulesOf = (): FirewallRule[] => (cfg.rules = cfg.rules || []);
-  const policyOf = (): Record<string, any> => (cfg.policy = cfg.policy || {});
+  const policyOf = (): Record<string, unknown> => (cfg.policy = cfg.policy || {});
   const chainRules = (chain: string): FirewallRule[] => (cfg.rules || []).filter(r => (r.chain || "forward") === chain);
   const badChain = `iptables: chain must be ${allowed.map(c => c.toUpperCase()).join("|")}.`;
 

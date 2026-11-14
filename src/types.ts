@@ -512,7 +512,7 @@ export interface SerialisedDevice {
   hidden?: boolean;
   poweredOff?: boolean;
   collapsedBy?: string;
-  config?: Record<string, any>;
+  config?: Record<string, unknown>;
 }
 export interface SerialisedLink {
   from: string;

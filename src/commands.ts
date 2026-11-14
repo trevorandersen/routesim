@@ -173,7 +173,7 @@ function cmdLinkSet(args: string[]): CommandResult {
     if (!Number.isFinite(n) || n < 0) return err(`linkset: ${attr} must be a non-negative number (0 clears it).`);
     const v = attr === "loss" ? Math.min(100, n) : n;
     pushUndo();
-    if (v > 0) (link as any)[attr] = v; else delete (link as any)[attr];
+    if (v > 0) (link)[attr] = v; else delete (link)[attr];
     sync().syncPanel(); sync().render();
     return ok(`Set ${a.name} ↔ ${b.name} ${attr} to ${v}.`);
   }
@@ -494,9 +494,9 @@ function cmdRadius(args: string[]): CommandResult {
   if (!identity || password == null) return err("Usage: radius <server> <identity> <password>");
   pushUndo();
   ensureConfig(server);
-  const cfg: any = server.config;
+  const cfg = server.config;
   cfg.radius = cfg.radius || { users: [] };
-  const existing = cfg.radius.users.find((u: any) => u.identity === identity);
+  const existing = cfg.radius.users.find((u) => u.identity === identity);
   if (existing) existing.password = password; else cfg.radius.users.push({ identity, password });
   sync().syncPanel();
   return ok(`${server.name} RADIUS user "${identity}" set.`);
@@ -528,7 +528,7 @@ function cmdMacsec(args: string[]): CommandResult {
   if (!key) return err("Usage: macsec <device> <peer> <key|dot1x> [must|should]  (key 'off' clears)");
   pushUndo();
   ensureConfig(dev);
-  const cfg: any = dev.config;
+  const cfg = dev.config;
   cfg.macsec = cfg.macsec || {};
   if (key.toLowerCase() === "off" || key.toLowerCase() === "none") {
     delete cfg.macsec[peer.id];
@@ -579,7 +579,7 @@ function cmdWeb(args: string[]): CommandResult {
   ensureConfig(dev);
   if (mode === "off") {
     dev.config!.httpEnabled = false;
-    delete (dev.config as any).httpTitle;
+    delete (dev.config).httpTitle;
     sync().syncPanel();
     return ok(`Web service disabled on ${dev.name}.`);
   }
@@ -601,8 +601,8 @@ function cmdRuleLang(args: string[]): CommandResult {
   if (lang !== "iptables" && lang !== "nftables") return err(`rulelang: expected "rulelang <device> iptables|nftables".`);
   pushUndo();
   ensureConfig(device);
-  if (lang === "nftables") (device.config as any).ruleLang = "nftables";
-  else delete (device.config as any).ruleLang; // iptables is the plain default
+  if (lang === "nftables") (device.config).ruleLang = "nftables";
+  else delete (device.config).ruleLang; // iptables is the plain default
   sync().syncPanel();
   return ok(`${device.name} now speaks ${lang}.`);
 }
@@ -615,8 +615,8 @@ function cmdRole(args: string[]): CommandResult {
   if (role !== "border" && role !== "internal") return err(`role: expected "role <router> border|internal".`);
   pushUndo();
   ensureConfig(router);
-  if (role === "border") (router.config as any).role = "border";
-  else delete (router.config as any).role; // internal is the plain default
+  if (role === "border") (router.config).role = "border";
+  else delete (router.config).role; // internal is the plain default
   sync().syncPanel();
   sync().render();
   return ok(`${router.name} is now a ${role} router.`);
@@ -640,7 +640,7 @@ function cmdIdsRule(args: string[], _rest: string, tail: (n: number) => string):
   if (ids.type !== "ids") return err(`${ids.name} is not an IDS sensor.`);
   const ruleText = tail(1);   // raw source after the sensor token — the rule text verbatim
   if (!ruleText) return err("Usage: idsrule <ids> <snort rule>  |  idsrule <ids> clear");
-  if (/^(clear|flush)$/i.test(ruleText)) { pushUndo(); ensureConfig(ids); (ids.config as any).idsRules = []; sync().syncPanel(); return ok(`${ids.name}: rules cleared.`); }
+  if (/^(clear|flush)$/i.test(ruleText)) { pushUndo(); ensureConfig(ids); (ids.config).idsRules = []; sync().syncPanel(); return ok(`${ids.name}: rules cleared.`); }
   // Validate the rule BEFORE pushUndo — a bad rule must not push a spurious
   // snapshot (which would also wipe the redo stack).
   const ruleIssue = snortRuleIssue(ruleText);
@@ -667,7 +667,7 @@ function cmdAttack(args: string[]): CommandResult {
   // Build (and validate) against the effective target WITHOUT persisting it —
   // a rejected attack must not leave an un-undoable config change (R82).
   const effectiveTarget = targetArg || node.config?.attackTarget || "";
-  let setup: any;
+  let setup;
   if (kind === "scan") setup = buildScanEvents(node, effectiveTarget);
   else if (kind === "sweep") setup = buildSweepEvents(node, effectiveTarget);
   else if (kind === "arp-spoof") setup = buildArpSpoofEvents(node, targetArg || undefined);
@@ -677,7 +677,7 @@ function cmdAttack(args: string[]): CommandResult {
   if (targetArg && kind !== "arp-spoof" && node.config?.attackTarget !== targetArg) {
     pushUndo();
     ensureConfig(node);
-    (node.config as any).attackTarget = targetArg;
+    (node.config).attackTarget = targetArg;
   }
   startSimulation(setup, node.id, "", "attack");
   return ok(`${node.name}: ${kind || "attacks"} launched.`);
@@ -951,7 +951,7 @@ function cmdList(args: string[]): CommandResult {
 function cmdShow(args: string[]): CommandResult {
   const device = resolveDevice(args[0]);
   if (typeof device === "string") return err(device);
-  const c: any = device.config || {};
+  const c = device.config || {};
   const lines = [`${device.name} (${device.type})`];
   if (isHost(device.type)) {
     lines.push(
@@ -971,10 +971,10 @@ function cmdShow(args: string[]): CommandResult {
     lines.push(`  ssid: ${c.ssid || "(none)"}${c.wifiPassword ? " (secured)" : " (open)"}`, `  uplink ports: ${c.ethernetPorts ?? defaultPortCount("access-point")}`);
   } else if (device.type === "switch") {
     lines.push(`  managed: ${Boolean(c.managed)}`, `  ports: ${c.ethernetPorts ?? defaultPortCount("switch")}`);
-    if (c.managed && c.vlans?.length) lines.push(`  vlans: ${c.vlans.map((v: any) => v.id).join(", ")}`);
+    if (c.managed && c.vlans?.length) lines.push(`  vlans: ${c.vlans.map((v) => v.id).join(", ")}`);
   } else if (device.type === "router") {
     for (const i of (c.interfaces || [])) lines.push(`  iface → ${getDevice(i.peerId)?.name || i.peerId}: ${i.ipv4Address ? `${i.ipv4Address}/${prefixOf(i)}` : "(unset)"}`);
-    if (c.staticRoutes?.length) lines.push(`  routes: ${c.staticRoutes.map((r: any) => `${r.network}→${r.nextHop}`).join(", ")}`);
+    if (c.staticRoutes?.length) lines.push(`  routes: ${c.staticRoutes.map((r) => `${r.network}→${r.nextHop}`).join(", ")}`);
     if (c.rip?.enabled) lines.push(`  rip: enabled`);
   }
   return ok(...lines);
@@ -1113,7 +1113,7 @@ function cmdPortCount(args: string[]): CommandResult {
   if (fn(n) !== n) return err(`portcount: ${n} is outside the ${dev.type}'s supported range.`);
   pushUndo();
   ensureConfig(dev);
-  if (serial) (dev.config as any).serialPorts = n; else (dev.config as any).ethernetPorts = n;
+  if (serial) (dev.config).serialPorts = n; else (dev.config).ethernetPorts = n;
   sync().syncPanel(); sync().render();
   return ok(`${dev.name}: ${serial ? "serial" : "ethernet"} ports = ${n}.`);
 }
@@ -1444,7 +1444,7 @@ export function exportTopologyScript(): string {
       const named = live ? routerInterfacesWithNames(live) : [];
       for (const i of (c.interfaces || [])) {
         if (i.natRole !== "inside" && i.natRole !== "outside") continue;
-        const entry = named.find((n: any) => n.peerId === i.peerId && (n.config?.vlanTag ?? null) === (i.vlanTag ?? null));
+        const entry = named.find((n) => n.peerId === i.peerId && (n.config?.vlanTag ?? null) === (i.vlanTag ?? null));
         if (!entry) continue;
         cfg.push(`interface ${entry.name}`, `ip nat ${i.natRole}`, "exit");
       }

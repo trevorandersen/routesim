@@ -37,7 +37,7 @@ export function showHostArp(device: Device): string {
   if (!entries.length) return "Address                  HWtype  HWaddress           Flags Mask            Iface";
   return [
     "Address                  HWtype  HWaddress           Flags Mask            Iface",
-    ...entries.map((entry: any) => `${entry.ipv4Address.padEnd(24)}ether   ${entry.macAddress.padEnd(19)}C                     eth0`)
+    ...entries.map((entry) => `${entry.ipv4Address.padEnd(24)}ether   ${entry.macAddress.padEnd(19)}C                     eth0`)
   ].join("\n");
 }
 
@@ -214,18 +214,18 @@ export function runHostTerminalCommand(host: Device, command: string): void {
     const on = fwWrite[1] === "1";
     pushUndo();
     ensureConfig(host);
-    if (on) (host.config as any).ipForward = true; else delete (host.config as any).ipForward;
+    if (on) (host.config).ipForward = true; else delete (host.config).ipForward;
     sync().syncPanel();
     terminalLine("", `net.ipv4.ip_forward = ${on ? 1 : 0}`);
     return;
   }
   if (lower === "sysctl net.ipv4.ip_forward" || lower === "sysctl -n net.ipv4.ip_forward") {
-    const on = !!(host.config as any)?.ipForward;
+    const on = !!(host.config)?.ipForward;
     terminalLine("", lower.includes("-n") ? `${on ? 1 : 0}` : `net.ipv4.ip_forward = ${on ? 1 : 0}`);
     return;
   }
   if (lower === "cat /proc/sys/net/ipv4/ip_forward") {
-    terminalLine("", (host.config as any)?.ipForward ? "1" : "0");
+    terminalLine("", (host.config)?.ipForward ? "1" : "0");
     return;
   }
 

@@ -157,7 +157,7 @@ export async function importLog(): Promise<void> {
     if (!Array.isArray(log)) { dom.modeLabel.textContent = "Invalid log JSON."; return; }
     // Keep only well-formed entries (renderEventLog reads entry.summary as a
     // string — a shapeless entry would render the literal "undefined").
-    const clean = log.filter((e: any) => e && typeof e === "object" && typeof e.summary === "string");
+    const clean = log.filter((e) => e && typeof e === "object" && typeof e.summary === "string");
     if (log.length && !clean.length) { dom.modeLabel.textContent = "Invalid log JSON."; return; }
     state.simulation.log = clean;
     state.dock.logView = "events"; // imported logs are event entries, not captures

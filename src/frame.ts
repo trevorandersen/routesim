@@ -502,7 +502,7 @@ export function shortMac(mac: string): string {
 // A flat field map of a frame, for diffing one hop against the previous.
 function calloutFieldMap(frame: EthernetFrame): Record<string, string> {
   const f: Record<string, string> = { srcMac: frame.srcMac || "", dstMac: frame.dstMac || "" };
-  const p: any = frame.payload;
+  const p = frame.payload;
   if (p.type === "arp") { f.senderIp = p.senderIp; f.senderMac = p.senderMac; f.targetIp = p.targetIp; }
   else if (p.type === "ipv4") {
     f.srcIp = p.srcIp; f.dstIp = p.dstIp; f.ttl = String(p.ttl);

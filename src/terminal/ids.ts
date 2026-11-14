@@ -42,7 +42,7 @@ export function addIdsRule(device: Device, ruleText: string): string {
   if (!rule) return `ERROR: bad rule (expected: alert proto src sport -> dst dport (msg:"..."; sid:N;))`;
   pushUndo();   // after validation, before the mutation — the undo contract every other shell keeps
   ensureConfig(device);
-  const cfg: any = device.config;
+  const cfg = device.config;
   // Replace the array (don't push) so snort.ts's parse-by-array-identity memo
   // invalidates — a mutated-in-place array would return stale parsed rules.
   cfg.idsRules = [...(Array.isArray(cfg.idsRules) ? cfg.idsRules : []), rule.raw];
@@ -90,8 +90,8 @@ export function runIdsTerminalCommand(device: Device, command: string): void {
   const clearMatch = command.match(/^echo\s+(?:-n\s+)?>\s*(\/etc\/snort\/rules\/local\.rules|\/var\/log\/snort\/alert)$/i);
   if (clearMatch) {
     ensureConfig(device);
-    if (clearMatch[1].includes("local.rules")) { pushUndo(); (device.config as any).idsRules = []; terminalLine("", "Cleared local.rules."); }
-    else { (device.config as any).alerts = []; terminalLine("", "Cleared the alert log."); }
+    if (clearMatch[1].includes("local.rules")) { pushUndo(); (device.config).idsRules = []; terminalLine("", "Cleared local.rules."); }
+    else { (device.config).alerts = []; terminalLine("", "Cleared the alert log."); }
     sync().syncPanel();   // keep the inspector's rules/alerts view in step with the shell
     return;
   }

@@ -174,7 +174,7 @@ export function runNftCommand(device: Device, command: string, allowed: string[]
   ensureConfig(device);
   const cfg = device.config!;
   const rulesOf = (): FirewallRule[] => (cfg.rules = cfg.rules || []);
-  const policyOf = (): Record<string, any> => (cfg.policy = cfg.policy || {});
+  const policyOf = (): Record<string, unknown> => (cfg.policy = cfg.policy || {});
   const chainRules = (chain: string): FirewallRule[] => (cfg.rules || []).filter(r => (r.chain || "forward") === chain);
 
   const verb = (tokens[1] || "").toLowerCase();

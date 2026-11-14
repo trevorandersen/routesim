@@ -15,7 +15,7 @@ export function showSwitchInterfaces(device: Device): string {
   const interfaces = switchInterfacesWithNames(device);
   return [
     "Interface  Admin  Oper  Mode    VLAN  Connected to",
-    ...interfaces.map((iface: any) => {
+    ...interfaces.map((iface) => {
       const mode = iface.mode || "access";
       const vlanDisplay = mode === "trunk" ? `-` : String(iface.vlan);
       // A shut cable is admin-down with the line protocol down — not up/up
@@ -40,13 +40,13 @@ export function showSwitchVlans(device: Device): string {
   const trunkAllowed = normaliseTrunkAllowedVlans(device.config?.trunkAllowedVlans || {});
   return [
     "VLAN ID  Name       Ports",
-    ...configured.map((vlan: any) => {
-      const accessPorts = interfaces.filter((iface: any) => iface.mode !== "trunk" && iface.vlan === vlan.id).map((iface: any) => iface.name);
-      const trunkPorts = interfaces.filter((iface: any) => {
+    ...configured.map((vlan) => {
+      const accessPorts = interfaces.filter((iface) => iface.mode !== "trunk" && iface.vlan === vlan.id).map((iface) => iface.name);
+      const trunkPorts = interfaces.filter((iface) => {
         if (iface.mode !== "trunk") return false;
         const allowed = trunkAllowed[iface.name];
         return !allowed || allowed.length === 0 || allowed.includes(vlan.id);
-      }).map((iface: any) => `${iface.name}(T)`);
+      }).map((iface) => `${iface.name}(T)`);
       const ports = [...accessPorts, ...trunkPorts].join(",") || "-";
       return `${String(vlan.id).padEnd(8)}${String(vlan.name || `Vlan${vlan.id}`).padEnd(11)}${ports}`;
     })
@@ -58,7 +58,7 @@ export function showSwitchMacTable(device: Device): string {
   if (!entries.length) return "No.    Vlan  MacAddress         Port      Type";
   return [
     "No.    Vlan  MacAddress         Port      Type",
-    ...entries.map((entry: any, index: number) => `${String(index + 1).padEnd(7)}${String(entry.vlan || "-").padEnd(6)}${entry.macAddress.padEnd(19)}${String(entry.port || "-").padEnd(10)}${entry.type || "DYNAMIC"}`)
+    ...entries.map((entry, index: number) => `${String(index + 1).padEnd(7)}${String(entry.vlan || "-").padEnd(6)}${entry.macAddress.padEnd(19)}${String(entry.port || "-").padEnd(10)}${entry.type || "DYNAMIC"}`)
   ].join("\n");
 }
 
@@ -66,7 +66,7 @@ export function showSwitchMacTable(device: Device): string {
 // equivalent `config …` commands that would recreate the state (consistent with
 // the switch CLI grammar and easy to replay).
 export function showSwitchRunningConfig(device: Device): string {
-  const vlans = normaliseVlans(device.config?.vlans || []).filter((vlan: any) => vlan.id !== 1);
+  const vlans = normaliseVlans(device.config?.vlans || []).filter((vlan) => vlan.id !== 1);
   const interfaces = switchInterfacesWithNames(device);
   const trunkAllowed = normaliseTrunkAllowedVlans(device.config?.trunkAllowedVlans || {});
   // Every line is a command this shell accepts, so the listing can be typed
@@ -111,7 +111,7 @@ export function showSwitchSpanningTree(device: Device): string {
     `  Root ID    ${s?.rootId || "-"}${isRoot ? "  (this bridge is the root)" : `  root path cost ${s?.rootCost ?? "-"}`}`,
     "",
     "Interface   Role        State        Cost  Connected to",
-    ...switchInterfacesWithNames(device).filter((i: any) => i.peer).map((i: any) => {
+    ...switchInterfacesWithNames(device).filter((i) => i.peer).map((i) => {
       const pi = ports[i.name];
       return [
         i.name.padEnd(12),
@@ -140,7 +140,7 @@ export function showSwitchMirror(device: Device): string {
 // `mirror` command. Validates the ports against the switch's interface list.
 export function setSwitchMirror(device: Device, change: { name?: string; dest: string; sources?: string[] } | null): string {
   ensureConfig(device);
-  const cfg: any = device.config;
+  const cfg = device.config;
   if (change === null) {
     if (!cfg.mirror) return "No mirror session is configured.";   // nothing to remove: no undo point
     pushUndo(); delete cfg.mirror; sync().syncPanel(); sync().render(); return "Mirror session removed.";
@@ -180,7 +180,7 @@ export function setSwitchStp(device: Device, change: { enabled?: boolean; priori
   }
   pushUndo();
   ensureConfig(device);
-  const cfg: any = device.config;
+  const cfg = device.config;
   cfg.stp = cfg.stp || { enabled: true };
   if (change.enabled != null) cfg.stp.enabled = change.enabled;
   if (change.priority != null) cfg.stp.priority = change.priority;
@@ -199,14 +199,14 @@ export function addSwitchVlan(device: Device, vlanId: string, name = ""): string
   const label = name.replace(/\s+/g, " ").trim().slice(0, 32);
   ensureConfig(device);
   const vlans = normaliseVlans(device.config.vlans || []);
-  const existing = vlans.find((vlan: any) => vlan.id === id);
+  const existing = vlans.find((vlan) => vlan.id === id);
   // Nothing to add and nothing to rename: say so, with no undo point — it used
   // to answer "Added VLAN 10" and leave a dead undo entry (review R88).
   if (existing && (!label || existing.name === label)) return `VLAN ${id} already exists.`;
   pushUndo();
   if (existing) existing.name = label;
   else vlans.push({ id, name: label || (id === 1 ? "default" : `Vlan${id}`) });
-  device.config.vlans = vlans.sort((a: any, b: any) => a.id - b.id);
+  device.config.vlans = vlans.sort((a, b) => a.id - b.id);
   sync().syncPanel();
   return existing ? `Renamed VLAN ${id} to ${label}.` : `Added VLAN ${id}${label ? ` (${label})` : ""}.`;
 }
@@ -217,9 +217,9 @@ export function removeSwitchVlan(device: Device, vlanId: string): string {
   ensureConfig(device);
   // Removing a VLAN the switch does not have removed nothing, yet answered
   // "Removed VLAN 999" and took an undo point (review R88).
-  if (!normaliseVlans(device.config.vlans || []).some((vlan: any) => vlan.id === id)) return `Unknown VLAN ${id} — nothing to remove.`;
+  if (!normaliseVlans(device.config.vlans || []).some((vlan) => vlan.id === id)) return `Unknown VLAN ${id} — nothing to remove.`;
   pushUndo();
-  device.config.vlans = normaliseVlans(device.config.vlans || []).filter((vlan: any) => vlan.id !== id);
+  device.config.vlans = normaliseVlans(device.config.vlans || []).filter((vlan) => vlan.id !== id);
   const portVlans = normalisePortVlans(device.config.portVlans || {});
   Object.keys(portVlans).forEach(port => {
     if (portVlans[port] === id) delete portVlans[port];
@@ -243,28 +243,28 @@ export function removeSwitchVlan(device: Device, vlanId: string): string {
 
 export function setSwitchPortVlan(device: Device, portName: string, vlanId: string): string {
   const id = normaliseVlanId(vlanId);
-  const iface = switchInterfacesWithNames(device).find((port: any) => port.name.toLowerCase() === String(portName || "").toLowerCase());
+  const iface = switchInterfacesWithNames(device).find((port) => port.name.toLowerCase() === String(portName || "").toLowerCase());
   if (!iface) return `Unknown interface ${portName}.`;
   if (!id) return `Invalid VLAN ID: ${vlanId}`;
   ensureConfig(device);
   const vlans = normaliseVlans(device.config.vlans || []);
   const portVlans = normalisePortVlans(device.config.portVlans || {});
-  if ((portVlans[iface.name] || 1) === id && (id === 1 || vlans.some((vlan: any) => vlan.id === id))) return `${iface.name} is already in VLAN ${id}.`;
+  if ((portVlans[iface.name] || 1) === id && (id === 1 || vlans.some((vlan) => vlan.id === id))) return `${iface.name} is already in VLAN ${id}.`;
   pushUndo();
-  if (!vlans.some((vlan: any) => vlan.id === id)) vlans.push({ id, name: id === 1 ? "default" : `Vlan${id}` });
+  if (!vlans.some((vlan) => vlan.id === id)) vlans.push({ id, name: id === 1 ? "default" : `Vlan${id}` });
   if (id === 1) {
     delete portVlans[iface.name];
   } else {
     portVlans[iface.name] = id;
   }
-  device.config.vlans = vlans.sort((a: any, b: any) => a.id - b.id);
+  device.config.vlans = vlans.sort((a, b) => a.id - b.id);
   device.config.portVlans = portVlans;
   sync().syncPanel();
   return `Assigned ${iface.name} to VLAN ${id}.`;
 }
 
 export function setSwitchPortMode(device: Device, portName: string, mode: string): string {
-  const iface = switchInterfacesWithNames(device).find((port: any) => port.name.toLowerCase() === String(portName || "").toLowerCase());
+  const iface = switchInterfacesWithNames(device).find((port) => port.name.toLowerCase() === String(portName || "").toLowerCase());
   if (!iface) return `Unknown interface ${portName}.`;
   ensureConfig(device);
   const portModes = normalisePortModes(device.config.portModes || {});
@@ -283,7 +283,7 @@ export function setSwitchPortMode(device: Device, portName: string, mode: string
 
 export function setSwitchTrunkNative(device: Device, portName: string, vlanId: string): string {
   const id = normaliseVlanId(vlanId);
-  const iface = switchInterfacesWithNames(device).find((port: any) => port.name.toLowerCase() === String(portName || "").toLowerCase());
+  const iface = switchInterfacesWithNames(device).find((port) => port.name.toLowerCase() === String(portName || "").toLowerCase());
   if (!iface) return `Unknown interface ${portName}.`;
   if (!id) return `Invalid VLAN ID: ${vlanId}`;
   ensureConfig(device);
@@ -302,7 +302,7 @@ export function setSwitchTrunkNative(device: Device, portName: string, vlanId: s
 
 export function modifySwitchTrunkAllowed(device: Device, portName: string, vlanId: string, action: "add" | "remove"): string {
   const id = normaliseVlanId(vlanId);
-  const iface = switchInterfacesWithNames(device).find((port: any) => port.name.toLowerCase() === String(portName || "").toLowerCase());
+  const iface = switchInterfacesWithNames(device).find((port) => port.name.toLowerCase() === String(portName || "").toLowerCase());
   if (!iface) return `Unknown interface ${portName}.`;
   if (!id) return `Invalid VLAN ID: ${vlanId}`;
   ensureConfig(device);
@@ -324,7 +324,7 @@ export function modifySwitchTrunkAllowed(device: Device, portName: string, vlanI
   return action === "add" ? `Added VLAN ${id} to ${iface.name} trunk allowed list.` : `Removed VLAN ${id} from ${iface.name} trunk allowed list.`;
 }
 function switchVlanExists(device: Device, id: number): boolean {
-  return id === 1 || normaliseVlans(device.config?.vlans || []).some((v: any) => v.id === id);
+  return id === 1 || normaliseVlans(device.config?.vlans || []).some((v) => v.id === id);
 }
 
 // SONiC `config vlan member add [-t] <vid> <port>`. Untagged membership is the

@@ -176,7 +176,7 @@ function wifiConfigForPayload(config: any): any {
 // point, hub, IDS sensor or internet cloud vanished on save, and a must-secure
 // link came back `failed` after a reload (review R30). A LAN node is a view,
 // not a cable end.
-function withMacsec<T extends { config?: any }>(type: string, config: any, entry: T): T {
+function withMacsec<T extends { config?: unknown }>(type: string, config: unknown, entry: T): T {
   const keys = type === "lan" ? {} : macsecPayload(config);
   return keys.macsec ? { ...entry, config: { ...keys, ...(entry.config || {}) } } : entry;
 }
@@ -210,13 +210,13 @@ function hostConfigForPayload(config: any): any {
   };
 }
 
-export function routerInterfacesForPayload(device: any): any[] {
+export function routerInterfacesForPayload(device: any): unknown[] {
   // Structural connectivity, not visible connectivity: a collapsed LAN hides
   // its physical links, and filtering on the drawn set silently dropped the
   // router's whole interface (address, NAT role, tables) from the save.
   const connectedPeerIds = new Set(physicalPeerIds(device.id));
   return normaliseRouterInterfaces(device.config?.interfaces || [], device.id)
-    .filter((entry: any) => !entry.peerId || connectedPeerIds.has(entry.peerId));
+    .filter((entry) => !entry.peerId || connectedPeerIds.has(entry.peerId));
 }
 
 export function parseConfig(text: string): NormalisedConfig {

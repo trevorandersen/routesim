@@ -302,7 +302,7 @@ describe("bench: linkAuthorizedForData", () => {
     link.dot1xAuthorized = true;
     results.push(bench("linkAuthorizedForData — 802.1X 24p", () => {
       linkAuthorizedForData(link);
-    }, { budget: 25 }));
+    }, { budget: 1 }));   // a cached port index: no port-list rebuild per call (R105 — it measured ~3 µs p99 uncached)
     expect(results[results.length - 1].passed).toBe(true);
   });
 

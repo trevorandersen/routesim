@@ -7,7 +7,7 @@ import { describe, it, expect, beforeAll, beforeEach, afterEach } from "bun:test
 import { state } from "../src/state";
 import { startSimulation, stepOnce } from "../src/engine";
 import { buildDot1xEvents } from "../src/simulation";
-import { dot1xPortAuthorized } from "../src/devices";
+import { dot1xPortAuthorized, dot1xLinkInfo, linkAuthorizedForData } from "../src/devices";
 import { packetColumns } from "../src/frame";
 import { runConsoleScript, runConsoleCommand as exec, exportTopologyScript } from "../src/commands";
 import { buildConfigPayload, parseConfig, applyConfig } from "../src/config";
@@ -412,5 +412,60 @@ describe("802.1X — the authenticator obeys the port-control mode (R8)", () => 
     const r = exec("run dot1x PC1");
     expect(r.ok).toBe(true);
     expect((r.data as any).diagnosis).toEqual([]);
+  });
+});
+
+// R105: the gate resolves a cable's switch port from a cached index instead of
+// rebuilding the switch's port list per frame. The index must follow the cabling.
+describe("the 802.1X port index follows the cabling (R105)", () => {
+  beforeEach(() => resetState());
+  const link = (a: string, b: string) => {
+    const ida = state.devices.find(d => d.name === a)!.id, idb = state.devices.find(d => d.name === b)!.id;
+    return state.links.find(l => (l.from === ida && l.to === idb) || (l.from === idb && l.to === ida))!;
+  };
+  const port = (a: string, b: string) => dot1xLinkInfo(link(a, b))?.port ?? null;
+
+  it("renumbers when a cable goes, restores on undo, and sees a new cable and a pinned port", () => {
+    runConsoleScript(`
+      add switch SW at 0 0
+      managed SW
+      add computer PC1 at 100 0
+      add computer PC2 at 200 0
+      add computer PC3 at 300 0
+      link PC1 SW
+      link PC2 SW
+      portauth SW Ethernet1 auto
+      portauth SW Ethernet2 auto
+    `);
+    expect([port("PC1", "SW"), port("PC2", "SW")]).toEqual(["Ethernet1", "Ethernet2"]);
+    expect(linkAuthorizedForData(link("PC2", "SW"))).toBe(false);          // auto, not authenticated
+
+    exec("unlink PC1 SW");                                                 // implicit ports renumber densely
+    expect(port("PC2", "SW")).toBe("Ethernet1");
+    exec("undo");
+    expect([port("PC1", "SW"), port("PC2", "SW")]).toEqual(["Ethernet1", "Ethernet2"]);
+
+    exec("link PC3 SW 1 7");                                               // a pinned port
+    expect(port("PC3", "SW")).toBe("Ethernet7");
+    expect(linkAuthorizedForData(link("PC3", "SW"))).toBe(true);           // Ethernet7 is not under port control
+    exec("portauth SW Ethernet7 force-unauthorized");                      // a config edit needs no re-index
+    expect(linkAuthorizedForData(link("PC3", "SW"))).toBe(false);
+  });
+
+  it("a replaced topology (same array lengths) is re-indexed", () => {
+    const build = (first: string, second: string) => runConsoleScript(`
+      clear
+      add switch SW at 0 0
+      managed SW
+      add computer PC1 at 100 0
+      add computer PC2 at 200 0
+      link ${first} SW
+      link ${second} SW
+      portauth SW Ethernet1 auto
+    `);
+    build("PC1", "PC2");
+    expect(port("PC1", "SW")).toBe("Ethernet1");
+    build("PC2", "PC1");
+    expect(port("PC1", "SW")).toBe("Ethernet2");
   });
 });

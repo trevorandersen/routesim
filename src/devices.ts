@@ -261,10 +261,39 @@ export interface Dot1xPortInfo { sw: Device; peer: Device; mode: Dot1xPortMode; 
 // property read) so non-802.1X topologies don't hit the hot path.
 function dot1xPortEnd(link: Link, sw: Device | undefined, peer: Device | undefined): Dot1xPortInfo | null {
   if (sw?.type !== "switch" || !sw.config?.portAuth || !peer) return null;
-  const idx = linkedPortsFor(sw.id).findIndex((p: any) => p?.link?.id === link.id);   // linkedPortsFor can be sparse (null gaps)
-  if (idx < 0) return null;
-  const port = `Ethernet${idx + 1}`;
+  const port = switchPortOfLink(sw.id, link.id);
+  if (!port) return null;
   return { sw, peer, mode: sw.config.portAuth[port] || "force-authorized", port };
+}
+
+// The name of the switch port a cable sits on — `Ethernet<n>` — from a lazily
+// built index: switch id → (link id → port name). The gate asks this for every
+// frame on every wire once any port control exists, and used to rebuild the
+// switch's whole port list (`linkedPortsFor`: filter, map, sort, place) each
+// time, several times per transit. Port numbering depends only on the cabling,
+// so the index is valid until the link or device array is replaced or changes
+// length — the same key the adjacency index (`linksFor`) uses; a link's ports
+// are fixed when it is made and never edited in place.
+let _portIndex = new Map<string, Map<string, string>>();
+let _portIndexLinks: Link[] | null = null, _portIndexDevices: Device[] | null = null;
+let _portIndexLinkLen = -1, _portIndexDeviceLen = -1;
+
+function switchPortOfLink(switchId: string, linkId: string): string | null {
+  if (_portIndexLinks !== state.links || _portIndexLinkLen !== state.links.length
+    || _portIndexDevices !== state.devices || _portIndexDeviceLen !== state.devices.length) {
+    _portIndex = new Map();
+    _portIndexLinks = state.links; _portIndexLinkLen = state.links.length;
+    _portIndexDevices = state.devices; _portIndexDeviceLen = state.devices.length;
+  }
+  let ports = _portIndex.get(switchId);
+  if (!ports) {
+    ports = new Map();
+    linkedPortsFor(switchId).forEach((p: any, idx: number) => {   // linkedPortsFor can be sparse (null gaps)
+      if (p?.link?.id) ports!.set(p.link.id, `Ethernet${idx + 1}`);
+    });
+    _portIndex.set(switchId, ports);
+  }
+  return ports.get(linkId) ?? null;
 }
 
 // The 802.1X authenticator port on a wired link, or null when neither end is a

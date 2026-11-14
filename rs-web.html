@@ -4991,10 +4991,32 @@ Full legal text: https://creativecommons.org/publicdomain/zero/1.0/legalcode</pr
   }
   function dot1xPortEnd(link, sw, peer) {
     if (sw?.type !== "switch" || !sw.config?.portAuth || !peer) return null;
-    const idx = linkedPortsFor(sw.id).findIndex((p) => p?.link?.id === link.id);
-    if (idx < 0) return null;
-    const port = `Ethernet${idx + 1}`;
+    const port = switchPortOfLink(sw.id, link.id);
+    if (!port) return null;
     return { sw, peer, mode: sw.config.portAuth[port] || "force-authorized", port };
+  }
+  var _portIndex = /* @__PURE__ */ new Map();
+  var _portIndexLinks = null;
+  var _portIndexDevices = null;
+  var _portIndexLinkLen = -1;
+  var _portIndexDeviceLen = -1;
+  function switchPortOfLink(switchId, linkId) {
+    if (_portIndexLinks !== state.links || _portIndexLinkLen !== state.links.length || _portIndexDevices !== state.devices || _portIndexDeviceLen !== state.devices.length) {
+      _portIndex = /* @__PURE__ */ new Map();
+      _portIndexLinks = state.links;
+      _portIndexLinkLen = state.links.length;
+      _portIndexDevices = state.devices;
+      _portIndexDeviceLen = state.devices.length;
+    }
+    let ports = _portIndex.get(switchId);
+    if (!ports) {
+      ports = /* @__PURE__ */ new Map();
+      linkedPortsFor(switchId).forEach((p, idx) => {
+        if (p?.link?.id) ports.set(p.link.id, `Ethernet${idx + 1}`);
+      });
+      _portIndex.set(switchId, ports);
+    }
+    return ports.get(linkId) ?? null;
   }
   function dot1xLinkInfo(link) {
     if (!link || link.wireless) return null;

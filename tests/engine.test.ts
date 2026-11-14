@@ -744,7 +744,15 @@ describe("processAtRouter — L2 admission (destination MAC)", () => {
     const { a, r1, r2, t } = twoRouters();
     expect(pingC(a).success).toBe(true);
     const oldMac = r2.config.interfaces!.find(i => i.peerId === t.id)!.macAddress;
-    moveR2();
+    // Re-home R2 onto a DIFFERENT port (pinned Ethernet3): the unplugged port
+    // keeps its configuration and MAC, so the new port is a new interface with
+    // a new MAC. (Moving the cable on the same port keeps the MAC — moveR2.)
+    runConsoleScript(`
+      unlink R2 T
+      link R2 T2 3 1
+      interface R2 T2 ip 172.16.0.2/24
+    `);
+    expect(r2.config.interfaces!.find(i => i.peerId !== "" && i.ipv4Address === "172.16.0.2")!.macAddress).not.toBe(oldMac);
     // An entry the unplug purge never saw (as an imported topology might carry
     // it): R1 still caches its next hop at R2's old, now cable-less interface.
     const r1Iface = r1.config.interfaces!.find(i => i.peerId === t.id)!;

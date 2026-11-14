@@ -9,7 +9,10 @@
  * exercised via their validation-error paths only.
  */
 import { describe, it, expect, beforeAll, beforeEach, afterAll } from "bun:test";
-import { runConsoleScript } from "../src/commands";
+import { runConsoleScript, exportTopologyScript } from "../src/commands";
+import { buildRoutingTable } from "../src/routing";
+import { buildConfigPayload, applyConfigWithoutUndo } from "../src/config";
+import { normaliseConfig } from "../src/normalise";
 import { state, undo, redo } from "../src/state";
 import { terminalPromptText, syncTerminal } from "../src/terminal";
 import {
@@ -1289,5 +1292,118 @@ describe("a router port configured before it is cabled keeps its configuration",
     runConsoleScript("add computer PC1 at 0 200\nlink PC1 R1 1 2");
     expect(byName("Ethernet2")).toBeUndefined();
     expect(iface("PC1")?.ipv4Address || "").toBe("");
+  });
+});
+
+// The other direction. A router interface's configuration belongs to the port:
+// pull the cable (or delete what it was plugged into) and the address stays on
+// the now-unplugged port — it used to read "unassigned", and came back only if
+// the very same device was re-cabled.
+describe("a router port keeps its configuration when its cable is removed", () => {
+  beforeEach(() => resetState());
+
+  const router = () => state.devices.find(d => d.name === "R1")!;
+  const id = (name: string) => state.devices.find(d => d.name === name)!.id;
+  const entries = () => router().config.interfaces!.map(i => `${i.peerId ? state.devices.find(d => d.id === i.peerId)!.name : `[${i.name}]`}${i.vlanTag != null ? `.${i.vlanTag}` : ""}=${i.ipv4Address}`).sort();
+  const brief = () => runConsoleScript("cli R1 show ip interface brief")[0].output.join("\n");
+  const start = () => runConsoleScript(`
+    add router R1 at 0 0
+    add computer PC1 at 200 0
+    add computer PC2 at 200 200
+    link PC1 R1 1 1
+    link PC2 R1 1 2
+    interface R1 PC1 ip 10.1.0.1/24
+    interface R1 PC2 ip 10.2.0.1/25
+  `);
+
+  it("unlink: the address, prefix, NAT role and MAC stay on the port, which reads down", () => {
+    start();
+    runConsoleScript("cli R1 enable\ncli R1 configure terminal\ncli R1 interface Ethernet1\ncli R1 ip nat inside\ncli R1 end");
+    const mac = router().config.interfaces!.find(i => i.peerId === id("PC1"))!.macAddress;
+    runConsoleScript("unlink PC1 R1");
+    expect(entries()).toEqual(["PC2=10.2.0.1", "[Ethernet1]=10.1.0.1"]);
+    const parked = router().config.interfaces!.find(i => i.name === "Ethernet1")!;
+    expect(parked).toMatchObject({ peerId: "", natRole: "inside", macAddress: mac, arpTable: [] });
+    expect(brief()).toMatch(/Ethernet1\s+10\.1\.0\.1\/24\s+down/);
+    expect(buildRoutingTable(router()).map(r => r.network)).toEqual(["10.2.0.0/25"]);   // no connected route through a dead port
+  });
+
+  it("re-cabling the port — to the same device or another — brings it straight back up", () => {
+    start();
+    runConsoleScript("unlink PC1 R1\nadd computer PC3 at 400 0\nip PC3 10.1.0.30/24\ngateway PC3 10.1.0.1");
+    const out = runConsoleScript("link PC3 R1 1 1")[0].output.join(" ");
+    expect(out).toContain("R1 Ethernet1 keeps its address 10.1.0.1/24.");
+    expect(entries()).toEqual(["PC2=10.2.0.1", "PC3=10.1.0.1"]);
+    expect(runConsoleScript("run ping PC3 10.1.0.1")[0].ok).toBe(true);
+  });
+
+  it("deleting the device at the far end leaves the address on the port too", () => {
+    start();
+    runConsoleScript("remove PC2");
+    expect(entries()).toEqual(["PC1=10.1.0.1", "[Ethernet2]=10.2.0.1"]);
+    expect(router().config.interfaces!.find(i => i.name === "Ethernet2")!.prefixLength).toBe(25);
+  });
+
+  it("undo restores the cable and the peer-keyed entry", () => {
+    start();
+    runConsoleScript("unlink PC1 R1");
+    undo();
+    expect(entries()).toEqual(["PC1=10.1.0.1", "PC2=10.2.0.1"]);
+  });
+
+  it("auto-assigned cables renumber: the address lands on the port that is now free, and an auto re-cable picks it up", () => {
+    runConsoleScript(`
+      add router R1 at 0 0
+      add computer PC1 at 200 0
+      add computer PC2 at 200 200
+      link PC1 R1
+      link PC2 R1
+      interface R1 PC1 ip 10.1.0.1/24
+      interface R1 PC2 ip 10.2.0.1/24
+    `);
+    runConsoleScript("unlink PC1 R1");                           // PC2 becomes Ethernet1; Ethernet2 is the free port
+    expect(entries()).toEqual(["PC2=10.2.0.1", "[Ethernet2]=10.1.0.1"]);
+    expect(brief()).toMatch(/Ethernet1\s+10\.2\.0\.1\/24\s+up/);
+    expect(brief()).toMatch(/Ethernet2\s+10\.1\.0\.1\/24\s+down/);
+    runConsoleScript("link PC1 R1");                             // the lowest free port: Ethernet2
+    expect(entries()).toEqual(["PC1=10.1.0.1", "PC2=10.2.0.1"]);
+  });
+
+  it("an interface with nothing configured leaves nothing behind", () => {
+    runConsoleScript("add router R1 at 0 0\nadd computer PC1 at 200 0\nlink PC1 R1\ninterface R1 PC1 ip 10.1.0.1/24");
+    runConsoleScript("cli R1 enable\ncli R1 configure terminal\ncli R1 interface Ethernet1\ncli R1 no ip address\ncli R1 end\nunlink PC1 R1");
+    expect(router().config.interfaces).toEqual([]);
+  });
+
+  it("sub-interfaces wait on the unplugged port and return with the next cable", () => {
+    runConsoleScript(`
+      add router R1 at 0 0
+      add switch SW at 200 0
+      managed SW
+      link R1 SW
+      interface R1 SW ip 192.168.10.1/24 vlan 10
+      interface R1 SW ip 192.168.20.1/24 vlan 20
+    `);
+    runConsoleScript("unlink R1 SW");
+    expect(entries()).toEqual(["[Ethernet1].10=192.168.10.1", "[Ethernet1].20=192.168.20.1"]);
+    expect(brief()).toMatch(/Ethernet1\s+unassigned\s+down/);        // the bare port has no address of its own
+    const out = runConsoleScript("add switch SW2 at 200 200\nlink R1 SW2").pop()!.output.join(" ");
+    expect(out).toContain("R1 Ethernet1 keeps its sub-interfaces .10, .20.");
+    expect(entries()).toEqual(["SW2.10=192.168.10.1", "SW2.20=192.168.20.1"]);
+    expect(brief()).toMatch(/Ethernet1\.10\s+192\.168\.10\.1\/24\s+up/);
+  });
+
+  it("survives a JSON save and reload, and a script export and replay", () => {
+    start();
+    runConsoleScript("cli R1 enable\ncli R1 configure terminal\ncli R1 interface Ethernet1\ncli R1 ip nat outside\ncli R1 end\nunlink PC1 R1");
+    const before = entries();
+    const script = exportTopologyScript();
+    expect(script).toContain("cli R1 interface Ethernet1\ncli R1 ip address 10.1.0.1/24\ncli R1 ip nat outside\ncli R1 exit");
+    const payload = JSON.parse(JSON.stringify(buildConfigPayload()));
+    applyConfigWithoutUndo(normaliseConfig(payload));
+    expect(entries()).toEqual(before);
+    expect(runConsoleScript(script).filter(r => !r.ok)).toEqual([]);
+    expect(entries()).toEqual(before);
+    expect(router().config.interfaces!.find(i => i.name === "Ethernet1")!.natRole).toBe("outside");
   });
 });

@@ -5168,20 +5168,63 @@ Full legal text: https://creativecommons.org/publicdomain/zero/1.0/legalcode</pr
     const port = linkPortName(link, router.id);
     if (!port) return "";
     const entries = router.config.interfaces;
-    const byName = entries.find((entry) => entry.peerId === "" && entry.name === port);
-    if (!byName) return "";
-    if (!byName.ipv4Address && !byName.natRole) {
-      router.config.interfaces = entries.filter((entry) => entry !== byName);
+    const parked = entries.filter((entry) => entry.peerId === "" && entry.name === port);
+    if (!parked.length) return "";
+    const configured = parked.filter((entry) => entry.ipv4Address || entry.natRole || entry.vlanTag != null);
+    if (!configured.length) {
+      router.config.interfaces = entries.filter((entry) => !parked.includes(entry));
       return "";
     }
-    router.config.interfaces = entries.filter((entry) => entry === byName || !(entry.peerId === peer.id && entry.vlanTag == null));
-    byName.peerId = peer.id;
-    byName.name = "";
+    const tags = new Set(configured.map((entry) => entry.vlanTag ?? null));
+    router.config.interfaces = entries.filter((entry) => configured.includes(entry) || !(parked.includes(entry) || entry.peerId === peer.id && tags.has(entry.vlanTag ?? null)));
+    for (const entry of configured) {
+      entry.peerId = peer.id;
+      entry.name = "";
+    }
+    const base = configured.find((entry) => entry.vlanTag == null);
+    const subs = configured.filter((entry) => entry.vlanTag != null);
     const kept = [
-      byName.ipv4Address ? `its address ${byName.ipv4Address}/${prefixOf(byName)}` : "",
-      byName.natRole ? `its NAT ${byName.natRole} role` : ""
+      base?.ipv4Address ? `its address ${base.ipv4Address}/${prefixOf(base)}` : "",
+      base?.natRole ? `its NAT ${base.natRole} role` : "",
+      subs.length ? `${subs.length === 1 ? "its sub-interface" : "its sub-interfaces"} ${subs.map((s) => `.${s.vlanTag}`).join(", ")}` : ""
     ].filter(Boolean).join(" and ");
     return `${router.name} ${port} keeps ${kept}.`;
+  }
+  function releaseRouterPorts(links) {
+    const baseName = (name) => name.split(".")[0];
+    const cabledPorts = (router) => new Map(routerInterfacesWithNames(router, true).map((i) => [i.peerId, baseName(i.name)]));
+    const held = /* @__PURE__ */ new Map();
+    for (const link of links) {
+      if (!isPhysicalLink(link)) continue;
+      for (const [routerId, peerId] of [[link.from, link.to], [link.to, link.from]]) {
+        const router = getDevice(routerId);
+        if (router?.type !== "router") continue;
+        const entry = held.get(routerId) ?? { router, before: cabledPorts(router), peers: [] };
+        entry.peers.push(peerId);
+        held.set(routerId, entry);
+      }
+    }
+    const order = (a, b) => a.localeCompare(b, void 0, { numeric: true });
+    return () => {
+      for (const { router, before, peers } of held.values()) {
+        if (!getDevice(router.id) || !router.config?.interfaces?.length) continue;
+        const after = new Set(cabledPorts(router).values());
+        const freed = [...new Set(before.values())].filter((name) => !after.has(name)).sort(order);
+        const gone = peers.filter((peerId) => before.has(peerId) && !cabledPorts(router).has(peerId)).sort((a, b) => order(before.get(a), before.get(b)));
+        gone.forEach((peerId, index) => {
+          const port = freed[index];
+          if (!port) return;
+          const mine = router.config.interfaces.filter((entry) => entry.peerId === peerId);
+          const configured = mine.filter((entry) => entry.ipv4Address || entry.natRole || entry.vlanTag != null);
+          router.config.interfaces = router.config.interfaces.filter((entry) => configured.includes(entry) || !(mine.includes(entry) || entry.peerId === "" && entry.name === port));
+          for (const entry of configured) {
+            entry.peerId = "";
+            entry.name = port;
+            entry.arpTable = [];
+          }
+        });
+      }
+    };
   }
   function portMediaFor(deviceId, peerId) {
     return getDevice(deviceId)?.type === "router" && getDevice(peerId)?.type === "router" ? "serial" : "ethernet";
@@ -5255,8 +5298,10 @@ Full legal text: https://creativecommons.org/publicdomain/zero/1.0/legalcode</pr
     const gone = state.links.find((l) => l.id === linkId);
     if (!gone) return false;
     pushUndo();
+    const release = releaseRouterPorts([gone]);
     state.links = state.links.filter((l) => l.id !== linkId);
     forgetArpEntries(/* @__PURE__ */ new Set([...orphanedIfaceMacs(gone.from, gone.to), ...orphanedIfaceMacs(gone.to, gone.from)]));
+    release();
     if (state.selectedLinkId === linkId) state.selectedLinkId = null;
     sync().syncPanel();
     linksChanged([gone.from, gone.to]);
@@ -5316,7 +5361,9 @@ Full legal text: https://creativecommons.org/publicdomain/zero/1.0/legalcode</pr
     }
     pushUndo();
     const id = state.selectedId;
-    const neighbours = state.links.filter((link) => link.from === id || link.to === id).map((link) => link.from === id ? link.to : link.from);
+    const leaving = state.links.filter((link) => link.from === id || link.to === id);
+    const neighbours = leaving.map((link) => link.from === id ? link.to : link.from);
+    const release = releaseRouterPorts(leaving);
     state.links = state.links.filter((link) => link.from !== id && link.to !== id);
     if (selected) {
       const gone = new Set(macsOwnedBy(selected));
@@ -5324,6 +5371,7 @@ Full legal text: https://creativecommons.org/publicdomain/zero/1.0/legalcode</pr
       forgetArpEntries(gone, selected.id);
     }
     state.devices = state.devices.filter((device) => device.id !== id);
+    release();
     state.selectedId = null;
     state.configuringId = null;
     state.linkStartId = null;
@@ -5684,11 +5732,11 @@ Full legal text: https://creativecommons.org/publicdomain/zero/1.0/legalcode</pr
   function routerInterfaceForName(router, name) {
     ensureConfig(router);
     router.config.interfaces = normaliseRouterInterfaces(router.config.interfaces || [], router.id);
-    let iface = router.config.interfaces.find((entry) => entry.peerId === "" && entry.name === name);
+    let iface = router.config.interfaces.find((entry) => entry.peerId === "" && entry.name === name && entry.vlanTag == null);
     if (!iface) {
       router.config.interfaces.push({ peerId: "", name, type: /^serial/i.test(name) ? "serial" : "ethernet", ipv4Address: "", vlanTag: null });
       router.config.interfaces = normaliseRouterInterfaces(router.config.interfaces, router.id);
-      iface = router.config.interfaces.find((entry) => entry.peerId === "" && entry.name === name);
+      iface = router.config.interfaces.find((entry) => entry.peerId === "" && entry.name === name && entry.vlanTag == null);
     }
     return iface;
   }
@@ -5755,7 +5803,7 @@ Full legal text: https://creativecommons.org/publicdomain/zero/1.0/legalcode</pr
       }
     }
     if (cabledOnly) return occupied;
-    const emptyConfigFor = (name, type) => configured.find((c) => c.peerId === "" && c.name === name) || { peerId: "", name, type, ipv4Address: "", vlanTag: null };
+    const emptyConfigFor = (name, type) => configured.find((c) => c.peerId === "" && c.name === name && c.vlanTag == null) || { peerId: "", name, type, ipv4Address: "", vlanTag: null };
     const emptyEthernet = [];
     for (let n = 1; n <= ethernetPorts; n++) if (!usedByMedia.ethernet.has(n)) {
       const name = `Ethernet${n}`;
@@ -11827,7 +11875,7 @@ ${body}
   function setUncabledRouterInterfaceIp(router, name, address) {
     const parsed = address === "" ? null : parseIpv4Token(address);
     if (address !== "" && !parsed) return `Invalid IPv4 address: ${address}`;
-    if (address === "" && !(router.config?.interfaces || []).some((i) => i.peerId === "" && i.name === name && i.ipv4Address)) return "";
+    if (address === "" && !(router.config?.interfaces || []).some((i) => i.peerId === "" && i.name === name && i.vlanTag == null && i.ipv4Address)) return "";
     pushUndo();
     const iface = routerInterfaceForName(router, name);
     iface.ipv4Address = parsed ? parsed.address : "";
@@ -19757,10 +19805,23 @@ Snort successfully validated the configuration${bad ? " (with errors)" : "."}`);
         const live = state.devices.find((x) => x.id === d.id);
         const named = live ? routerInterfacesWithNames(live) : [];
         for (const i of c.interfaces || []) {
+          if (!i.peerId) continue;
           if (i.natRole !== "inside" && i.natRole !== "outside") continue;
           const entry = named.find((n) => n.peerId === i.peerId && (n.config?.vlanTag ?? null) === (i.vlanTag ?? null));
           if (!entry) continue;
           cfg.push(`interface ${entry.name}`, `ip nat ${i.natRole}`, "exit");
+        }
+        for (const i of c.interfaces || []) {
+          if (i.peerId || !i.name) continue;
+          if (i.vlanTag != null) {
+            if (i.ipv4Address) lines.push(`# ${d.name} ${i.name}.${i.vlanTag} (unplugged) had ${i.ipv4Address}/${prefixOf(i)} \u2014 re-create the sub-interface once the port is cabled`);
+            continue;
+          }
+          if (!i.ipv4Address && !i.natRole) continue;
+          cfg.push(`interface ${i.name}`);
+          if (i.ipv4Address) cfg.push(`ip address ${i.ipv4Address}/${prefixOf(i)}`);
+          if (i.natRole === "inside" || i.natRole === "outside") cfg.push(`ip nat ${i.natRole}`);
+          cfg.push("exit");
         }
         for (const r of c.portForwards || []) cfg.push(`ip nat inside source static tcp ${r.insideIp} ${r.insidePort} ${r.outsideIp} ${r.outsidePort}`);
         const nft = ruleLangOf(d) === "nftables";

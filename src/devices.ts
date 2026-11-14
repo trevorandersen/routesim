@@ -537,23 +537,88 @@ function adoptUncabledRouterPort(router: Device, peer: Device, link: Link): stri
   const port = linkPortName(link, router.id);          // where the cable actually landed
   if (!port) return "";
   const entries = router.config.interfaces;
-  const byName = entries.find(entry => entry.peerId === "" && entry.name === port);
-  if (!byName) return "";
-  if (!byName.ipv4Address && !byName.natRole) {
+  // The port's own entry, plus any sub-interfaces parked on it when an earlier
+  // cable was unplugged (releaseRouterPorts).
+  const parked = entries.filter(entry => entry.peerId === "" && entry.name === port);
+  if (!parked.length) return "";
+  const configured = parked.filter(entry => entry.ipv4Address || entry.natRole || entry.vlanTag != null);
+  if (!configured.length) {
     // Nothing was configured on it: drop the empty placeholder.
-    router.config.interfaces = entries.filter(entry => entry !== byName);
+    router.config.interfaces = entries.filter(entry => !parked.includes(entry));
     return "";
   }
-  // What the port showed a moment ago wins over a stale untagged entry left
-  // from an earlier cable to the same peer (its sub-interfaces are kept).
-  router.config.interfaces = entries.filter(entry => entry === byName || !(entry.peerId === peer.id && entry.vlanTag == null));
-  byName.peerId = peer.id;
-  byName.name = "";
+  // What the port showed a moment ago wins over a stale entry (same VLAN) left
+  // by an earlier cable to the same peer.
+  const tags = new Set(configured.map(entry => entry.vlanTag ?? null));
+  router.config.interfaces = entries.filter(entry =>
+    configured.includes(entry) || !(parked.includes(entry) || (entry.peerId === peer.id && tags.has(entry.vlanTag ?? null))));
+  for (const entry of configured) { entry.peerId = peer.id; entry.name = ""; }
+  const base = configured.find(entry => entry.vlanTag == null);
+  const subs = configured.filter(entry => entry.vlanTag != null);
   const kept = [
-    byName.ipv4Address ? `its address ${byName.ipv4Address}/${prefixOf(byName)}` : "",
-    byName.natRole ? `its NAT ${byName.natRole} role` : "",
+    base?.ipv4Address ? `its address ${base.ipv4Address}/${prefixOf(base)}` : "",
+    base?.natRole ? `its NAT ${base.natRole} role` : "",
+    subs.length ? `${subs.length === 1 ? "its sub-interface" : "its sub-interfaces"} ${subs.map(s => `.${s.vlanTag}`).join(", ")}` : "",
   ].filter(Boolean).join(" and ");
   return `${router.name} ${port} keeps ${kept}.`;
+}
+
+// ── The other direction: a cable leaves a router port ────────────────────────
+// A router interface's configuration belongs to the PORT, not to whatever is
+// plugged into it: pull the cable and a real router still shows the address on
+// that (now down) interface. The stored entry is keyed by its peer while
+// cabled, so when the cable goes it is re-keyed to the port's NAME — the form
+// an unplugged port's entry has (routerInterfaceForName), the one the
+// inspector's "not connected" row shows, and the one addLink adopts when a
+// cable lands on the port again. It used to stay keyed by the departed peer:
+// the port read "unassigned", the address came back only if that same device
+// was re-cabled, and a save dropped it.
+//
+// Call BEFORE removing `links`; call the returned function AFTER. The two-step
+// shape is forced by the naming: implicit (auto-assigned) cables number
+// densely, so removing one renumbers the rest — the port that ends up free is
+// found by comparing the cabled port names before and after.
+function releaseRouterPorts(links: readonly Link[]): () => void {
+  const baseName = (name: string) => name.split(".")[0];
+  const cabledPorts = (router: Device) => new Map(routerInterfacesWithNames(router, true).map(i => [i.peerId, baseName(i.name)] as const));
+  const held = new Map<string, { router: Device; before: Map<string, string>; peers: string[] }>();
+  for (const link of links) {
+    if (!isPhysicalLink(link)) continue;
+    for (const [routerId, peerId] of [[link.from, link.to], [link.to, link.from]]) {
+      const router = getDevice(routerId);
+      if (router?.type !== "router") continue;
+      const entry = held.get(routerId) ?? { router, before: cabledPorts(router), peers: [] };
+      entry.peers.push(peerId);
+      held.set(routerId, entry);
+    }
+  }
+  const order = (a: string, b: string) => a.localeCompare(b, undefined, { numeric: true });
+  return () => {
+    for (const { router, before, peers } of held.values()) {
+      if (!getDevice(router.id) || !router.config?.interfaces?.length) continue;   // the router itself went
+      const after = new Set(cabledPorts(router).values());
+      // Ports that were cabled and no longer are, paired with the peers that
+      // left in port order (one cable is the usual case: one port, one peer).
+      const freed = [...new Set(before.values())].filter(name => !after.has(name)).sort(order);
+      const gone = peers.filter(peerId => before.has(peerId) && !cabledPorts(router).has(peerId))
+        .sort((a, b) => order(before.get(a)!, before.get(b)!));
+      gone.forEach((peerId, index) => {
+        const port = freed[index];
+        if (!port) return;
+        const mine = router.config.interfaces!.filter(entry => entry.peerId === peerId);
+        const configured = mine.filter(entry => entry.ipv4Address || entry.natRole || entry.vlanTag != null);
+        // Anything already stored under this port's name is stale (the port was
+        // occupied until now); an entry with nothing configured is not kept.
+        router.config.interfaces = router.config.interfaces!.filter(entry =>
+          configured.includes(entry) || !(mine.includes(entry) || (entry.peerId === "" && entry.name === port)));
+        for (const entry of configured) {
+          entry.peerId = "";
+          entry.name = port;
+          entry.arpTable = [];        // its neighbours were on the cable that left
+        }
+      });
+    }
+  };
 }
 
 // ─── Port occupancy ───────────────────────────────────────────────────────────
@@ -670,8 +735,10 @@ export function deleteLink(linkId: string): boolean {
   const gone = state.links.find(l => l.id === linkId);
   if (!gone) return false;
   pushUndo();
+  const release = releaseRouterPorts([gone]);
   state.links = state.links.filter(l => l.id !== linkId);
   forgetArpEntries(new Set([...orphanedIfaceMacs(gone.from, gone.to), ...orphanedIfaceMacs(gone.to, gone.from)]));
+  release();   // a router port keeps its configuration when its cable goes
   if (state.selectedLinkId === linkId) state.selectedLinkId = null;
   sync().syncPanel();
   // Later implicit ports renumber (flush the learnt MACs), and removing a
@@ -759,7 +826,9 @@ export function deleteSelection(): void {
   pushUndo();
   const id = state.selectedId;
   // Its neighbours lose a cable each — their learnt MACs are invalidated below.
-  const neighbours = state.links.filter(link => link.from === id || link.to === id).map(link => link.from === id ? link.to : link.from);
+  const leaving = state.links.filter(link => link.from === id || link.to === id);
+  const neighbours = leaving.map(link => link.from === id ? link.to : link.from);
+  const release = releaseRouterPorts(leaving);
   state.links = state.links.filter(link => link.from !== id && link.to !== id);
   if (selected) {
     // The device's own MACs leave the wire, and so does each neighbouring
@@ -769,6 +838,7 @@ export function deleteSelection(): void {
     forgetArpEntries(gone, selected.id);
   }
   state.devices = state.devices.filter(device => device.id !== id);
+  release();   // each neighbouring router's port keeps its configuration
   state.selectedId = null;
   state.configuringId = null;
   state.linkStartId = null;
@@ -1258,13 +1328,15 @@ export function routerInterfaceFor(router: any, peerId: string, vlanTag?: number
 export function routerInterfaceForName(router: any, name: string): any {
   ensureConfig(router);
   router.config.interfaces = normaliseRouterInterfaces(router.config.interfaces || [], router.id);
-  let iface = router.config.interfaces.find((entry: any) => entry.peerId === "" && entry.name === name);
+  // (The untagged entry: sub-interfaces parked on an unplugged port wait there
+  // for the next cable and are not what "the port's address" means.)
+  let iface = router.config.interfaces.find((entry: any) => entry.peerId === "" && entry.name === name && entry.vlanTag == null);
   if (!iface) {
     // Push, then re-normalise — same as routerInterfaceFor, so the by-name
     // entry carries a deterministic MAC and empty tables from birth.
     router.config.interfaces.push({ peerId: "", name, type: /^serial/i.test(name) ? "serial" : "ethernet", ipv4Address: "", vlanTag: null });
     router.config.interfaces = normaliseRouterInterfaces(router.config.interfaces, router.id);
-    iface = router.config.interfaces.find((entry: any) => entry.peerId === "" && entry.name === name);
+    iface = router.config.interfaces.find((entry: any) => entry.peerId === "" && entry.name === name && entry.vlanTag == null);
   }
   return iface;
 }
@@ -1345,7 +1417,7 @@ export function routerInterfacesWithNames(router: Device, cabledOnly = false): N
   // Unconnected ports reuse any saved by-name config (so a pre-assigned IP
   // persists across renders), else a fresh placeholder.
   const emptyConfigFor = (name: string, type: string) =>
-    configured.find((c) => c.peerId === "" && c.name === name)
+    configured.find((c) => c.peerId === "" && c.name === name && c.vlanTag == null)
       || { peerId: "", name, type, ipv4Address: "", vlanTag: null };
   // Free ports are every unused number up to capacity (so a gap left by an
   // explicit pick is offered as free, not hidden).

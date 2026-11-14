@@ -1443,10 +1443,28 @@ export function exportTopologyScript(): string {
       const live = state.devices.find(x => x.id === d.id);
       const named = live ? routerInterfacesWithNames(live) : [];
       for (const i of (c.interfaces || [])) {
+        if (!i.peerId) continue;   // an unplugged port's entry — written by name, below
         if (i.natRole !== "inside" && i.natRole !== "outside") continue;
         const entry = named.find((n) => n.peerId === i.peerId && (n.config?.vlanTag ?? null) === (i.vlanTag ?? null));
         if (!entry) continue;
         cfg.push(`interface ${entry.name}`, `ip nat ${i.natRole}`, "exit");
+      }
+      // A port with no cable keeps its configuration (set there before cabling,
+      // or left when its cable was pulled). It has no peer to name, so it
+      // replays through the shell by port name. Sub-interfaces parked on an
+      // unplugged port cannot be typed back (the shell needs a cable to carry
+      // a VLAN): say so rather than drop them silently — the JSON save keeps them.
+      for (const i of (c.interfaces || [])) {
+        if (i.peerId || !i.name) continue;
+        if (i.vlanTag != null) {
+          if (i.ipv4Address) lines.push(`# ${d.name} ${i.name}.${i.vlanTag} (unplugged) had ${i.ipv4Address}/${prefixOf(i)} — re-create the sub-interface once the port is cabled`);
+          continue;
+        }
+        if (!i.ipv4Address && !i.natRole) continue;
+        cfg.push(`interface ${i.name}`);
+        if (i.ipv4Address) cfg.push(`ip address ${i.ipv4Address}/${prefixOf(i)}`);
+        if (i.natRole === "inside" || i.natRole === "outside") cfg.push(`ip nat ${i.natRole}`);
+        cfg.push("exit");
       }
       for (const r of (c.portForwards || [])) cfg.push(`ip nat inside source static tcp ${r.insideIp} ${r.insidePort} ${r.outsideIp} ${r.outsidePort}`);
       // netfilter replays in the device's chosen language (round-tripping the

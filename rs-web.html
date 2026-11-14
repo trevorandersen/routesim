@@ -15107,8 +15107,16 @@ Snort successfully validated the configuration${bad ? " (with errors)" : "."}`);
         }
       } else if (inner.type === "tcp") {
         rows.push(["Src port", String(inner.srcPort)], ["Dst port", String(inner.dstPort)], ["TCP flags", inner.flags.toUpperCase()]);
+        if (inner.http?.kind === "request") {
+          rows.push(["HTTP request", `${inner.http.method || "GET"} ${inner.http.path || "/"} HTTP/1.1`], ["Host", inner.http.host || "(none)"]);
+        } else if (inner.http?.kind === "response") {
+          rows.push(["HTTP response", `HTTP/1.1 ${inner.http.status ?? ""} ${inner.http.statusText || ""}`.trim()]);
+          if (inner.http.title) rows.push(["Page title", inner.http.title]);
+        }
       } else if (inner.type === "dhcp") {
-        rows.push(["DHCP message", inner.messageType], ["Client MAC", inner.clientMac]);
+        rows.push(["DHCP message", inner.messageType], ["Transaction id", dhcpXidText(inner.transactionId)], ["Client MAC", inner.clientMac]);
+        if (inner.requestedIp) rows.push(["Requested IP", inner.requestedIp]);
+        if (inner.serverIp) rows.push(["Server identifier", inner.serverIp]);
         if (inner.assignedIp) rows.push(["Assigned IP", inner.assignedIp]);
         if (inner.prefixLength != null) rows.push(["Prefix length", `/${inner.prefixLength}`]);
         if (inner.gatewayIp) rows.push(["Gateway", inner.gatewayIp]);

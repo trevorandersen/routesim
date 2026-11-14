@@ -10,7 +10,7 @@ import { renderSwitchPorts, renderSwitchVlans, renderRouterInterfaces, renderFra
 import { DEVICE_SPECS, USER_ADDABLE_TYPES } from "../src/device-registry";
 import { addDevice, collapseLan, linkedPortsFor } from "../src/devices";
 import { findTransitAt } from "../src/canvas";
-import { createIcmpEchoRequest, createTcpSegment } from "../src/frame";
+import { createIcmpEchoRequest, createTcpSegment, createHttpRequest, createHttpResponse, createDhcpDiscover, createDhcpRequest, createDhcpAck } from "../src/frame";
 import { dom } from "../src/dom";
 import { runConsoleScript, runConsoleCommand as exec, exportTopologyScript } from "../src/commands";
 import { setDhcpRange, setDhcpRouterOption, setListeningPorts } from "../src/terminal";
@@ -144,6 +144,36 @@ describe("click-a-packet frame inspector", () => {
     expect(html).toContain("443");
     expect(html).toContain("SYN");
     expect(html).toContain("6 (TCP)");
+  });
+
+  // R102: the breakdown stopped at the TCP header for an HTTP row, and left out
+  // the DHCP transaction id, requested address and server identifier.
+  const cells = () => {
+    const html = (dom.detailsPanel as any).innerHTML as string;
+    return Object.fromEntries([...html.matchAll(/<tr><th>([^<]*)<\/th><td>([^<]*)<\/td><\/tr>/g)].map(m => [m[1], m[2]]));
+  };
+  const A = "02:00:00:00:00:01", B = "02:00:00:00:00:02";
+
+  it("an HTTP request and response show their application fields", () => {
+    renderFramePanel(createHttpRequest(A, B, "10.0.0.1", "10.0.0.2", 31000, 80, "/index.html", "web.corp"));
+    expect(cells()["HTTP request"]).toBe("GET /index.html HTTP/1.1");
+    expect(cells()["Host"]).toBe("web.corp");
+    expect(cells()["TCP flags"]).toBe("ACK");
+    renderFramePanel(createHttpResponse(B, A, "10.0.0.2", "10.0.0.1", 80, 31000, 200, "OK", "Welcome"));
+    expect(cells()["HTTP response"]).toBe("HTTP/1.1 200 OK");
+    expect(cells()["Page title"]).toBe("Welcome");
+    renderFramePanel(createTcpSegment(A, B, "10.0.0.1", "10.0.0.2", 31000, 80, "syn"));
+    expect(cells()["HTTP request"]).toBeUndefined();              // a bare segment has none
+  });
+
+  it("DHCP frames show the transaction id, the requested address and the server identifier", () => {
+    renderFramePanel(createDhcpDiscover(A, "dhcp-254ad"));
+    expect(cells()["Transaction id"]).toBe("0x254ad");
+    expect(cells()["Requested IP"]).toBeUndefined();
+    renderFramePanel(createDhcpRequest(A, "10.0.0.100", "10.0.0.1", "dhcp-254ad"));
+    expect(cells()).toMatchObject({ "DHCP message": "request", "Transaction id": "0x254ad", "Requested IP": "10.0.0.100", "Server identifier": "10.0.0.1" });
+    renderFramePanel(createDhcpAck(B, "10.0.0.1", A, "10.0.0.100", "dhcp-254ad"));
+    expect(cells()).toMatchObject({ "Transaction id": "0x254ad", "Server identifier": "10.0.0.1", "Assigned IP": "10.0.0.100" });
   });
 });
 

@@ -2,6 +2,7 @@ import type { Device, Link, DeviceType } from "./types";
 import { state, sync, pushUndo, captureUndoOnFocus, captureUndoOnFocusWithin, linksChanged } from "./state";
 import { DEVICE_SPECS, isHost, offersTerminal, defaultPortCount } from "./device-registry";
 import { dom } from "./dom";
+import { dhcpXidText } from "./frame";
 import { escapeHtml, isValidIpv4, isValidMac, normaliseMacAddress, randomMac, parseIpv4Token, prefixOf, networkOf, normaliseSsid, normaliseWifiPassword, mutationText, clampFirewallPortCount, FIREWALL_PORT_RANGE } from "./utils";
 import { ensureConfig, normaliseVlans, normaliseDnsRecords, normaliseDhcpLeases, normaliseRadiusUsers } from "./normalise";
 import { snortRuleIssue } from "./snort";
@@ -1123,8 +1124,20 @@ export function renderFramePanel(frame: any): void {
       }
     } else if (inner.type === "tcp") {
       rows.push(["Src port", String(inner.srcPort)], ["Dst port", String(inner.dstPort)], ["TCP flags", inner.flags.toUpperCase()]);
+      // The application data the segment carries — the packet list calls the
+      // row HTTP, so the breakdown shows the HTTP fields, not just the TCP ones.
+      if (inner.http?.kind === "request") {
+        rows.push(["HTTP request", `${inner.http.method || "GET"} ${inner.http.path || "/"} HTTP/1.1`], ["Host", inner.http.host || "(none)"]);
+      } else if (inner.http?.kind === "response") {
+        rows.push(["HTTP response", `HTTP/1.1 ${inner.http.status ?? ""} ${inner.http.statusText || ""}`.trim()]);
+        if (inner.http.title) rows.push(["Page title", inner.http.title]);
+      }
     } else if (inner.type === "dhcp") {
-      rows.push(["DHCP message", inner.messageType], ["Client MAC", inner.clientMac]);
+      rows.push(["DHCP message", inner.messageType], ["Transaction id", dhcpXidText(inner.transactionId)], ["Client MAC", inner.clientMac]);
+      // What the client asks for (Request) and which server it is talking to
+      // — the fields that tell two competing servers' exchanges apart.
+      if (inner.requestedIp) rows.push(["Requested IP", inner.requestedIp]);
+      if (inner.serverIp) rows.push(["Server identifier", inner.serverIp]);
       if (inner.assignedIp) rows.push(["Assigned IP", inner.assignedIp]);
       if (inner.prefixLength != null) rows.push(["Prefix length", `/${inner.prefixLength}`]);
       if (inner.gatewayIp) rows.push(["Gateway", inner.gatewayIp]);

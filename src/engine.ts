@@ -770,7 +770,31 @@ function deliverCompletedTransits(): void {
   }
 }
 
+// One step of the run — and, in autoplay, every further step that follows at
+// once: a device that takes a frame in and sends nothing out leaves no transit
+// to wait for, so settleStep processes the next event immediately. A broadcast
+// reaching a LAN of N hosts is N such steps in one animation tick, and each
+// used to rebuild the packet list and redraw the canvas — up to 61 times in a
+// single tick on a 120-host LAN, for views nobody sees between them (review
+// R110). The steps now only mark the views dirty; the outermost call redraws
+// once, after the last of them.
+let stepDepth = 0;
+let stepViewsDirty = false;
+
 function processNextStep(): void {
+  stepDepth++;
+  try {
+    runNextStep();
+  } finally {
+    if (--stepDepth === 0 && stepViewsDirty) {
+      stepViewsDirty = false;
+      sync().syncSimLog();
+      sync().render();
+    }
+  }
+}
+
+function runNextStep(): void {
   const sim = state.simulation;
   if (sim.events.length === 0) {
     // No more events — simulation complete
@@ -856,10 +880,7 @@ function processNextStep(): void {
 
   // Headless runs never touch the DOM — skip per-step rendering (faster, and it
   // keeps probes like traceroute from flashing the canvas / sim-log panel).
-  if (!sim.headless) {
-    sync().syncSimLog();
-    sync().render();
-  }
+  if (!sim.headless) stepViewsDirty = true;   // drawn once, by the outermost processNextStep
 
   settleStep();
 }

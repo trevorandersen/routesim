@@ -133,6 +133,7 @@ The 802.11 handshake is SSID-aware at runtime, not only at link creation (review
 
 ## Two lifecycle details (LOW sweep)
 
+- **Autoplay redraws once per tick.** In autoplay a step that sends nothing out is followed at once by the next (`settleStep`), so a broadcast reaching a LAN of N hosts is N steps inside one animation tick. Each step used to rebuild the packet list and redraw the canvas — up to 61 times in a tick on a 120-host LAN, for views nobody sees in between (review R110). `processNextStep` now wraps the step (`runNextStep`) with a depth counter: steps only set `stepViewsDirty`, and the outermost call syncs the sim log and renders once, after the last of them (in a `finally`, so a throwing handler still leaves the views current). Headless runs never mark it. `tests/capture.test.ts` counts the syncs per tick on a 40-host flood.
 - **A device deleted mid-run no longer strands the simulation.** `processNextStep` used to `return` early when an event's target device was gone, skipping the completion check — if that was the last queued work the run sat on "running" with live controls. The drop is logged against the sender and the step still **settles** (`settleStep`: process the next event if any, else finish).
 - **`syncSimLog` builds each pane's filter rows once** per sync (they were built twice — once for the union of present tokens, again per pane — every step of an animated run).
 

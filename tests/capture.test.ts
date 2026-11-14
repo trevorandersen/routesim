@@ -2,9 +2,9 @@
  * The packet list (Wireshark-style sim log): per-wire frame capture during
  * animated runs, and the Source/Destination/Protocol/Info column mapping.
  */
-import { describe, it, expect, beforeAll, beforeEach, afterEach } from "bun:test";
+import { describe, it, expect, beforeAll, afterAll, beforeEach, afterEach } from "bun:test";
 import { state } from "../src/state";
-import { startSimulation, stepOnce, stopSimulation } from "../src/engine";
+import { startSimulation, stepOnce, stopSimulation, animationTick } from "../src/engine";
 import { buildPingEvents } from "../src/simulation";
 import {
   packetColumns, createArpRequest, createArpReply, createIcmpEchoRequest,
@@ -225,5 +225,42 @@ describe("capture — frames recorded per wire traversal", () => {
     } finally {
       state.options.silentArp = false;
     }
+  });
+});
+
+// R110: in autoplay, a step that sends nothing out is followed at once by the
+// next. A broadcast reaching N hosts is N steps in one animation tick, and each
+// used to rebuild the packet list and redraw the canvas.
+describe("autoplay redraws once per tick, however many events the tick settles (R110)", () => {
+  let raf: any;
+  let simLogSyncs = 0, renders = 0;
+  beforeAll(() => {
+    raf = (globalThis as any).requestAnimationFrame;
+    (globalThis as any).requestAnimationFrame = () => 0;
+    registerNoopCallbacks({ syncSimLog: () => { simLogSyncs++; }, render: () => { renders++; } });
+  });
+  afterAll(() => { (globalThis as any).requestAnimationFrame = raf; registerNoopCallbacks(); });
+  beforeEach(() => resetState());
+
+  it("a flooded ARP on a 40-host LAN costs one packet-list rebuild per tick, not one per host", () => {
+    const hosts = Array.from({ length: 40 }, (_, i) => `PC${i + 1}`);
+    runConsoleScript([
+      "add switch SW at 0 0",
+      ...hosts.flatMap((h, i) => [`add computer ${h} at ${i * 10} 100`, `link ${h} SW`, `ip ${h} 10.0.0.${i + 1}/24`]),
+    ].join("\n"));
+    const pc1 = state.devices.find(d => d.name === "PC1")!;
+    startSimulation(buildPingEvents(pc1, "10.0.0.200") as any, pc1.id, "10.0.0.200");   // nobody owns it: the ARP floods
+    let worstLog = 0, worstRender = 0, ticks = 0;
+    while (state.simulation.status === "running" && ticks < 50) {
+      simLogSyncs = 0; renders = 0;
+      animationTick(performance.now() + 1e9);                    // every dot in flight has arrived
+      worstLog = Math.max(worstLog, simLogSyncs);
+      worstRender = Math.max(worstRender, renders);
+      ticks++;
+    }
+    expect(state.simulation.status).toBe("done");
+    expect(state.simulation.log.filter(l => l.action.includes("not our IP") || l.action.includes("ignoring")).length).toBeGreaterThan(30);   // the cascade happened
+    expect(worstLog).toBeLessThanOrEqual(3);                     // one for the tick's steps (+ the run's finish)
+    expect(worstRender).toBeLessThanOrEqual(4);
   });
 });

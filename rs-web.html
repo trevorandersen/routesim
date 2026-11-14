@@ -8616,7 +8616,21 @@ Full legal text: https://creativecommons.org/publicdomain/zero/1.0/legalcode</pr
       });
     }
   }
+  var stepDepth = 0;
+  var stepViewsDirty = false;
   function processNextStep() {
+    stepDepth++;
+    try {
+      runNextStep();
+    } finally {
+      if (--stepDepth === 0 && stepViewsDirty) {
+        stepViewsDirty = false;
+        sync().syncSimLog();
+        sync().render();
+      }
+    }
+  }
+  function runNextStep() {
     const sim = state.simulation;
     if (sim.events.length === 0) {
       finishSimulation();
@@ -8677,10 +8691,7 @@ Full legal text: https://creativecommons.org/publicdomain/zero/1.0/legalcode</pr
       finishSimulation();
       return;
     }
-    if (!sim.headless) {
-      sync().syncSimLog();
-      sync().render();
-    }
+    if (!sim.headless) stepViewsDirty = true;
     settleStep();
   }
   function frameLineage(id) {

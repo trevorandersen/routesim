@@ -5148,6 +5148,7 @@ Full legal text: https://creativecommons.org/publicdomain/zero/1.0/legalcode</pr
       ...wireless ? { wireless: true } : {}
     };
     state.links.push(link);
+    const kept = [adoptUncabledRouterPort(from, to, link), adoptUncabledRouterPort(to, from, link)].filter(Boolean).join(" ");
     const warnings = [];
     const landed = (device) => `${device.name} ${linkPortName(link, device.id) ?? "the next free port"}`;
     if (refusedFrom) warnings.push(`${refusedFrom}, so the cable went to ${landed(from)} instead.`);
@@ -5160,7 +5161,27 @@ Full legal text: https://creativecommons.org/publicdomain/zero/1.0/legalcode</pr
     state.linkStartId = null;
     linksChanged([fromId, toId]);
     sync().syncPanel();
-    return { ok: true, message: `Linked ${from.name} \u2194 ${to.name}.`, warnings, link, created: true };
+    return { ok: true, message: `Linked ${from.name} \u2194 ${to.name}.${kept ? ` ${kept}` : ""}`, warnings, link, created: true };
+  }
+  function adoptUncabledRouterPort(router, peer, link) {
+    if (router.type !== "router" || !router.config?.interfaces?.length) return "";
+    const port = linkPortName(link, router.id);
+    if (!port) return "";
+    const entries = router.config.interfaces;
+    const byName = entries.find((entry) => entry.peerId === "" && entry.name === port);
+    if (!byName) return "";
+    if (!byName.ipv4Address && !byName.natRole) {
+      router.config.interfaces = entries.filter((entry) => entry !== byName);
+      return "";
+    }
+    router.config.interfaces = entries.filter((entry) => entry === byName || !(entry.peerId === peer.id && entry.vlanTag == null));
+    byName.peerId = peer.id;
+    byName.name = "";
+    const kept = [
+      byName.ipv4Address ? `its address ${byName.ipv4Address}/${prefixOf(byName)}` : "",
+      byName.natRole ? `its NAT ${byName.natRole} role` : ""
+    ].filter(Boolean).join(" and ");
+    return `${router.name} ${port} keeps ${kept}.`;
   }
   function portMediaFor(deviceId, peerId) {
     return getDevice(deviceId)?.type === "router" && getDevice(peerId)?.type === "router" ? "serial" : "ethernet";

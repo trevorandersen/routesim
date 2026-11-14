@@ -1214,3 +1214,80 @@ describe("router shell — config-if on a port with no cable (R39)", () => {
     expect(state.terminal.mode).toBe("config");
   });
 });
+
+// A router port can be configured before it is cabled (the inspector's "not
+// connected" rows, the shell's `interface EthernetN`). That configuration used
+// to be left behind when a cable was plugged in: the cabled interface came up
+// blank and the address vanished from view.
+describe("a router port configured before it is cabled keeps its configuration", () => {
+  beforeEach(() => resetState());
+
+  const router = () => state.devices.find(d => d.name === "R1")!;
+  const id = (name: string) => state.devices.find(d => d.name === name)!.id;
+  const iface = (peer: string) => router().config.interfaces!.find(i => i.peerId === id(peer) && i.vlanTag == null);
+  const byName = (name: string) => router().config.interfaces!.find(i => i.peerId === "" && i.name === name);
+  const configure = (port: string, ...lines: string[]) => runConsoleScript([
+    "cli R1 enable", "cli R1 configure terminal", `cli R1 interface ${port}`, ...lines.map(l => `cli R1 ${l}`), "cli R1 end",
+  ].join("\n")).filter(r => !r.ok);
+  const start = () => runConsoleScript("add router R1 at 0 0\nadd computer PC1 at 200 0\nip PC1 10.3.0.10/24\ngateway PC1 10.3.0.1");
+
+  it("the address, prefix, NAT role and MAC follow the port onto the cable, and the link says so", () => {
+    start();
+    expect(configure("Ethernet1", "ip address 10.3.0.1/25", "ip nat inside")).toEqual([]);
+    const mac = byName("Ethernet1")!.macAddress;
+    const linked = runConsoleScript("link PC1 R1")[0];
+    expect(linked.output.join(" ")).toContain("R1 Ethernet1 keeps its address 10.3.0.1/25 and its NAT inside role.");
+    expect(iface("PC1")).toMatchObject({ ipv4Address: "10.3.0.1", prefixLength: 25, natRole: "inside", macAddress: mac });
+    expect(byName("Ethernet1")).toBeUndefined();                    // re-keyed, not copied
+    expect(router().config.interfaces!.length).toBe(1);
+  });
+
+  it("the network then works with no further configuration", () => {
+    start();
+    configure("Ethernet1", "ip address 10.3.0.1/24");
+    runConsoleScript("link PC1 R1");
+    const r = runConsoleScript("run ping PC1 10.3.0.1")[0];
+    expect(r.ok).toBe(true);
+    const out = runConsoleScript("cli R1 show ip interface brief")[0].output.join("\n");
+    expect(out).toMatch(/Ethernet1\s+10\.3\.0\.1\/24\s+up/);
+  });
+
+  it("undoing the cable puts the configuration back on the unplugged port", () => {
+    start();
+    configure("Ethernet1", "ip address 10.3.0.1/24");
+    runConsoleScript("link PC1 R1");
+    undo();
+    expect(byName("Ethernet1")!.ipv4Address).toBe("10.3.0.1");
+    expect(router().config.interfaces!.some(i => i.peerId !== "")).toBe(false);
+  });
+
+  it("only the port the cable lands on is adopted: an auto cable takes the lowest free port", () => {
+    start();
+    configure("Ethernet3", "ip address 10.3.0.1/24");
+    expect(runConsoleScript("link PC1 R1")[0].output.join(" ")).not.toContain("keeps");   // it went to Ethernet1
+    expect(byName("Ethernet3")!.ipv4Address).toBe("10.3.0.1");
+    expect(iface("PC1")?.ipv4Address || "").toBe("");
+    runConsoleScript("add computer PC2 at 200 200\nlink PC2 R1 1 3");                      // pinned to Ethernet3
+    expect(iface("PC2")!.ipv4Address).toBe("10.3.0.1");
+    expect(byName("Ethernet3")).toBeUndefined();
+  });
+
+  it("what the port showed wins over a stale entry from an earlier cable to the same peer", () => {
+    start();
+    runConsoleScript("link PC1 R1\ninterface R1 PC1 ip 192.168.9.1/24\nunlink PC1 R1");
+    configure("Ethernet1", "ip address 10.3.0.1/24");
+    runConsoleScript("link PC1 R1");
+    expect(router().config.interfaces!.filter(i => i.peerId === id("PC1")).map(i => i.ipv4Address)).toEqual(["10.3.0.1"]);
+  });
+
+  it("a serial port between two routers is adopted the same way; an empty placeholder is dropped", () => {
+    runConsoleScript("add router R1 at 0 0\nadd router R2 at 300 0");
+    configure("Serial1", "ip address 172.16.0.1/30");
+    configure("Ethernet2", "ip address 10.9.0.1/24", "no ip address");                     // touched, then emptied
+    expect(runConsoleScript("link R1 R2")[0].output.join(" ")).toContain("R1 Serial1 keeps its address 172.16.0.1/30.");
+    expect(iface("R2")!.ipv4Address).toBe("172.16.0.1");
+    runConsoleScript("add computer PC1 at 0 200\nlink PC1 R1 1 2");
+    expect(byName("Ethernet2")).toBeUndefined();
+    expect(iface("PC1")?.ipv4Address || "").toBe("");
+  });
+});

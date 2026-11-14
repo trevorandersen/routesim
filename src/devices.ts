@@ -2,7 +2,7 @@ import type { PortOption, Device, Link, DeviceType, DeviceConfig, NamedRouterIfa
 import { state, sync, pushUndo, networkSnapshot, dropTerminalSessions, resetCaptureState, linksChanged } from "./state";
 import { dom } from "./dom";
 import { deviceSize, defaultDeviceConfig, ensureConfig, normaliseRouterInterfaces, normalisePortVlans, normalisePortModes } from "./normalise";
-import { clampPortCount, clampApPortCount, clampRouterPortCount, escapeHtml, randomMac, isValidHostname, MAX_PHYSICAL_PORT, deriveMac, normaliseMacAddress, clampFirewallPortCount, defaultBridgeMac, bridgeMacOf } from "./utils";
+import { clampPortCount, clampApPortCount, clampRouterPortCount, escapeHtml, randomMac, isValidHostname, MAX_PHYSICAL_PORT, deriveMac, normaliseMacAddress, clampFirewallPortCount, defaultBridgeMac, bridgeMacOf, prefixOf } from "./utils";
 import { quoteArg } from "./tokenize";
 import { DEVICE_SPECS, USER_ADDABLE_TYPES, freshNameCounters, hasSingleNic, isHost, isDot1xSupplicant, defaultPortCount } from "./device-registry";
 
@@ -499,6 +499,8 @@ export function addLink(fromId: string, toId: string, fromPort?: number, toPort?
     ...(wireless ? { wireless: true } : {})
   };
   state.links.push(link);
+  // A router port configured before it was cabled keeps that configuration.
+  const kept = [adoptUncabledRouterPort(from, to, link), adoptUncabledRouterPort(to, from, link)].filter(Boolean).join(" ");
   const warnings: string[] = [];
   const landed = (device: Device) => `${device.name} ${linkPortName(link, device.id) ?? "the next free port"}`;
   if (refusedFrom) warnings.push(`${refusedFrom}, so the cable went to ${landed(from)} instead.`);
@@ -518,7 +520,40 @@ export function addLink(fromId: string, toId: string, fromPort?: number, toPort?
   // newly blocked/unblocked port shows live (also re-renders).
   linksChanged([fromId, toId]);
   sync().syncPanel();
-  return { ok: true, message: `Linked ${from.name} ↔ ${to.name}.`, warnings, link, created: true };
+  return { ok: true, message: `Linked ${from.name} ↔ ${to.name}.${kept ? ` ${kept}` : ""}`, warnings, link, created: true };
+}
+
+// A router port can be configured while nothing is plugged into it: the
+// inspector's "not connected" rows and the shell's `interface EthernetN` store
+// an entry keyed by the port's NAME (routerInterfaceForName), because there is
+// no peer to key it by. When a cable then lands on that port, the port is the
+// same port — so its entry is re-keyed to the new peer and carries its address,
+// prefix, NAT role and MAC onto the cable. It used to be left behind: the
+// cabled interface came up blank and the learner's address silently vanished
+// from view. Returns a sentence for the link's result, or "" when the port had
+// nothing configured. Called by addLink, inside its undo point.
+function adoptUncabledRouterPort(router: Device, peer: Device, link: Link): string {
+  if (router.type !== "router" || !router.config?.interfaces?.length) return "";
+  const port = linkPortName(link, router.id);          // where the cable actually landed
+  if (!port) return "";
+  const entries = router.config.interfaces;
+  const byName = entries.find(entry => entry.peerId === "" && entry.name === port);
+  if (!byName) return "";
+  if (!byName.ipv4Address && !byName.natRole) {
+    // Nothing was configured on it: drop the empty placeholder.
+    router.config.interfaces = entries.filter(entry => entry !== byName);
+    return "";
+  }
+  // What the port showed a moment ago wins over a stale untagged entry left
+  // from an earlier cable to the same peer (its sub-interfaces are kept).
+  router.config.interfaces = entries.filter(entry => entry === byName || !(entry.peerId === peer.id && entry.vlanTag == null));
+  byName.peerId = peer.id;
+  byName.name = "";
+  const kept = [
+    byName.ipv4Address ? `its address ${byName.ipv4Address}/${prefixOf(byName)}` : "",
+    byName.natRole ? `its NAT ${byName.natRole} role` : "",
+  ].filter(Boolean).join(" and ");
+  return `${router.name} ${port} keeps ${kept}.`;
 }
 
 // ─── Port occupancy ───────────────────────────────────────────────────────────

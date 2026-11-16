@@ -18,7 +18,8 @@ import {
   runSimulationHeadless, runTraceroute, STORM_DIAGNOSIS,
 } from "./engine";
 import type { SimResult } from "./engine";
-import { buildPingEvents, buildDhcpEvents, buildConnectEvents, buildResolveEvents, buildHttpEvents, parseHttpTarget, buildAssociationEvents, buildDot1xEvents, buildStpEvents, buildScanEvents, buildSweepEvents, buildArpSpoofEvents, buildAttackEvents, associatedAp, findPingTarget } from "./simulation";
+import { buildPingEvents, buildDhcpEvents, buildConnectEvents, buildResolveEvents, buildHttpEvents, parseHttpTarget, buildAssociationEvents, buildDot1xEvents, buildStpEvents, associatedAp, findPingTarget } from "./simulation";
+import { buildScanEvents, buildSweepEvents, buildArpSpoofEvents, buildAttackEvents } from "./security/offensive/attacks";
 import { DEFAULT_BRIDGE_PRIORITY } from "./stp";
 import {
   setHostIp, setHostGateway, setHostDns, setRouterInterfaceIp, addSwitchVlan, removeSwitchVlan,

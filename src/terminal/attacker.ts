@@ -6,7 +6,7 @@
  */
 import type { Device } from "../types";
 import { state } from "../state";
-import { buildScanEvents, buildSweepEvents, buildArpSpoofEvents } from "../simulation";
+import { buildScanEvents, buildSweepEvents, buildArpSpoofEvents } from "../security/offensive/attacks";
 import { startSimulation, animatedRunBlockReason } from "../engine";
 import { terminalLine } from "./core";
 import { runHostTerminalCommand } from "./host";

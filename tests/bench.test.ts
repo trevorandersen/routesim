@@ -10,7 +10,8 @@
 import { describe, it, expect, beforeAll, beforeEach } from "bun:test";
 import { state, flushLearnedMacs } from "../src/state";
 import { getDevice, linkedPortsFor, connectedIds, linkById, linkAuthorizedForData } from "../src/devices";
-import { l2Reachable, getVlanForDevice, buildScanEvents, buildPingEvents, type PingSetup } from "../src/simulation";
+import { l2Reachable, getVlanForDevice, buildPingEvents, type PingSetup } from "../src/simulation";
+import { buildScanEvents } from "../src/security/offensive/attacks";
 import { runConsoleScript } from "../src/commands";
 import { isTrunkLink } from "../src/canvas";
 import { processAtSwitch, processAtRouter, processAtServer, processAtInternet, buildRoutingTable, routingLookup, runRipConvergence, runStpConvergence, evaluateFirewall, connectionState, runSimulationHeadless } from "../src/engine";

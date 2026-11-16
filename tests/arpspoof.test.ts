@@ -7,7 +7,8 @@
 import { describe, it, expect, beforeAll, beforeEach } from "bun:test";
 import { state } from "../src/state";
 import { runConsoleScript } from "../src/commands";
-import { buildArpSpoofEvents, macForIp, buildPingEvents } from "../src/simulation";
+import { buildPingEvents } from "../src/simulation";
+import { buildArpSpoofEvents, macForIp } from "../src/security/offensive/attacks";
 import { runSimulationHeadless } from "../src/engine";
 import { runAttackerTerminalCommand } from "../src/terminal";
 import { BROADCAST_MAC } from "../src/frame";

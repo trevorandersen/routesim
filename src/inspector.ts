@@ -22,7 +22,8 @@ import {
 import { resizeCanvas } from "./canvas";
 import { startSimulation, animatedRunBlockReason } from "./engine";
 import { syncSimLog } from "./simlog-view";
-import { buildAssociationEvents, buildAttackEvents } from "./simulation";
+import { buildAssociationEvents } from "./simulation";
+import { buildAttackEvents } from "./security/offensive/attacks";
 
 export function syncOptionControls(): void {
   dom.showDeviceNames.checked = state.options.showDeviceNames;

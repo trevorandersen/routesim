@@ -11,7 +11,8 @@ import { describe, it, expect, beforeAll, beforeEach, afterEach } from "bun:test
 import { state } from "../src/state";
 import { runConsoleCommand as exec, runConsoleScript } from "../src/commands";
 import { linkDataBlockReason, linkAuthorizedForData, addLink } from "../src/devices";
-import { buildPingEvents, buildConnectEvents, buildResolveEvents, buildDhcpEvents, buildSweepEvents } from "../src/simulation";
+import { buildPingEvents, buildConnectEvents, buildResolveEvents, buildDhcpEvents } from "../src/simulation";
+import { buildSweepEvents } from "../src/security/offensive/attacks";
 import { runSimulationHeadless, runTraceroute, startSimulation, stepOnce, STORM_DIAGNOSIS } from "../src/engine";
 import { runStpConvergence } from "../src/stp";
 import { freshNameCounters } from "../src/device-registry";

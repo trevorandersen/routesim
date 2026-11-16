@@ -9,7 +9,8 @@ import { state, sync } from "./state";
 import { getDevice, isPhysicalLink } from "./devices";
 import { applyConfig } from "./config";
 import { normaliseConfig, shiftToPositive } from "./normalise";
-import { buildPingEvents, buildDhcpEvents, buildConnectEvents, buildResolveEvents, buildHttpEvents, buildScanEvents } from "./simulation";
+import { buildPingEvents, buildDhcpEvents, buildConnectEvents, buildResolveEvents, buildHttpEvents } from "./simulation";
+import { buildScanEvents } from "./security/offensive/attacks";
 import { CURRICULUM } from "./scenario-library";
 import { runSimulationHeadless } from "./engine";
 

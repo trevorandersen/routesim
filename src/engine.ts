@@ -9,6 +9,8 @@ import { simRandomInt, seedSimRng, seedLossRng, lossRandom } from "./prng";
 import { createArpRequest, createArpReply, createIcmpEchoRequest, createIcmpEchoReply, createIcmpTimeExceeded, createIcmpDestUnreachable, icmpOriginalOf, createDhcpOffer, createDhcpRequest, createDhcpAck, createTcpSegment, createHttpRequest, createHttpResponse, createDnsResponse, createDot11Frame, createDot1xFrame, createBpduFrame, BROADCAST_MAC, frameLabel } from "./frame";
 import { buildPingEvents, buildResolveEvents, buildDhcpEvents, findPingTarget, hostnameToIp } from "./simulation";
 import { buildAttackEvents } from "./security/offensive/attacks";
+import { processAttacker, forwardIntercepted, recordArpPoison, buildAttackReport } from "./security/offensive/engine-logic";
+import type { AttackContext } from "./security/offensive/engine-logic";
 import type { PingSetup } from "./simulation";
 import { routingLookup, runRipConvergence, buildRoutingTable } from "./routing";
 import { runStpConvergence, isStpParticipant } from "./stp";
@@ -642,12 +644,6 @@ let animFrameId: number | null = null;
 // flooded broadcast don't count, and a large loop-free run never comes near it.
 const STORM_BACKSTOP_STEPS = 10000;
 
-// Service names for the Red Team scan report (nmap-style PORT/SERVICE column).
-const SERVICE_NAMES: Record<number, string> = {
-  21: "ftp", 22: "ssh", 23: "telnet", 25: "smtp", 53: "domain", 80: "http",
-  110: "pop3", 143: "imap", 443: "https", 445: "microsoft-ds", 3306: "mysql",
-  3389: "ms-wbt-server", 8080: "http-proxy",
-};
 
 function startAnimationLoop(): void {
   if (animFrameId != null) return;
@@ -939,6 +935,10 @@ export interface OutgoingFrame {
   toDeviceId: string;
 }
 
+// The engine-private helpers the offensive logic (src/security/offensive) needs,
+// injected so that module never imports engine.ts (which would form a cycle).
+const attackCtx: AttackContext = { logStep, processAtComputer };
+
 // Frame processing per device type; a type absent here (e.g. lan) ignores frames.
 const PROCESSORS: Partial<Record<DeviceType, (device: Device, frame: EthernetFrame, fromDeviceId: string | null) => OutgoingFrame[]>> = {
   computer: processAtComputer,
@@ -951,8 +951,8 @@ const PROCESSORS: Partial<Record<DeviceType, (device: Device, frame: EthernetFra
   firewall: processAtFirewall,
   hub: processAtHub,
   ids: processAtIds,
-  attacker: processAtAttacker,
-  kali: processAtAttacker,              // a Kali PC tallies its own hand-run attacks
+  attacker: (device, frame, fromDeviceId) => processAttacker(device, frame, fromDeviceId, attackCtx),
+  kali: (device, frame, fromDeviceId) => processAttacker(device, frame, fromDeviceId, attackCtx),  // a Kali PC tallies its own hand-run attacks
 };
 
 // ─── 802.11 association handshake ────────────────────────────────────────────
@@ -1189,7 +1189,7 @@ export function processAtComputer(device: Device, frame: EthernetFrame, fromDevi
     } else if (arp.operation === "reply") {
       // Learn sender
       learnArp(config, arp.senderIp, arp.senderMac);
-      recordArpPoison(device, arp);
+      recordArpPoison(device, arp, attackCtx);
       logStep(device, "sim-arp", `Received ARP Reply: ${arp.senderIp} is-at ${arp.senderMac}`);
 
       // Check if we have a pending ICMP to send
@@ -1218,7 +1218,7 @@ export function processAtComputer(device: Device, frame: EthernetFrame, fromDevi
         && ipv4.dstIp !== config.ipv4Address
         && frame.dstMac === normaliseMacAddress(config.macAddress || "")
         && frame.dstMac !== BROADCAST_MAC) {
-      forwardIntercepted(device, config, frame, ipv4, fromDeviceId, outgoing);
+      forwardIntercepted(device, config, frame, ipv4, fromDeviceId, outgoing, attackCtx);
       return outgoing;
     }
 
@@ -1435,35 +1435,6 @@ function buildFollowOnFrames(device: Device, config: any, dstIp: string, then: "
 // so the victim's traffic reaches its destination and the reply still returns —
 // a silent man-in-the-middle. A cold next-hop MAC is ARP-resolved first (the
 // frame buffered in pendingArp, flushed by the host's ARP-reply handler).
-function forwardIntercepted(device: Device, config: any, frame: EthernetFrame, ipv4: Ipv4Payload, fromDeviceId: string | null, outgoing: OutgoingFrame[]): void {
-  if (!fromDeviceId) return;
-  if (ipv4.ttl <= 1) {
-    logStep(device, "sim-drop", `ip_forward: TTL expired forwarding to ${ipv4.dstIp} — dropped`);
-    return;
-  }
-  // Next hop: on our subnet → the destination itself; otherwise our gateway.
-  let nextHopIp = ipv4.dstIp;
-  if (!sameSubnet(config.ipv4Address, ipv4.dstIp, prefixOf(config))) {
-    if (!config.gatewayIpv4Address) {
-      logStep(device, "sim-drop", `ip_forward: no route to ${ipv4.dstIp} (no default gateway) — dropped`);
-      return;
-    }
-    nextHopIp = config.gatewayIpv4Address;
-  }
-  const forwarded: EthernetFrame = { ...frame, srcMac: config.macAddress || "", payload: { ...ipv4, ttl: ipv4.ttl - 1 } };
-  const entry = (config.arpTable || []).find((e: any) => e.ipv4Address === nextHopIp);
-  if (entry) {
-    forwarded.dstMac = entry.macAddress;
-    logStep(device, "sim-forward", `ip_forward: relaying ${frameLabel(frame)} for ${ipv4.dstIp} via ${nextHopIp} (TTL ${ipv4.ttl}→${ipv4.ttl - 1})`);
-    outgoing.push({ frame: forwarded, toDeviceId: fromDeviceId });
-  } else {
-    const key = `${device.id}:${nextHopIp}`;
-    (state.simulation.pendingArp[key] ||= []).push(forwarded);
-    logStep(device, "sim-arp", `ip_forward: ${nextHopIp} unknown — ARPing before relaying to ${ipv4.dstIp}`);
-    outgoing.push({ frame: createArpRequest(config.macAddress || "", config.ipv4Address || "", nextHopIp, frame.vlanTag), toDeviceId: fromDeviceId });
-  }
-}
-
 // ─── Server processing (dnsmasq: DNS + DHCP) ─────────────────────────────────
 
 // A server is a host that also runs dnsmasq. Service frames (DNS queries to
@@ -1839,29 +1810,6 @@ export function processAtIds(device: Device, frame: EthernetFrame, _fromDeviceId
 // ports (RST), and live hosts (ICMP echo reply). Everything else — ARP
 // resolution that flushes the deferred scan/sweep frames, being pinged — is
 // ordinary host behaviour (processAtComputer).
-export function processAtAttacker(device: Device, frame: EthernetFrame, fromDeviceId: string | null): OutgoingFrame[] {
-  if (device.poweredOff) return [];
-  const sim = state.simulation;
-  if (sim.mode === "attack" && device.id === sim.originDeviceId && frame.payload.type === "ipv4") {
-    const ipv4 = frame.payload as Ipv4Payload;
-    if (ipv4.dstIp === device.config?.ipv4Address) {
-      const inner = ipv4.payload;
-      if (inner.type === "tcp" && inner.flags === "syn-ack") {
-        if (!sim.scanOpen.includes(inner.srcPort)) { sim.scanOpen.push(inner.srcPort); logStep(device, "sim-attack", `${ipv4.srcIp}:${inner.srcPort} open (SYN-ACK)`); }
-        return [];   // half-open scan: don't complete the handshake
-      }
-      if (inner.type === "tcp" && inner.flags === "rst") {
-        if (!sim.scanClosed.includes(inner.srcPort)) sim.scanClosed.push(inner.srcPort);
-        return [];
-      }
-      if (inner.type === "icmp" && inner.icmpType === 0) {
-        if (!sim.sweepLive.includes(ipv4.srcIp)) { sim.sweepLive.push(ipv4.srcIp); logStep(device, "sim-attack", `host up: ${ipv4.srcIp}`); }
-        return [];
-      }
-    }
-  }
-  return processAtComputer(device, frame, fromDeviceId);
-}
 
 // ─── Internet cloud (L3 transit between routers) ─────────────────────────────
 
@@ -2093,7 +2041,7 @@ function handleRouterArp(device: Device, frame: EthernetFrame, ifaces: any[], in
       return outgoing;
     }
     learnRouterArp(ingressIface, arp.senderIp, arp.senderMac);
-    recordArpPoison(device, arp);
+    recordArpPoison(device, arp, attackCtx);
     logStep(device, "sim-arp", `Received ARP Reply on ${ifaceName(device, ingressIface)}: ${arp.senderIp} is-at ${arp.senderMac}`);
 
     // Check for buffered frames
@@ -2974,20 +2922,6 @@ function learnOnLinkArp(config: any, ip: string, mac: string): void {
 // other host's; an honest reply's sender MAC and IP belong to the same device,
 // so this fires only on a spoof (review R48). Called at each ARP-reply learn
 // site (host and router), so a forward or reverse poison is both tallied.
-function recordArpPoison(victim: Device, arp: ArpPayload): void {
-  const sim = state.simulation;
-  if (sim.mode !== "attack") return;
-  const atk = getDevice(sim.originDeviceId);
-  if (!atk?.config || victim.id === atk.id) return;
-  const atkMac = normaliseMacAddress(atk.config.macAddress || "");
-  if (!atkMac || normaliseMacAddress(arp.senderMac) !== atkMac) return;
-  if (arp.senderIp === atk.config.ipv4Address) return;   // an honest self-announcement, not a poison
-  if (!sim.arpPoisoned.includes(victim.name)) {
-    sim.arpPoisoned.push(victim.name);
-    logStep(victim, "sim-attack", `ARP cache poisoned: ${arp.senderIp} is-at ${arp.senderMac}`);
-  }
-}
-
 // A link-layer group address (broadcast or multicast): the I/G bit — the least
 // significant bit of the first octet — is set.
 function isGroupMac(mac: string): boolean {
@@ -3270,19 +3204,10 @@ function finishSimulation(): void {
       out("", `Spanning tree converged.\n  Root bridge: ${rootNames}\n  Blocking ports: ${blocked} (${blocked === 1 ? "1 redundant link cut" : blocked === 0 ? "no loop to break" : blocked + " redundant links cut"})`);
     }
   } else if (sim.mode === "attack") {
-    // nmap-style report of what the Red Team run found; also stash it on the
+    // The nmap-style report of what the Red Team run found (built in
+    // src/security/offensive); write it to the session and stash it on the
     // attacker for the inspector.
-    const open = [...sim.scanOpen].sort((a, b) => a - b);
-    const closed = [...sim.scanClosed].sort((a, b) => a - b);
-    const lines: string[] = [];
-    if (open.length || closed.length) {
-      lines.push("PORT      STATE  SERVICE");
-      for (const p of open) lines.push(`${String(p + "/tcp").padEnd(10)}open   ${SERVICE_NAMES[p] || "unknown"}`);
-      for (const p of closed) lines.push(`${String(p + "/tcp").padEnd(10)}closed ${SERVICE_NAMES[p] || "unknown"}`);
-    }
-    if (sim.sweepLive.length) lines.push(`Hosts up: ${sim.sweepLive.length} (${[...sim.sweepLive].sort().join(", ")})`);
-    if (sim.arpPoisoned.length) lines.push(`ARP cache poisoned on: ${[...sim.arpPoisoned].sort().join(", ")}`);
-    if (!lines.length) lines.push("No open ports or live hosts found (target unreachable, filtered, or no attack target set).");
+    const lines = buildAttackReport(sim);
     const origin = getDevice(sim.originDeviceId);
     if (origin?.config) (origin.config).attackLog = lines;
     if (!sim.headless) out("", lines.join("\n"));

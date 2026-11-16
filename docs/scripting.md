@@ -160,7 +160,7 @@ untouched.
 | `scenario list` | List the built-in scenarios (`id — name`). |
 | `scenario load <id>` | Load a scenario topology + goals. |
 | `scenario goal` | Print the active scenario's objective + checklist. |
-| `scenario check` | Run the goal checks against the current topology. A failed check prints why beneath it (`    why: …`) — the drops and diagnosis from its own run. |
+| `scenario check` | Run the goal checks against the current topology. A failed check prints why beneath it (`    why: …`) — the drops and diagnosis from its own run — and, where a probe finds one, the most likely thing wrong (`    likely cause: …`). |
 
 Each scenario's worked answer is a runnable script in [`scenario-solutions/`](../scenario-solutions/) (`<id>.routesim.txt`) — it loads the scenario, applies the fix, and checks the goal, so `routesim.run(<contents>)` plays the whole solution through.
 

@@ -1987,6 +1987,7 @@
     .scenario-check:has(.scenario-check-note) { align-items: flex-start; }
     .scenario-check-text { min-width: 0; }
     .scenario-why-title { font-weight: 700; margin-right: 4px; }
+    .scenario-check-hint { color: var(--text); }
     .scenario-why-line { display: block; }
     .scenario-check-note { display: block; margin-top: 2px; font-size: 11px; line-height: 1.35; color: var(--muted); }
     .scenario-check.pass { color: var(--text); }

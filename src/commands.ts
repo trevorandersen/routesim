@@ -1102,7 +1102,8 @@ function cmdScenario(args: string[]): CommandResult {
       data: r,
       output: [...r.checks.flatMap(c => [`${c.passed ? "✓" : "✗"} ${c.label}`,
         ...(!c.passed && c.note ? [`    ${c.note}`] : []),
-        ...(!c.passed ? (c.why || []).map(line => `    why: ${line}`) : [])]),
+        ...(!c.passed ? (c.why || []).map(line => `    why: ${line}`) : []),
+        ...(!c.passed && c.hint ? [`    likely cause: ${c.hint}`] : [])]),
         r.passed ? "Scenario complete!" : "Not yet — keep going."],
     };
   }

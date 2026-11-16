@@ -188,13 +188,14 @@ north star, so they rank ahead of the deeper simulation work below.
   list and on the transit dots, and each colour-coded link state has a text
   marker. (The broader accessibility pass — touch/mobile, screen-reader review —
   remains under Reach; keyboard reach and ARIA landed with review R103.)
-- **Scenario hint/diagnosis layer** — a failed goal check should teach, not just
-  score (*Failure is a lesson*). When a check fails, run a **nearest-cause
-  probe** over the headless result (unset/wrong default gateway, host off its
-  subnet, a firewall rule dropping the flow, a missing route, an unauthenticated
-  link) and surface the most likely cause on the goal banner. Builds on
-  `runSimulationHeadless` + the existing check kinds and the drop-reason log
-  lines. Effort: moderate.
+- **Scenario hint/diagnosis layer — shipped (2026-11).** A failed goal check
+  names the most likely misconfiguration, not just what happened: a
+  nearest-cause probe (`src/hints.ts`) over the failed flow — the origin, name
+  resolution, the run's decisive drops, then gateway / target / VLAN /
+  return-path addressing — sets `CheckResult.hint`, shown as **Likely cause:**
+  on the goal banner and in `scenario check`. It names the cause and never the
+  answer, and stays silent where the failure already explains itself. **Later:**
+  hints for an ad-hoc failed `ping` in a device terminal (outside a scenario).
 
 ### Simulation modes — frame/packet · physical · streams
 Three complementary lenses on the same topology, switchable per run, so a

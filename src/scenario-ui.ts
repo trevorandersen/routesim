@@ -45,7 +45,10 @@ export function syncScenarioPanel(): void {
     // own line, marked as a reason rather than left to colour.
     const why = res && !res.passed && res.why?.length
       ? `<span class="scenario-check-note scenario-check-why"><span class="scenario-why-title">Why:</span>${res.why.map(line => `<span class="scenario-why-line">${escapeHtml(line)}</span>`).join("")}</span>` : "";
-    const note = (res && !res.passed && res.note ? `<span class="scenario-check-note">${escapeHtml(res.note)}</span>` : "") + why;
+    // …and, where a probe found one, the most likely thing wrong (hints.ts).
+    const hint = res && !res.passed && res.hint
+      ? `<span class="scenario-check-note scenario-check-hint"><span class="scenario-why-title">Likely cause:</span>${escapeHtml(res.hint)}</span>` : "";
+    const note = (res && !res.passed && res.note ? `<span class="scenario-check-note">${escapeHtml(res.note)}</span>` : "") + why + hint;
     return `<li class="scenario-check ${cls}"><span class="mark">${mark}</span><span class="scenario-check-text">${escapeHtml(c.label)}${note}</span></li>`;
   }).join("");
   dom.scenarioStatus.textContent = lastResult

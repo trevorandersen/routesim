@@ -125,7 +125,11 @@ see the answer play out. They double as the curriculum's test fixtures
 
 ## A failed check says why
 
-`CheckResult.why` holds the reasons a check failed, recorded by whichever step decided it: a builder's refusal, `explainFailedRun` over the headless run (the drops in order, then the post-mortem's diagnosis), or a direct statement for checks that run nothing (no cable between two devices, a field's actual value against the goal, an HTTP status, a sensor that raised nothing, a DHCP Discover nobody served). The goal banner lists them under the failed check and `scenario check` prints them as `why:` lines. `tests/explain.test.ts` loads every built-in scenario and asserts each check that fails at the start carries a reason. This is the explanation of *what happened*; ranking the *most likely misconfiguration* is the separate "scenario hint" roadmap item.
+`CheckResult.why` holds the reasons a check failed, recorded by whichever step decided it: a builder's refusal, `explainFailedRun` over the headless run (the drops in order, then the post-mortem's diagnosis), or a direct statement for checks that run nothing (no cable between two devices, a field's actual value against the goal, an HTTP status, a sensor that raised nothing, a DHCP Discover nobody served). The goal banner lists them under the failed check and `scenario check` prints them as `why:` lines. `tests/explain.test.ts` loads every built-in scenario and asserts each check that fails at the start carries a reason. This is the explanation of *what happened*.
+
+## …and what is most likely wrong
+
+`CheckResult.hint` goes one step further ([hints.md](src/hints.md)): a nearest-cause probe over the failed flow names the most likely misconfiguration — "No device has PC-A's default gateway address 192.168.1.254.", "R1's static route to 192.168.2.0/24 points at next hop 10.0.0.5, an address no device has." — **the cause, never the answer**. It is absent when the failure already names its cause (an unauthenticated link, a switching loop) or no probe fits. The banner shows it as **Likely cause:** under the reasons. When you add a scenario, load it and read the hints its failing checks produce: `tests/hints.test.ts` pins the troubleshooting scenarios' hints to the faults they plant.
 
 ## Import validation
 

@@ -1996,6 +1996,7 @@
     .scenario-check:has(.scenario-check-note) { align-items: flex-start; }
     .scenario-check-text { min-width: 0; }
     .scenario-why-title { font-weight: 700; margin-right: 4px; }
+    .scenario-check-hint { color: var(--text); }
     .scenario-why-line { display: block; }
     .scenario-check-note { display: block; margin-top: 2px; font-size: 11px; line-height: 1.35; color: var(--muted); }
     .scenario-check.pass { color: var(--text); }
@@ -17033,6 +17034,175 @@ Snort successfully validated the configuration${bad ? " (with errors)" : "."}`);
     { label: "Troubleshooting", ids: ["troubleshoot-gateway", "troubleshoot-vlan", "troubleshoot-static-route", "troubleshoot-firewall", "troubleshoot-dns", "troubleshoot-wifi"] }
   ];
 
+  // src/hints.ts
+  function ownerOf(ip) {
+    for (const device of state.devices) {
+      if (device.type === "router") {
+        for (const iface of routerInterfacesWithNames(device)) {
+          if (iface.config.ipv4Address === ip) return { device, ifaceName: iface.name, cabled: !!iface.peer, vlanTag: iface.config.vlanTag ?? null };
+        }
+      } else if (device.config?.ipv4Address === ip) {
+        return { device, cabled: linksFor(device.id).some(isPhysicalLink) };
+      }
+    }
+    return null;
+  }
+  var subnetOf = (device) => networkOf(device.config.ipv4Address, prefixOf(device.config));
+  var isPrivate = (ip) => /^(10\.|192\.168\.|172\.(1[6-9]|2\d|3[01])\.)/.test(ip);
+  var onLink = (device, ip) => !!device.config?.ipv4Address && sameSubnet(device.config.ipv4Address, ip, prefixOf(device.config));
+  function originCause(flow) {
+    const { from } = flow;
+    if (from.poweredOff) return `${from.name} is powered off.`;
+    if (!linksFor(from.id).some(isPhysicalLink)) {
+      return from.type === "laptop" ? `${from.name} is not associated with an access point.` : `${from.name} is not cabled to anything.`;
+    }
+    if (flow.kind !== "dhcp" && !from.config?.ipv4Address) return `${from.name} has no IP address.`;
+    return null;
+  }
+  function dhcpCause(from) {
+    const reachable = (other) => other.id !== from.id && !other.poweredOff && l2Reachable(from.id, other.id, null);
+    const servers = state.devices.filter((d) => d.type === "server" && reachable(d));
+    for (const server of servers) {
+      const config = server.config || {};
+      if (config.dnsmasqRunning === false) return `dnsmasq is stopped on ${server.name}, so it is not answering DHCP.`;
+      if (!config.dhcpRangeStart || !config.dhcpRangeEnd) return `${server.name} has no dhcp-range configured, so it leases no addresses.`;
+      if (!config.ipv4Address) return `${server.name} has no IP address of its own, so it cannot serve DHCP.`;
+    }
+    const routers = state.devices.filter((d) => d.type === "router" && reachable(d));
+    if (!servers.length && routers.length && !routers.some((r) => routerInterfacesWithNames(r, true).some((i) => i.config.ipv4Address && i.peer && l2Reachable(from.id, i.peer.id, null)))) {
+      return `${routers[0].name}'s interface on ${from.name}'s segment has no address, so it cannot lease any.`;
+    }
+    if (!servers.length && !routers.length) return `No DHCP server is on ${from.name}'s segment.`;
+    return null;
+  }
+  function resolutionCause(flow) {
+    const { from, target } = flow;
+    const nameserver = from.config?.dnsServerIp;
+    if (!nameserver) return { cause: `${from.name} has no nameserver configured, so it cannot look up ${target}.` };
+    const server = ownerOf(nameserver);
+    if (!server) return { cause: `${from.name}'s nameserver ${nameserver} is an address no device has.` };
+    if (server.device.type !== "server") return { cause: `${from.name}'s nameserver ${nameserver} is ${server.device.name}, which runs no DNS service.` };
+    if (server.device.config?.dnsmasqRunning === false) return { cause: `dnsmasq is stopped on ${server.device.name}, so it answers no DNS queries.` };
+    const record = (server.device.config?.dnsRecords || []).find((r) => r.name === target.toLowerCase());
+    const answer = flow.resolvedIp ?? record?.ip ?? hostnameToIp(target);
+    if (!answer) return { cause: `${server.device.name} has no record for ${target}.` };
+    if (!ownerOf(answer)) {
+      return { cause: `${target} resolves to ${answer}, an address no device has${record ? ` \u2014 ${server.device.name}'s record for it is wrong` : ""}.` };
+    }
+    return { ip: answer };
+  }
+  function wrongRecordCause(from, name, resolvedIp) {
+    const server = from.config?.dnsServerIp ? ownerOf(from.config.dnsServerIp) : null;
+    if (!server) return null;
+    const record = (server.device.config?.dnsRecords || []).find((r) => r.name === name.toLowerCase());
+    return record ? `${server.device.name}'s record for ${name} points at ${resolvedIp}.` : null;
+  }
+  function logCause(flow, targetIp) {
+    const targetOwner = ownerOf(targetIp);
+    for (const entry of flow.log || []) {
+      if (entry.kind !== "sim-drop") continue;
+      const text = entry.action;
+      let m;
+      if (m = text.match(/^No route to (\S+) on the internet/)) {
+        return isPrivate(m[1]) ? `${m[1]} is a private address: the internet cannot route to it.` : `No router on the internet owns ${m[1]}.`;
+      }
+      if (m = text.match(/^No route to (\S+)/)) {
+        const network = targetOwner && !isHostOnLinkOnly(targetOwner) ? ` (${describeNetwork(m[1])})` : "";
+        return `${entry.deviceName} has no route to ${m[1]}${network}.`;
+      }
+      if (m = text.match(/^Firewall (DROP|REJECT) .*\(([A-Z]+)/)) {
+        return `${entry.deviceName}'s ${m[2]} rules ${m[1] === "DROP" ? "drop" : "reject"} this flow.`;
+      }
+      if (m = text.match(/^Cannot (?:reply to|answer) (\S+) — no route \(no default gateway\)/)) {
+        return isPrivate(m[1]) && !isPrivate(targetIp) ? `${entry.deviceName} was sent the private address ${m[1]} and has no route back to it \u2014 no router on the way is translating (NAT) that address.` : `${entry.deviceName} has no default gateway, so its reply to ${ownerOf(m[1])?.device.name ?? m[1]} cannot leave its subnet.`;
+      }
+      if (/no service listens on this port of the router/.test(text)) {
+        return `${entry.deviceName} itself has nothing on that port, and no port-forward sends it on to an inside server.`;
+      }
+      if (/no web service/.test(text)) return `${entry.deviceName}'s web service is off.`;
+      if (/ is powered off — /.test(text)) return `${entry.deviceName} is powered off.`;
+      if (/dnsmasq is not running/.test(text)) return `dnsmasq is stopped on ${entry.deviceName}.`;
+      if (/runs no DNS service/.test(text)) return `${flow.from.name}'s nameserver is ${entry.deviceName}, which runs no DNS service.`;
+      if (/TTL expired/.test(text) && entry.deviceName) {
+        return `The packet circled until its TTL ran out at ${entry.deviceName} \u2014 two routers each send it back toward the other (a routing loop).`;
+      }
+    }
+    for (const line of flow.diagnosis || []) {
+      const m = line.match(/^(.+?): ARP for (\S+) got no reply .*next hop/);
+      const router = m && state.devices.find((d) => d.name === m[1] && d.type === "router");
+      if (!m || !router) continue;
+      const route = normaliseStaticRoutes(router.config?.staticRoutes || []).find((r) => r.nextHop === m[2]);
+      if (route && !ownerOf(m[2])) return `${router.name}'s static route to ${route.network} points at next hop ${m[2]}, an address no device has.`;
+    }
+    return null;
+  }
+  var isHostOnLinkOnly = (owner) => !owner.device.config?.ipv4Address && owner.device.type !== "router";
+  function describeNetwork(ip) {
+    const owner = ownerOf(ip);
+    if (owner && owner.device.type !== "router" && owner.device.config?.ipv4Address) return `${owner.device.name}'s network ${subnetOf(owner.device)}`;
+    return "that network";
+  }
+  function gatewayCause(host, toward, forReply = false) {
+    const gateway = host.config?.gatewayIpv4Address;
+    const consequence = forReply ? `so its reply to ${toward} cannot leave its subnet` : `so it cannot send anything off its own subnet (${subnetOf(host)})`;
+    if (!gateway) return `${host.name} has no default gateway, ${consequence}.`;
+    if (!onLink(host, gateway)) return `${host.name}'s default gateway ${gateway} is not on its own subnet (${subnetOf(host)}) \u2014 a host can only use a gateway it can reach directly.`;
+    const owner = ownerOf(gateway);
+    if (!owner) return `No device has ${host.name}'s default gateway address ${gateway}${forReply ? `, ${consequence}` : ""}.`;
+    if (!owner.cabled) return `${host.name}'s default gateway ${gateway} is ${owner.device.name}'s ${owner.ifaceName ?? "interface"}, which has no cable.`;
+    if (owner.device.type !== "router" && !owner.device.config?.ipForward) return `${host.name}'s default gateway ${gateway} is ${owner.device.name}, which does not route.`;
+    return vlanCause(host, owner, `its gateway ${gateway}`);
+  }
+  function vlanCause(host, other, what) {
+    if (other.device.id === host.id || !l2Reachable(host.id, other.device.id, null)) return null;
+    const vlan = getVlanForDevice(host.id);
+    if (other.device.type === "router") {
+      if (other.vlanTag != null && other.vlanTag !== vlan) return `${host.name} is in VLAN ${vlan}, but ${what} is ${other.device.name}'s sub-interface for VLAN ${other.vlanTag}.`;
+      return l2Reachable(host.id, other.device.id, other.vlanTag ?? vlan) ? null : `${host.name} is in VLAN ${vlan}, which does not reach ${other.device.name} \u2014 the switch port toward it does not carry that VLAN.`;
+    }
+    const theirs = getVlanForDevice(other.device.id);
+    if (theirs !== vlan) return `${host.name} (VLAN ${vlan}) and ${other.device.name} (VLAN ${theirs}) are in different VLANs, so they cannot reach each other directly.`;
+    return l2Reachable(host.id, other.device.id, vlan) ? null : `${host.name} and ${other.device.name} are both in VLAN ${vlan}, but no switch path between them carries it.`;
+  }
+  function addressingCause(flow, targetIp) {
+    const { from } = flow;
+    const target = ownerOf(targetIp);
+    if (!onLink(from, targetIp)) {
+      const viaGateway = gatewayCause(from, targetIp);
+      if (viaGateway) return viaGateway;
+    }
+    if (!target) return `No device has the address ${targetIp}.`;
+    if (target.device.poweredOff) return `${target.device.name} is powered off.`;
+    if (!target.cabled) return target.ifaceName ? `${targetIp} is ${target.device.name}'s ${target.ifaceName}, which has no cable.` : `${target.device.name} is not cabled to anything.`;
+    if (onLink(from, targetIp)) return vlanCause(from, target, target.device.name);
+    if (isHost(target.device.type) && from.config?.ipv4Address && !onLink(target.device, from.config.ipv4Address)) {
+      return gatewayCause(target.device, from.name, true);
+    }
+    return null;
+  }
+  function likelyCause(flow) {
+    const origin = originCause(flow);
+    if (origin) return origin;
+    if (flow.refusal && /unreachable \((?!no link\)|no default gateway\)|gateway not on source subnet\))[^)]+\)/.test(flow.refusal)) return null;
+    if (flow.kind === "dhcp") return dhcpCause(flow.from);
+    let targetIp = flow.target;
+    if (!isValidIpv4(targetIp)) {
+      const named = state.devices.find((d) => d.name.toLowerCase() === targetIp.toLowerCase());
+      if (named && !flow.from.config?.dnsServerIp && !named.config?.ipv4Address) return `${named.name} has no IP address.`;
+      const resolved = resolutionCause(flow);
+      if (resolved.cause) return resolved.cause;
+      if (flow.kind === "dns") return null;
+      targetIp = resolved.ip;
+    }
+    const decisive = logCause(flow, targetIp);
+    if (decisive) return decisive;
+    if ((flow.log || []).some((e) => e.kind === "sim-drop" && /MACsec|802\.1X|spanning tree|administratively down|never authenticated|switching loop/.test(e.action))) return null;
+    const addressing = addressingCause(flow, targetIp);
+    if (addressing) return addressing;
+    if (flow.refused && flow.port != null) return `Nothing listens on port ${flow.port} at ${ownerOf(targetIp)?.device.name ?? targetIp}.`;
+    return null;
+  }
+
   // src/scenarios.ts
   var connectLan = {
     id: "connect-lan",
@@ -17155,14 +17325,24 @@ Snort successfully validated the configuration${bad ? " (with errors)" : "."}`);
   }
   var CHECK_PURPOSE = "the scenario Check";
   var checkWhy = [];
+  var checkHint = null;
   var because = (...reasons2) => {
     checkWhy = reasons2;
     return false;
   };
+  var HINTED = /* @__PURE__ */ new Set(["ping", "tcp", "http", "dns", "dhcp"]);
   function run(...args) {
     const result = runSimulationHeadless(...args);
     checkWhy = explainFailedRun(result);
+    const [, originId, target, mode = "ping", port] = args;
+    const from = getDevice(originId);
+    checkHint = !result.success && from && HINTED.has(mode) ? likelyCause({ from, target, kind: mode, port, log: result.log, diagnosis: result.diagnosis, resolvedIp: result.resolvedIp, refused: result.refused }) : null;
     return result;
+  }
+  function refusedFlow(from, target, kind, port, refusal) {
+    checkWhy = [refusal];
+    checkHint = likelyCause({ from, target, kind, port, refusal });
+    return false;
   }
   var missing = (ref2) => `There is no device called ${ref2}.`;
   function evaluate(check) {
@@ -17186,7 +17366,7 @@ Snort successfully validated the configuration${bad ? " (with errors)" : "."}`);
       if (!from) return because(missing(check.from));
       const to = resolve(check.to)?.config?.ipv4Address || check.to;
       const setup = buildHttpEvents(from, to, 80, check.path || "/");
-      if (typeof setup === "string") return because(setup);
+      if (typeof setup === "string") return refusedFlow(from, to, "http", 80, setup);
       const r = run(setup, from.id, to, "http", 80, CHECK_PURPOSE);
       const good = check.status != null ? r.httpStatus === check.status : r.httpStatus != null && r.httpStatus >= 200 && r.httpStatus < 300;
       if (!good && !checkWhy.length) {
@@ -17198,16 +17378,18 @@ Snort successfully validated the configuration${bad ? " (with errors)" : "."}`);
       const from = resolve(check.from);
       if (!from) return because(missing(check.from));
       const setup = buildResolveEvents(from, check.name, null, null);
-      if (typeof setup === "string") return because(setup);
+      if (typeof setup === "string") return refusedFlow(from, check.name, "dns", null, setup);
       const r = run(setup, from.id, check.name, "dns", null, CHECK_PURPOSE);
       if (!r.resolvedIp) return false;
-      return !check.ip || r.resolvedIp === check.ip || because(`${check.name} resolves to ${r.resolvedIp}; the goal needs ${check.ip}.`);
+      if (!check.ip || r.resolvedIp === check.ip) return true;
+      checkHint = wrongRecordCause(from, check.name, r.resolvedIp);
+      return because(`${check.name} resolves to ${r.resolvedIp}; the goal needs ${check.ip}.`);
     }
     if (check.kind === "dhcp") {
       const host = resolve(check.host);
       if (!host) return because(missing(check.host));
       const setup = buildDhcpEvents(host);
-      if (typeof setup === "string") return because(setup);
+      if (typeof setup === "string") return refusedFlow(host, "", "dhcp", null, setup);
       const leased = run(setup, host.id, "", "dhcp", null, CHECK_PURPOSE).success;
       if (!leased && !checkWhy.length) {
         checkWhy = [`No DHCP server answered ${host.name}'s Discover: nothing on its segment is handing out addresses (a server needs a dhcp-range in dnsmasq.conf and a running dnsmasq; a router needs an address on that interface).`];
@@ -17240,7 +17422,7 @@ Snort successfully validated the configuration${bad ? " (with errors)" : "."}`);
     if (!from) return because(missing(fromRef));
     const to = resolve(toRef)?.config?.ipv4Address || toRef;
     const setup = buildPingEvents(from, to);
-    if (typeof setup === "string") return because(setup);
+    if (typeof setup === "string") return refusedFlow(from, to, "ping", null, setup);
     return run(setup, from.id, to, "ping", null, CHECK_PURPOSE).success;
   }
   function tcpSucceeds(fromRef, toRef, port) {
@@ -17248,7 +17430,7 @@ Snort successfully validated the configuration${bad ? " (with errors)" : "."}`);
     if (!from) return because(missing(fromRef));
     const to = resolve(toRef)?.config?.ipv4Address || toRef;
     const setup = buildConnectEvents(from, to, port);
-    if (typeof setup === "string") return because(setup);
+    if (typeof setup === "string") return refusedFlow(from, to, "tcp", port, setup);
     const r = run(setup, from.id, to, "tcp", port, CHECK_PURPOSE);
     if (!r.success && r.refused && !checkWhy.length) checkWhy = [`${to} refused the connection: nothing listens on port ${port} there (it answered RST).`];
     return r.success;
@@ -17285,7 +17467,10 @@ Snort successfully validated the configuration${bad ? " (with errors)" : "."}`);
     }
   }
   function evaluateIsolation(blockedBy, flow) {
-    if (flow()) return { passed: false, why: ["The flow got through: nothing on its path drops it yet."] };
+    if (flow()) {
+      const guard2 = blockedBy ? resolve(blockedBy) : void 0;
+      return { passed: false, why: ["The flow got through: nothing on its path drops it yet."], ...guard2 ? { hint: `Nothing on ${guard2.name} stops this flow yet.` } : {} };
+    }
     if (!blockedBy) return { passed: true };
     const guard = resolve(blockedBy);
     if (!guard) return { passed: false, note: `${blockedBy} is missing \u2014 the goal is to block this at ${blockedBy}.` };
@@ -17305,8 +17490,9 @@ Snort successfully validated the configuration${bad ? " (with errors)" : "."}`);
       return { label: check.label, ...evaluateIsolation(check.blockedBy, () => tcpSucceeds(check.from, check.to, check.port)) };
     }
     checkWhy = [];
+    checkHint = null;
     const passed = evaluate(check);
-    return { label: check.label, passed, ...!passed && checkWhy.length ? { why: checkWhy } : {} };
+    return { label: check.label, passed, ...!passed && checkWhy.length ? { why: checkWhy } : {}, ...!passed && checkHint ? { hint: checkHint } : {} };
   }
   function saveGradingState() {
     return {
@@ -17373,7 +17559,8 @@ Snort successfully validated the configuration${bad ? " (with errors)" : "."}`);
       const mark = res == null ? "\u25CB" : res.passed ? "\u2713" : "\u2717";
       const cls = res == null ? "pending" : res.passed ? "pass" : "fail";
       const why = res && !res.passed && res.why?.length ? `<span class="scenario-check-note scenario-check-why"><span class="scenario-why-title">Why:</span>${res.why.map((line) => `<span class="scenario-why-line">${escapeHtml(line)}</span>`).join("")}</span>` : "";
-      const note = (res && !res.passed && res.note ? `<span class="scenario-check-note">${escapeHtml(res.note)}</span>` : "") + why;
+      const hint = res && !res.passed && res.hint ? `<span class="scenario-check-note scenario-check-hint"><span class="scenario-why-title">Likely cause:</span>${escapeHtml(res.hint)}</span>` : "";
+      const note = (res && !res.passed && res.note ? `<span class="scenario-check-note">${escapeHtml(res.note)}</span>` : "") + why + hint;
       return `<li class="scenario-check ${cls}"><span class="mark">${mark}</span><span class="scenario-check-text">${escapeHtml(c.label)}${note}</span></li>`;
     }).join("");
     dom.scenarioStatus.textContent = lastResult ? lastResult.passed ? "Scenario complete" : "Not yet \u2014 keep going." : "";
@@ -19754,7 +19941,8 @@ Snort successfully validated the configuration${bad ? " (with errors)" : "."}`);
           ...r.checks.flatMap((c) => [
             `${c.passed ? "\u2713" : "\u2717"} ${c.label}`,
             ...!c.passed && c.note ? [`    ${c.note}`] : [],
-            ...!c.passed ? (c.why || []).map((line) => `    why: ${line}`) : []
+            ...!c.passed ? (c.why || []).map((line) => `    why: ${line}`) : [],
+            ...!c.passed && c.hint ? [`    likely cause: ${c.hint}`] : []
           ]),
           r.passed ? "Scenario complete!" : "Not yet \u2014 keep going."
         ]

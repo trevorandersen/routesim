@@ -15,6 +15,8 @@ import { CURRICULUM } from "./scenario-library";
 import { runSimulationHeadless } from "./engine";
 import type { SimResult } from "./engine";
 import { explainFailedRun } from "./explain";
+import { likelyCause, wrongRecordCause } from "./hints";
+import type { FailedFlow } from "./hints";
 
 export type ScenarioCheck =
   | { kind: "link"; a: string; b: string; label: string }
@@ -49,7 +51,10 @@ export interface Scenario {
 // goal that IS blocked, but not by the device the scenario asks for.
 // `why` is the explanation of a failed check, composed from the failing run's
 // own log (explain.ts) — the drops in order, then the post-mortem's diagnosis.
-export interface CheckResult { label: string; passed: boolean; note?: string; why?: string[] }
+// `hint` goes one step further: the most likely thing WRONG behind it (hints.ts)
+// — the cause, never the answer — or absent when no probe fits or the failure
+// already names its own cause.
+export interface CheckResult { label: string; passed: boolean; note?: string; why?: string[]; hint?: string }
 export interface ScenarioResult { id: string; name: string; passed: boolean; checks: CheckResult[] }
 
 // ── Registry ─────────────────────────────────────────────────────────────────
@@ -190,12 +195,26 @@ const CHECK_PURPOSE = "the scenario Check";
 // cable), read by evaluateCheck when the check fails. A grade that only says
 // "✗" scores; one that says why teaches.
 let checkWhy: string[] = [];
+let checkHint: string | null = null;
 const because = (...reasons: string[]): false => { checkWhy = reasons; return false; };
-// Run a flow headlessly, keeping the explanation of a failure.
+const HINTED = new Set(["ping", "tcp", "http", "dns", "dhcp"]);
+// Run a flow headlessly, keeping the explanation of a failure and the likely
+// cause behind it (probed now, while the network is as the run left it).
 function run(...args: Parameters<typeof runSimulationHeadless>): SimResult {
   const result = runSimulationHeadless(...args);
   checkWhy = explainFailedRun(result);
+  const [, originId, target, mode = "ping", port] = args;
+  const from = getDevice(originId);
+  checkHint = !result.success && from && HINTED.has(mode)
+    ? likelyCause({ from, target, kind: mode as FailedFlow["kind"], port, log: result.log, diagnosis: result.diagnosis, resolvedIp: result.resolvedIp, refused: result.refused })
+    : null;
   return result;
+}
+// A flow its builder refused to start (no cable, no address, no nameserver…).
+function refusedFlow(from: Device, target: string, kind: FailedFlow["kind"], port: number | null, refusal: string): false {
+  checkWhy = [refusal];
+  checkHint = likelyCause({ from, target, kind, port, refusal });
+  return false;
 }
 const missing = (ref: string) => `There is no device called ${ref}.`;
 
@@ -220,7 +239,7 @@ function evaluate(check: ScenarioCheck): boolean {
     if (!from) return because(missing(check.from));
     const to = resolve(check.to)?.config?.ipv4Address || check.to;
     const setup = buildHttpEvents(from, to, 80, check.path || "/");
-    if (typeof setup === "string") return because(setup);
+    if (typeof setup === "string") return refusedFlow(from, to, "http", 80, setup);
     const r = run(setup, from.id, to, "http", 80, CHECK_PURPOSE);
     const good = check.status != null ? r.httpStatus === check.status : (r.httpStatus != null && r.httpStatus >= 200 && r.httpStatus < 300);
     if (!good && !checkWhy.length) {
@@ -233,16 +252,18 @@ function evaluate(check: ScenarioCheck): boolean {
     const from = resolve(check.from);
     if (!from) return because(missing(check.from));
     const setup = buildResolveEvents(from, check.name, null, null);
-    if (typeof setup === "string") return because(setup);
+    if (typeof setup === "string") return refusedFlow(from, check.name, "dns", null, setup);
     const r = run(setup, from.id, check.name, "dns", null, CHECK_PURPOSE);
     if (!r.resolvedIp) return false;
-    return !check.ip || r.resolvedIp === check.ip || because(`${check.name} resolves to ${r.resolvedIp}; the goal needs ${check.ip}.`);
+    if (!check.ip || r.resolvedIp === check.ip) return true;
+    checkHint = wrongRecordCause(from, check.name, r.resolvedIp);
+    return because(`${check.name} resolves to ${r.resolvedIp}; the goal needs ${check.ip}.`);
   }
   if (check.kind === "dhcp") {
     const host = resolve(check.host);
     if (!host) return because(missing(check.host));
     const setup = buildDhcpEvents(host);
-    if (typeof setup === "string") return because(setup);
+    if (typeof setup === "string") return refusedFlow(host, "", "dhcp", null, setup);
     const leased = run(setup, host.id, "", "dhcp", null, CHECK_PURPOSE).success;
     // A Discover nobody serves is ignored, not dropped — no device logs a
     // reason — so say what silence means here.
@@ -286,7 +307,7 @@ function pingSucceeds(fromRef: string, toRef: string): boolean {
   if (!from) return because(missing(fromRef));
   const to = resolve(toRef)?.config?.ipv4Address || toRef;
   const setup = buildPingEvents(from, to);
-  if (typeof setup === "string") return because(setup);
+  if (typeof setup === "string") return refusedFlow(from, to, "ping", null, setup);
   return run(setup, from.id, to, "ping", null, CHECK_PURPOSE).success;
 }
 
@@ -295,7 +316,7 @@ function tcpSucceeds(fromRef: string, toRef: string, port: number): boolean {
   if (!from) return because(missing(fromRef));
   const to = resolve(toRef)?.config?.ipv4Address || toRef;
   const setup = buildConnectEvents(from, to, port);
-  if (typeof setup === "string") return because(setup);
+  if (typeof setup === "string") return refusedFlow(from, to, "tcp", port, setup);
   const r = run(setup, from.id, to, "tcp", port, CHECK_PURPOSE);
   if (!r.success && r.refused && !checkWhy.length) checkWhy = [`${to} refused the connection: nothing listens on port ${port} there (it answered RST).`];
   return r.success;
@@ -343,8 +364,11 @@ function wouldSucceedWithout(guard: Device, flow: () => boolean): { succeeds: bo
 // moved to another subnet, an address that no longer exists) stays dead in the
 // what-if, so it does not pass — and the note says so, since the label alone
 // ("Telnet is blocked") would read as satisfied.
-function evaluateIsolation(blockedBy: string | undefined, flow: () => boolean): { passed: boolean; note?: string; why?: string[] } {
-  if (flow()) return { passed: false, why: ["The flow got through: nothing on its path drops it yet."] };
+function evaluateIsolation(blockedBy: string | undefined, flow: () => boolean): { passed: boolean; note?: string; why?: string[]; hint?: string } {
+  if (flow()) {
+    const guard = blockedBy ? resolve(blockedBy) : undefined;
+    return { passed: false, why: ["The flow got through: nothing on its path drops it yet."], ...(guard ? { hint: `Nothing on ${guard.name} stops this flow yet.` } : {}) };
+  }
   if (!blockedBy) return { passed: true };
   const guard = resolve(blockedBy);
   if (!guard) return { passed: false, note: `${blockedBy} is missing — the goal is to block this at ${blockedBy}.` };
@@ -365,8 +389,9 @@ function evaluateCheck(check: ScenarioCheck): CheckResult {
     return { label: check.label, ...evaluateIsolation(check.blockedBy, () => tcpSucceeds(check.from, check.to, check.port)) };
   }
   checkWhy = [];
+  checkHint = null;
   const passed = evaluate(check);
-  return { label: check.label, passed, ...(!passed && checkWhy.length ? { why: checkWhy } : {}) };
+  return { label: check.label, passed, ...(!passed && checkWhy.length ? { why: checkWhy } : {}), ...(!passed && checkHint ? { hint: checkHint } : {}) };
 }
 
 // Grading runs real headless simulations against live state (DHCP, ping, TCP,

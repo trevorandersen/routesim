@@ -14240,6 +14240,58 @@ Snort successfully validated the configuration${bad ? " (with errors)" : "."}`);
     sel.value = filter.device;
   }
 
+  // src/security/offensive/inspector.ts
+  function renderAttackerSection(device) {
+    const cfg = device.config || {};
+    const has = (k) => (cfg.attacks || []).includes(k);
+    const log = cfg.attackLog || [];
+    return `
+    <p class="field-note">A Red Team (Kali) host. Set a target, choose attacks, then Launch (or just press Play). It generates real attack traffic an IDS can detect; a passive victim can't steer it.</p>
+    <div class="field">
+      <label for="selectedAttackTarget">Target (IP or device)</label>
+      <input id="selectedAttackTarget" value="${escapeHtml(cfg.attackTarget || "")}" placeholder="e.g. 10.0.0.10 or SRV" autocomplete="off">
+    </div>
+    <div class="field">
+      <label>Attacks</label>
+      <div class="attack-checks">
+        <label class="stp-check"><input type="checkbox" class="attack-check" data-attack="scan" ${has("scan") ? "checked" : ""}> Port scan</label>
+        <label class="stp-check"><input type="checkbox" class="attack-check" data-attack="sweep" ${has("sweep") ? "checked" : ""}> Ping sweep</label>
+        <label class="stp-check"><input type="checkbox" class="attack-check" data-attack="arp-spoof" ${has("arp-spoof") ? "checked" : ""}> ARP spoof</label>
+      </div>
+    </div>
+    <button class="wide-button" id="launchAttack">Launch attacks</button>
+    ${log.length ? `<div class="field"><label>Last run</label><pre class="ids-alerts attack-log">${escapeHtml(log.join("\n"))}</pre></div>` : ""}
+  `;
+  }
+  function bindAttackerControls(device) {
+    const target = document.getElementById("selectedAttackTarget");
+    if (target) {
+      captureUndoOnFocus(target);
+      target.addEventListener("change", () => {
+        device.config.attackTarget = target.value.trim();
+      });
+    }
+    document.querySelectorAll(".attack-check").forEach((el) => el.addEventListener("change", () => {
+      pushUndo();
+      ensureConfig(device);
+      device.config.attacks = Array.from(document.querySelectorAll(".attack-check")).filter((c) => c.checked).map((c) => c.dataset.attack);
+    }));
+    document.getElementById("launchAttack")?.addEventListener("click", () => {
+      const busy = animatedRunBlockReason();
+      if (busy) {
+        dom.modeLabel.textContent = busy;
+        return;
+      }
+      if (target) device.config.attackTarget = target.value.trim();
+      const setup = buildAttackEvents(device);
+      if (typeof setup === "string") {
+        dom.modeLabel.textContent = setup;
+        return;
+      }
+      startSimulation(setup, device.id, "", "attack");
+    });
+  }
+
   // src/inspector.ts
   function syncOptionControls() {
     dom.showDeviceNames.checked = state.options.showDeviceNames;
@@ -14835,56 +14887,6 @@ Snort successfully validated the configuration${bad ? " (with errors)" : "."}`);
     document.getElementById("clearIdsAlerts")?.addEventListener("click", () => {
       device.config.alerts = [];
       syncPanel();
-    });
-  }
-  function renderAttackerSection(device) {
-    const cfg = device.config || {};
-    const has = (k) => (cfg.attacks || []).includes(k);
-    const log = cfg.attackLog || [];
-    return `
-    <p class="field-note">A Red Team (Kali) host. Set a target, choose attacks, then Launch (or just press Play). It generates real attack traffic an IDS can detect; a passive victim can't steer it.</p>
-    <div class="field">
-      <label for="selectedAttackTarget">Target (IP or device)</label>
-      <input id="selectedAttackTarget" value="${escapeHtml(cfg.attackTarget || "")}" placeholder="e.g. 10.0.0.10 or SRV" autocomplete="off">
-    </div>
-    <div class="field">
-      <label>Attacks</label>
-      <div class="attack-checks">
-        <label class="stp-check"><input type="checkbox" class="attack-check" data-attack="scan" ${has("scan") ? "checked" : ""}> Port scan</label>
-        <label class="stp-check"><input type="checkbox" class="attack-check" data-attack="sweep" ${has("sweep") ? "checked" : ""}> Ping sweep</label>
-        <label class="stp-check"><input type="checkbox" class="attack-check" data-attack="arp-spoof" ${has("arp-spoof") ? "checked" : ""}> ARP spoof</label>
-      </div>
-    </div>
-    <button class="wide-button" id="launchAttack">Launch attacks</button>
-    ${log.length ? `<div class="field"><label>Last run</label><pre class="ids-alerts attack-log">${escapeHtml(log.join("\n"))}</pre></div>` : ""}
-  `;
-  }
-  function bindAttackerControls(device) {
-    const target = document.getElementById("selectedAttackTarget");
-    if (target) {
-      captureUndoOnFocus(target);
-      target.addEventListener("change", () => {
-        device.config.attackTarget = target.value.trim();
-      });
-    }
-    document.querySelectorAll(".attack-check").forEach((el) => el.addEventListener("change", () => {
-      pushUndo();
-      ensureConfig(device);
-      device.config.attacks = Array.from(document.querySelectorAll(".attack-check")).filter((c) => c.checked).map((c) => c.dataset.attack);
-    }));
-    document.getElementById("launchAttack")?.addEventListener("click", () => {
-      const busy = animatedRunBlockReason();
-      if (busy) {
-        dom.modeLabel.textContent = busy;
-        return;
-      }
-      if (target) device.config.attackTarget = target.value.trim();
-      const setup = buildAttackEvents(device);
-      if (typeof setup === "string") {
-        dom.modeLabel.textContent = setup;
-        return;
-      }
-      startSimulation(setup, device.id, "", "attack");
     });
   }
   function bindMirrorControl(device) {

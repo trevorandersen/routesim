@@ -5,7 +5,13 @@ that makes invisible network behaviour visible, faithfully and fast.* Each item
 notes rough effort and how it leverages what already exists. Nothing here is
 committed scope — it's a menu for "what next".
 
-> **Released:** [`v0.6.0-alpha`](https://github.com/trevorandersen/routesim/releases/tag/v0.6.0-alpha)
+> **Released:** [`v0.6.1-alpha`](https://github.com/trevorandersen/routesim/releases/tag/v0.6.1-alpha)
+> (2026-11) — **Likely cause**: a failed scenario check names the most likely
+> thing wrong (the cause, never the answer); "Why?" gains a summary line and
+> explains a headless `run`; a router shell stays on its port when the cable
+> is pulled.
+>
+> **Earlier:** [`v0.6.0-alpha`](https://github.com/trevorandersen/routesim/releases/tag/v0.6.0-alpha)
 > (2026-11) — **Why?**: every captured packet shows the chain of frames that
 > led to it, each with its sender's reason, and a failed scenario check lists
 > why it failed.

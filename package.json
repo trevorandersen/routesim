@@ -1,6 +1,6 @@
 {
   "name": "routesim",
-  "version": "0.6.0-alpha",
+  "version": "0.6.1-alpha",
   "private": true,
   "description": "A portable, single-file network topology simulator for teaching how networks behave.",
   "license": "CC0-1.0",

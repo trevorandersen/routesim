@@ -8,7 +8,6 @@ import { sameSubnet, prefixOf, isValidIpv4, ipv4ToInt, intToIpv4, normaliseMacAd
 import { simRandomInt, seedSimRng, seedLossRng, lossRandom } from "./prng";
 import { createArpRequest, createArpReply, createIcmpEchoRequest, createIcmpEchoReply, createIcmpTimeExceeded, createIcmpDestUnreachable, icmpOriginalOf, createDhcpOffer, createDhcpRequest, createDhcpAck, createTcpSegment, createHttpRequest, createHttpResponse, createDnsResponse, createDot11Frame, createDot1xFrame, createBpduFrame, BROADCAST_MAC, frameLabel } from "./frame";
 import { buildPingEvents, buildResolveEvents, buildDhcpEvents, findPingTarget, hostnameToIp } from "./simulation";
-import { buildAttackEvents } from "./security/offensive/attacks";
 import { processAttacker, forwardIntercepted, recordArpPoison, buildAttackReport } from "./security/offensive/engine-logic";
 import type { AttackContext } from "./security/offensive/engine-logic";
 import type { PingSetup } from "./simulation";
@@ -482,36 +481,6 @@ export function unconfiguredBootableHosts(): Device[] {
 // auto-DHCP off but APIPA on → the host self-assigns link-local directly.
 // Autonomous Red Team: when Play is pressed and there's nothing to boot, launch
 // the first ready attacker's enabled attacks. Returns whether one launched.
-// With Red Team actors placed but none ready, says why the first one can't go
-// (rather than leaving "Nothing to boot" as the only word on it).
-export function launchRedTeam(): boolean {
-  const sim = state.simulation;
-  if (sim.status === "running" || sim.status === "paused") return false;
-  const actors = state.devices.filter(d => d.type === "attacker");
-  const attacker = actors.find(d => !redTeamNotReadyReason(d));
-  if (!attacker) {
-    if (actors.length) dom.modeLabel.textContent = redTeamNotReadyReason(actors[0])!;
-    return false;
-  }
-  const setup = buildAttackEvents(attacker);
-  if (typeof setup === "string") { dom.modeLabel.textContent = setup; return false; }
-  dom.modeLabel.textContent = `${attacker.name}: launching attacks...`;
-  startSimulation(setup, attacker.id, "", "attack");
-  return true;
-}
-
-// Why a Red Team actor can't launch on Play, or null when it's ready.
-function redTeamNotReadyReason(actor: Device): string | null {
-  if (actor.poweredOff) return `${actor.name} is powered off — power it on to launch its attacks.`;
-  if (!actor.config?.ipv4Address) {
-    const cabled = state.links.some(l => isPhysicalLink(l) && !l.shutdown && (l.from === actor.id || l.to === actor.id));
-    return cabled
-      ? `${actor.name} has no IP address — set a static IP, or turn on Auto-DHCP / APIPA fallback (Settings) so Play boots it.`
-      : `${actor.name} has no IP address and no cable — connect it to the network first.`;
-  }
-  if (!(actor.config.attacks?.length)) return `${actor.name} has no attacks enabled — pick a scan, sweep or ARP spoof in its inspector.`;
-  return null;
-}
 
 export function startNetworkBoot(): boolean {
   const sim = state.simulation;

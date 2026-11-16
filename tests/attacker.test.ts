@@ -7,7 +7,8 @@ import { describe, it, expect, beforeAll, beforeEach, afterEach } from "bun:test
 import { state } from "../src/state";
 import { runConsoleCommand as exec, runConsoleScript, exportTopologyScript } from "../src/commands";
 import { buildScanEvents, buildSweepEvents, buildArpSpoofEvents, buildAttackEvents } from "../src/security/offensive/attacks";
-import { runSimulationHeadless, startSimulation, stepOnce, launchRedTeam } from "../src/engine";
+import { runSimulationHeadless, startSimulation, stepOnce } from "../src/engine";
+import { launchRedTeam } from "../src/security/offensive/red-team";
 import { runAttackerTerminalCommand } from "../src/terminal/attacker";
 import { buildConfigPayload } from "../src/config";
 import { normaliseConfig } from "../src/normalise";

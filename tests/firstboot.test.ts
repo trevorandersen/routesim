@@ -7,7 +7,8 @@
  */
 import { describe, it, expect, beforeAll, afterAll, beforeEach, afterEach } from "bun:test";
 import { state } from "../src/state";
-import { startNetworkBoot, unconfiguredBootableHosts, stepOnce, launchRedTeam } from "../src/engine";
+import { startNetworkBoot, unconfiguredBootableHosts, stepOnce } from "../src/engine";
+import { launchRedTeam } from "../src/security/offensive/red-team";
 import { dom } from "../src/dom";
 import { runConsoleScript, runConsoleCommand as exec } from "../src/commands";
 import { registerNoopCallbacks, resetState } from "./helpers";

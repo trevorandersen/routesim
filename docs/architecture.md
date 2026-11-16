@@ -117,7 +117,7 @@ Every source file, grouped by layer. Line counts are approximate and indicate we
 
 | File | Lines | Role | Key exports | Doc |
 |---|---:|---|---|---|
-| `simulation.ts` | 620 | Builds the opening event queue for each run type (ping, DHCP, TCP, HTTP, DNS, WiFi, 802.1X, STP, attacks). Validates first, so errors return a string. L2 reachability through VLANs and gates. | `buildPingEvents`, `buildDhcpEvents`, `buildAttackEvents`, `l2Reachable`, `findPingTarget` | [simulation.md](src/simulation.md) |
+| `simulation.ts` | 540 | Builds the opening event queue for each run type (ping, DHCP, TCP, HTTP, DNS, WiFi, 802.1X, STP). Validates first, so errors return a string. L2 reachability through VLANs and gates. (The **attack** builders moved to `security/offensive/attacks.ts`; the shared `findFirstHop` / `findPingTarget` they use are exported from here.) | `buildPingEvents`, `buildDhcpEvents`, `l2Reachable`, `findFirstHop`, `findPingTarget` | [simulation.md](src/simulation.md) |
 | `routing.ts` | 310 | Router forwarding: the merged connected, static, internet-default and RIP table; longest-prefix lookup; RIP convergence with split horizon. | `buildRoutingTable`, `routingLookup`, `runRipConvergence` | [engine.md](src/engine.md) |
 | `stp.ts` | 260 | 802.1D spanning tree: root election per component, port roles, blocking alternate links. Mutates config in place, like RIP. | `runStpConvergence`, `isRootBridge` | [stp.md](src/stp.md) |
 
@@ -136,6 +136,19 @@ Every source file, grouped by layer. Line counts are approximate and indicate we
 | `terminal/ids.ts` | 100 | Snort 3 on Linux: edit `local.rules`, read the alert log, `snort -T`. | `runIdsTerminalCommand` | [ids.md](src/ids.md) |
 | `terminal/attacker.ts` | 70 | Kali shell for both offensive host types: `nmap`, `arpspoof`, falling through to the host shell. | `runAttackerTerminalCommand` | [red-team.md](src/red-team.md) |
 | `terminal/index.ts` | 10 | Re-exports, so callers write `import … from "./terminal"`. | — | — |
+
+### The offensive subtree (`src/security/offensive/`)
+
+The Kali PC + Red Team actor code is grouped here, separated from general networking code so the offensive feature is reviewable in isolation (and the general code never carries attack technique). The folder is a *topical* grouping — each file keeps its own layer, so the import rules above still apply, and consumers import the specific file they need rather than a cross-layer barrel.
+
+| File | Layer | Role | Key exports |
+|---|---|---|---|
+| `security/offensive/attacks.ts` | L2 | The attack frame builders (SYN scan, ping sweep, ARP spoof, the merge). Reaches `findFirstHop` / `findPingTarget` from `simulation.ts`; imports no engine. | `buildScanEvents`, `buildSweepEvents`, `buildArpSpoofEvents`, `buildAttackEvents`, `macForIp` |
+| `security/offensive/engine-logic.ts` | L3 | The engine-side attack logic — the reply tally, the MITM relay, the ARP-poison detector, the nmap report. Injected into `engine.ts` via an `AttackContext` (and a type-only `OutgoingFrame` import), so it never imports the engine at runtime, keeping `engine.ts` out of any cycle. | `processAttacker`, `forwardIntercepted`, `recordArpPoison`, `buildAttackReport`, `AttackContext` |
+| `security/offensive/red-team.ts` | L3 | `launchRedTeam`, the autonomous-Play trigger (actor only); imports the engine's `startSimulation`, called from `ui.ts`. | `launchRedTeam` |
+| `security/offensive/inspector.ts` | L4 | The Red Team actor's inspector panel; imported into `INSPECTOR_SECTIONS`. | `renderAttackerSection`, `bindAttackerControls` |
+
+The Kali CLI (`terminal/attacker.ts`) and the `attack` / `redteam` console handlers (`commands.ts`) stay in place — a device shell in the terminal cycle, and command-engine glue whose result helpers they use — but call into this subtree. See [red-team.md](src/red-team.md).
 
 ### L4 Presentation
 
@@ -325,7 +338,7 @@ sequenceDiagram
 | `processAtHub` | hub | Repeats every frame out every other port |
 | `processAtFirewall` | firewall | Transparent bridge with stateful FORWARD filtering and REJECT responses |
 | `processAtIds` | ids | Passive sink: runs Snort rules on mirrored frames and records alerts |
-| `processAtAttacker` | attacker, kali | Host behaviour plus scan and sweep tallies in attack mode |
+| `processAttacker` | attacker, kali | Host behaviour plus scan and sweep tallies in attack mode (in `security/offensive/engine-logic.ts`, injected via `AttackContext`) |
 
 Every outgoing frame passes through **`admitOnLink`**, the single admission point. It applies the data-plane gates (a spanning-tree-blocked link, unauthorised 802.1X port, unassociated WiFi, unkeyed MACsec) and per-link loss. Control frames such as BPDUs and EAPOL are exempt from the gates.
 

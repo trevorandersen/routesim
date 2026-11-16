@@ -1181,13 +1181,27 @@ export function collectLanMembers(anchorId: string): { members: string[]; absorb
 // Collapse the LAN around a switch into one LAN node. Returns why it did not
 // (a non-switch, a switch with nothing attached, one already inside a collapsed
 // LAN) — the `collapse` command used to report success for all of those.
-export function collapseLan(anchor: any): MutationResult {
+//
+// The LAN node is a device like any other to every text front door, so its
+// name must be unique too (deviceNameBlockReason). It takes `name` when one is
+// given — refused if taken — and otherwise "<switch> LAN", stepping to
+// "<switch> LAN 2", "… 3" when a device already has that name: it used to
+// create a second "SW LAN" that nothing could then address.
+export function collapseLan(anchor: any, name?: string): MutationResult {
   if (!anchor) return { ok: false, error: "No such device.", warnings: [] };
   if (anchor.type !== "switch") return { ok: false, error: `${anchor.name} is not a switch — a LAN is collapsed around its switch.`, warnings: [] };
   if (anchor.hidden) return { ok: false, error: `${anchor.name} is already inside a collapsed LAN.`, warnings: [] };
   const { members, absorbedLans } = collectLanMembers(anchor.id);
   if (members.length < 2) {
     return { ok: false, error: `Collapse LAN needs a switch with at least one attached LAN device — ${anchor.name} has none.`, warnings: [] };
+  }
+  let lanName = (name ?? "").trim();
+  if (lanName) {
+    const taken = deviceNameBlockReason(lanName);
+    if (taken) return { ok: false, error: taken, warnings: [] };
+  } else {
+    lanName = `${anchor.name} LAN`;
+    for (let n = 2; deviceNamed(lanName); n++) lanName = `${anchor.name} LAN ${n}`;
   }
   pushUndo();
   const memberSet = new Set(members);
@@ -1203,7 +1217,7 @@ export function collapseLan(anchor: any): MutationResult {
   const lan = {
     id: lanId,
     type: "lan",
-    name: `${anchor.name} LAN`,
+    name: lanName,
     x: (bounds.minX + bounds.maxX) / 2,
     y: (bounds.minY + bounds.maxY) / 2,
     width: deviceSize("lan").width,

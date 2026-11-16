@@ -207,13 +207,47 @@ describe("export → replay: the awkward corners", () => {
     const { rejected, diffs, script } = roundTrip();
     expect(script).not.toMatch(/^link "?(SW|Office) LAN/m);        // the proxy cable is a view, never linked
     expect(script).not.toMatch(/^add lan/m);
-    expect(script).toContain("collapse SW");
-    expect(script).toContain('rename "SW LAN" "Office LAN"');
+    expect(script).toContain('collapse SW as "Office LAN"');       // named as it is collapsed, never renamed after
     expect(rejected).toEqual([]);
     expect(diffs).toEqual([]);
     expect(dev("Office LAN").type).toBe("lan");
     expect(dev("PC1").hidden).toBe(true);
     expect(exec("run ping PC1 10.0.0.1").ok).toBe(true);           // still a working network behind the LAN node
+  });
+
+  // A LAN node is a device to every text front door, so its name is unique:
+  // collapsing used to create a second "SW LAN" when a device already had it.
+  it("a collapsed LAN never takes a name another device has, and still replays", () => {
+    runConsoleScript(`
+      add router R1 at 600 200
+      add switch SW at 300 200
+      add computer "SW LAN" at 100 100
+      add computer PC2 at 100 300
+      link SW R1
+      link "SW LAN" SW
+      link PC2 SW
+    `);
+    const result = exec("collapse SW");
+    expect(result.ok).toBe(true);
+    expect(state.devices.filter(d => d.name.toLowerCase() === "sw lan")).toHaveLength(1);
+    const lan = state.devices.find(d => d.type === "lan")!;
+    expect(lan.name).toBe("SW LAN 2");
+    const { rejected, diffs, script } = roundTrip();
+    expect(script).toContain('collapse SW as "SW LAN 2"');
+    expect(rejected).toEqual([]);
+    expect(diffs).toEqual([]);
+  });
+
+  it("`collapse <switch> as <name>` names the node, and refuses a taken name with no undo point", () => {
+    runConsoleScript("add switch SW at 300 200\nadd computer PC1 at 100 100\nadd computer PC2 at 100 300\nlink PC1 SW\nlink PC2 SW");
+    const depth = state.undoStack.length;
+    expect(exec("collapse SW as pc1").output.join(" ")).toContain("already named");
+    expect(exec("collapse SW as").ok).toBe(false);
+    expect(exec("collapse SW named Office").ok).toBe(false);
+    expect(state.undoStack.length).toBe(depth);
+    expect(state.devices.some(d => d.type === "lan")).toBe(false);
+    expect(exec('collapse SW as "Office LAN"').ok).toBe(true);
+    expect(dev("Office LAN").type).toBe("lan");
   });
 
   it("two collapsed LANs on one router both come back", () => {

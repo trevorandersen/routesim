@@ -228,7 +228,10 @@ function cmdClear(): CommandResult { clearNetwork(); return ok("Cleared network.
 function cmdCollapse(args: string[]): CommandResult {
   const device = resolveDevice(args[0]);
   if (typeof device === "string") return err(device);
-  const result = collapseLan(device);
+  // collapse <switch> [as <name>] — the name the LAN node gets (the script
+  // export writes it when it is not the default, so a renamed LAN replays).
+  if (args[1] != null && (args[1].toLowerCase() !== "as" || !args[2])) return err("Usage: collapse <switch> [as <name>]");
+  const result = collapseLan(device, args[2]);
   return result.ok ? ok(mutationText(result)) : err(mutationText(result));
 }
 
@@ -1200,7 +1203,7 @@ const HELP: Record<string, string> = {
   linkset: "linkset <a> <b> name|bandwidth|latency|loss <value> (0 clears a number)",
   shut: "shut <a> <b> (administratively down the link)", noshut: "noshut <a> <b> (bring the link up)",
   move: "move <device> <x> <y>", rename: "rename <device> <name>", clear: "remove all devices",
-  collapse: "collapse <switch> into a LAN", expand: "expand <lan>",
+  collapse: "collapse <switch> [as <name>] — into a LAN node", expand: "expand <lan>",
   ip: "ip <host> <addr/prefix>", gateway: "gateway <host> <ip>", nameserver: "nameserver <host> <ip>", mac: "mac <host|switch> <addr>",
   ssid: "ssid <laptop|access-point> <name> [password] (omit password = open; \"\" clears the name)",
   supplicant: "supplicant <host> <identity> <password> (set 802.1X credentials)",
@@ -1537,9 +1540,9 @@ export function exportTopologyScript(): string {
     const anchor = idToName.get(d.config?.anchorId);
     const anchorDevice = payload.devices.find((x: any) => x.id === d.config?.anchorId);
     if (!anchor || !anchorDevice) continue;
-    lines.push(`collapse ${anchor}`);
-    const defaultName = `${anchorDevice.name} LAN`;
-    if (d.name !== defaultName) lines.push(`rename ${quoteArg(defaultName)} ${quoteArg(d.name)}`);
+    // The node is named as it is collapsed. A separate `rename "<switch> LAN"`
+    // could hit another device that already has that name.
+    lines.push(d.name === `${anchorDevice.name} LAN` ? `collapse ${anchor}` : `collapse ${anchor} as ${quoteArg(d.name)}`);
     lines.push(`move ${quoteArg(d.name)} ${Math.round(d.x)} ${Math.round(d.y)}`);
   }
 

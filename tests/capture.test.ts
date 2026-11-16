@@ -13,6 +13,10 @@ import {
 } from "../src/frame";
 import { runConsoleScript, runConsoleCommand as exec } from "../src/commands";
 import { registerNoopCallbacks, resetState } from "./helpers";
+import { syncSimLog } from "../src/simlog-view";
+import { dom } from "../src/dom";
+import { applyConfigWithoutUndo, buildConfigPayload, loadTopology } from "../src/config";
+import { normaliseConfig } from "../src/normalise";
 
 beforeAll(() => registerNoopCallbacks());
 
@@ -262,5 +266,38 @@ describe("autoplay redraws once per tick, however many events the tick settles (
     expect(state.simulation.log.filter(l => l.action.includes("not our IP") || l.action.includes("ignoring")).length).toBeGreaterThan(30);   // the cascade happened
     expect(worstLog).toBeLessThanOrEqual(3);                     // one for the tick's steps (+ the run's finish)
     expect(worstRender).toBeLessThanOrEqual(4);
+  });
+});
+
+// A load drops the captures; the Sim Log pane has to be redrawn with them, or
+// it keeps listing the previous network's packets (rows that open nothing).
+describe("loading a topology clears the packet list on screen, not just in state", () => {
+  let raf: any;
+  beforeAll(() => {
+    raf = (globalThis as any).requestAnimationFrame;
+    (globalThis as any).requestAnimationFrame = () => 0;
+    registerNoopCallbacks({ syncSimLog });
+  });
+  afterAll(() => { (globalThis as any).requestAnimationFrame = raf; registerNoopCallbacks(); });
+  beforeEach(() => resetState());
+
+  it("a console `load`, a scenario load and an applied config all leave no stale rows", () => {
+    const pingOnce = () => {
+      runConsoleScript("clear\nadd computer PC1 at 0 0\nadd computer PC2 at 200 0\nlink PC1 PC2\nip PC1 10.0.0.1/24\nip PC2 10.0.0.2/24");
+      const pc = state.devices.find(d => d.name === "PC1")!;
+      startSimulation(buildPingEvents(pc, "10.0.0.2") as any, pc.id, "10.0.0.2");
+      for (let i = 0; i < 30 && state.simulation.status === "running"; i++) animationTick(performance.now() + 1e9);
+      expect(dom.simLogOutput.innerHTML).toContain("pkt-row");
+    };
+    for (const load of [
+      () => exec("scenario load static-routes"),
+      () => applyConfigWithoutUndo(normaliseConfig(buildConfigPayload())),
+      () => loadTopology("basic"),
+    ]) {
+      pingOnce();
+      load();
+      expect(state.simulation.capture).toEqual([]);
+      expect(dom.simLogOutput.innerHTML).not.toContain("pkt-row");
+    }
   });
 });

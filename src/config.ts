@@ -280,6 +280,10 @@ export function applyConfigWithoutUndo(config: NormalisedConfig): void {
   syncPanel();
   syncTerminal();
   sync().syncScenarioPanel();
+  // The captures were just dropped (resetCaptureState, above): redraw the Sim
+  // Log so it stops listing the previous network's packets — rows that could
+  // no longer be opened or explained. (Undo/redo and Clear already did.)
+  sync().syncSimLog();
   render();
 }
 

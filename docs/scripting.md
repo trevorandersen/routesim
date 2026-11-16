@@ -115,7 +115,7 @@ Param keys and boolean values are case-insensitive. Adding a setting is a one-ro
 | `traceroute <src> <dst>` | **Headless** hop-by-hop path discovery via increasing TTL; `data` is `{ targetIp, hops, reached }`. Also `tracert`. |
 | `play` / `pause` / `step` / `stop` | Drive an animated run. |
 | `speed <ms>` | Milliseconds per hop. |
-| `why [<packet no>]` | Explain a packet in the capture the Sim Log is showing: the chain of frames that led to it (each with its sender's reason), then what its receiver did. With no number, the packet being inspected. Animated runs only — a headless `run` keeps no capture. |
+| `why [<packet no>]` | Explain a packet in the capture the Sim Log is showing: the chain of frames that led to it (each with its sender's reason), then what its receiver did. With no number, the packet being inspected. After a headless `run …` it explains that run instead (`why` alone: the frame where it ended; `why <n>`: any of its frames) — a failed `run` says so. |
 | `seed [<n>\|off]` | Pin the run's random seed for reproducible ephemeral ports / DHCP ids / NAT translations (default: the wall clock, so runs vary). `seed <n>` pins; `seed off` unpins; `seed` reports the current state (and, unpinned, the last run's seed to reproduce it). Session-level — not serialised. |
 
 ### Management

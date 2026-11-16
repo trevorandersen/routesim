@@ -746,6 +746,10 @@ export interface SimulationState {
   events: SimEvent[];
   log: SimLogEntry[];
   capture: CaptureEntry[];   // packet list (animated runs only; capped)
+  // The frames of a TRACED headless run — the same rows the packet list would
+  // hold, kept only so `why` can explain a console `run` (explain.ts). Null
+  // unless the run asked for it; never shown in the packet list.
+  trace: CaptureEntry[] | null;
   transits: ActiveTransit[];
   pendingArp: Record<string, EthernetFrame[]>;
   speed: number;

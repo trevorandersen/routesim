@@ -161,6 +161,7 @@ function resetRunState(setup: PingSetup, originDeviceId: string, targetIp: strin
   sim.headless = headless;
   sim.events = [];
   sim.log = [];
+  sim.trace = null;      // a traced headless run sets its own (runSimulationHeadless)
   sim.transits = [];
   sim.pendingArp = { ...setup.pendingArp };
   sim.stepIndex = 0;
@@ -381,6 +382,7 @@ export interface SimResult {
   assignedGateway?: string | null;
   storm: boolean;                // the run hit the broadcast-storm cap (an L2 loop with no spanning tree)
   diagnosis: string[];           // the post-mortem: why the flow failed, when no single step says so (empty on success, bar a storm)
+  trace?: CaptureEntry[];        // the run's frames with their "Why?" data — only when the caller asked (options.trace)
   log: SimLogEntry[];
   steps: number;
 }
@@ -390,11 +392,31 @@ export interface SimResult {
 // the animated path; powers the console `run` command, window.routesim, and tests.
 // Never refused: an animated run in flight is stopped first, with a note (beginRun)
 // naming `purpose` — what needed the simulator, in the learner's words.
+// `options.trace` keeps the run's frames (SimResult.trace / sim.trace) with their
+// "Why?" data, so the console's `run` can be explained like an animated run.
+// Off by default: scenario checks, traceroute probes and first-boot runs stay
+// on the allocation-free path.
 export function runSimulationHeadless(
-  setup: PingSetup, originDeviceId: string, targetIp: string, mode: SimMode = "ping", targetPort: number | null = null, purpose?: string
+  setup: PingSetup, originDeviceId: string, targetIp: string, mode: SimMode = "ping", targetPort: number | null = null, purpose?: string,
+  options?: { trace?: boolean }
 ): SimResult {
   beginRun(setup, originDeviceId, targetIp, mode, targetPort, true, purpose);
   const sim = state.simulation;
+  if (options?.trace) {
+    sim.trace = [];
+    // The origin's own first frames reach the first hop with no transit (a
+    // headless run drains events directly): give each a row, so every chain
+    // has a beginning — the same reason the animated first leg carries.
+    for (const ev of setup.events) {
+      if (!ev.linkId || !ev.fromDeviceId || ev.fromDeviceId === ev.deviceId) continue;
+      const src = getDevice(ev.fromDeviceId);
+      const held = ev.frame.payload.type === "arp" ? setup.pendingArp[`${ev.fromDeviceId}:${ev.frame.payload.targetIp}`]?.[0] : null;
+      sim.trace.push({
+        no: sim.trace.length + 1, step: 0, frame: ev.frame, fromDeviceId: ev.fromDeviceId, toDeviceId: ev.deviceId, linkId: ev.linkId,
+        ...(src ? { why: [{ device: src.name, kind: "sim-forward", text: originReason(ev.frame, held) }] } : {}),
+      });
+    }
+  }
   // sim.capture is deliberately left alone: headless runs don't capture, and
   // a scenario check (or first-boot chatter) must not wipe the packet list.
   sim.events = setup.events;
@@ -446,6 +468,7 @@ function drainHeadless(mode: SimMode): SimResult {
     diagnosis: sim.diagnosis,
     log: sim.log,
     steps: sim.stepIndex,
+    ...(sim.trace ? { trace: sim.trace } : {}),
   };
 }
 
@@ -698,7 +721,10 @@ function deliverCompletedTransits(): void {
     // Packet list: one capture entry per wire traversal (animated runs only —
     // headless probes like traceroute/scenario checks stay invisible). Silent
     // frames (ARP/DHCP/DNS, per the settings) are delivered but never listed.
-    if (!sim.headless && !t.silent) {
+    // …and a TRACED headless run keeps the same rows in sim.trace, so the
+    // console's `run` can be explained too.
+    const rows = sim.headless ? sim.trace : (t.silent ? null : sim.capture);
+    if (rows) {
       const wireLink = linkById(t.linkId);
       // A frame crossing a MACsec-secured link is protected on the wire — shown
       // encrypted in the packet list (the engine still processes the real inner
@@ -707,8 +733,8 @@ function deliverCompletedTransits(): void {
       // A strictly increasing capture number — derived from the last entry, not
       // the array length, so it stays unique after the 1000-entry cap shifts
       // older rows out (the packet list keys row clicks + selection on it).
-      const lastNo = sim.capture.length ? sim.capture[sim.capture.length - 1].no : 0;
-      sim.capture.push({
+      const lastNo = rows.length ? rows[rows.length - 1].no : 0;
+      rows.push({
         no: lastNo + 1,
         step: sim.stepIndex,
         frame: t.frame,
@@ -719,7 +745,7 @@ function deliverCompletedTransits(): void {
         ...(t.why?.length ? { why: t.why } : {}),
         ...(t.cause != null ? { cause: t.cause } : {}),
       });
-      if (sim.capture.length > 1000) sim.capture.shift();
+      if (rows.length > 1000) rows.shift();
     }
     // Record frame on link
     const link = linkById(t.linkId);
@@ -748,16 +774,18 @@ function deliverCompletedTransits(): void {
 // both the OUTCOME of that frame (filed on its capture row) and the WHY of each
 // frame it sent in response (carried on the transit, then onto that frame's own
 // row when it lands) — and the handled frame's row number is their CAUSE, which
-// is what lets the view walk the chain back. Animated runs only: a headless run
-// keeps no capture, and this stays off its hot path.
+// is what lets the view walk the chain back. Animated runs, and a headless run
+// that asked for a trace; an ordinary headless run keeps no rows, and this
+// stays off its hot path.
 function tagExplanation(device: Device, frame: EthernetFrame, logMark: number, sent: ActiveTransit[]): void {
   const sim = state.simulation;
   const lines = sim.log.slice(logMark).map(entry => ({ device: entry.deviceName, kind: entry.kind, text: entry.action }));
   // The row this frame arrived on: the newest capture of this very frame object
   // into this device (a silent frame has no row — the chain stops there).
+  const rows = sim.headless ? sim.trace! : sim.capture;
   let arrival: CaptureEntry | undefined;
-  for (let i = sim.capture.length - 1; i >= 0; i--) {
-    const entry = sim.capture[i];
+  for (let i = rows.length - 1; i >= 0; i--) {
+    const entry = rows[i];
     if (entry.frame === frame && entry.toDeviceId === device.id) { arrival = entry; break; }
   }
   if (arrival) arrival.outcome = lines;
@@ -866,7 +894,7 @@ function runNextStep(): void {
     sim.transits.push(transit);
     sent.push(transit);
   }
-  if (!sim.headless) tagExplanation(device, event.frame, logMark, sent);
+  if (!sim.headless || sim.trace) tagExplanation(device, event.frame, logMark, sent);
 
   // A broadcast storm ends the run on both paths at this same step: a frame
   // came back round a loop (above), or — the backstop — frames are still being

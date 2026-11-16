@@ -7,7 +7,7 @@
 import { describe, it, expect, beforeAll, afterAll, beforeEach } from "bun:test";
 import { state } from "../src/state";
 import { dom } from "../src/dom";
-import { startSimulation, animationTick, stepOnce } from "../src/engine";
+import { startSimulation, animationTick, stepOnce, runSimulationHeadless } from "../src/engine";
 import { buildPingEvents } from "../src/simulation";
 import { explainCapture, explanationText, explanationSummary, explainFailedRun, originReason, CHAIN_LIMIT } from "../src/explain";
 import { createArpRequest, createIcmpEchoRequest, createDhcpDiscover } from "../src/frame";
@@ -179,7 +179,7 @@ describe("a routed ping with cold ARP caches explains itself (animated run)", ()
   });
 
   it("`why <no>` prints it; with no number it explains the inspected packet; errors say what to do", () => {
-    expect(exec("why 3").output.join(" ")).toContain("no packets captured yet");
+    expect(exec("why 3").output.join(" ")).toContain("nothing to explain yet");
     const entries = routed();
     const out = exec(`why ${entries.length}`).output;
     expect(out[0]).toBe(`Why packet ${entries.length}?`);
@@ -233,6 +233,67 @@ describe("a routed ping with cold ARP caches explains itself (animated run)", ()
     expect(echo.outcome!.some(l => l.kind === "sim-drop" && l.text.includes("No route to 10.9.9.9"))).toBe(true);
     state.inspectedCapture = echo;
     expect(renderWhy(echo.frame)).toContain("✕ No route to 10.9.9.9");   // marked, not only coloured
+  });
+});
+
+// ── A headless `run` is explained the same way ───────────────────────────────
+
+describe("a console `run` (headless) keeps a trace, so `why` explains it", () => {
+  const build = () => expect(runConsoleScript(`
+    add computer PC-A at 0 0
+    add router R1 at 200 0
+    add computer PC-B at 400 0
+    link PC-A R1
+    link R1 PC-B
+    ip PC-A 10.0.1.10/24
+    gateway PC-A 10.0.1.1
+    ip PC-B 10.0.2.10/24
+    gateway PC-B 10.0.2.1
+    interface R1 PC-A ip 10.0.1.1/24
+    interface R1 PC-B ip 10.0.2.1/24
+  `).filter(r => !r.ok)).toEqual([]);
+
+  it("a successful run: `why` explains the last frame, and the chain reaches the first", () => {
+    build();
+    const run = exec("run ping PC-A 10.0.2.10");
+    expect(run.ok).toBe(true);
+    expect(run.output.join(" ")).not.toContain("Type `why`");           // only a failure points at it
+    const trace = (run.data as any).trace as CaptureEntry[];
+    expect(trace.length).toBe(8);
+    expect(trace[0].why![0].text).toContain("No ARP entry for 10.0.1.1");
+    expect(trace.slice(1).every(e => e.cause != null && e.cause < e.no)).toBe(true);
+    const why = exec("why").output;
+    expect(why[0]).toBe("Why frame 8 of 8 in the last run?");
+    expect(why.join("\n")).toContain("#1 PC-A → R1: ARP Who has 10.0.1.1?");
+    expect(why.join("\n")).toContain("Forward deferred");
+    expect(exec("why 4").output[0]).toBe("Why frame 4 of 8 in the last run?");
+    expect(exec("why 99").output.join(" ")).toContain("no packet 99 in the last run");
+    expect(state.simulation.capture).toEqual([]);                        // the packet list is untouched
+    expect(state.savedCaptures).toEqual([]);
+  });
+
+  it("a failed run says to type `why`, which explains the frame that was stopped", () => {
+    build();
+    const run = exec("run ping PC-A 10.9.9.9");
+    expect(run.ok).toBe(false);
+    expect(run.output[run.output.length - 1]).toBe("Type `why` to see how it got there.");
+    const why = exec("why").output;
+    expect(why[1]).toContain("It stopped at R1: No route to 10.9.9.9");
+    expect(why.some(l => l.includes("R1: No route to 10.9.9.9"))).toBe(true);
+  });
+
+  it("the trace belongs to the latest run: an untraced headless run or an animated one clears it", () => {
+    build();
+    exec("run ping PC-A 10.0.2.10");
+    expect(state.simulation.trace!.length).toBe(8);
+    const pc = state.devices.find(d => d.name === "PC-A")!;
+    const untraced = runSimulationHeadless(buildPingEvents(pc, "10.0.2.10") as any, pc.id, "10.0.2.10", "ping");
+    expect(untraced.trace).toBeUndefined();
+    expect(state.simulation.trace).toBeNull();
+    expect(exec("why").output.join(" ")).toContain("nothing to explain yet");
+    exec("run ping PC-A 10.0.2.10");
+    startSimulation(buildPingEvents(pc, "10.0.2.10") as any, pc.id, "10.0.2.10");
+    expect(state.simulation.trace).toBeNull();
   });
 });
 

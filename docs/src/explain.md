@@ -29,7 +29,7 @@ a log line — "No ARP entry for 10.0.1.1, so it must learn that MAC address
 before it can send its ICMP Echo (ping) — broadcasting an ARP request" — and
 `startSimulation` attaches it to the seeded first leg.
 
-Headless runs keep no capture, so none of this runs on their hot path.
+**Headless runs.** An ordinary headless run (a scenario check, a traceroute probe, first boot) keeps no rows, and none of this runs on its hot path. A run that asks for it — `runSimulationHeadless(…, { trace: true })`, which every console `run` does — keeps the same rows in `sim.trace` (returned as `SimResult.trace`): the origin's first frames are given rows up front (they reach the first hop with no transit), and each delivered frame adds one, tagged exactly as an animated capture is. The trace belongs to the latest run — any later run clears it — and is never shown in the packet list.
 
 ## Composing it
 
@@ -59,6 +59,10 @@ Headless runs keep no capture, so none of this runs on their hot path.
   way to …").
 - **Console** — `why <packet no>` prints the chain for a packet in the capture
   the Sim Log is showing; `why` alone explains the packet being inspected.
+  After a headless `run …` it explains that run instead: `why` alone picks
+  where the story ended (`storyEnd` — the last frame something stopped, else
+  the last frame), `why <n>` any frame of the trace. A failed `run` ends with
+  "Type `why` to see how it got there."
 - **Scenario checks** — `CheckResult.why` (`scenarios.ts`): the check evaluator
   records why a check failed — a builder's refusal ("Network is unreachable
   (…)"), `explainFailedRun` over the headless run, or a direct statement for

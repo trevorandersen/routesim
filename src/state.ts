@@ -90,6 +90,7 @@ export function freshSimulationState(): AppState["simulation"] {
     events: [],
     log: [],
     capture: [],
+    trace: null,
     transits: [],
     pendingArp: {},
     speed: 1000,

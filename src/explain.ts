@@ -85,6 +85,15 @@ export function explainCapture(
   return { hops, outcome: reasons(entry.outcome), receiver: nameOf(entry.toDeviceId), truncated };
 }
 
+// The frame a bare `why` explains for a traced run: where the story ended — the
+// last frame something stopped, else simply the last frame.
+export function storyEnd(entries: readonly CaptureEntry[]): CaptureEntry | undefined {
+  for (let i = entries.length - 1; i >= 0; i--) {
+    if (entries[i].outcome?.some(line => line.kind === "sim-drop")) return entries[i];
+  }
+  return entries[entries.length - 1];
+}
+
 const sentence = (text: string) => text.replace(/[.\s]+$/, "");
 
 /**

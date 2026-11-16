@@ -17,7 +17,7 @@ import {
   startSimulation, stopSimulation, pauseSimulation, resumeSimulation, stepOnce, animatedRunBlockReason, takePreemptionNote,
   runSimulationHeadless, runTraceroute, STORM_DIAGNOSIS, captureEntriesFor,
 } from "./engine";
-import { explainCapture, explanationText } from "./explain";
+import { explainCapture, explanationText, storyEnd } from "./explain";
 import type { SimResult } from "./engine";
 import { buildPingEvents, buildDhcpEvents, buildConnectEvents, buildResolveEvents, buildHttpEvents, parseHttpTarget, buildAssociationEvents, buildDot1xEvents, buildStpEvents, associatedAp, findPingTarget } from "./simulation";
 import { buildScanEvents, buildSweepEvents, buildArpSpoofEvents, buildAttackEvents } from "./security/offensive/attacks";
@@ -750,8 +750,13 @@ function cmdStp(args: string[]): CommandResult {
 // A `run` result line followed, when the run failed, by the engine's
 // post-mortem (a broadcast storm, an ARP nobody answered) — so the console says
 // WHY, not just "unreachable".
+// Every console `run` is traced, so `why` can explain it afterwards.
+const RUN_TRACE = { trace: true } as const;
+
 function runOutput(r: SimResult, line: string): CommandResult {
-  return { ok: r.success, data: r, output: [line, ...(r.success ? [] : r.diagnosis)] };
+  // A failed run points at its own explanation (the frames it did send).
+  const hint = !r.success && r.trace?.length ? ["Type `why` to see how it got there."] : [];
+  return { ok: r.success, data: r, output: [line, ...(r.success ? [] : r.diagnosis), ...hint] };
 }
 
 // Which ICMP error, if any, a failed ping got back (Linux ping's wording).
@@ -768,7 +773,7 @@ function cmdRun(args: string[]): CommandResult {
   if (mode === "stp") {
     const setup = buildStpEvents();
     if (typeof setup === "string") return err(setup);
-    const r = runSimulationHeadless(setup, setup.events[0]?.fromDeviceId || "", "", "stp", null, purpose);
+    const r = runSimulationHeadless(setup, setup.events[0]?.fromDeviceId || "", "", "stp", null, purpose, RUN_TRACE);
     const blocked = state.links.filter(l => l.stpBlocked).length;
     return { ok: r.success, data: r,
       output: [r.success ? `stp: spanning tree converged — ${blocked} port(s) blocking (${r.steps} BPDUs)` : "stp: broadcast storm — no spanning tree to break the loop"] };
@@ -778,7 +783,7 @@ function cmdRun(args: string[]): CommandResult {
     if (typeof host === "string") return err(host);
     const setup = buildDot1xEvents(host);
     if (typeof setup === "string") return err(setup);
-    const r = runSimulationHeadless(setup, host.id, "", "dot1x", null, purpose);
+    const r = runSimulationHeadless(setup, host.id, "", "dot1x", null, purpose, RUN_TRACE);
     return runOutput(r, r.success ? `dot1x: ${host.name} authenticated — port authorised (${r.steps} frames)` : `dot1x: authentication failed`);
   }
   if (mode === "associate") {
@@ -786,7 +791,7 @@ function cmdRun(args: string[]): CommandResult {
     if (typeof laptop === "string") return err(laptop);
     const setup = buildAssociationEvents(laptop);
     if (typeof setup === "string") return err(setup);
-    const r = runSimulationHeadless(setup, laptop.id, "", "associate", null, purpose);
+    const r = runSimulationHeadless(setup, laptop.id, "", "associate", null, purpose, RUN_TRACE);
     return runOutput(r, r.success ? `associate: ${laptop.name} joined the WiFi (${r.steps} frames)` : "associate: handshake did not complete");
   }
   if (mode === "ping") {
@@ -796,7 +801,7 @@ function cmdRun(args: string[]): CommandResult {
     if (!dst) return err(`run ping: missing target.`);
     const setup = buildPingEvents(src, dst);
     if (typeof setup === "string") return err(setup);
-    const r = runSimulationHeadless(setup, src.id, targetIpFor(dst), "ping", null, purpose);
+    const r = runSimulationHeadless(setup, src.id, targetIpFor(dst), "ping", null, purpose, RUN_TRACE);
     return runOutput(r, `ping ${dst}: ${r.success ? `reachable (ttl=${r.ttl})` : `unreachable${pingErrorNote(r)}`} — ${r.steps} steps`);
   }
   if (mode === "connect" || mode === "tcp") {
@@ -807,7 +812,7 @@ function cmdRun(args: string[]): CommandResult {
     if (!dst || !args[3]) return err(`run connect: expected "run connect <src> <dst> <port>".`);
     const setup = buildConnectEvents(src, dst, port);
     if (typeof setup === "string") return err(setup);
-    const r = runSimulationHeadless(setup, src.id, targetIpFor(dst), "tcp", port, purpose);
+    const r = runSimulationHeadless(setup, src.id, targetIpFor(dst), "tcp", port, purpose, RUN_TRACE);
     return runOutput(r, `connect ${dst}:${port}: ${r.success ? "open (handshake completed)" : r.refused ? "refused (RST)" : "timed out"} — ${r.steps} steps`);
   }
   if (mode === "http") {
@@ -819,7 +824,7 @@ function cmdRun(args: string[]): CommandResult {
     if (!Number.isInteger(port) || port < 1 || port > 65535) return err(`run http: invalid port in "${args[2]}".`);
     const setup = buildHttpEvents(src, host, port, path);
     if (typeof setup === "string") return err(setup);
-    const r = runSimulationHeadless(setup, src.id, targetIpFor(host), "http", port, purpose);
+    const r = runSimulationHeadless(setup, src.id, targetIpFor(host), "http", port, purpose, RUN_TRACE);
     return runOutput(r, `http http://${host}:${port}${path}: ${r.httpStatus != null ? `${r.httpStatus}` : r.refused ? "refused" : "no response"} — ${r.steps} steps`);
   }
   if (mode === "dhcp") {
@@ -832,7 +837,7 @@ function cmdRun(args: string[]): CommandResult {
     // the animated `dhcp` — taken only when the run changed something, so a
     // run nobody answered leaves no dead entry and keeps the redo branch.
     const before = networkSnapshot();
-    const r = runSimulationHeadless(setup, host.id, "", "dhcp", null, purpose);
+    const r = runSimulationHeadless(setup, host.id, "", "dhcp", null, purpose, RUN_TRACE);
     if (!state.isApplyingCompositeChange && networkSnapshot() !== before) pushUndoSnapshot(before);
     return runOutput(r, r.success ? `dhcp: assigned ${r.assignedIp} (gw ${r.assignedGateway})` : "dhcp: no response");
   }
@@ -843,7 +848,7 @@ function cmdRun(args: string[]): CommandResult {
     if (!name) return err(`run resolve: expected "run resolve <src> <name>".`);
     const setup = buildResolveEvents(src, name, null, null);
     if (typeof setup === "string") return err(setup);
-    const r = runSimulationHeadless(setup, src.id, name, "dns", null, purpose);
+    const r = runSimulationHeadless(setup, src.id, name, "dns", null, purpose, RUN_TRACE);
     return runOutput(r, `resolve ${name}: ${r.resolvedIp || "no answer"} — ${r.steps} steps`);
   }
   return err(`run: expected "ping <src> <dst>", "connect <src> <dst> <port>", "resolve <src> <name>", or "dhcp <host>".`);
@@ -885,14 +890,20 @@ function cmdSpeed(args: string[]): CommandResult {
 // showing: the frames that led to it, each with the reason its sender logged,
 // then what its receiver did. No number explains the packet being inspected.
 function cmdWhy(args: string[]): CommandResult {
-  const entries = captureEntriesFor(state.dock.captureView || "live");
-  if (!entries.length) return err("why: no packets captured yet — run something animated first (ping, connect, dhcp, …), then `why <packet number>`.");
-  const inspected = state.inspectedCapture && entries.includes(state.inspectedCapture) ? state.inspectedCapture : null;
-  if (!args[0] && !inspected) return err(`why: which packet? Give its number from the packet list (${entries[0].no}–${entries[entries.length - 1].no}), or click a row first.`);
-  const entry = args[0] ? entries.find(e => e.no === Number(args[0])) : inspected;
-  if (!entry) return err(`why: no packet ${args[0]} in this capture (it holds ${entries[0].no}–${entries[entries.length - 1].no}).`);
+  // The most recent run decides what there is to explain: a headless `run`
+  // leaves a trace (cleared by whatever runs next); otherwise it is the capture
+  // the Sim Log is showing.
+  const trace = state.simulation.trace?.length ? state.simulation.trace : null;
+  const entries = trace ?? captureEntriesFor(state.dock.captureView || "live");
+  if (!entries.length) return err("why: nothing to explain yet — run something first (ping, connect, dhcp, or a headless `run …`), then `why <packet number>`.");
+  const inspected = !trace && state.inspectedCapture && entries.includes(state.inspectedCapture) ? state.inspectedCapture : null;
+  const range = `${entries[0].no}–${entries[entries.length - 1].no}`;
+  if (!args[0] && !inspected && !trace) return err(`why: which packet? Give its number from the packet list (${range}), or click a row first.`);
+  // With no number: the inspected packet, or — for a traced run — where it ended.
+  const entry = args[0] ? entries.find(e => e.no === Number(args[0])) : (inspected ?? storyEnd(entries));
+  if (!entry) return err(`why: no packet ${args[0]} in ${trace ? "the last run" : "this capture"} (it holds ${range}).`);
   const explanation = explainCapture(entry, entries, id => state.devices.find(d => d.id === id)?.name ?? "a removed device");
-  return ok(`Why packet ${entry.no}?`, ...explanationText(explanation));
+  return ok(trace ? `Why frame ${entry.no} of ${entries.length} in the last run?` : `Why packet ${entry.no}?`, ...explanationText(explanation));
 }
 
 function cmdSeed(args: string[]): CommandResult {

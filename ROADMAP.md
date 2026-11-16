@@ -5,7 +5,12 @@ that makes invisible network behaviour visible, faithfully and fast.* Each item
 notes rough effort and how it leverages what already exists. Nothing here is
 committed scope — it's a menu for "what next".
 
-> **Released:** [`v0.5.2-alpha`](https://github.com/trevorandersen/routesim/releases/tag/v0.5.2-alpha)
+> **Released:** [`v0.6.0-alpha`](https://github.com/trevorandersen/routesim/releases/tag/v0.6.0-alpha)
+> (2026-11) — **Why?**: every captured packet shows the chain of frames that
+> led to it, each with its sender's reason, and a failed scenario check lists
+> why it failed.
+>
+> **Earlier:** [`v0.5.2-alpha`](https://github.com/trevorandersen/routesim/releases/tag/v0.5.2-alpha)
 > (2026-11) — a router interface's configuration now belongs to its port: an
 > address set before the port is cabled follows it onto the cable, and it
 > stays on the port when the cable is removed.

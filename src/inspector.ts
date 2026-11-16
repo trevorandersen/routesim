@@ -213,9 +213,10 @@ export function renderRouterInterfaces(device: Device): string {
         const vlanAttr = iface.config.vlanTag != null ? ` data-vlan-tag="${iface.config.vlanTag}"` : "";
         const peerLabel = iface.peer?.name || "not connected";
         // Empty ports persist an IP by name; connected ports key by peer.
+        // (A sub-interface parked on an unplugged port is its port's name + tag.)
         const ipAttrs = iface.peer
           ? `data-peer-id="${escapeHtml(iface.peerId)}"${vlanAttr}`
-          : `data-iface-name="${escapeHtml(iface.name)}"`;
+          : `data-iface-name="${escapeHtml(iface.name.split(".")[0])}"${vlanAttr}`;
         return `
           <div class="interface-row">
             <div class="interface-head">
@@ -847,7 +848,8 @@ export function bindRouterInterfaceList(device: Device): void {
     input.setCustomValidity("");
     const vlanTag = input.dataset.vlanTag != null ? Number(input.dataset.vlanTag) : undefined;
     // Connected ports key by peer; unconnected ports key by interface name.
-    const iface = peerId ? routerInterfaceFor(device, peerId, vlanTag) : routerInterfaceForName(device, ifaceName!);
+    const iface = peerId ? routerInterfaceFor(device, peerId, vlanTag) : routerInterfaceForName(device, ifaceName!, vlanTag);
+    if (!iface) return;   // a parked sub-interface that has since gone
     iface.ipv4Address = parsed ? parsed.address : "";
     if (parsed?.prefixLength != null) iface.prefixLength = parsed.prefixLength;
     input.title = iface.ipv4Address ? `Subnet: ${networkOf(iface.ipv4Address, prefixOf(iface))}` : "";

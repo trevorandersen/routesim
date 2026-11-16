@@ -5244,6 +5244,13 @@ Full legal text: https://creativecommons.org/publicdomain/zero/1.0/legalcode</pr
             entry.name = port;
             entry.arpTable = [];
           }
+          for (const session of state.terminalSessions) {
+            if (session.deviceId !== router.id || session.mode !== "interface" || session.interfacePeerId !== peerId) continue;
+            session.interfacePeerId = null;
+            session.interfaceName = port;
+            const shown = session.interfaceVlanTag != null ? `${port}.${session.interfaceVlanTag}` : port;
+            appendSessionLine(session, { kind: "muted", text: `% ${shown} is no longer cabled \u2014 still configuring it. It stays down, with no connected route, until a cable is plugged in.` });
+          }
         });
       }
     };
@@ -5759,9 +5766,12 @@ Full legal text: https://creativecommons.org/publicdomain/zero/1.0/legalcode</pr
     }
     return iface;
   }
-  function routerInterfaceForName(router, name) {
+  function routerInterfaceForName(router, name, vlanTag) {
     ensureConfig(router);
     router.config.interfaces = normaliseRouterInterfaces(router.config.interfaces || [], router.id);
+    if (vlanTag != null) {
+      return router.config.interfaces.find((entry) => entry.peerId === "" && entry.name === name && entry.vlanTag === vlanTag);
+    }
     let iface = router.config.interfaces.find((entry) => entry.peerId === "" && entry.name === name && entry.vlanTag == null);
     if (!iface) {
       router.config.interfaces.push({ peerId: "", name, type: /^serial/i.test(name) ? "serial" : "ethernet", ipv4Address: "", vlanTag: null });
@@ -5834,16 +5844,14 @@ Full legal text: https://creativecommons.org/publicdomain/zero/1.0/legalcode</pr
     }
     if (cabledOnly) return occupied;
     const emptyConfigFor = (name, type) => configured.find((c) => c.peerId === "" && c.name === name && c.vlanTag == null) || { peerId: "", name, type, ipv4Address: "", vlanTag: null };
+    const freePort = (name, type) => [
+      { name, type, peer: null, peerId: "", config: emptyConfigFor(name, type) },
+      ...configured.filter((c) => c.peerId === "" && c.name === name && c.vlanTag != null).sort((a, b) => a.vlanTag - b.vlanTag).map((config) => ({ name: `${name}.${config.vlanTag}`, type, peer: null, peerId: "", config }))
+    ];
     const emptyEthernet = [];
-    for (let n = 1; n <= ethernetPorts; n++) if (!usedByMedia.ethernet.has(n)) {
-      const name = `Ethernet${n}`;
-      emptyEthernet.push({ name, type: "ethernet", peer: null, peerId: "", config: emptyConfigFor(name, "ethernet") });
-    }
+    for (let n = 1; n <= ethernetPorts; n++) if (!usedByMedia.ethernet.has(n)) emptyEthernet.push(...freePort(`Ethernet${n}`, "ethernet"));
     const emptySerial = [];
-    for (let n = 1; n <= serialPorts; n++) if (!usedByMedia.serial.has(n)) {
-      const name = `Serial${n}`;
-      emptySerial.push({ name, type: "serial", peer: null, peerId: "", config: emptyConfigFor(name, "serial") });
-    }
+    for (let n = 1; n <= serialPorts; n++) if (!usedByMedia.serial.has(n)) emptySerial.push(...freePort(`Serial${n}`, "serial"));
     return [...occupied, ...emptyEthernet, ...emptySerial];
   }
   function routerInterfaceByName(router, name) {
@@ -11851,12 +11859,13 @@ ${body}
     sync().render();
     return "";
   }
-  function setUncabledRouterInterfaceIp(router, name, address) {
+  function setUncabledRouterInterfaceIp(router, name, address, vlanTag = null) {
     const parsed = address === "" ? null : parseIpv4Token(address);
     if (address !== "" && !parsed) return `Invalid IPv4 address: ${address}`;
-    if (address === "" && !(router.config?.interfaces || []).some((i) => i.peerId === "" && i.name === name && i.vlanTag == null && i.ipv4Address)) return "";
+    if (address === "" && !(router.config?.interfaces || []).some((i) => i.peerId === "" && i.name === name && (i.vlanTag ?? null) === vlanTag && i.ipv4Address)) return "";
+    if (vlanTag != null && !routerInterfaceForName(router, name, vlanTag)) return `% ${name}.${vlanTag} no longer exists.`;
     pushUndo();
-    const iface = routerInterfaceForName(router, name);
+    const iface = routerInterfaceForName(router, name, vlanTag);
     iface.ipv4Address = parsed ? parsed.address : "";
     if (parsed?.prefixLength != null) iface.prefixLength = clampPrefixLength(parsed.prefixLength);
     sync().syncPanel();
@@ -11926,12 +11935,21 @@ ${body}
     if (session.mode !== "interface") return;
     if (!session.interfacePeerId && session.interfaceName) {
       const base = session.interfaceName.toLowerCase();
+      const tag2 = session.interfaceVlanTag;
+      const entries = router.config?.interfaces || [];
       const now = routerInterfacesWithNames(router).find((i) => i.name.toLowerCase().split(".")[0] === base);
-      if (now && !now.peer) return;
+      if (now && !now.peer) {
+        if (tag2 == null || entries.some((i) => i.peerId === "" && i.name.toLowerCase() === base && i.vlanTag === tag2)) return;
+        session.mode = "config";
+        clearInterfaceTarget(session);
+        terminalLineFor(session, "muted", `% Sub-interface .${tag2} no longer exists \u2014 back in configuration mode.`);
+        return;
+      }
       if (now) {
-        terminalLineFor(session, "muted", `% ${session.interfaceName} is now cabled to ${now.peer.name} \u2014 configuring that interface.`);
+        const keptTag = tag2 != null && entries.some((i) => i.peerId === now.peerId && i.vlanTag === tag2) ? tag2 : null;
+        terminalLineFor(session, "muted", `% ${session.interfaceName}${keptTag != null ? `.${keptTag}` : ""} is now cabled to ${now.peer.name} \u2014 configuring that interface.`);
         session.interfacePeerId = now.peerId;
-        session.interfaceVlanTag = null;
+        session.interfaceVlanTag = keptTag;
         session.interfaceName = null;
         return;
       }
@@ -11967,7 +11985,7 @@ ${body}
   }
   function sessionInterfaceEntry(router) {
     const name = uncabledTarget();
-    return name ? routerInterfaceForName(router, name) : routerInterfaceFor(router, state.terminal.interfacePeerId, state.terminal.interfaceVlanTag);
+    return name ? routerInterfaceForName(router, name, state.terminal.interfaceVlanTag) : routerInterfaceFor(router, state.terminal.interfacePeerId, state.terminal.interfaceVlanTag);
   }
   var notCabledNote = (name) => `% ${name} is not cabled \u2014 it stays down, with no connected route, until a cable is plugged in.`;
   function routerMode() {
@@ -12326,7 +12344,8 @@ ${body}
         state.terminal.interfacePeerId = iface.peerId;
         state.terminal.interfaceVlanTag = iface.config?.vlanTag ?? null;
       } else {
-        state.terminal.interfaceName = iface.name;
+        state.terminal.interfaceName = iface.name.split(".")[0];
+        state.terminal.interfaceVlanTag = iface.config?.vlanTag ?? null;
       }
       return true;
     }
@@ -12337,7 +12356,7 @@ ${body}
         return true;
       }
       const uncabled = uncabledTarget();
-      const result = uncabled ? setUncabledRouterInterfaceIp(router, uncabled, ipAddressMatch[1]) : setRouterInterfaceIp(router, state.terminal.interfacePeerId, ipAddressMatch[1], state.terminal.interfaceVlanTag);
+      const result = uncabled ? setUncabledRouterInterfaceIp(router, uncabled, ipAddressMatch[1], state.terminal.interfaceVlanTag) : setRouterInterfaceIp(router, state.terminal.interfacePeerId, ipAddressMatch[1], state.terminal.interfaceVlanTag);
       if (result) terminalLine("error", result);
       else if (uncabled) terminalLine("muted", notCabledNote(uncabled));
       return true;
@@ -12348,7 +12367,7 @@ ${body}
         return true;
       }
       const uncabled = uncabledTarget();
-      if (uncabled) setUncabledRouterInterfaceIp(router, uncabled, "");
+      if (uncabled) setUncabledRouterInterfaceIp(router, uncabled, "", state.terminal.interfaceVlanTag);
       else clearRouterInterfaceIp(router, state.terminal.interfacePeerId, state.terminal.interfaceVlanTag);
       return true;
     }
@@ -14583,7 +14602,7 @@ Snort successfully validated the configuration${bad ? " (with errors)" : "."}`);
       ${interfaces.map((iface) => {
       const vlanAttr = iface.config.vlanTag != null ? ` data-vlan-tag="${iface.config.vlanTag}"` : "";
       const peerLabel = iface.peer?.name || "not connected";
-      const ipAttrs = iface.peer ? `data-peer-id="${escapeHtml(iface.peerId)}"${vlanAttr}` : `data-iface-name="${escapeHtml(iface.name)}"`;
+      const ipAttrs = iface.peer ? `data-peer-id="${escapeHtml(iface.peerId)}"${vlanAttr}` : `data-iface-name="${escapeHtml(iface.name.split(".")[0])}"${vlanAttr}`;
       return `
           <div class="interface-row">
             <div class="interface-head">
@@ -15126,7 +15145,8 @@ Snort successfully validated the configuration${bad ? " (with errors)" : "."}`);
       }
       input.setCustomValidity("");
       const vlanTag = input.dataset.vlanTag != null ? Number(input.dataset.vlanTag) : void 0;
-      const iface = peerId ? routerInterfaceFor(device, peerId, vlanTag) : routerInterfaceForName(device, ifaceName2);
+      const iface = peerId ? routerInterfaceFor(device, peerId, vlanTag) : routerInterfaceForName(device, ifaceName2, vlanTag);
+      if (!iface) return;
       iface.ipv4Address = parsed ? parsed.address : "";
       if (parsed?.prefixLength != null) iface.prefixLength = parsed.prefixLength;
       input.title = iface.ipv4Address ? `Subnet: ${networkOf(iface.ipv4Address, prefixOf(iface))}` : "";

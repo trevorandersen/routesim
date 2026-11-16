@@ -195,14 +195,15 @@ export function setRouterInterfaceIp(router: Device, peerId: string, address: st
 // The same edit for a port with NO cable, keyed by its name (Ethernet3) — the
 // entry the inspector's "not connected" rows edit. An empty address clears it.
 // Returns an error string, or "" on success, like setRouterInterfaceIp.
-export function setUncabledRouterInterfaceIp(router: Device, name: string, address: string): string {
+export function setUncabledRouterInterfaceIp(router: Device, name: string, address: string, vlanTag: number | null = null): string {
   const parsed = address === "" ? null : parseIpv4Token(address);
   if (address !== "" && !parsed) return `Invalid IPv4 address: ${address}`;
   // Clearing an address that was never set changes nothing: no undo point (and
   // no empty by-name entry created just to hold nothing).
-  if (address === "" && !(router.config?.interfaces || []).some((i) => i.peerId === "" && i.name === name && i.vlanTag == null && i.ipv4Address)) return "";
+  if (address === "" && !(router.config?.interfaces || []).some((i) => i.peerId === "" && i.name === name && (i.vlanTag ?? null) === vlanTag && i.ipv4Address)) return "";
+  if (vlanTag != null && !routerInterfaceForName(router, name, vlanTag)) return `% ${name}.${vlanTag} no longer exists.`;
   pushUndo();
-  const iface = routerInterfaceForName(router, name);
+  const iface = routerInterfaceForName(router, name, vlanTag);
   iface.ipv4Address = parsed ? parsed.address : "";
   if (parsed?.prefixLength != null) iface.prefixLength = clampPrefixLength(parsed.prefixLength);
   sync().syncPanel();
@@ -299,13 +300,25 @@ export function reconcileRouterSession(session: TerminalSession, router: Device)
   if (!session.interfacePeerId && session.interfaceName) {
     // Configuring a port that had no cable. It may have gained one, or gone.
     const base = session.interfaceName.toLowerCase();
+    const tag = session.interfaceVlanTag;
+    const entries = router.config?.interfaces || [];
     const now = routerInterfacesWithNames(router).find((i) => i.name.toLowerCase().split(".")[0] === base);
-    if (now && !now.peer) return;                       // still there, still unplugged
+    if (now && !now.peer) {
+      // Still there, still unplugged — unless it was a parked sub-interface
+      // that has since gone (an undo).
+      if (tag == null || entries.some((i) => i.peerId === "" && i.name.toLowerCase() === base && i.vlanTag === tag)) return;
+      session.mode = "config";
+      clearInterfaceTarget(session);
+      terminalLineFor(session, "muted", `% Sub-interface .${tag} no longer exists — back in configuration mode.`);
+      return;
+    }
     if (now) {
-      // The port is the same port; it is keyed by its peer now that it has one.
-      terminalLineFor(session, "muted", `% ${session.interfaceName} is now cabled to ${now.peer!.name} — configuring that interface.`);
+      // The port is the same port; it is keyed by its peer now that it has one
+      // (and a sub-interface the session was on came along with it).
+      const keptTag = tag != null && entries.some((i) => i.peerId === now.peerId && i.vlanTag === tag) ? tag : null;
+      terminalLineFor(session, "muted", `% ${session.interfaceName}${keptTag != null ? `.${keptTag}` : ""} is now cabled to ${now.peer!.name} — configuring that interface.`);
       session.interfacePeerId = now.peerId;
-      session.interfaceVlanTag = null;
+      session.interfaceVlanTag = keptTag;
       session.interfaceName = null;
       return;
     }
@@ -356,7 +369,7 @@ function uncabledTarget(): string | null {
 function sessionInterfaceEntry(router: Device): any {
   const name = uncabledTarget();
   return name
-    ? routerInterfaceForName(router, name)
+    ? routerInterfaceForName(router, name, state.terminal.interfaceVlanTag)
     : routerInterfaceFor(router, state.terminal.interfacePeerId!, state.terminal.interfaceVlanTag);
 }
 
@@ -777,7 +790,10 @@ function routerInterfaceCommand(router: Device, command: string, lower: string):
       state.terminal.interfacePeerId = iface.peerId;
       state.terminal.interfaceVlanTag = iface.config?.vlanTag ?? null;
     } else {
-      state.terminal.interfaceName = iface.name;     // no cable, so no peer to key by — hold the port's name
+      // No cable, so no peer to key by — hold the port's name (and the tag of
+      // a sub-interface parked on it).
+      state.terminal.interfaceName = iface.name.split(".")[0];
+      state.terminal.interfaceVlanTag = iface.config?.vlanTag ?? null;
     }
     return true;
   }
@@ -789,7 +805,7 @@ function routerInterfaceCommand(router: Device, command: string, lower: string):
     }
     const uncabled = uncabledTarget();
     const result = uncabled
-      ? setUncabledRouterInterfaceIp(router, uncabled, ipAddressMatch[1])
+      ? setUncabledRouterInterfaceIp(router, uncabled, ipAddressMatch[1], state.terminal.interfaceVlanTag)
       : setRouterInterfaceIp(router, state.terminal.interfacePeerId!, ipAddressMatch[1], state.terminal.interfaceVlanTag);
     if (result) terminalLine("error", result);
     else if (uncabled) terminalLine("muted", notCabledNote(uncabled));
@@ -801,7 +817,7 @@ function routerInterfaceCommand(router: Device, command: string, lower: string):
       return true;
     }
     const uncabled = uncabledTarget();
-    if (uncabled) setUncabledRouterInterfaceIp(router, uncabled, "");
+    if (uncabled) setUncabledRouterInterfaceIp(router, uncabled, "", state.terminal.interfaceVlanTag);
     else clearRouterInterfaceIp(router, state.terminal.interfacePeerId!, state.terminal.interfaceVlanTag);
     return true;
   }

@@ -1074,16 +1074,43 @@ describe("router shell — a CLI mode whose target is gone falls back to config 
     expect(run("ip ro 10.9.0.0/24 192.168.10.2")).not.toContain("%");   // and `ip route` still abbreviates
   });
 
-  it("an unplugged cable ends interface mode instead of configuring a phantom interface", () => {
+  // The port is the same port with or without its cable, so the shell stays on
+  // it (it used to be thrown back to configuration mode mid-edit) and goes on
+  // editing the one entry — never a phantom second interface.
+  it("an unplugged cable leaves the shell on its port, configuring it by name", () => {
     const { r1, run } = shell();
     run("interface Ethernet1");
     const before = r1().config!.interfaces!.length;
+    const mark = state.terminal.lines.length;
     runConsoleScript("unlink R1 SW");
+    expect(state.terminal.lines.slice(mark).map(l => l.text).join(" ")).toContain("% Ethernet1 is no longer cabled — still configuring it.");
+    expect(state.terminal.mode).toBe("interface");
+    expect(state.terminal.interfacePeerId).toBeNull();
+    expect(state.terminal.interfaceName).toBe("Ethernet1");
     const out = run("ip address 10.9.9.1/24");
-    expect(out).toContain("no longer cabled");
-    expect(state.terminal.mode).toBe("config");
-    expect(r1().config!.interfaces!.some(i => i.ipv4Address === "10.9.9.1")).toBe(false);
+    expect(out).toContain("Ethernet1 is not cabled — it stays down");
+    expect(r1().config!.interfaces!.map(i => `${i.peerId ? "peer" : i.name}=${i.ipv4Address}`)).toEqual(["Ethernet1=10.9.9.1"]);
     expect(r1().config!.interfaces!.length).toBe(before);
+    undo(); undo();                                                  // the address, then the unlink
+    expect(run("ip address 10.0.0.9/24")).toContain("Ethernet1 is now cabled to SW");
+    expect(r1().config!.interfaces!.find(i => i.peerId)!.ipv4Address).toBe("10.0.0.9");
+  });
+
+  it("a shell on a sub-interface follows it onto the unplugged port, and back onto the next cable", () => {
+    const { r1, run } = shell();
+    run("interface Ethernet1.10");
+    run("ip address 192.168.10.1/24");
+    runConsoleScript("unlink R1 SW");
+    expect(state.terminal.mode).toBe("interface");
+    expect({ name: state.terminal.interfaceName, tag: state.terminal.interfaceVlanTag }).toEqual({ name: "Ethernet1", tag: 10 });
+    expect(run("ip address 192.168.10.254/24")).toContain("not cabled");
+    expect(r1().config!.interfaces!.find(i => i.vlanTag === 10)).toMatchObject({ peerId: "", name: "Ethernet1", ipv4Address: "192.168.10.254" });
+    expect(run("encapsulation dot1q 20")).toContain("needs a cable");   // retagging still needs one
+    runConsoleScript("add switch SW2 at 200 200\nlink R1 SW2");
+    expect(run("ip address 192.168.10.1/24")).toContain("Ethernet1.10 is now cabled to SW2");
+    expect(state.terminal.interfaceVlanTag).toBe(10);
+    const sw2 = state.devices.find(d => d.name === "SW2")!.id;
+    expect(r1().config!.interfaces!.find(i => i.peerId === sw2 && i.vlanTag === 10)!.ipv4Address).toBe("192.168.10.1");
   });
 
   it("a live mode is left alone (no notice, no fallback)", () => {
@@ -1387,6 +1414,15 @@ describe("a router port keeps its configuration when its cable is removed", () =
     runConsoleScript("unlink R1 SW");
     expect(entries()).toEqual(["[Ethernet1].10=192.168.10.1", "[Ethernet1].20=192.168.20.1"]);
     expect(brief()).toMatch(/Ethernet1\s+unassigned\s+down/);        // the bare port has no address of its own
+    // …and its parked sub-interfaces are listed, down, not hidden until the next cable.
+    expect(brief()).toMatch(/Ethernet1\.10\s+192\.168\.10\.1\/24\s+down/);
+    expect(brief()).toMatch(/Ethernet1\.20\s+192\.168\.20\.1\/24\s+down/);
+    expect(runConsoleScript("cli R1 show running-config")[0].output.join("\n")).toContain("interface Ethernet1.10\n encapsulation dot1q 10\n ip address 192.168.10.1/24");
+    // An existing parked sub-interface can be selected and re-addressed; a new one still needs a cable.
+    expect(runConsoleScript("cli R1 enable\ncli R1 configure terminal\ncli R1 interface Ethernet1.20\ncli R1 ip address 192.168.20.254/24").filter(r => !r.ok && !r.output.join(" ").includes("not cabled"))).toEqual([]);
+    expect(entries()).toContain("[Ethernet1].20=192.168.20.254");
+    expect(runConsoleScript("cli R1 interface Ethernet1.30")[0].output.join(" ")).toContain("a sub-interface needs a cable");
+    runConsoleScript("cli R1 interface Ethernet1.20\ncli R1 ip address 192.168.20.1/24\ncli R1 end");
     const out = runConsoleScript("add switch SW2 at 200 200\nlink R1 SW2").pop()!.output.join(" ");
     expect(out).toContain("R1 Ethernet1 keeps its sub-interfaces .10, .20.");
     expect(entries()).toEqual(["SW2.10=192.168.10.1", "SW2.20=192.168.20.1"]);

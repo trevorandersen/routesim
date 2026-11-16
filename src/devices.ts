@@ -1,5 +1,5 @@
-import type { PortOption, Device, Link, DeviceType, DeviceConfig, NamedRouterIface, MutationResult, LinkResult } from "./types";
-import { state, sync, pushUndo, networkSnapshot, dropTerminalSessions, resetCaptureState, linksChanged } from "./state";
+import type { PortOption, Device, Link, DeviceType, DeviceConfig, NamedRouterIface, RouterInterface, MutationResult, LinkResult } from "./types";
+import { state, sync, pushUndo, networkSnapshot, dropTerminalSessions, resetCaptureState, linksChanged, appendSessionLine } from "./state";
 import { dom } from "./dom";
 import { deviceSize, defaultDeviceConfig, ensureConfig, normaliseRouterInterfaces, normalisePortVlans, normalisePortModes } from "./normalise";
 import { clampPortCount, clampApPortCount, clampRouterPortCount, escapeHtml, randomMac, isValidHostname, MAX_PHYSICAL_PORT, deriveMac, normaliseMacAddress, clampFirewallPortCount, defaultBridgeMac, bridgeMacOf, prefixOf } from "./utils";
@@ -615,6 +615,16 @@ function releaseRouterPorts(links: readonly Link[]): () => void {
           entry.peerId = "";
           entry.name = port;
           entry.arpTable = [];        // its neighbours were on the cable that left
+        }
+        // A shell sitting in config-if on this interface stays on it: the port
+        // is the same port, now unplugged and addressed by name. (It used to be
+        // thrown back to configuration mode, mid-edit.)
+        for (const session of state.terminalSessions) {
+          if (session.deviceId !== router.id || session.mode !== "interface" || session.interfacePeerId !== peerId) continue;
+          session.interfacePeerId = null;
+          session.interfaceName = port;
+          const shown = session.interfaceVlanTag != null ? `${port}.${session.interfaceVlanTag}` : port;
+          appendSessionLine(session, { kind: "muted", text: `% ${shown} is no longer cabled — still configuring it. It stays down, with no connected route, until a cable is plugged in.` });
         }
       });
     }
@@ -1339,11 +1349,15 @@ export function routerInterfaceFor(router: any, peerId: string, vlanTag?: number
 // interface name (Ethernet3, Serial2). Lets a user pre-assign an IP before a
 // cable exists; normaliseRouterInterfaces keeps the entry alive because it has
 // a name. If a cable later occupies that port, the by-peer entry takes over.
-export function routerInterfaceForName(router: any, name: string): any {
+export function routerInterfaceForName(router: any, name: string, vlanTag?: number | null): any {
   ensureConfig(router);
   router.config.interfaces = normaliseRouterInterfaces(router.config.interfaces || [], router.id);
-  // (The untagged entry: sub-interfaces parked on an unplugged port wait there
-  // for the next cable and are not what "the port's address" means.)
+  // The port's own (untagged) entry — or, with a tag, a sub-interface parked
+  // on the unplugged port. A parked sub-interface is only ever found, never
+  // made here: one is created by naming it on a CABLED port.
+  if (vlanTag != null) {
+    return (router.config.interfaces as RouterInterface[]).find(entry => entry.peerId === "" && entry.name === name && entry.vlanTag === vlanTag);
+  }
   let iface = router.config.interfaces.find((entry: any) => entry.peerId === "" && entry.name === name && entry.vlanTag == null);
   if (!iface) {
     // Push, then re-normalise — same as routerInterfaceFor, so the by-name
@@ -1435,10 +1449,20 @@ export function routerInterfacesWithNames(router: Device, cabledOnly = false): N
       || { peerId: "", name, type, ipv4Address: "", vlanTag: null };
   // Free ports are every unused number up to capacity (so a gap left by an
   // explicit pick is offered as free, not hidden).
+  // A free port is listed as itself, followed by any sub-interfaces parked on
+  // it when its cable was removed (releaseRouterPorts) — they keep their
+  // addresses and return with the next cable, so they are shown (down) rather
+  // than hidden until then.
+  const freePort = (name: string, type: string) => [
+    { name, type, peer: null, peerId: "", config: emptyConfigFor(name, type) },
+    ...configured.filter((c) => c.peerId === "" && c.name === name && c.vlanTag != null)
+      .sort((a, b) => a.vlanTag! - b.vlanTag!)
+      .map((config) => ({ name: `${name}.${config.vlanTag}`, type, peer: null, peerId: "", config })),
+  ];
   const emptyEthernet: any[] = [];
-  for (let n = 1; n <= ethernetPorts; n++) if (!usedByMedia.ethernet.has(n)) { const name = `Ethernet${n}`; emptyEthernet.push({ name, type: "ethernet", peer: null, peerId: "", config: emptyConfigFor(name, "ethernet") }); }
+  for (let n = 1; n <= ethernetPorts; n++) if (!usedByMedia.ethernet.has(n)) emptyEthernet.push(...freePort(`Ethernet${n}`, "ethernet"));
   const emptySerial: any[] = [];
-  for (let n = 1; n <= serialPorts; n++) if (!usedByMedia.serial.has(n)) { const name = `Serial${n}`; emptySerial.push({ name, type: "serial", peer: null, peerId: "", config: emptyConfigFor(name, "serial") }); }
+  for (let n = 1; n <= serialPorts; n++) if (!usedByMedia.serial.has(n)) emptySerial.push(...freePort(`Serial${n}`, "serial"));
   return [...occupied, ...emptyEthernet, ...emptySerial];
 }
 

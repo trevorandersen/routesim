@@ -1544,7 +1544,8 @@
     .why-jump:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
     .why-wire { font-weight: 700; color: var(--text); }
     .why-label { color: var(--muted); }
-    .why-lines { margin: 3px 0 0; padding: 0; list-style: none; }
+    .why-lines { margin: 3px 0 0; padding: 0; list-style: none; font-size: 12px; line-height: 1.4; }
+    .why > .why-lines { padding-left: 12px; }
     .why-line { color: var(--text); }
     .why-line.sim-drop { color: var(--danger); }
     .why-who { font-weight: 700; }
@@ -7587,7 +7588,7 @@ Full legal text: https://creativecommons.org/publicdomain/zero/1.0/legalcode</pr
   }
   function frameWords(frame) {
     const cols = packetColumns(frame);
-    return `${cols.protocol} ${cols.info}`.trim();
+    return `${cols.protocol} ${cols.info}`.replace(/\s+/g, " ").trim();
   }
   function explainCapture(entry, entries, nameOf) {
     const byNo = new Map(entries.map((e) => [e.no, e]));
@@ -7629,23 +7630,23 @@ Full legal text: https://creativecommons.org/publicdomain/zero/1.0/legalcode</pr
     }
     return lines;
   }
-  function originReason(frame, origin, waiting) {
+  function originReason(frame, waiting) {
     const p = frame.payload;
     if (p.type === "arp" && p.operation === "request") {
       const held = waiting ? ` before it can send its ${frameWords(waiting).split(" ").slice(0, 3).join(" ")}` : "";
-      return `${origin} has no ARP entry for ${p.targetIp}, so it must learn that MAC address${held} \u2014 it broadcasts an ARP request.`;
+      return `No ARP entry for ${p.targetIp}, so it must learn that MAC address${held} \u2014 broadcasting an ARP request`;
     }
-    if (p.type === "arp") return `${origin} announces ${p.senderIp} is at ${p.senderMac}.`;
+    if (p.type === "arp") return `Announcing that ${p.senderIp} is at ${p.senderMac}`;
     if (p.type === "ipv4") {
       const inner = p.payload;
-      if (inner.type === "dhcp") return `${origin} has no address yet, so it broadcasts a DHCP Discover to find a server.`;
-      if (inner.type === "dns") return `${origin} must resolve ${inner.name} before it can reach it, so it asks its nameserver ${p.dstIp}.`;
-      return `${origin} already knows the next hop's MAC address, so it sends straight to ${p.dstIp}.`;
+      if (inner.type === "dhcp") return "No address yet \u2014 broadcasting a DHCP Discover to find a server";
+      if (inner.type === "dns") return `Must resolve ${inner.name} before it can reach it \u2014 asking its nameserver ${p.dstIp}`;
+      return `Already knows the next hop's MAC address \u2014 sending straight to ${p.dstIp}`;
     }
-    if (p.type === "dot11") return `${origin} starts joining the wireless network${p.ssid ? ` "${p.ssid}"` : ""}.`;
-    if (p.type === "dot1x") return `${origin} starts 802.1X authentication on its port.`;
-    if (p.type === "bpdu") return `${origin} is the root bridge, so it originates the spanning-tree BPDU.`;
-    return `${origin} starts the run.`;
+    if (p.type === "dot11") return `Starting to join the wireless network${p.ssid ? ` "${p.ssid}"` : ""}`;
+    if (p.type === "dot1x") return "Starting 802.1X authentication on its port";
+    if (p.type === "bpdu") return "The root bridge originates the spanning-tree BPDU";
+    return "Starting the run";
   }
   function explainFailedRun(result, limit = 4) {
     if (result.success) return [];
@@ -8414,7 +8415,7 @@ Full legal text: https://creativecommons.org/publicdomain/zero/1.0/legalcode</pr
         seeded = true;
         if (seedLink && src && !admitOnLink(src, seedLink, ev.frame)) continue;
         const held = ev.frame.payload.type === "arp" ? setup.pendingArp[`${ev.fromDeviceId}:${ev.frame.payload.targetIp}`]?.[0] : null;
-        const why = src ? [{ device: src.name, kind: "sim-forward", text: originReason(ev.frame, src.name, held) }] : void 0;
+        const why = src ? [{ device: src.name, kind: "sim-forward", text: originReason(ev.frame, held) }] : void 0;
         sim.transits.push({ frame: ev.frame, linkId: ev.linkId, fromDeviceId: ev.fromDeviceId, toDeviceId: ev.deviceId, progress: 0, startTime: seedNow, latencyFactor: linkLatencyFactor(seedLink), silent: isSilentFrame(ev.frame), why });
       } else {
         sim.events.push(ev);

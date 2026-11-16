@@ -273,7 +273,7 @@ export function startSimulation(setup: PingSetup, originDeviceId: string, target
       // frames: say what the origin was doing (and what it is holding back
       // behind an ARP) — the first link of every "Why?" chain.
       const held = ev.frame.payload.type === "arp" ? setup.pendingArp[`${ev.fromDeviceId}:${ev.frame.payload.targetIp}`]?.[0] : null;
-      const why = src ? [{ device: src.name, kind: "sim-forward", text: originReason(ev.frame, src.name, held) }] : undefined;
+      const why = src ? [{ device: src.name, kind: "sim-forward", text: originReason(ev.frame, held) }] : undefined;
       sim.transits.push({ frame: ev.frame, linkId: ev.linkId, fromDeviceId: ev.fromDeviceId, toDeviceId: ev.deviceId, progress: 0, startTime: seedNow, latencyFactor: linkLatencyFactor(seedLink), silent: isSilentFrame(ev.frame), why });
     } else {
       sim.events.push(ev);

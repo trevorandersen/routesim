@@ -24,9 +24,9 @@ so it is kept with the entry — a **saved capture explains itself** too.
 
 The frames a command itself puts on the wire (the run's opening frames) are
 built before any device has processed anything, so no log line covers them.
-`originReason(frame, origin, waiting)` says what the origin was doing — "PC-A
-has no ARP entry for 10.0.1.1, so it must learn that MAC address before it can
-send its ICMP Echo (ping) — it broadcasts an ARP request." — and
+`originReason(frame, waiting)` says what the origin was doing, in the voice of
+a log line — "No ARP entry for 10.0.1.1, so it must learn that MAC address
+before it can send its ICMP Echo (ping) — broadcasting an ARP request" — and
 `startSimulation` attaches it to the seeded first leg.
 
 Headless runs keep no capture, so none of this runs on their hot path.

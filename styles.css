@@ -1535,7 +1535,8 @@
     .why-jump:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
     .why-wire { font-weight: 700; color: var(--text); }
     .why-label { color: var(--muted); }
-    .why-lines { margin: 3px 0 0; padding: 0; list-style: none; }
+    .why-lines { margin: 3px 0 0; padding: 0; list-style: none; font-size: 12px; line-height: 1.4; }
+    .why > .why-lines { padding-left: 12px; }
     .why-line { color: var(--text); }
     .why-line.sim-drop { color: var(--danger); }
     .why-who { font-weight: 700; }

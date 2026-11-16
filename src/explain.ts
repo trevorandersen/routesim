@@ -49,7 +49,7 @@ function reasons(lines: ExplainLine[] | undefined): ExplainLine[] {
 
 export function frameWords(frame: EthernetFrame): string {
   const cols = packetColumns(frame);
-  return `${cols.protocol} ${cols.info}`.trim();
+  return `${cols.protocol} ${cols.info}`.replace(/\s+/g, " ").trim();
 }
 
 /**
@@ -106,25 +106,26 @@ export function explanationText(explanation: Explanation): string[] {
  * Why the origin put its first frame on the wire. The run's opening frames are
  * built by the command (`ping`, `nc`, `dhcp`, …) before any device has
  * processed anything, so no log line covers them; this says what the origin
- * was doing. `waiting` is the frame it is holding back behind an ARP, if any.
+ * was doing, in the voice of a log line (the view prefixes the device's name).
+ * `waiting` is the frame it is holding back behind an ARP, if any.
  */
-export function originReason(frame: EthernetFrame, origin: string, waiting?: EthernetFrame | null): string {
+export function originReason(frame: EthernetFrame, waiting?: EthernetFrame | null): string {
   const p = frame.payload;
   if (p.type === "arp" && p.operation === "request") {
     const held = waiting ? ` before it can send its ${frameWords(waiting).split(" ").slice(0, 3).join(" ")}` : "";
-    return `${origin} has no ARP entry for ${p.targetIp}, so it must learn that MAC address${held} — it broadcasts an ARP request.`;
+    return `No ARP entry for ${p.targetIp}, so it must learn that MAC address${held} — broadcasting an ARP request`;
   }
-  if (p.type === "arp") return `${origin} announces ${p.senderIp} is at ${p.senderMac}.`;
+  if (p.type === "arp") return `Announcing that ${p.senderIp} is at ${p.senderMac}`;
   if (p.type === "ipv4") {
     const inner = p.payload;
-    if (inner.type === "dhcp") return `${origin} has no address yet, so it broadcasts a DHCP Discover to find a server.`;
-    if (inner.type === "dns") return `${origin} must resolve ${inner.name} before it can reach it, so it asks its nameserver ${p.dstIp}.`;
-    return `${origin} already knows the next hop's MAC address, so it sends straight to ${p.dstIp}.`;
+    if (inner.type === "dhcp") return "No address yet — broadcasting a DHCP Discover to find a server";
+    if (inner.type === "dns") return `Must resolve ${inner.name} before it can reach it — asking its nameserver ${p.dstIp}`;
+    return `Already knows the next hop's MAC address — sending straight to ${p.dstIp}`;
   }
-  if (p.type === "dot11") return `${origin} starts joining the wireless network${p.ssid ? ` "${p.ssid}"` : ""}.`;
-  if (p.type === "dot1x") return `${origin} starts 802.1X authentication on its port.`;
-  if (p.type === "bpdu") return `${origin} is the root bridge, so it originates the spanning-tree BPDU.`;
-  return `${origin} starts the run.`;
+  if (p.type === "dot11") return `Starting to join the wireless network${p.ssid ? ` "${p.ssid}"` : ""}`;
+  if (p.type === "dot1x") return "Starting 802.1X authentication on its port";
+  if (p.type === "bpdu") return "The root bridge originates the spanning-tree BPDU";
+  return "Starting the run";
 }
 
 /**

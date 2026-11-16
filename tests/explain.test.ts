@@ -76,10 +76,10 @@ describe("explainCapture — composing the chain", () => {
 describe("originReason — the first frame of a run", () => {
   it("says what the origin was doing, and what it is holding back", () => {
     const arp = createArpRequest(A, "10.0.0.1", "10.0.0.254");
-    expect(originReason(arp, "PC-A")).toBe("PC-A has no ARP entry for 10.0.0.254, so it must learn that MAC address — it broadcasts an ARP request.");
-    expect(originReason(arp, "PC-A", createIcmpEchoRequest(A, B, "10.0.0.1", "10.0.9.9", 64))).toContain("before it can send its ICMP Echo (ping)");
-    expect(originReason(createIcmpEchoRequest(A, B, "10.0.0.1", "10.0.0.2", 64), "PC-A")).toContain("already knows the next hop's MAC address");
-    expect(originReason(createDhcpDiscover(A, "dhcp-1"), "PC-A")).toContain("has no address yet");
+    expect(originReason(arp)).toBe("No ARP entry for 10.0.0.254, so it must learn that MAC address — broadcasting an ARP request");
+    expect(originReason(arp, createIcmpEchoRequest(A, B, "10.0.0.1", "10.0.9.9", 64))).toContain("before it can send its ICMP Echo (ping)");
+    expect(originReason(createIcmpEchoRequest(A, B, "10.0.0.1", "10.0.0.2", 64))).toContain("Already knows the next hop's MAC address");
+    expect(originReason(createDhcpDiscover(A, "dhcp-1"))).toContain("No address yet");
   });
 });
 
@@ -128,7 +128,8 @@ describe("a routed ping with cold ARP caches explains itself (animated run)", ()
     const entries = routed();
     expect(entries.length).toBeGreaterThanOrEqual(8);          // ARP ×2 on each side, echo ×2, reply ×2
     expect(entries[0].cause).toBeUndefined();
-    expect(entries[0].why![0].text).toContain("PC-A has no ARP entry for 10.0.1.1");
+    expect(entries[0].why![0]).toMatchObject({ device: "PC-A" });
+    expect(entries[0].why![0].text).toContain("No ARP entry for 10.0.1.1");
     expect(entries[0].why![0].text).toContain("before it can send its ICMP Echo (ping)");
     for (const entry of entries.slice(1)) {
       expect({ no: entry.no, hasCause: entry.cause != null && entry.cause < entry.no }).toEqual({ no: entry.no, hasCause: true });
@@ -147,7 +148,7 @@ describe("a routed ping with cold ARP caches explains itself (animated run)", ()
     expect(explanation.hops[0].no).toBe(1);
     expect(explanation.hops.map(h => h.no)).toEqual([...explanation.hops.map(h => h.no)].sort((a, b) => a! - b!));
     const text = explanationText(explanation).join("\n");
-    expect(text).toContain("PC-A has no ARP entry for 10.0.1.1");
+    expect(text).toContain("PC-A: No ARP entry for 10.0.1.1");
     expect(text).toContain("ARP miss for 10.0.2.10");            // why R1 had to ask before forwarding
     expect(text).toContain("Forward deferred");                  // …and then did
     expect(text).toContain("Then, at PC-A:");
@@ -190,7 +191,7 @@ describe("a routed ping with cold ARP caches explains itself (animated run)", ()
     const transit = state.simulation.transits[0];
     const html = renderWhy(transit.frame);
     expect(html).toContain("in flight");
-    expect(html).toContain("PC1 has no ARP entry for 10.0.0.2");
+    expect(html).toContain("No ARP entry for 10.0.0.2");
     expect(html).toContain("Still on its way to PC2.");
     stepOnce();                                                  // deliver it, PC2 handles it
     const arrived = renderWhy(state.simulation.capture[0].frame);

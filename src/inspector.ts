@@ -3,7 +3,7 @@ import { state, sync, pushUndo, captureUndoOnFocus, captureUndoOnFocusWithin, li
 import { DEVICE_SPECS, isHost, offersTerminal, defaultPortCount } from "./device-registry";
 import { dom } from "./dom";
 import { dhcpXidText } from "./frame";
-import { explainCapture } from "./explain";
+import { explainCapture, explanationSummary } from "./explain";
 import { escapeHtml, isValidIpv4, isValidMac, normaliseMacAddress, randomMac, parseIpv4Token, prefixOf, networkOf, normaliseSsid, normaliseWifiPassword, mutationText, clampFirewallPortCount, FIREWALL_PORT_RANGE } from "./utils";
 import { ensureConfig, normaliseVlans, normaliseDnsRecords, normaliseDhcpLeases, normaliseRadiusUsers } from "./normalise";
 import { snortRuleIssue } from "./snort";
@@ -1087,6 +1087,7 @@ export function renderWhy(frame: EthernetFrame): string {
   return `
     <section class="why" id="whyPanel" aria-label="Why this frame was sent">
       <h4 class="why-title">Why?</h4>
+      <p class="why-summary">${escapeHtml(explanationSummary(explanation))}</p>
       ${explanation.truncated ? `<p class="why-then">Earlier steps omitted — showing the last ${explanation.hops.length}.</p>` : ""}
       <ol class="why-chain">${hops}</ol>
       ${outcome}

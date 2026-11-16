@@ -1526,6 +1526,7 @@
     /* "Why?" — the causal chain under the frame breakdown (explain.ts). */
     .why { margin-top: 14px; }
     .why-title { margin: 0 0 6px; font-size: 12px; font-weight: 700; letter-spacing: 0.04em; text-transform: uppercase; color: var(--muted); }
+    .why-summary { margin: 0 0 8px; font-size: 13px; line-height: 1.45; color: var(--text); }
     .why-chain { margin: 0; padding: 0; list-style: none; border-left: 2px solid var(--line); }
     .why-hop { padding: 4px 0 6px 10px; font-size: 12px; line-height: 1.4; }
     .why-hop.current { border-left: 2px solid var(--accent); margin-left: -2px; background: var(--panel-soft); }

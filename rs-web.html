@@ -1535,6 +1535,7 @@
     /* "Why?" — the causal chain under the frame breakdown (explain.ts). */
     .why { margin-top: 14px; }
     .why-title { margin: 0 0 6px; font-size: 12px; font-weight: 700; letter-spacing: 0.04em; text-transform: uppercase; color: var(--muted); }
+    .why-summary { margin: 0 0 8px; font-size: 13px; line-height: 1.45; color: var(--text); }
     .why-chain { margin: 0; padding: 0; list-style: none; border-left: 2px solid var(--line); }
     .why-hop { padding: 4px 0 6px 10px; font-size: 12px; line-height: 1.4; }
     .why-hop.current { border-left: 2px solid var(--accent); margin-left: -2px; background: var(--panel-soft); }
@@ -7632,8 +7633,29 @@ Full legal text: https://creativecommons.org/publicdomain/zero/1.0/legalcode</pr
     }
     return { hops, outcome: reasons(entry.outcome), receiver: nameOf(entry.toDeviceId), truncated };
   }
+  var sentence = (text) => text.replace(/[.\s]+$/, "");
+  function explanationSummary(explanation) {
+    const hops = explanation.hops;
+    const last = hops[hops.length - 1];
+    const first = hops[0];
+    const parts = [];
+    if (hops.length === 1) {
+      parts.push(last.why.length ? `${last.from} starts here: ${sentence(last.why[0].text)}.` : `${last.from} sent this to ${last.to}.`);
+    } else {
+      const prev = hops[hops.length - 2];
+      parts.push(`${last.from} sent this in response to ${prev.no != null ? `packet #${prev.no}` : "the previous frame"} (${prev.label}).`);
+      if (hops.length > 2) {
+        parts.push(`${explanation.truncated ? "The chain goes back further than shown" : `It traces back ${hops.length - 1} packets to ${first.no != null ? `#${first.no}` : "the first frame"}, where ${first.from} began`}.`);
+      }
+    }
+    const stop = explanation.outcome.find((line) => line.kind === "sim-drop");
+    if (stop) parts.push(`It stopped at ${stop.device}: ${sentence(stop.text)}.`);
+    else if (explanation.outcome.length) parts.push(`${explanation.receiver} then: ${sentence(explanation.outcome[explanation.outcome.length - 1].text)}.`);
+    else parts.push(last.no == null ? `It has not reached ${explanation.receiver} yet.` : `${explanation.receiver} has not handled it yet.`);
+    return parts.join(" ");
+  }
   function explanationText(explanation) {
-    const lines = [];
+    const lines = [explanationSummary(explanation)];
     if (explanation.truncated) lines.push(`(earlier steps omitted \u2014 showing the last ${explanation.hops.length})`);
     explanation.hops.forEach((h, index) => {
       const last = index === explanation.hops.length - 1;
@@ -15359,6 +15381,7 @@ Snort successfully validated the configuration${bad ? " (with errors)" : "."}`);
     return `
     <section class="why" id="whyPanel" aria-label="Why this frame was sent">
       <h4 class="why-title">Why?</h4>
+      <p class="why-summary">${escapeHtml(explanationSummary(explanation))}</p>
       ${explanation.truncated ? `<p class="why-then">Earlier steps omitted \u2014 showing the last ${explanation.hops.length}.</p>` : ""}
       <ol class="why-chain">${hops}</ol>
       ${outcome}

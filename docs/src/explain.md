@@ -41,7 +41,8 @@ Headless runs keep no capture, so none of this runs on their hot path.
   bookkeeping (`sim-learn`) is left out of a reason unless it is all the device
   said. `entry` may be a `CaptureEntry` or an `ActiveTransit` (a dot still in
   flight, which has no row number yet).
-- **`explanationText(explanation)`** → the plain lines the console prints.
+- **`explanationSummary(explanation)`** → the answer in a sentence or two, shown above the chain: what set the frame off ("R1 sent this in response to packet #5 (ARP 10.0.2.10 is at …)"), how far back the chain goes ("It traces back 5 packets to #1, where PC-A began"), and how the frame ended ("PC-B then: …", or "It stopped at R1: No route to …" — a drop leads). The chain beneath it is the evidence.
+- **`explanationText(explanation)`** → the plain lines the console prints: the summary, then the chain.
 - **`explainFailedRun(result)`** → why a **headless** run failed, from its own
   log: the `sim-drop` lines in the order they happened (the first is usually the
   cause, later ones its consequences), then the post-mortem's diagnosis,

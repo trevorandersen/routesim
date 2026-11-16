@@ -180,8 +180,9 @@ north star, so they rank ahead of the deeper simulation work below.
   shows it under the field table (each earlier packet a jump button), the
   console prints it with `why <packet no>`, and a failed scenario check lists
   the reasons from its own run on the goal banner and in `scenario check`
-  (`CheckResult.why`). **Later:** an explanation for a *headless* `run` (no
-  capture is kept there), and a one-sentence summary above the chain.
+  (`CheckResult.why`). A one- or two-sentence **summary** sits above the
+  chain. **Later:** an explanation for a *headless* `run` (no capture is kept
+  there).
 - **Colour-blind-safe encoding — shipped.** Every packet category carries a
   monochrome glyph beside its colour (`frameGlyph` / `toneGlyph`) in the packet
   list and on the transit dots, and each colour-coded link state has a text

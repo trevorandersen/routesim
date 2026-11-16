@@ -85,10 +85,40 @@ export function explainCapture(
   return { hops, outcome: reasons(entry.outcome), receiver: nameOf(entry.toDeviceId), truncated };
 }
 
+const sentence = (text: string) => text.replace(/[.\s]+$/, "");
+
+/**
+ * The explanation in a sentence or two, for the top of the view: what set this
+ * frame off, how far back the chain goes, and how the frame ended. The chain
+ * below it is the evidence; this is the answer a learner reads first.
+ */
+export function explanationSummary(explanation: Explanation): string {
+  const hops = explanation.hops;
+  const last = hops[hops.length - 1];
+  const first = hops[0];
+  const parts: string[] = [];
+  if (hops.length === 1) {
+    parts.push(last.why.length
+      ? `${last.from} starts here: ${sentence(last.why[0].text)}.`
+      : `${last.from} sent this to ${last.to}.`);
+  } else {
+    const prev = hops[hops.length - 2];
+    parts.push(`${last.from} sent this in response to ${prev.no != null ? `packet #${prev.no}` : "the previous frame"} (${prev.label}).`);
+    if (hops.length > 2) {
+      parts.push(`${explanation.truncated ? "The chain goes back further than shown" : `It traces back ${hops.length - 1} packets to ${first.no != null ? `#${first.no}` : "the first frame"}, where ${first.from} began`}.`);
+    }
+  }
+  const stop = explanation.outcome.find(line => line.kind === "sim-drop");
+  if (stop) parts.push(`It stopped at ${stop.device}: ${sentence(stop.text)}.`);
+  else if (explanation.outcome.length) parts.push(`${explanation.receiver} then: ${sentence(explanation.outcome[explanation.outcome.length - 1].text)}.`);
+  else parts.push(last.no == null ? `It has not reached ${explanation.receiver} yet.` : `${explanation.receiver} has not handled it yet.`);
+  return parts.join(" ");
+}
+
 // The explanation as plain lines — what the console's `why` verb prints, and
-// the form the tests read.
+// the form the tests read: the summary, then the chain it summarises.
 export function explanationText(explanation: Explanation): string[] {
-  const lines: string[] = [];
+  const lines: string[] = [explanationSummary(explanation)];
   if (explanation.truncated) lines.push(`(earlier steps omitted — showing the last ${explanation.hops.length})`);
   explanation.hops.forEach((h, index) => {
     const last = index === explanation.hops.length - 1;

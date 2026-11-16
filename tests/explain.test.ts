@@ -9,7 +9,7 @@ import { state } from "../src/state";
 import { dom } from "../src/dom";
 import { startSimulation, animationTick, stepOnce } from "../src/engine";
 import { buildPingEvents } from "../src/simulation";
-import { explainCapture, explanationText, explainFailedRun, originReason, CHAIN_LIMIT } from "../src/explain";
+import { explainCapture, explanationText, explanationSummary, explainFailedRun, originReason, CHAIN_LIMIT } from "../src/explain";
 import { createArpRequest, createIcmpEchoRequest, createDhcpDiscover } from "../src/frame";
 import { renderWhy, renderFramePanel } from "../src/inspector";
 import { runConsoleScript, runConsoleCommand as exec } from "../src/commands";
@@ -62,14 +62,37 @@ describe("explainCapture — composing the chain", () => {
     expect(explanation.hops.length).toBe(CHAIN_LIMIT);
     expect(explanation.hops[explanation.hops.length - 1].no).toBe(40);
     expect(explanation.truncated).toBe(true);
-    expect(explanationText(explanation)[0]).toContain("earlier steps omitted");
+    expect(explanationText(explanation)[1]).toContain("earlier steps omitted");
+    expect(explanationSummary(explanation)).toContain("The chain goes back further than shown.");
   });
 
   it("explains a frame still in flight (no row number yet)", () => {
     const transit = { frame: createArpRequest(A, "10.0.0.1", "10.0.0.2"), fromDeviceId: "a", toDeviceId: "r", cause: undefined, why: [{ device: "PC-A", kind: "sim-forward", text: "asks" }] };
     const explanation = explainCapture(transit, [], name);
     expect(explanation.hops[0].no).toBeNull();
-    expect(explanationText(explanation)[0]).toBe("→ (in flight) PC-A → R1: ARP Who has 10.0.0.2? Tell 10.0.0.1");
+    expect(explanationText(explanation)[1]).toBe("→ (in flight) PC-A → R1: ARP Who has 10.0.0.2? Tell 10.0.0.1");
+    expect(explanationSummary(explanation)).toBe("PC-A starts here: asks. It has not reached R1 yet.");
+  });
+});
+
+describe("explanationSummary — the answer in a sentence or two", () => {
+  const why = (text: string, kind = "sim-forward", device = "R1") => [{ device, kind, text }];
+  it("says what set the frame off, how far back the chain goes, and how it ended", () => {
+    const entries = [
+      row(1, "a", "r", { why: why("No ARP entry — asking.", "sim-forward", "PC-A") }),
+      row(2, "r", "a", { cause: 1 }),
+      row(3, "r", "b", { cause: 2, outcome: why("Received ICMP Echo Request — sending Reply", "sim-icmp", "PC-B") }),
+    ];
+    expect(explanationSummary(explainCapture(entries[0], entries, name)))
+      .toBe("PC-A starts here: No ARP entry — asking. R1 has not handled it yet.");
+    expect(explanationSummary(explainCapture(entries[1], entries, name)))
+      .toBe("R1 sent this in response to packet #1 (ICMP Echo (ping) request seq=1, ttl=64). PC-A has not handled it yet.");
+    expect(explanationSummary(explainCapture(entries[2], entries, name)))
+      .toBe("R1 sent this in response to packet #2 (ICMP Echo (ping) request seq=1, ttl=64). It traces back 2 packets to #1, where PC-A began. PC-B then: Received ICMP Echo Request — sending Reply.");
+  });
+  it("leads the outcome with the drop when there is one", () => {
+    const entry = row(1, "a", "r", { outcome: [...why("MAC learn", "sim-learn"), ...why("No route to 10.9.9.9 — dropping.", "sim-drop")] });
+    expect(explanationSummary(explainCapture(entry, [entry], name))).toBe("PC-A sent this to R1. It stopped at R1: No route to 10.9.9.9 — dropping.");
   });
 });
 
@@ -160,6 +183,7 @@ describe("a routed ping with cold ARP caches explains itself (animated run)", ()
     const entries = routed();
     const out = exec(`why ${entries.length}`).output;
     expect(out[0]).toBe(`Why packet ${entries.length}?`);
+    expect(out[1]).toMatch(/^R1 sent this in response to packet #\d+ .*It traces back \d+ packets to #1, where PC-A began\. PC-A then: /);
     expect(out.some(l => l.startsWith(`→ #${entries.length} R1 → PC-A:`))).toBe(true);
     expect(exec("why").output.join(" ")).toContain("which packet?");
     expect(exec("why 999").ok).toBe(false);
@@ -175,6 +199,7 @@ describe("a routed ping with cold ARP caches explains itself (animated run)", ()
     renderFramePanel(picked.frame);
     const html = (dom.detailsPanel as any).innerHTML as string;
     expect(html).toContain(`<h4 class="why-title">Why?</h4>`);
+    expect(html).toMatch(/<p class="why-summary">[^<]+ sent this in response to packet #\d+ /);
     expect(html).toContain(`aria-current="true">#${picked.no}</span>`);
     const jumps = [...html.matchAll(/data-why-no="(\d+)" type="button" aria-label="Show packet \d+"/g)].map(m => Number(m[1]));
     expect(jumps.length).toBeGreaterThan(0);

@@ -1103,7 +1103,7 @@ describe("router shell — a CLI mode whose target is gone falls back to config 
     runConsoleScript("unlink R1 SW");
     expect(state.terminal.mode).toBe("interface");
     expect({ name: state.terminal.interfaceName, tag: state.terminal.interfaceVlanTag }).toEqual({ name: "Ethernet1", tag: 10 });
-    expect(run("ip address 192.168.10.254/24")).toContain("not cabled");
+    expect(run("ip address 192.168.10.254/24")).toContain("% Ethernet1.10 is not cabled");   // names the sub-interface
     expect(r1().config!.interfaces!.find(i => i.vlanTag === 10)).toMatchObject({ peerId: "", name: "Ethernet1", ipv4Address: "192.168.10.254" });
     expect(run("encapsulation dot1q 20")).toContain("needs a cable");   // retagging still needs one
     runConsoleScript("add switch SW2 at 200 200\nlink R1 SW2");

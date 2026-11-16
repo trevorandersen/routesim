@@ -808,7 +808,7 @@ function routerInterfaceCommand(router: Device, command: string, lower: string):
       ? setUncabledRouterInterfaceIp(router, uncabled, ipAddressMatch[1], state.terminal.interfaceVlanTag)
       : setRouterInterfaceIp(router, state.terminal.interfacePeerId!, ipAddressMatch[1], state.terminal.interfaceVlanTag);
     if (result) terminalLine("error", result);
-    else if (uncabled) terminalLine("muted", notCabledNote(uncabled));
+    else if (uncabled) terminalLine("muted", notCabledNote(state.terminal.interfaceVlanTag != null ? `${uncabled}.${state.terminal.interfaceVlanTag}` : uncabled));
     return true;
   }
   if (lower === "no ip address") {

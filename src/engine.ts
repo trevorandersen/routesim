@@ -16,6 +16,7 @@ import { runStpConvergence, isStpParticipant } from "./stp";
 import { runIdsRules } from "./snort";
 import { isBootable, isDot1xSupplicant, isHost } from "./device-registry";
 import type { CaptureEntry } from "./types";
+import { originReason } from "./explain";
 
 // Re-exported so existing imports (terminal, tests, benchmarks) keep working.
 export { buildRoutingTable, routingLookup, runRipConvergence } from "./routing";
@@ -268,7 +269,12 @@ export function startSimulation(setup: PingSetup, originDeviceId: string, target
       const src = getDevice(ev.fromDeviceId);
       seeded = true;   // the source emitted (or tried to) — it is step 1 either way
       if (seedLink && src && !admitOnLink(src, seedLink, ev.frame)) continue;   // dropped on the first leg (loss / gate)
-      sim.transits.push({ frame: ev.frame, linkId: ev.linkId, fromDeviceId: ev.fromDeviceId, toDeviceId: ev.deviceId, progress: 0, startTime: seedNow, latencyFactor: linkLatencyFactor(seedLink), silent: isSilentFrame(ev.frame) });
+      // Nothing has been processed yet, so no log line explains these opening
+      // frames: say what the origin was doing (and what it is holding back
+      // behind an ARP) — the first link of every "Why?" chain.
+      const held = ev.frame.payload.type === "arp" ? setup.pendingArp[`${ev.fromDeviceId}:${ev.frame.payload.targetIp}`]?.[0] : null;
+      const why = src ? [{ device: src.name, kind: "sim-forward", text: originReason(ev.frame, src.name, held) }] : undefined;
+      sim.transits.push({ frame: ev.frame, linkId: ev.linkId, fromDeviceId: ev.fromDeviceId, toDeviceId: ev.deviceId, progress: 0, startTime: seedNow, latencyFactor: linkLatencyFactor(seedLink), silent: isSilentFrame(ev.frame), why });
     } else {
       sim.events.push(ev);
     }
@@ -710,6 +716,8 @@ function deliverCompletedTransits(): void {
         toDeviceId: t.toDeviceId,
         linkId: t.linkId,
         ...(macsec ? { macsec: true } : {}),
+        ...(t.why?.length ? { why: t.why } : {}),
+        ...(t.cause != null ? { cause: t.cause } : {}),
       });
       if (sim.capture.length > 1000) sim.capture.shift();
     }
@@ -733,6 +741,29 @@ function deliverCompletedTransits(): void {
       fromDeviceId: t.fromDeviceId,
       linkId: t.linkId
     });
+  }
+}
+
+// The "Why?" data (explain.ts). What `device` logged while handling `frame` is
+// both the OUTCOME of that frame (filed on its capture row) and the WHY of each
+// frame it sent in response (carried on the transit, then onto that frame's own
+// row when it lands) — and the handled frame's row number is their CAUSE, which
+// is what lets the view walk the chain back. Animated runs only: a headless run
+// keeps no capture, and this stays off its hot path.
+function tagExplanation(device: Device, frame: EthernetFrame, logMark: number, sent: ActiveTransit[]): void {
+  const sim = state.simulation;
+  const lines = sim.log.slice(logMark).map(entry => ({ device: entry.deviceName, kind: entry.kind, text: entry.action }));
+  // The row this frame arrived on: the newest capture of this very frame object
+  // into this device (a silent frame has no row — the chain stops there).
+  let arrival: CaptureEntry | undefined;
+  for (let i = sim.capture.length - 1; i >= 0; i--) {
+    const entry = sim.capture[i];
+    if (entry.frame === frame && entry.toDeviceId === device.id) { arrival = entry; break; }
+  }
+  if (arrival) arrival.outcome = lines;
+  for (const transit of sent) {
+    transit.why = lines;
+    if (arrival) transit.cause = arrival.no;
   }
 }
 
@@ -785,6 +816,8 @@ function runNextStep(): void {
   // A powered-off device processes nothing. One guard here, before dispatch,
   // so the drop is explained (the processors' own poweredOff early-outs stay as
   // defence for direct callers, but no longer swallow a run's frames silently).
+  const logMark = sim.log.length;       // everything logged from here is about this frame
+  const sent: ActiveTransit[] = [];
   let outgoing: OutgoingFrame[];
   if (device.poweredOff) {
     logStep(device, "sim-drop", `${device.name} is powered off — ${frameLabel(event.frame)} dropped`);
@@ -816,7 +849,7 @@ function runNextStep(): void {
       sim.stormDetected = true;
       break;
     }
-    sim.transits.push({
+    const transit: ActiveTransit = {
       frame: out.frame,
       linkId: link.id,
       fromDeviceId: event.deviceId,
@@ -829,8 +862,11 @@ function runNextStep(): void {
       // device rewrote on the way out (MACs at every hop, src IP/port at NAT) —
       // issue #2. The first leg has none (nothing was rewritten yet).
       prevFrame: event.frame
-    });
+    };
+    sim.transits.push(transit);
+    sent.push(transit);
   }
+  if (!sim.headless) tagExplanation(device, event.frame, logMark, sent);
 
   // A broadcast storm ends the run on both paths at this same step: a frame
   // came back round a loop (above), or — the backstop — frames are still being

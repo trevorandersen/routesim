@@ -123,6 +123,10 @@ see the answer play out. They double as the curriculum's test fixtures
 (`tests/scenarios.test.ts` runs each), so they always match the live scenarios.
 
 
+## A failed check says why
+
+`CheckResult.why` holds the reasons a check failed, recorded by whichever step decided it: a builder's refusal, `explainFailedRun` over the headless run (the drops in order, then the post-mortem's diagnosis), or a direct statement for checks that run nothing (no cable between two devices, a field's actual value against the goal, an HTTP status, a sensor that raised nothing, a DHCP Discover nobody served). The goal banner lists them under the failed check and `scenario check` prints them as `why:` lines. `tests/explain.test.ts` loads every built-in scenario and asserts each check that fails at the start carries a reason. This is the explanation of *what happened*; ranking the *most likely misconfiguration* is the separate "scenario hint" roadmap item.
+
 ## Import validation
 
 `importScenario` (io.ts) validates **everything `loadScenario` will touch before registering**: the topology (via `normaliseConfig`) *and* every check via **`isValidScenarioCheck`** (scenarios.ts) — a known `kind`, a `label`, and the fields that kind's evaluator and the goal banner read (`from`/`to`, a 1–65535 `port` for `tcp`/`tcp-fail`, `contains` for `alert`, …). A scenario with any invalid check is skipped, not registered. Previously only `Array.isArray(checks)` was checked, so `checks: [null]` registered fine and then threw `c.label` in the banner on every re-select — a permanently broken dropdown entry. If a validated scenario still fails to load, `unregisterScenario` rolls the registration back.

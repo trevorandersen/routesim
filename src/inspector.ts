@@ -1,8 +1,9 @@
-import type { Device, Link, DeviceType } from "./types";
+import type { Device, Link, DeviceType, EthernetFrame, CaptureEntry, ExplainLine } from "./types";
 import { state, sync, pushUndo, captureUndoOnFocus, captureUndoOnFocusWithin, linksChanged } from "./state";
 import { DEVICE_SPECS, isHost, offersTerminal, defaultPortCount } from "./device-registry";
 import { dom } from "./dom";
 import { dhcpXidText } from "./frame";
+import { explainCapture } from "./explain";
 import { escapeHtml, isValidIpv4, isValidMac, normaliseMacAddress, randomMac, parseIpv4Token, prefixOf, networkOf, normaliseSsid, normaliseWifiPassword, mutationText, clampFirewallPortCount, FIREWALL_PORT_RANGE } from "./utils";
 import { ensureConfig, normaliseVlans, normaliseDnsRecords, normaliseDhcpLeases, normaliseRadiusUsers } from "./normalise";
 import { snortRuleIssue } from "./snort";
@@ -1040,6 +1041,56 @@ function renderLinkPanel(link: Link): void {
 }
 
 // Click-a-packet inspector: a full field breakdown of one captured frame.
+// ── "Why?" — the causal chain behind the inspected frame (explain.ts) ────────
+// The frame the panel shows is either a packet-list row (a CaptureEntry of the
+// live run or a saved one) or a dot still in flight (an ActiveTransit, which
+// already carries its sender's reasons and its cause). Both explain the same
+// way; a frame that is neither (a hand-built one in a test) has no chain.
+type WhySubject = { subject: Parameters<typeof explainCapture>[0]; entries: CaptureEntry[] };
+
+function whySubject(frame: EthernetFrame): WhySubject | null {
+  const picked = state.inspectedCapture;
+  if (picked && picked.frame === frame) {
+    const saved = state.savedCaptures.find(capture => capture.entries.includes(picked));
+    return { subject: picked, entries: saved ? saved.entries : state.simulation.capture };
+  }
+  const live = state.simulation.capture;
+  const inFlight = state.simulation.transits.find(transit => transit.frame === frame);
+  if (inFlight) return { subject: inFlight, entries: live };
+  for (let i = live.length - 1; i >= 0; i--) if (live[i].frame === frame) return { subject: live[i], entries: live };
+  return null;
+}
+
+const whyLine = (line: ExplainLine) =>
+  // A drop reads by its mark as well as its colour (Perceivable by everyone).
+  `<li class="why-line ${escapeHtml(line.kind)}"><span class="why-who">${escapeHtml(line.device)}</span> ${line.kind === "sim-drop" ? "✕ " : ""}${escapeHtml(line.text)}</li>`;
+
+export function renderWhy(frame: EthernetFrame): string {
+  const found = whySubject(frame);
+  if (!found) return "";
+  const explanation = explainCapture(found.subject, found.entries, id => getDevice(id)?.name ?? "a removed device");
+  const hops = explanation.hops.map((hop, index) => {
+    const current = index === explanation.hops.length - 1;
+    const number = hop.no == null ? `<span class="why-no">in flight</span>`
+      : current ? `<span class="why-no" aria-current="true">#${hop.no}</span>`
+      : `<button class="why-no why-jump" data-why-no="${hop.no}" type="button" aria-label="Show packet ${hop.no}">#${hop.no}</button>`;
+    return `<li class="why-hop${current ? " current" : ""}">
+      <div class="why-head">${number} <span class="why-wire">${escapeHtml(hop.from)} → ${escapeHtml(hop.to)}</span> <span class="why-label">${escapeHtml(hop.label)}</span></div>
+      ${hop.why.length ? `<ul class="why-lines">${hop.why.map(whyLine).join("")}</ul>` : ""}
+    </li>`;
+  }).join("");
+  const outcome = explanation.outcome.length
+    ? `<p class="why-then">Then, at ${escapeHtml(explanation.receiver)}:</p><ul class="why-lines">${explanation.outcome.map(whyLine).join("")}</ul>`
+    : `<p class="why-then">${found.subject.no == null ? `Still on its way to ${escapeHtml(explanation.receiver)}.` : `${escapeHtml(explanation.receiver)} has not handled it yet — step or resume the run.`}</p>`;
+  return `
+    <section class="why" id="whyPanel" aria-label="Why this frame was sent">
+      <h4 class="why-title">Why?</h4>
+      ${explanation.truncated ? `<p class="why-then">Earlier steps omitted — showing the last ${explanation.hops.length}.</p>` : ""}
+      <ol class="why-chain">${hops}</ol>
+      ${outcome}
+    </section>`;
+}
+
 export function renderFramePanel(frame: any): void {
   const etherTypeLabel: Record<number, string> = {
     0x0806: "0x0806 (ARP)", 0x0800: "0x0800 (IPv4)",
@@ -1110,9 +1161,22 @@ export function renderFramePanel(frame: any): void {
         ${rows.map(([k, v]) => `<tr><th>${escapeHtml(k)}</th><td>${escapeHtml(v)}</td></tr>`).join("")}
       </tbody>
     </table>
+    ${renderWhy(frame)}
     <div style="height: 10px"></div>
     <button class="wide-button" id="closeFramePanel">Close</button>
   `;
+  // A chain step jumps to that packet — the same selection a row click makes.
+  dom.detailsPanel.querySelectorAll<HTMLElement>("[data-why-no]").forEach(button => {
+    button.addEventListener("click", () => {
+      const target = whySubject(frame)?.entries.find(entry => entry.no === Number(button.dataset.whyNo));
+      if (!target) return;
+      state.inspectedFrame = target.frame;
+      state.inspectedCapture = target;
+      syncPanel();
+      sync().render();
+      syncSimLog();
+    });
+  });
   document.getElementById("closeFramePanel")?.addEventListener("click", () => {
     state.inspectedFrame = null;
     state.inspectedCapture = null;

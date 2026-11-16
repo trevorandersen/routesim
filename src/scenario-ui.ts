@@ -40,7 +40,12 @@ export function syncScenarioPanel(): void {
     const cls = res == null ? "pending" : res.passed ? "pass" : "fail";
     // A failed check can carry a note — why it failed when the label alone
     // would read as satisfied (blocked, but not where the scenario asks).
-    const note = res && !res.passed && res.note ? `<span class="scenario-check-note">${escapeHtml(res.note)}</span>` : "";
+    // …and the explanation of the failing run, from its own log (explain.ts):
+    // the drops in order and the post-mortem's diagnosis. Each reason is its
+    // own line, marked as a reason rather than left to colour.
+    const why = res && !res.passed && res.why?.length
+      ? `<span class="scenario-check-note scenario-check-why"><span class="scenario-why-title">Why:</span>${res.why.map(line => `<span class="scenario-why-line">${escapeHtml(line)}</span>`).join("")}</span>` : "";
+    const note = (res && !res.passed && res.note ? `<span class="scenario-check-note">${escapeHtml(res.note)}</span>` : "") + why;
     return `<li class="scenario-check ${cls}"><span class="mark">${mark}</span><span class="scenario-check-text">${escapeHtml(c.label)}${note}</span></li>`;
   }).join("");
   dom.scenarioStatus.textContent = lastResult

@@ -115,6 +115,7 @@ Param keys and boolean values are case-insensitive. Adding a setting is a one-ro
 | `traceroute <src> <dst>` | **Headless** hop-by-hop path discovery via increasing TTL; `data` is `{ targetIp, hops, reached }`. Also `tracert`. |
 | `play` / `pause` / `step` / `stop` | Drive an animated run. |
 | `speed <ms>` | Milliseconds per hop. |
+| `why [<packet no>]` | Explain a packet in the capture the Sim Log is showing: the chain of frames that led to it (each with its sender's reason), then what its receiver did. With no number, the packet being inspected. Animated runs only — a headless `run` keeps no capture. |
 | `seed [<n>\|off]` | Pin the run's random seed for reproducible ephemeral ports / DHCP ids / NAT translations (default: the wall clock, so runs vary). `seed <n>` pins; `seed off` unpins; `seed` reports the current state (and, unpinned, the last run's seed to reproduce it). Session-level — not serialised. |
 
 ### Management
@@ -159,7 +160,7 @@ untouched.
 | `scenario list` | List the built-in scenarios (`id — name`). |
 | `scenario load <id>` | Load a scenario topology + goals. |
 | `scenario goal` | Print the active scenario's objective + checklist. |
-| `scenario check` | Run the goal checks against the current topology. |
+| `scenario check` | Run the goal checks against the current topology. A failed check prints why beneath it (`    why: …`) — the drops and diagnosis from its own run. |
 
 Each scenario's worked answer is a runnable script in [`scenario-solutions/`](../scenario-solutions/) (`<id>.routesim.txt`) — it loads the scenario, applies the fix, and checks the goal, so `routesim.run(<contents>)` plays the whole solution through.
 

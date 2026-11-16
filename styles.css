@@ -1523,6 +1523,25 @@
     .vlan-add input:focus { border-color: var(--accent); }
     .vlan-add .inline-button { height: 30px; }
 
+    /* "Why?" — the causal chain under the frame breakdown (explain.ts). */
+    .why { margin-top: 14px; }
+    .why-title { margin: 0 0 6px; font-size: 12px; font-weight: 700; letter-spacing: 0.04em; text-transform: uppercase; color: var(--muted); }
+    .why-chain { margin: 0; padding: 0; list-style: none; border-left: 2px solid var(--line); }
+    .why-hop { padding: 4px 0 6px 10px; font-size: 12px; line-height: 1.4; }
+    .why-hop.current { border-left: 2px solid var(--accent); margin-left: -2px; background: var(--panel-soft); }
+    .why-head { display: flex; flex-wrap: wrap; gap: 4px 6px; align-items: baseline; }
+    .why-no { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 11px; font-weight: 700; color: var(--muted); }
+    .why-jump { appearance: none; border: 0; padding: 0 2px; background: transparent; color: var(--accent); cursor: pointer; text-decoration: underline; }
+    .why-jump:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
+    .why-wire { font-weight: 700; color: var(--text); }
+    .why-label { color: var(--muted); }
+    .why-lines { margin: 3px 0 0; padding: 0; list-style: none; }
+    .why-line { color: var(--text); }
+    .why-line.sim-drop { color: var(--danger); }
+    .why-who { font-weight: 700; }
+    .why-who::after { content: ":"; }
+    .why-then { margin: 8px 0 2px; font-size: 12px; font-weight: 700; color: var(--muted); }
+
     .data-table {
       width: 100%;
       margin: 2px 0 13px;
@@ -1965,6 +1984,8 @@
     /* A failed check's explanation sits under its label, so the mark aligns to the label's first line. */
     .scenario-check:has(.scenario-check-note) { align-items: flex-start; }
     .scenario-check-text { min-width: 0; }
+    .scenario-why-title { font-weight: 700; margin-right: 4px; }
+    .scenario-why-line { display: block; }
     .scenario-check-note { display: block; margin-top: 2px; font-size: 11px; line-height: 1.35; color: var(--muted); }
     .scenario-check.pass { color: var(--text); }
     .scenario-check.pass .mark { color: #22c55e; }

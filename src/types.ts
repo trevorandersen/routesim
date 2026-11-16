@@ -702,7 +702,13 @@ export interface ActiveTransit {
   latencyFactor?: number;  // multiplies this dot's crossing time (per-link latency); 1 = normal
   silent?: boolean;        // a "silent" ARP/DHCP/DNS frame: delivered instantly, not drawn or captured
   prevFrame?: EthernetFrame;  // the frame this hop was derived from — for the callout's rewrite diff (issue #2)
+  why?: ExplainLine[];        // the sender's reasons for this frame — carried onto its CaptureEntry
+  cause?: number;             // capture `no` of the frame the sender was handling
 }
+
+// One reason a device gave for what it did, as the "Why?" view shows it
+// (explain.ts): who said it, the log line's kind (for its tone), and the text.
+export interface ExplainLine { device: string; kind: string; text: string }
 
 export interface SimLogEntry {
   step: number;
@@ -723,6 +729,11 @@ export interface CaptureEntry {
   toDeviceId: string;
   linkId: string;
   macsec?: boolean;  // traversed a MACsec-secured link — shown encrypted in the packet list
+  // The "Why?" data (explain.ts), filled as the run goes and kept with the
+  // entry so a saved capture explains itself too:
+  why?: ExplainLine[];      // what the sender logged while deciding to send this frame
+  outcome?: ExplainLine[];  // what the receiver logged while handling it
+  cause?: number;           // capture `no` of the frame whose arrival made the sender act
 }
 
 // The kind of run a simulation is — one name for the union both run entry

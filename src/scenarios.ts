@@ -13,6 +13,8 @@ import { buildPingEvents, buildDhcpEvents, buildConnectEvents, buildResolveEvent
 import { buildScanEvents } from "./security/offensive/attacks";
 import { CURRICULUM } from "./scenario-library";
 import { runSimulationHeadless } from "./engine";
+import type { SimResult } from "./engine";
+import { explainFailedRun } from "./explain";
 
 export type ScenarioCheck =
   | { kind: "link"; a: string; b: string; label: string }
@@ -45,7 +47,9 @@ export interface Scenario {
 
 // `note` explains a failed check whose label alone would mislead — an isolation
 // goal that IS blocked, but not by the device the scenario asks for.
-export interface CheckResult { label: string; passed: boolean; note?: string }
+// `why` is the explanation of a failed check, composed from the failing run's
+// own log (explain.ts) — the drops in order, then the post-mortem's diagnosis.
+export interface CheckResult { label: string; passed: boolean; note?: string; why?: string[] }
 export interface ScenarioResult { id: string; name: string; passed: boolean; checks: CheckResult[] }
 
 // ── Registry ─────────────────────────────────────────────────────────────────
@@ -181,41 +185,71 @@ function linkExists(aId: string, bId: string): boolean {
 // Names a Check in the note left if it stops an animated run (engine beginRun).
 const CHECK_PURPOSE = "the scenario Check";
 
+// Why the check being evaluated came out the way it did — set by whichever
+// step decided it (a builder's refusal, the headless run, a missing device or
+// cable), read by evaluateCheck when the check fails. A grade that only says
+// "✗" scores; one that says why teaches.
+let checkWhy: string[] = [];
+const because = (...reasons: string[]): false => { checkWhy = reasons; return false; };
+// Run a flow headlessly, keeping the explanation of a failure.
+function run(...args: Parameters<typeof runSimulationHeadless>): SimResult {
+  const result = runSimulationHeadless(...args);
+  checkWhy = explainFailedRun(result);
+  return result;
+}
+const missing = (ref: string) => `There is no device called ${ref}.`;
+
 function evaluate(check: ScenarioCheck): boolean {
   if (check.kind === "link") {
     const a = resolve(check.a); const b = resolve(check.b);
-    return !!a && !!b && linkExists(a.id, b.id);
+    if (!a) return because(missing(check.a));
+    if (!b) return because(missing(check.b));
+    return linkExists(a.id, b.id) || because(`No cable joins ${a.name} and ${b.name}.`);
   }
   if (check.kind === "config") {
     const d = resolve(check.device);
-    return !!d && (d.config as any)?.[check.field] === check.equals;
+    if (!d) return because(missing(check.device));
+    const actual = (d.config as any)?.[check.field];
+    return actual === check.equals
+      || because(`${d.name}'s ${check.field} is ${actual == null || actual === "" ? "not set" : JSON.stringify(actual)}; the goal needs ${JSON.stringify(check.equals)}.`);
   }
   if (check.kind === "ping") return pingSucceeds(check.from, check.to);
   if (check.kind === "tcp") return tcpSucceeds(check.from, check.to, check.port);
   if (check.kind === "http") {
     const from = resolve(check.from);
-    if (!from) return false;
+    if (!from) return because(missing(check.from));
     const to = resolve(check.to)?.config?.ipv4Address || check.to;
     const setup = buildHttpEvents(from, to, 80, check.path || "/");
-    if (typeof setup === "string") return false;
-    const r = runSimulationHeadless(setup, from.id, to, "http", 80, CHECK_PURPOSE);
-    return check.status != null ? r.httpStatus === check.status : (r.httpStatus != null && r.httpStatus >= 200 && r.httpStatus < 300);
+    if (typeof setup === "string") return because(setup);
+    const r = run(setup, from.id, to, "http", 80, CHECK_PURPOSE);
+    const good = check.status != null ? r.httpStatus === check.status : (r.httpStatus != null && r.httpStatus >= 200 && r.httpStatus < 300);
+    if (!good && !checkWhy.length) {
+      checkWhy = [r.httpStatus != null ? `The server answered ${r.httpStatus}${check.status != null ? `; the goal needs ${check.status}` : ""}.`
+        : `${from.name} reached port 80 but no web service answered the GET.`];
+    }
+    return good;
   }
   if (check.kind === "dns") {
     const from = resolve(check.from);
-    if (!from) return false;
+    if (!from) return because(missing(check.from));
     const setup = buildResolveEvents(from, check.name, null, null);
-    if (typeof setup === "string") return false;
-    const r = runSimulationHeadless(setup, from.id, check.name, "dns", null, CHECK_PURPOSE);
+    if (typeof setup === "string") return because(setup);
+    const r = run(setup, from.id, check.name, "dns", null, CHECK_PURPOSE);
     if (!r.resolvedIp) return false;
-    return !check.ip || r.resolvedIp === check.ip;
+    return !check.ip || r.resolvedIp === check.ip || because(`${check.name} resolves to ${r.resolvedIp}; the goal needs ${check.ip}.`);
   }
   if (check.kind === "dhcp") {
     const host = resolve(check.host);
-    if (!host) return false;
+    if (!host) return because(missing(check.host));
     const setup = buildDhcpEvents(host);
-    if (typeof setup === "string") return false;
-    return runSimulationHeadless(setup, host.id, "", "dhcp", null, CHECK_PURPOSE).success;
+    if (typeof setup === "string") return because(setup);
+    const leased = run(setup, host.id, "", "dhcp", null, CHECK_PURPOSE).success;
+    // A Discover nobody serves is ignored, not dropped — no device logs a
+    // reason — so say what silence means here.
+    if (!leased && !checkWhy.length) {
+      checkWhy = [`No DHCP server answered ${host.name}'s Discover: nothing on its segment is handing out addresses (a server needs a dhcp-range in dnsmasq.conf and a running dnsmasq; a router needs an address on that interface).`];
+    }
+    return leased;
   }
   if (check.kind === "alert") {
     const from = resolve(check.from);
@@ -228,15 +262,19 @@ function evaluate(check: ScenarioCheck): boolean {
     // (when a port is given) or a ping.
     if (from.type === "attacker") {
       const setup = buildScanEvents(from, check.to);
-      if (typeof setup === "string") return false;
+      if (typeof setup === "string") return because(setup);
       runSimulationHeadless(setup, from.id, "", "attack", null, CHECK_PURPOSE);
     } else {
       const setup = check.port != null ? buildConnectEvents(from, to, check.port) : buildPingEvents(from, to);
-      if (typeof setup === "string") return false;
+      if (typeof setup === "string") return because(setup);
       runSimulationHeadless(setup, from.id, to, check.port != null ? "tcp" : "ping", check.port ?? null, CHECK_PURPOSE);
     }
     const needle = check.contains.toLowerCase();
-    return state.devices.some(d => d.type === "ids" && (d.config?.alerts || []).some((a: string) => a.toLowerCase().includes(needle)));
+    const sensors = state.devices.filter(d => d.type === "ids");
+    if (sensors.some(d => (d.config?.alerts || []).some((a: string) => a.toLowerCase().includes(needle)))) return true;
+    return because(sensors.length
+      ? `No sensor raised an alert containing "${check.contains}" for this flow — check that a rule matches it and that the traffic reaches the sensor.`
+      : "There is no IDS sensor in the network to raise the alert.");
   }
   return false;
 }
@@ -245,18 +283,22 @@ function evaluate(check: ScenarioCheck): boolean {
 
 function pingSucceeds(fromRef: string, toRef: string): boolean {
   const from = resolve(fromRef);
-  if (!from) return false;
+  if (!from) return because(missing(fromRef));
   const to = resolve(toRef)?.config?.ipv4Address || toRef;
   const setup = buildPingEvents(from, to);
-  return typeof setup !== "string" && runSimulationHeadless(setup, from.id, to, "ping", null, CHECK_PURPOSE).success;
+  if (typeof setup === "string") return because(setup);
+  return run(setup, from.id, to, "ping", null, CHECK_PURPOSE).success;
 }
 
 function tcpSucceeds(fromRef: string, toRef: string, port: number): boolean {
   const from = resolve(fromRef);
-  if (!from) return false;
+  if (!from) return because(missing(fromRef));
   const to = resolve(toRef)?.config?.ipv4Address || toRef;
   const setup = buildConnectEvents(from, to, port);
-  return typeof setup !== "string" && runSimulationHeadless(setup, from.id, to, "tcp", port, CHECK_PURPOSE).success;
+  if (typeof setup === "string") return because(setup);
+  const r = run(setup, from.id, to, "tcp", port, CHECK_PURPOSE);
+  if (!r.success && r.refused && !checkWhy.length) checkWhy = [`${to} refused the connection: nothing listens on port ${port} there (it answered RST).`];
+  return r.success;
 }
 
 // Take a device's traffic policy out of the way, in place, and name what was
@@ -301,8 +343,8 @@ function wouldSucceedWithout(guard: Device, flow: () => boolean): { succeeds: bo
 // moved to another subnet, an address that no longer exists) stays dead in the
 // what-if, so it does not pass — and the note says so, since the label alone
 // ("Telnet is blocked") would read as satisfied.
-function evaluateIsolation(blockedBy: string | undefined, flow: () => boolean): { passed: boolean; note?: string } {
-  if (flow()) return { passed: false };
+function evaluateIsolation(blockedBy: string | undefined, flow: () => boolean): { passed: boolean; note?: string; why?: string[] } {
+  if (flow()) return { passed: false, why: ["The flow got through: nothing on its path drops it yet."] };
   if (!blockedBy) return { passed: true };
   const guard = resolve(blockedBy);
   if (!guard) return { passed: false, note: `${blockedBy} is missing — the goal is to block this at ${blockedBy}.` };
@@ -322,7 +364,9 @@ function evaluateCheck(check: ScenarioCheck): CheckResult {
   if (check.kind === "tcp-fail") {
     return { label: check.label, ...evaluateIsolation(check.blockedBy, () => tcpSucceeds(check.from, check.to, check.port)) };
   }
-  return { label: check.label, passed: evaluate(check) };
+  checkWhy = [];
+  const passed = evaluate(check);
+  return { label: check.label, passed, ...(!passed && checkWhy.length ? { why: checkWhy } : {}) };
 }
 
 // Grading runs real headless simulations against live state (DHCP, ping, TCP,

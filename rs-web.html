@@ -1532,6 +1532,25 @@
     .vlan-add input:focus { border-color: var(--accent); }
     .vlan-add .inline-button { height: 30px; }
 
+    /* "Why?" — the causal chain under the frame breakdown (explain.ts). */
+    .why { margin-top: 14px; }
+    .why-title { margin: 0 0 6px; font-size: 12px; font-weight: 700; letter-spacing: 0.04em; text-transform: uppercase; color: var(--muted); }
+    .why-chain { margin: 0; padding: 0; list-style: none; border-left: 2px solid var(--line); }
+    .why-hop { padding: 4px 0 6px 10px; font-size: 12px; line-height: 1.4; }
+    .why-hop.current { border-left: 2px solid var(--accent); margin-left: -2px; background: var(--panel-soft); }
+    .why-head { display: flex; flex-wrap: wrap; gap: 4px 6px; align-items: baseline; }
+    .why-no { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 11px; font-weight: 700; color: var(--muted); }
+    .why-jump { appearance: none; border: 0; padding: 0 2px; background: transparent; color: var(--accent); cursor: pointer; text-decoration: underline; }
+    .why-jump:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
+    .why-wire { font-weight: 700; color: var(--text); }
+    .why-label { color: var(--muted); }
+    .why-lines { margin: 3px 0 0; padding: 0; list-style: none; }
+    .why-line { color: var(--text); }
+    .why-line.sim-drop { color: var(--danger); }
+    .why-who { font-weight: 700; }
+    .why-who::after { content: ":"; }
+    .why-then { margin: 8px 0 2px; font-size: 12px; font-weight: 700; color: var(--muted); }
+
     .data-table {
       width: 100%;
       margin: 2px 0 13px;
@@ -1974,6 +1993,8 @@
     /* A failed check's explanation sits under its label, so the mark aligns to the label's first line. */
     .scenario-check:has(.scenario-check-note) { align-items: flex-start; }
     .scenario-check-text { min-width: 0; }
+    .scenario-why-title { font-weight: 700; margin-right: 4px; }
+    .scenario-why-line { display: block; }
     .scenario-check-note { display: block; margin-top: 2px; font-size: 11px; line-height: 1.35; color: var(--muted); }
     .scenario-check.pass { color: var(--text); }
     .scenario-check.pass .mark { color: #22c55e; }
@@ -7557,6 +7578,86 @@ Full legal text: https://creativecommons.org/publicdomain/zero/1.0/legalcode</pr
     render();
   }
 
+  // src/explain.ts
+  var CHAIN_LIMIT = 14;
+  function reasons(lines) {
+    const all = lines || [];
+    const decisive = all.filter((line) => line.kind !== "sim-learn");
+    return decisive.length ? decisive : all;
+  }
+  function frameWords(frame) {
+    const cols = packetColumns(frame);
+    return `${cols.protocol} ${cols.info}`.trim();
+  }
+  function explainCapture(entry, entries, nameOf) {
+    const byNo = new Map(entries.map((e) => [e.no, e]));
+    const hop = (e) => ({
+      no: e.no ?? null,
+      from: nameOf(e.fromDeviceId),
+      to: nameOf(e.toDeviceId),
+      label: frameWords(e.frame),
+      why: reasons(e.why)
+    });
+    const hops = [hop(entry)];
+    const seen = new Set(entry.no != null ? [entry.no] : []);
+    let cause = entry.cause;
+    let truncated = false;
+    while (cause != null) {
+      const parent = byNo.get(cause);
+      if (!parent || seen.has(parent.no)) break;
+      if (hops.length >= CHAIN_LIMIT) {
+        truncated = true;
+        break;
+      }
+      seen.add(parent.no);
+      hops.unshift(hop(parent));
+      cause = parent.cause;
+    }
+    return { hops, outcome: reasons(entry.outcome), receiver: nameOf(entry.toDeviceId), truncated };
+  }
+  function explanationText(explanation) {
+    const lines = [];
+    if (explanation.truncated) lines.push(`(earlier steps omitted \u2014 showing the last ${explanation.hops.length})`);
+    explanation.hops.forEach((h, index) => {
+      const last = index === explanation.hops.length - 1;
+      lines.push(`${last ? "\u2192" : " "} ${h.no != null ? `#${h.no}` : "(in flight)"} ${h.from} \u2192 ${h.to}: ${h.label}`);
+      for (const line of h.why) lines.push(`      ${line.device}: ${line.text}`);
+    });
+    if (explanation.outcome.length) {
+      lines.push(`  Then, at ${explanation.receiver}:`);
+      for (const line of explanation.outcome) lines.push(`      ${line.device}: ${line.text}`);
+    }
+    return lines;
+  }
+  function originReason(frame, origin, waiting) {
+    const p = frame.payload;
+    if (p.type === "arp" && p.operation === "request") {
+      const held = waiting ? ` before it can send its ${frameWords(waiting).split(" ").slice(0, 3).join(" ")}` : "";
+      return `${origin} has no ARP entry for ${p.targetIp}, so it must learn that MAC address${held} \u2014 it broadcasts an ARP request.`;
+    }
+    if (p.type === "arp") return `${origin} announces ${p.senderIp} is at ${p.senderMac}.`;
+    if (p.type === "ipv4") {
+      const inner = p.payload;
+      if (inner.type === "dhcp") return `${origin} has no address yet, so it broadcasts a DHCP Discover to find a server.`;
+      if (inner.type === "dns") return `${origin} must resolve ${inner.name} before it can reach it, so it asks its nameserver ${p.dstIp}.`;
+      return `${origin} already knows the next hop's MAC address, so it sends straight to ${p.dstIp}.`;
+    }
+    if (p.type === "dot11") return `${origin} starts joining the wireless network${p.ssid ? ` "${p.ssid}"` : ""}.`;
+    if (p.type === "dot1x") return `${origin} starts 802.1X authentication on its port.`;
+    if (p.type === "bpdu") return `${origin} is the root bridge, so it originates the spanning-tree BPDU.`;
+    return `${origin} starts the run.`;
+  }
+  function explainFailedRun(result, limit = 4) {
+    if (result.success) return [];
+    const out = [];
+    const add = (text) => {
+      if (text && !out.some((have) => have === text || have.includes(text) || text.includes(have))) out.push(text);
+    };
+    for (const entry of result.log) if (entry.kind === "sim-drop") add(`${entry.deviceName}: ${entry.action}`);
+    for (const line of result.diagnosis) add(line);
+    return out.slice(0, limit);
+  }
+
   // src/snort.ts
   var HEADER_RE = /^\s*(\w+)\s+(\w+)\s+(\S+)\s+(\S+)\s+(->|<>)\s+(\S+)\s+(\S+)\s*(?:\((.*)\)\s*)?$/;
   var SNORT_ACTIONS = ["alert", "log", "pass", "drop", "reject"];
@@ -8312,7 +8413,9 @@ Full legal text: https://creativecommons.org/publicdomain/zero/1.0/legalcode</pr
         const src = getDevice(ev.fromDeviceId);
         seeded = true;
         if (seedLink && src && !admitOnLink(src, seedLink, ev.frame)) continue;
-        sim.transits.push({ frame: ev.frame, linkId: ev.linkId, fromDeviceId: ev.fromDeviceId, toDeviceId: ev.deviceId, progress: 0, startTime: seedNow, latencyFactor: linkLatencyFactor(seedLink), silent: isSilentFrame(ev.frame) });
+        const held = ev.frame.payload.type === "arp" ? setup.pendingArp[`${ev.fromDeviceId}:${ev.frame.payload.targetIp}`]?.[0] : null;
+        const why = src ? [{ device: src.name, kind: "sim-forward", text: originReason(ev.frame, src.name, held) }] : void 0;
+        sim.transits.push({ frame: ev.frame, linkId: ev.linkId, fromDeviceId: ev.fromDeviceId, toDeviceId: ev.deviceId, progress: 0, startTime: seedNow, latencyFactor: linkLatencyFactor(seedLink), silent: isSilentFrame(ev.frame), why });
       } else {
         sim.events.push(ev);
       }
@@ -8581,7 +8684,9 @@ Full legal text: https://creativecommons.org/publicdomain/zero/1.0/legalcode</pr
           fromDeviceId: t.fromDeviceId,
           toDeviceId: t.toDeviceId,
           linkId: t.linkId,
-          ...macsec ? { macsec: true } : {}
+          ...macsec ? { macsec: true } : {},
+          ...t.why?.length ? { why: t.why } : {},
+          ...t.cause != null ? { cause: t.cause } : {}
         });
         if (sim.capture.length > 1e3) sim.capture.shift();
       }
@@ -8604,6 +8709,23 @@ Full legal text: https://creativecommons.org/publicdomain/zero/1.0/legalcode</pr
         fromDeviceId: t.fromDeviceId,
         linkId: t.linkId
       });
+    }
+  }
+  function tagExplanation(device, frame, logMark, sent) {
+    const sim = state.simulation;
+    const lines = sim.log.slice(logMark).map((entry) => ({ device: entry.deviceName, kind: entry.kind, text: entry.action }));
+    let arrival;
+    for (let i = sim.capture.length - 1; i >= 0; i--) {
+      const entry = sim.capture[i];
+      if (entry.frame === frame && entry.toDeviceId === device.id) {
+        arrival = entry;
+        break;
+      }
+    }
+    if (arrival) arrival.outcome = lines;
+    for (const transit of sent) {
+      transit.why = lines;
+      if (arrival) transit.cause = arrival.no;
     }
   }
   var stepDepth = 0;
@@ -8635,6 +8757,8 @@ Full legal text: https://creativecommons.org/publicdomain/zero/1.0/legalcode</pr
       settleStep();
       return;
     }
+    const logMark = sim.log.length;
+    const sent = [];
     let outgoing;
     if (device.poweredOff) {
       logStep(device, "sim-drop", `${device.name} is powered off \u2014 ${frameLabel(event.frame)} dropped`);
@@ -8658,7 +8782,7 @@ Full legal text: https://creativecommons.org/publicdomain/zero/1.0/legalcode</pr
         sim.stormDetected = true;
         break;
       }
-      sim.transits.push({
+      const transit = {
         frame: out.frame,
         linkId: link.id,
         fromDeviceId: event.deviceId,
@@ -8671,8 +8795,11 @@ Full legal text: https://creativecommons.org/publicdomain/zero/1.0/legalcode</pr
         // device rewrote on the way out (MACs at every hop, src IP/port at NAT) —
         // issue #2. The first leg has none (nothing was rewritten yet).
         prevFrame: event.frame
-      });
+      };
+      sim.transits.push(transit);
+      sent.push(transit);
     }
+    if (!sim.headless) tagExplanation(device, event.frame, logMark, sent);
     if (!sim.stormDetected && sim.transits.length > 0 && ++sim.wireSteps > STORM_BACKSTOP_STEPS) {
       logStep(device, "sim-drop", `Frames still circulating after ${STORM_BACKSTOP_STEPS} forwarding steps \u2014 stopping the run as a broadcast storm`);
       sim.stormDetected = true;
@@ -10394,18 +10521,18 @@ Full legal text: https://creativecommons.org/publicdomain/zero/1.0/legalcode</pr
     for (const [id, entries] of byDevice) {
       const device = getDevice(id);
       if (!device) continue;
-      const reasons = [];
+      const reasons2 = [];
       if (entries.length > 3) {
         const gw = device.config?.gatewayIpv4Address;
-        for (const e of entries) if (e.ip === gw) reasons.push(explainUnansweredArp(device, e.ip, e.frames));
+        for (const e of entries) if (e.ip === gw) reasons2.push(explainUnansweredArp(device, e.ip, e.frames));
         const rest = entries.filter((e) => e.ip !== gw);
         const shown = rest.slice(0, 4).map((e) => e.ip).join(", ") + (rest.length > 4 ? ", \u2026" : "");
         const queued = rest.reduce((n, e) => n + e.frames.length, 0);
-        reasons.push(`ARP got no reply from ${rest.length} addresses (${shown}) \u2014 ${queued} queued frames never sent: no device on this subnet answered for them`);
+        reasons2.push(`ARP got no reply from ${rest.length} addresses (${shown}) \u2014 ${queued} queued frames never sent: no device on this subnet answered for them`);
       } else {
-        for (const e of entries) reasons.push(explainUnansweredArp(device, e.ip, e.frames));
+        for (const e of entries) reasons2.push(explainUnansweredArp(device, e.ip, e.frames));
       }
-      for (const reason of reasons) {
+      for (const reason of reasons2) {
         logStep(device, succeeded ? "sim-arp" : "sim-drop", reason);
         lines.push(id === sim.originDeviceId ? reason : `${device.name}: ${reason}`);
       }
@@ -13318,15 +13445,15 @@ Snort successfully validated the configuration${bad ? " (with errors)" : "."}`);
     terminalLineFor(state.terminal, kind, text);
   }
   function runDeviceCommand(device, command) {
-    const run = CLI_DISPATCH[device.type];
+    const run2 = CLI_DISPATCH[device.type];
     const trimmed = command.trim();
-    if (!run || !trimmed) return;
+    if (!run2 || !trimmed) return;
     state.terminal = ensureSession(device);
     openDock("terminal");
     injectedMode = true;
     try {
       terminalLine("command", `${terminalPromptText(device)} ${trimmed}`);
-      run(device, trimmed);
+      run2(device, trimmed);
     } finally {
       injectedMode = false;
     }
@@ -13484,8 +13611,8 @@ Snort successfully validated the configuration${bad ? " (with errors)" : "."}`);
   function runTerminalCommand(rawCommand) {
     const host = getDevice(state.terminal.deviceId);
     const command = rawCommand.trim();
-    const run = host ? CLI_DISPATCH[host.type] : void 0;
-    if (!host || !run) {
+    const run2 = host ? CLI_DISPATCH[host.type] : void 0;
+    if (!host || !run2) {
       terminalLine("error", "No device is attached to this terminal.");
       return { ok: false, lines: state.terminal.lines.slice(-1) };
     }
@@ -13499,7 +13626,7 @@ Snort successfully validated the configuration${bad ? " (with errors)" : "."}`);
     takePreemptionNote();
     const session = state.terminal;
     const echo = session.lines[session.lines.length - 1];
-    run(host, command);
+    run2(host, command);
     const at = session.lines.indexOf(echo) + 1;
     const printed = session.lines.slice(at);
     const note = takePreemptionNote();
@@ -15171,6 +15298,43 @@ Snort successfully validated the configuration${bad ? " (with errors)" : "."}`);
     linkNumberField("selectedLinkLatency", "latency");
     linkNumberField("selectedLinkLoss", "loss", 100);
   }
+  function whySubject(frame) {
+    const picked = state.inspectedCapture;
+    if (picked && picked.frame === frame) {
+      const saved = state.savedCaptures.find((capture) => capture.entries.includes(picked));
+      return { subject: picked, entries: saved ? saved.entries : state.simulation.capture };
+    }
+    const live = state.simulation.capture;
+    const inFlight = state.simulation.transits.find((transit) => transit.frame === frame);
+    if (inFlight) return { subject: inFlight, entries: live };
+    for (let i = live.length - 1; i >= 0; i--) if (live[i].frame === frame) return { subject: live[i], entries: live };
+    return null;
+  }
+  var whyLine = (line) => (
+    // A drop reads by its mark as well as its colour (Perceivable by everyone).
+    `<li class="why-line ${escapeHtml(line.kind)}"><span class="why-who">${escapeHtml(line.device)}</span> ${line.kind === "sim-drop" ? "\u2715 " : ""}${escapeHtml(line.text)}</li>`
+  );
+  function renderWhy(frame) {
+    const found = whySubject(frame);
+    if (!found) return "";
+    const explanation = explainCapture(found.subject, found.entries, (id) => getDevice(id)?.name ?? "a removed device");
+    const hops = explanation.hops.map((hop, index) => {
+      const current = index === explanation.hops.length - 1;
+      const number = hop.no == null ? `<span class="why-no">in flight</span>` : current ? `<span class="why-no" aria-current="true">#${hop.no}</span>` : `<button class="why-no why-jump" data-why-no="${hop.no}" type="button" aria-label="Show packet ${hop.no}">#${hop.no}</button>`;
+      return `<li class="why-hop${current ? " current" : ""}">
+      <div class="why-head">${number} <span class="why-wire">${escapeHtml(hop.from)} \u2192 ${escapeHtml(hop.to)}</span> <span class="why-label">${escapeHtml(hop.label)}</span></div>
+      ${hop.why.length ? `<ul class="why-lines">${hop.why.map(whyLine).join("")}</ul>` : ""}
+    </li>`;
+    }).join("");
+    const outcome = explanation.outcome.length ? `<p class="why-then">Then, at ${escapeHtml(explanation.receiver)}:</p><ul class="why-lines">${explanation.outcome.map(whyLine).join("")}</ul>` : `<p class="why-then">${found.subject.no == null ? `Still on its way to ${escapeHtml(explanation.receiver)}.` : `${escapeHtml(explanation.receiver)} has not handled it yet \u2014 step or resume the run.`}</p>`;
+    return `
+    <section class="why" id="whyPanel" aria-label="Why this frame was sent">
+      <h4 class="why-title">Why?</h4>
+      ${explanation.truncated ? `<p class="why-then">Earlier steps omitted \u2014 showing the last ${explanation.hops.length}.</p>` : ""}
+      <ol class="why-chain">${hops}</ol>
+      ${outcome}
+    </section>`;
+  }
   function renderFramePanel(frame) {
     const etherTypeLabel = {
       2054: "0x0806 (ARP)",
@@ -15250,9 +15414,21 @@ Snort successfully validated the configuration${bad ? " (with errors)" : "."}`);
         ${rows.map(([k, v]) => `<tr><th>${escapeHtml(k)}</th><td>${escapeHtml(v)}</td></tr>`).join("")}
       </tbody>
     </table>
+    ${renderWhy(frame)}
     <div style="height: 10px"></div>
     <button class="wide-button" id="closeFramePanel">Close</button>
   `;
+    dom.detailsPanel.querySelectorAll("[data-why-no]").forEach((button) => {
+      button.addEventListener("click", () => {
+        const target = whySubject(frame)?.entries.find((entry) => entry.no === Number(button.dataset.whyNo));
+        if (!target) return;
+        state.inspectedFrame = target.frame;
+        state.inspectedCapture = target;
+        syncPanel();
+        sync().render();
+        syncSimLog();
+      });
+    });
     document.getElementById("closeFramePanel")?.addEventListener("click", () => {
       state.inspectedFrame = null;
       state.inspectedCapture = null;
@@ -16898,42 +17074,65 @@ Snort successfully validated the configuration${bad ? " (with errors)" : "."}`);
     return state.links.some((l) => isPhysicalLink(l) && (l.from === aId && l.to === bId || l.from === bId && l.to === aId));
   }
   var CHECK_PURPOSE = "the scenario Check";
+  var checkWhy = [];
+  var because = (...reasons2) => {
+    checkWhy = reasons2;
+    return false;
+  };
+  function run(...args) {
+    const result = runSimulationHeadless(...args);
+    checkWhy = explainFailedRun(result);
+    return result;
+  }
+  var missing = (ref2) => `There is no device called ${ref2}.`;
   function evaluate(check) {
     if (check.kind === "link") {
       const a = resolve(check.a);
       const b = resolve(check.b);
-      return !!a && !!b && linkExists(a.id, b.id);
+      if (!a) return because(missing(check.a));
+      if (!b) return because(missing(check.b));
+      return linkExists(a.id, b.id) || because(`No cable joins ${a.name} and ${b.name}.`);
     }
     if (check.kind === "config") {
       const d = resolve(check.device);
-      return !!d && d.config?.[check.field] === check.equals;
+      if (!d) return because(missing(check.device));
+      const actual = d.config?.[check.field];
+      return actual === check.equals || because(`${d.name}'s ${check.field} is ${actual == null || actual === "" ? "not set" : JSON.stringify(actual)}; the goal needs ${JSON.stringify(check.equals)}.`);
     }
     if (check.kind === "ping") return pingSucceeds(check.from, check.to);
     if (check.kind === "tcp") return tcpSucceeds(check.from, check.to, check.port);
     if (check.kind === "http") {
       const from = resolve(check.from);
-      if (!from) return false;
+      if (!from) return because(missing(check.from));
       const to = resolve(check.to)?.config?.ipv4Address || check.to;
       const setup = buildHttpEvents(from, to, 80, check.path || "/");
-      if (typeof setup === "string") return false;
-      const r = runSimulationHeadless(setup, from.id, to, "http", 80, CHECK_PURPOSE);
-      return check.status != null ? r.httpStatus === check.status : r.httpStatus != null && r.httpStatus >= 200 && r.httpStatus < 300;
+      if (typeof setup === "string") return because(setup);
+      const r = run(setup, from.id, to, "http", 80, CHECK_PURPOSE);
+      const good = check.status != null ? r.httpStatus === check.status : r.httpStatus != null && r.httpStatus >= 200 && r.httpStatus < 300;
+      if (!good && !checkWhy.length) {
+        checkWhy = [r.httpStatus != null ? `The server answered ${r.httpStatus}${check.status != null ? `; the goal needs ${check.status}` : ""}.` : `${from.name} reached port 80 but no web service answered the GET.`];
+      }
+      return good;
     }
     if (check.kind === "dns") {
       const from = resolve(check.from);
-      if (!from) return false;
+      if (!from) return because(missing(check.from));
       const setup = buildResolveEvents(from, check.name, null, null);
-      if (typeof setup === "string") return false;
-      const r = runSimulationHeadless(setup, from.id, check.name, "dns", null, CHECK_PURPOSE);
+      if (typeof setup === "string") return because(setup);
+      const r = run(setup, from.id, check.name, "dns", null, CHECK_PURPOSE);
       if (!r.resolvedIp) return false;
-      return !check.ip || r.resolvedIp === check.ip;
+      return !check.ip || r.resolvedIp === check.ip || because(`${check.name} resolves to ${r.resolvedIp}; the goal needs ${check.ip}.`);
     }
     if (check.kind === "dhcp") {
       const host = resolve(check.host);
-      if (!host) return false;
+      if (!host) return because(missing(check.host));
       const setup = buildDhcpEvents(host);
-      if (typeof setup === "string") return false;
-      return runSimulationHeadless(setup, host.id, "", "dhcp", null, CHECK_PURPOSE).success;
+      if (typeof setup === "string") return because(setup);
+      const leased = run(setup, host.id, "", "dhcp", null, CHECK_PURPOSE).success;
+      if (!leased && !checkWhy.length) {
+        checkWhy = [`No DHCP server answered ${host.name}'s Discover: nothing on its segment is handing out addresses (a server needs a dhcp-range in dnsmasq.conf and a running dnsmasq; a router needs an address on that interface).`];
+      }
+      return leased;
     }
     if (check.kind === "alert") {
       const from = resolve(check.from);
@@ -16942,31 +17141,37 @@ Snort successfully validated the configuration${bad ? " (with errors)" : "."}`);
       for (const d of state.devices) if (d.type === "ids") d.config.alerts = [];
       if (from.type === "attacker") {
         const setup = buildScanEvents(from, check.to);
-        if (typeof setup === "string") return false;
+        if (typeof setup === "string") return because(setup);
         runSimulationHeadless(setup, from.id, "", "attack", null, CHECK_PURPOSE);
       } else {
         const setup = check.port != null ? buildConnectEvents(from, to, check.port) : buildPingEvents(from, to);
-        if (typeof setup === "string") return false;
+        if (typeof setup === "string") return because(setup);
         runSimulationHeadless(setup, from.id, to, check.port != null ? "tcp" : "ping", check.port ?? null, CHECK_PURPOSE);
       }
       const needle = check.contains.toLowerCase();
-      return state.devices.some((d) => d.type === "ids" && (d.config?.alerts || []).some((a) => a.toLowerCase().includes(needle)));
+      const sensors = state.devices.filter((d) => d.type === "ids");
+      if (sensors.some((d) => (d.config?.alerts || []).some((a) => a.toLowerCase().includes(needle)))) return true;
+      return because(sensors.length ? `No sensor raised an alert containing "${check.contains}" for this flow \u2014 check that a rule matches it and that the traffic reaches the sensor.` : "There is no IDS sensor in the network to raise the alert.");
     }
     return false;
   }
   function pingSucceeds(fromRef, toRef) {
     const from = resolve(fromRef);
-    if (!from) return false;
+    if (!from) return because(missing(fromRef));
     const to = resolve(toRef)?.config?.ipv4Address || toRef;
     const setup = buildPingEvents(from, to);
-    return typeof setup !== "string" && runSimulationHeadless(setup, from.id, to, "ping", null, CHECK_PURPOSE).success;
+    if (typeof setup === "string") return because(setup);
+    return run(setup, from.id, to, "ping", null, CHECK_PURPOSE).success;
   }
   function tcpSucceeds(fromRef, toRef, port) {
     const from = resolve(fromRef);
-    if (!from) return false;
+    if (!from) return because(missing(fromRef));
     const to = resolve(toRef)?.config?.ipv4Address || toRef;
     const setup = buildConnectEvents(from, to, port);
-    return typeof setup !== "string" && runSimulationHeadless(setup, from.id, to, "tcp", port, CHECK_PURPOSE).success;
+    if (typeof setup === "string") return because(setup);
+    const r = run(setup, from.id, to, "tcp", port, CHECK_PURPOSE);
+    if (!r.success && r.refused && !checkWhy.length) checkWhy = [`${to} refused the connection: nothing listens on port ${port} there (it answered RST).`];
+    return r.success;
   }
   function removePolicy(guard) {
     const config = guard.config;
@@ -17000,7 +17205,7 @@ Snort successfully validated the configuration${bad ? " (with errors)" : "."}`);
     }
   }
   function evaluateIsolation(blockedBy, flow) {
-    if (flow()) return { passed: false };
+    if (flow()) return { passed: false, why: ["The flow got through: nothing on its path drops it yet."] };
     if (!blockedBy) return { passed: true };
     const guard = resolve(blockedBy);
     if (!guard) return { passed: false, note: `${blockedBy} is missing \u2014 the goal is to block this at ${blockedBy}.` };
@@ -17019,7 +17224,9 @@ Snort successfully validated the configuration${bad ? " (with errors)" : "."}`);
     if (check.kind === "tcp-fail") {
       return { label: check.label, ...evaluateIsolation(check.blockedBy, () => tcpSucceeds(check.from, check.to, check.port)) };
     }
-    return { label: check.label, passed: evaluate(check) };
+    checkWhy = [];
+    const passed = evaluate(check);
+    return { label: check.label, passed, ...!passed && checkWhy.length ? { why: checkWhy } : {} };
   }
   function saveGradingState() {
     return {
@@ -17085,7 +17292,8 @@ Snort successfully validated the configuration${bad ? " (with errors)" : "."}`);
       const res = lastResult?.checks[i];
       const mark = res == null ? "\u25CB" : res.passed ? "\u2713" : "\u2717";
       const cls = res == null ? "pending" : res.passed ? "pass" : "fail";
-      const note = res && !res.passed && res.note ? `<span class="scenario-check-note">${escapeHtml(res.note)}</span>` : "";
+      const why = res && !res.passed && res.why?.length ? `<span class="scenario-check-note scenario-check-why"><span class="scenario-why-title">Why:</span>${res.why.map((line) => `<span class="scenario-why-line">${escapeHtml(line)}</span>`).join("")}</span>` : "";
+      const note = (res && !res.passed && res.note ? `<span class="scenario-check-note">${escapeHtml(res.note)}</span>` : "") + why;
       return `<li class="scenario-check ${cls}"><span class="mark">${mark}</span><span class="scenario-check-text">${escapeHtml(c.label)}${note}</span></li>`;
     }).join("");
     dom.scenarioStatus.textContent = lastResult ? lastResult.passed ? "Scenario complete" : "Not yet \u2014 keep going." : "";
@@ -19267,6 +19475,16 @@ Snort successfully validated the configuration${bad ? " (with errors)" : "."}`);
     dom.simSpeed.value = String(clamped);
     return ok(`Speed set to ${clamped} ms/hop.`);
   }
+  function cmdWhy(args) {
+    const entries = captureEntriesFor(state.dock.captureView || "live");
+    if (!entries.length) return err("why: no packets captured yet \u2014 run something animated first (ping, connect, dhcp, \u2026), then `why <packet number>`.");
+    const inspected = state.inspectedCapture && entries.includes(state.inspectedCapture) ? state.inspectedCapture : null;
+    if (!args[0] && !inspected) return err(`why: which packet? Give its number from the packet list (${entries[0].no}\u2013${entries[entries.length - 1].no}), or click a row first.`);
+    const entry = args[0] ? entries.find((e) => e.no === Number(args[0])) : inspected;
+    if (!entry) return err(`why: no packet ${args[0]} in this capture (it holds ${entries[0].no}\u2013${entries[entries.length - 1].no}).`);
+    const explanation = explainCapture(entry, entries, (id) => state.devices.find((d) => d.id === id)?.name ?? "a removed device");
+    return ok(`Why packet ${entry.no}?`, ...explanationText(explanation));
+  }
   function cmdSeed(args) {
     const arg = (args[0] || "").trim().toLowerCase();
     if (!arg) {
@@ -19447,7 +19665,11 @@ Snort successfully validated the configuration${bad ? " (with errors)" : "."}`);
         ok: r.passed,
         data: r,
         output: [
-          ...r.checks.flatMap((c) => [`${c.passed ? "\u2713" : "\u2717"} ${c.label}`, ...!c.passed && c.note ? [`    ${c.note}`] : []]),
+          ...r.checks.flatMap((c) => [
+            `${c.passed ? "\u2713" : "\u2717"} ${c.label}`,
+            ...!c.passed && c.note ? [`    ${c.note}`] : [],
+            ...!c.passed ? (c.why || []).map((line) => `    why: ${line}`) : []
+          ]),
           r.passed ? "Scenario complete!" : "Not yet \u2014 keep going."
         ]
       };
@@ -19576,6 +19798,7 @@ Snort successfully validated the configuration${bad ? " (with errors)" : "."}`);
     stop: cmdStop,
     speed: cmdSpeed,
     seed: cmdSeed,
+    why: cmdWhy,
     topology: cmdTopology,
     save: cmdSave,
     load: cmdLoad,
@@ -19648,6 +19871,7 @@ Snort successfully validated the configuration${bad ? " (with errors)" : "."}`);
     stop: "stop",
     speed: "speed <ms-per-hop>",
     seed: "seed [<n>|off] \u2014 pin the run's random seed for reproducible ports/ids (default: clock)",
+    why: "why [<packet no>] \u2014 explain a captured packet: the chain of frames that led to it, with each device's reason",
     topology: "topology basic|vlan-roas|router-mesh|wifi-vlan",
     save: "save <name>",
     load: "load <name>",

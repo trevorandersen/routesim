@@ -15,8 +15,9 @@ import {
   getDevice, moveDevice, linkName, deviceNameBlockReason, routerInterfacesWithNames, isPhysicalLink, linkedPortsFor, linkPortName, setLinkShutdown, setDevicePower, setSwitchManaged } from "./devices";
 import {
   startSimulation, stopSimulation, pauseSimulation, resumeSimulation, stepOnce, animatedRunBlockReason, takePreemptionNote,
-  runSimulationHeadless, runTraceroute, STORM_DIAGNOSIS,
+  runSimulationHeadless, runTraceroute, STORM_DIAGNOSIS, captureEntriesFor,
 } from "./engine";
+import { explainCapture, explanationText } from "./explain";
 import type { SimResult } from "./engine";
 import { buildPingEvents, buildDhcpEvents, buildConnectEvents, buildResolveEvents, buildHttpEvents, parseHttpTarget, buildAssociationEvents, buildDot1xEvents, buildStpEvents, associatedAp, findPingTarget } from "./simulation";
 import { buildScanEvents, buildSweepEvents, buildArpSpoofEvents, buildAttackEvents } from "./security/offensive/attacks";
@@ -877,6 +878,20 @@ function cmdSpeed(args: string[]): CommandResult {
 // the wall clock, so identical topologies still produce varying traffic; pinning
 // a seed makes ephemeral ports / DHCP ids / NAT translations reproducible, so a
 // saved-capture Compare is a true before/after diff.
+// why [<no>] — the causal chain behind a packet in the capture the Sim Log is
+// showing: the frames that led to it, each with the reason its sender logged,
+// then what its receiver did. No number explains the packet being inspected.
+function cmdWhy(args: string[]): CommandResult {
+  const entries = captureEntriesFor(state.dock.captureView || "live");
+  if (!entries.length) return err("why: no packets captured yet — run something animated first (ping, connect, dhcp, …), then `why <packet number>`.");
+  const inspected = state.inspectedCapture && entries.includes(state.inspectedCapture) ? state.inspectedCapture : null;
+  if (!args[0] && !inspected) return err(`why: which packet? Give its number from the packet list (${entries[0].no}–${entries[entries.length - 1].no}), or click a row first.`);
+  const entry = args[0] ? entries.find(e => e.no === Number(args[0])) : inspected;
+  if (!entry) return err(`why: no packet ${args[0]} in this capture (it holds ${entries[0].no}–${entries[entries.length - 1].no}).`);
+  const explanation = explainCapture(entry, entries, id => state.devices.find(d => d.id === id)?.name ?? "a removed device");
+  return ok(`Why packet ${entry.no}?`, ...explanationText(explanation));
+}
+
 function cmdSeed(args: string[]): CommandResult {
   const arg = (args[0] || "").trim().toLowerCase();
   if (!arg) {
@@ -1071,7 +1086,9 @@ function cmdScenario(args: string[]): CommandResult {
     return {
       ok: r.passed,
       data: r,
-      output: [...r.checks.flatMap(c => [`${c.passed ? "✓" : "✗"} ${c.label}`, ...(!c.passed && c.note ? [`    ${c.note}`] : [])]),
+      output: [...r.checks.flatMap(c => [`${c.passed ? "✓" : "✗"} ${c.label}`,
+        ...(!c.passed && c.note ? [`    ${c.note}`] : []),
+        ...(!c.passed ? (c.why || []).map(line => `    why: ${line}`) : [])]),
         r.passed ? "Scenario complete!" : "Not yet — keep going."],
     };
   }
@@ -1167,7 +1184,7 @@ const COMMANDS: Record<string, Handler> = {
   vlan: cmdVlan, port: cmdPort, managed: cmdManaged, role: cmdRole, rulelang: cmdRuleLang, stp: cmdStp, mirror: cmdMirror, web: cmdWeb, idsrule: cmdIdsRule, attack: cmdAttack, redteam: cmdRedteam, cli: cmdCli,
   ping: cmdPing, dhcp: cmdDhcp, connect: cmdConnect, http: cmdHttp, associate: cmdAssociate, run: cmdRun, traceroute: cmdTraceroute, tracert: cmdTraceroute,
   play: cmdPlay, pause: cmdPause, step: cmdStep,
-  stop: cmdStop, speed: cmdSpeed, seed: cmdSeed,
+  stop: cmdStop, speed: cmdSpeed, seed: cmdSeed, why: cmdWhy,
   topology: cmdTopology, save: cmdSave, load: cmdLoad, undo: cmdUndo, redo: cmdRedo, export: cmdExport,
   list: cmdList, show: cmdShow, status: cmdStatus, log: cmdLog,
   select: cmdSelect, tool: cmdTool, theme: cmdTheme, zoom: cmdZoom, fit: cmdFit,
@@ -1211,6 +1228,7 @@ const HELP: Record<string, string> = {
   traceroute: "traceroute <src> <dst> (hop-by-hop via TTL)",
   play: "resume", pause: "pause", step: "advance one hop", stop: "stop", speed: "speed <ms-per-hop>",
   seed: "seed [<n>|off] — pin the run's random seed for reproducible ports/ids (default: clock)",
+  why: "why [<packet no>] — explain a captured packet: the chain of frames that led to it, with each device's reason",
   topology: "topology basic|vlan-roas|router-mesh|wifi-vlan", save: "save <name>", load: "load <name>",
   undo: "undo", redo: "redo", export: "export topology as a reproducible script",
   list: "list [links]", show: "show <device>", status: "simulation status + last result", log: "hop-by-hop log",

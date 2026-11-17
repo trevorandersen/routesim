@@ -1,6 +1,6 @@
 import { state, pushUndo, sync, dropTerminalSessions, resetCaptureState, flushLearnedMacs } from "./state";
 import { dom } from "./dom";
-import type { SerialisedTopology, Device, Link } from "./types";
+import type { SerialisedTopology, Device, DeviceConfig, Link } from "./types";
 
 type NormalisedConfig = { devices: Device[]; links: Link[] };
 import { clampPortCount, clampApPortCount, clampRouterPortCount, normaliseSsid, normaliseWifiPassword, bridgeMacOf } from "./utils";
@@ -24,7 +24,7 @@ import { defaultConfig, vlanRoasConfig, routerMeshConfig, wifiVlanConfig } from 
 export function buildConfigPayload(): SerialisedTopology {
   return {
     version: 1,
-    devices: state.devices.map(({ id, type, name, x, y, config, hidden, poweredOff, collapsedBy }: any) => withMacsec(type, config, {
+    devices: state.devices.map(({ id, type, name, x, y, config, hidden, poweredOff, collapsedBy }) => withMacsec(type, config, {
       id,
       type,
       name,
@@ -141,15 +141,15 @@ export function buildConfigPayload(): SerialisedTopology {
         }
       } : {})
     })),
-    links: state.links.map(({ from, to, name, wireless, shutdown, bandwidth, latency, loss, fromPort, toPort, hidden, collapsedBy, proxy }: any) => ({
+    links: state.links.map(({ from, to, name, wireless, shutdown, bandwidth, latency, loss, fromPort, toPort, hidden, collapsedBy, proxy }) => ({
       from,
       to,
       ...(name ? { name } : {}),
       ...(wireless ? { wireless: true } : {}),
       ...(shutdown ? { shutdown: true } : {}),
-      ...(bandwidth > 0 ? { bandwidth } : {}),
-      ...(latency > 0 ? { latency } : {}),
-      ...(loss > 0 ? { loss } : {}),
+      ...((bandwidth ?? 0) > 0 ? { bandwidth } : {}),
+      ...((latency ?? 0) > 0 ? { latency } : {}),
+      ...((loss ?? 0) > 0 ? { loss } : {}),
       ...(fromPort != null ? { fromPort } : {}),
       ...(toPort != null ? { toPort } : {}),
       ...(hidden ? { hidden: true } : {}),
@@ -161,7 +161,7 @@ export function buildConfigPayload(): SerialisedTopology {
 
 // WiFi association fields (laptop + access point) for the config payload: the
 // SSID always serialises (default-filled), the password only when set.
-function wifiConfigForPayload(config: any): any {
+function wifiConfigForPayload(config: DeviceConfig | undefined): { ssid: string; wifiPassword?: string } {
   const wifiPassword = normaliseWifiPassword(config?.wifiPassword);
   return {
     ssid: normaliseSsid(config?.ssid ?? DEFAULT_SSID),
@@ -195,7 +195,7 @@ function macsecPayload(config: any): any {
 }
 
 // Shared host (computer/server) endpoint fields for the config payload.
-function hostConfigForPayload(config: any): any {
+function hostConfigForPayload(config: DeviceConfig | undefined) {
   return {
     ipv4Address: config?.ipv4Address || "",
     ...(config?.prefixLength != null ? { prefixLength: config.prefixLength } : {}),
@@ -210,7 +210,7 @@ function hostConfigForPayload(config: any): any {
   };
 }
 
-export function routerInterfacesForPayload(device: any): unknown[] {
+export function routerInterfacesForPayload(device: Pick<Device, "id" | "config">): unknown[] {
   // Structural connectivity, not visible connectivity: a collapsed LAN hides
   // its physical links, and filtering on the drawn set silently dropped the
   // router's whole interface (address, NAT role, tables) from the save.

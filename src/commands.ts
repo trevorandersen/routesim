@@ -6,7 +6,7 @@
  * reused by the panel (`console.ts`), the `window.routesim` API (`app.ts`), and
  * tests. See docs/scripting.md for the command reference.
  */
-import type { Device, DeviceType } from "./types";
+import type { Device, DeviceType, SerialisedLink } from "./types";
 import { state, undo, redo, undoBlockReason, sync, pushUndo, pushUndoSnapshot, networkSnapshot, THEMES, linksChanged } from "./state";
 import { USER_ADDABLE_TYPES, isHost, isDot1xSupplicant, defaultPortCount } from "./device-registry";
 import { dom } from "./dom";
@@ -1324,7 +1324,7 @@ export function runConsoleScript(text: string): CommandResult[] {
 //     occupies now. Where that cable sits depends on the pins around it, and a
 //     replay adds one cable at a time — a later pin can no longer displace an
 //     earlier implicit cable (it is refused), so the layout is written out.
-function exportedPort(payloadLink: any, deviceId: string): number | null {
+function exportedPort(payloadLink: SerialisedLink, deviceId: string): number | null {
   const pinned = payloadLink.from === deviceId ? payloadLink.fromPort : payloadLink.toPort;
   if (pinned != null) return pinned;
   const pinsHere = state.links.some(l => isPhysicalLink(l) &&

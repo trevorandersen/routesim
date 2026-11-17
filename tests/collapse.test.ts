@@ -105,7 +105,7 @@ describe("collapse is a view — routing keeps the physical topology (R4)", () =
     dev("pc-b").config.ipv4Address = "192.168.20.100";             // the first address in the pool
     collapseLan(dev("sw-b"));
     const iface = dev("rtr").config.interfaces!.find((i: any) => i.peerId === "sw-b");
-    expect(allocateDhcpIp(iface, dev("rtr"))).toBe("192.168.20.101");
+    expect(allocateDhcpIp(iface!, dev("rtr"))).toBe("192.168.20.101");
   });
 });
 

@@ -1329,7 +1329,7 @@ describe("the seeded first leg passes the same admission as every later hop (F10
 describe("router DHCP leases stay inside the interface's REAL subnet (F05)", () => {
   beforeEach(() => resetState());
   const iface = (ip: string, prefixLength: number, leases: string[] = []) =>
-    ({ peerId: "x", ipv4Address: ip, prefixLength, arpTable: [], dhcpLeases: leases.map((l, i) => ({ macAddress: `02:00:00:00:00:${String(i + 1).padStart(2, "0")}`, ipv4Address: l })) });
+    ({ peerId: "x", type: "ethernet", name: "", macAddress: "", vlanTag: null, ipv4Address: ip, prefixLength, arpTable: [], dhcpLeases: leases.map((l, i) => ({ macAddress: `02:00:00:00:00:${String(i + 1).padStart(2, "0")}`, ipv4Address: l })) });
   const routerWith = (i: any) => { const r = addDevice("router", 0, 0); r.config!.interfaces = [i] as any; return r; };
 
   it("a /25 in the upper half leases from the upper half — never .100 from the other half", () => {

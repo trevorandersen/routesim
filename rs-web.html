@@ -9513,8 +9513,8 @@ Full legal text: https://creativecommons.org/publicdomain/zero/1.0/legalcode</pr
   }
   function buildFollowOnFrames(device, config, dstIp, then, port, vlanTag) {
     const sim = state.simulation;
-    const srcIp = config.ipv4Address;
-    const srcMac = config.macAddress;
+    const srcIp = config.ipv4Address || "";
+    const srcMac = config.macAddress || "";
     let nextHopIp = dstIp;
     if (!sameSubnet(srcIp, dstIp, prefixOf(config))) {
       if (!config.gatewayIpv4Address) return `Cannot reach ${dstIp} \u2014 no default gateway`;

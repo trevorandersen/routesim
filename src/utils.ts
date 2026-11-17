@@ -78,7 +78,8 @@ export function maskOfPrefix(prefixLength: number): number {
   return prefixLength <= 0 ? 0 : (~0 << (32 - prefixLength)) >>> 0;
 }
 
-export function sameSubnet(a: string, b: string, prefixLength: number): boolean {
+// An unset address (undefined or "") is on no subnet.
+export function sameSubnet(a: string | undefined, b: string | undefined, prefixLength: number): boolean {
   if (!a || !b) return false;
   const ai = parseIpv4(a), bi = parseIpv4(b);
   if (ai === null || bi === null) return false;

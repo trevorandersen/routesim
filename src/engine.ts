@@ -1,4 +1,4 @@
-import type { EthernetFrame, ArpPayload, Ipv4Payload, DhcpPayload, TcpPayload, DnsPayload, Dot11Payload, Dot1xPayload, BpduPayload, NatEntry, SimEvent, SimLogEntry, ActiveTransit, FrameHistoryEntry, RouteEntry, RouterInterface, Device, DeviceType, FirewallRule, FirewallTarget, ConnState, Link, Cidr, SimMode, ArpEntry, LinkedPort } from "./types";
+import type { EthernetFrame, ArpPayload, Ipv4Payload, DhcpPayload, TcpPayload, DnsPayload, Dot11Payload, Dot1xPayload, BpduPayload, NatEntry, SimEvent, SimLogEntry, ActiveTransit, FrameHistoryEntry, RouteEntry, RouterInterface, Device, DeviceType, FirewallRule, FirewallTarget, ConnState, Link, Cidr, SimMode, ArpEntry, LinkedPort, DeviceConfig } from "./types";
 import { state, pushUndo, sync, sessionFor, appendSessionLine, showDock } from "./state";
 import { dom } from "./dom";
 import { getDevice, linkedPortsFor, routerInterfacesWithNames, linkName, linkById, linksFor, linkDataBlockReason, macsecState, macsOwnedBy, liveMacsOf, isPhysicalLink, dot1xPortFacing } from "./devices";
@@ -1447,10 +1447,12 @@ export function processAtComputer(device: Device, frame: EthernetFrame, fromDevi
 // for: an ICMP echo (ping) or a TCP SYN (nc). Same next-hop decision as the
 // setup builders — on-subnet direct, otherwise via the default gateway — with
 // the real frame buffered behind an ARP request when the MAC is unknown.
-function buildFollowOnFrames(device: Device, config: any, dstIp: string, then: "ping" | "tcp" | "http", port: number | null, vlanTag: number | null): EthernetFrame[] | string {
+function buildFollowOnFrames(device: Device, config: DeviceConfig, dstIp: string, then: "ping" | "tcp" | "http", port: number | null, vlanTag: number | null): EthernetFrame[] | string {
   const sim = state.simulation;
-  const srcIp = config.ipv4Address;
-  const srcMac = config.macAddress;
+  // The origin host just received a DNS answer addressed to it, so both are set
+  // (the `|| ""` is the same fallback the other host handlers use).
+  const srcIp = config.ipv4Address || "";
+  const srcMac = config.macAddress || "";
   let nextHopIp = dstIp;
   if (!sameSubnet(srcIp, dstIp, prefixOf(config))) {
     if (!config.gatewayIpv4Address) return `Cannot reach ${dstIp} — no default gateway`;
@@ -1461,7 +1463,7 @@ function buildFollowOnFrames(device: Device, config: any, dstIp: string, then: "
   const make = (dstMac: string) => then === "ping"
     ? createIcmpEchoRequest(srcMac, dstMac, srcIp, dstIp, 64, vlanTag)
     : createTcpSegment(srcMac, dstMac, srcIp, dstIp, srcPort, port ?? 80, "syn", 64, vlanTag);
-  const arpEntry = (config.arpTable || []).find((e: any) => e.ipv4Address === nextHopIp);
+  const arpEntry = (config.arpTable || []).find((e) => e.ipv4Address === nextHopIp);
   if (arpEntry) return [make(arpEntry.macAddress)];
   const pendingKey = `${device.id}:${nextHopIp}`;
   if (!sim.pendingArp[pendingKey]) sim.pendingArp[pendingKey] = [];
@@ -1993,7 +1995,7 @@ export function processAtRouter(device: Device, frame: EthernetFrame, fromDevice
   frame = { ...frame, srcMac: normaliseMacAddress(frame.srcMac), dstMac: normaliseMacAddress(frame.dstMac) };
 
   // Find ingress interface — support sub-interfaces (multiple ifaces with same peerId, different vlanTag)
-  const ifaces: any[] = config.interfaces;
+  const ifaces: RouterInterface[] = config.interfaces;
   let ingressIface = null;
   if (fromDeviceId) {
     const peerIfaces = ifaces.filter((iface) => iface.peerId === fromDeviceId);
@@ -2052,7 +2054,7 @@ export function processAtRouter(device: Device, frame: EthernetFrame, fromDevice
   return outgoing;
 }
 
-function handleRouterArp(device: Device, frame: EthernetFrame, ifaces: any[], ingressIface: any, fromDeviceId: string): OutgoingFrame[] {
+function handleRouterArp(device: Device, frame: EthernetFrame, ifaces: RouterInterface[], ingressIface: RouterInterface, fromDeviceId: string): OutgoingFrame[] {
   const sim = state.simulation;
   const outgoing: OutgoingFrame[] = [];
   const arp = frame.payload as ArpPayload;
@@ -2075,7 +2077,7 @@ function handleRouterArp(device: Device, frame: EthernetFrame, ifaces: any[], in
     const pendingKey = `${device.id}:${arp.senderIp}`;
     const pending = sim.pendingArp[pendingKey];
     const ifaceMac = normaliseMacAddress(ingressIface.macAddress || "");
-    const known = (ingressIface.arpTable || []).some((e: any) => e.ipv4Address === arp.senderIp);
+    const known = (ingressIface.arpTable || []).some((e) => e.ipv4Address === arp.senderIp);
     const forUs = frame.dstMac === ifaceMac
       || (frame.dstMac === BROADCAST_MAC && (known || !!pending?.length));
     if (!forUs) {
@@ -2124,7 +2126,7 @@ function handleRouterArp(device: Device, frame: EthernetFrame, ifaces: any[], in
   return outgoing;
 }
 
-function handleRouterDhcp(device: Device, ingressIface: any, fromDeviceId: string, dhcp: DhcpPayload, ipv4: Ipv4Payload): OutgoingFrame[] {
+function handleRouterDhcp(device: Device, ingressIface: RouterInterface, fromDeviceId: string, dhcp: DhcpPayload, ipv4: Ipv4Payload): OutgoingFrame[] {
   const outgoing: OutgoingFrame[] = [];
 
   if (dhcp.messageType === "discover") {
@@ -2148,7 +2150,7 @@ function handleRouterDhcp(device: Device, ingressIface: any, fromDeviceId: strin
     // Record lease
     if (!ingressIface.dhcpLeases) ingressIface.dhcpLeases = [];
     ingressIface.dhcpLeases = normaliseDhcpLeases(ingressIface.dhcpLeases);
-    const existingLease = ingressIface.dhcpLeases.find((l: any) => l.macAddress === dhcp.clientMac);
+    const existingLease = ingressIface.dhcpLeases.find((l) => l.macAddress === dhcp.clientMac);
     if (existingLease) {
       existingLease.ipv4Address = requestedIp;
     } else {
@@ -2239,20 +2241,20 @@ function admitOnLink(device: Device, link: Link, frame: EthernetFrame): boolean 
 // misconfiguration this tool exists to teach. hostHasReturnRoute stays the
 // first gate (no address / no gateway at all).
 type ReplyPath = { dstMac: string } | { arpFor: string } | { drop: string };
-function hostReplyPath(config: any, dstIp: string, ingressMac: string): ReplyPath {
+function hostReplyPath(config: DeviceConfig, dstIp: string, ingressMac: string): ReplyPath {
   const srcIp = config.ipv4Address;
   if (sameSubnet(srcIp, dstIp, prefixOf(config))) return { dstMac: ingressMac };   // on-link: the peer that spoke to us
   const gw = config.gatewayIpv4Address;
   if (!gw || !isValidIpv4(gw)) return { drop: `Cannot reply to ${dstIp} — no route (no default gateway)` };
   if (!sameSubnet(srcIp, gw, prefixOf(config))) return { drop: `Cannot reply to ${dstIp} — gateway ${gw} is not on this host's subnet` };
-  const entry = (config.arpTable || []).find((e: any) => e.ipv4Address === gw);
+  const entry = (config.arpTable || []).find((e) => e.ipv4Address === gw);
   return entry ? { dstMac: entry.macAddress } : { arpFor: gw };
 }
 
 // Emit a reply along `path`: send it, or buffer it behind an ARP Request for
 // the gateway (the host's ARP-reply handler stamps the learnt MAC and flushes).
 // A wrong gateway therefore ARPs into silence and the reply never leaves.
-function emitHostReply(device: Device, config: any, path: ReplyPath, make: (dstMac: string) => EthernetFrame, fromDeviceId: string | null, outgoing: OutgoingFrame[], vlanTag: number | null): void {
+function emitHostReply(device: Device, config: DeviceConfig, path: ReplyPath, make: (dstMac: string) => EthernetFrame, fromDeviceId: string | null, outgoing: OutgoingFrame[], vlanTag: number | null): void {
   if ("drop" in path) { logStep(device, "sim-drop", path.drop); return; }
   if (!fromDeviceId) return;
   if ("dstMac" in path) { outgoing.push({ frame: make(path.dstMac), toDeviceId: fromDeviceId }); return; }
@@ -2263,7 +2265,7 @@ function emitHostReply(device: Device, config: any, path: ReplyPath, make: (dstM
   outgoing.push({ frame: createArpRequest(config.macAddress || "", config.ipv4Address || "", path.arpFor, vlanTag), toDeviceId: fromDeviceId });
 }
 
-function hostHasReturnRoute(config: any, srcIp: string): boolean {
+function hostHasReturnRoute(config: DeviceConfig | undefined, srcIp: string): boolean {
   if (!config?.ipv4Address) return false;
   if (sameSubnet(config.ipv4Address, srcIp, prefixOf(config))) return true;
   return Boolean(config.gatewayIpv4Address);
@@ -2295,7 +2297,7 @@ function touchNat(device: Device, entry: NatEntry): void {
 // Source-translate an inside→outside flow onto the egress interface address.
 // Returns the rewritten payload, or null when the packet isn't translatable
 // (only ICMP echo requests and TCP segments carry a flow identifier we model).
-function natTranslateOutbound(device: Device, ipv4: Ipv4Payload, egressIface: any): Ipv4Payload | null {
+function natTranslateOutbound(device: Device, ipv4: Ipv4Payload, egressIface: RouterInterface): Ipv4Payload | null {
   const translations = natTable(device);
   const outsideIp = egressIface.ipv4Address;
   if (ipv4.payload.type === "icmp" && ipv4.payload.icmpType === 8) {
@@ -2335,7 +2337,7 @@ function natTranslateOutbound(device: Device, ipv4: Ipv4Payload, egressIface: an
 // Restore the inside endpoint for return traffic addressed to an outside
 // interface IP. Returns null when no translation matches (the packet is then
 // genuinely for the router itself — INPUT chain + self handling apply).
-export function natRestoreInbound(device: Device, ipv4: Ipv4Payload, ifaces: any[]): Ipv4Payload | null {
+export function natRestoreInbound(device: Device, ipv4: Ipv4Payload, ifaces: RouterInterface[]): Ipv4Payload | null {
   const outsideIface = ifaces.find((i) => i.natRole === "outside" && i.ipv4Address === ipv4.dstIp);
   if (!outsideIface) return null;
   const translations: NatEntry[] = device.config?.natTranslations || [];
@@ -2412,7 +2414,7 @@ function dnatReturn(device: Device, ipv4: Ipv4Payload): Ipv4Payload | null {
   return { ...ipv4, srcIp: session.outsideIp, payload: { ...tcp, srcPort: session.outsidePort } };
 }
 
-function routeIpv4Frame(device: Device, frame: EthernetFrame, ifaces: any[], ingressIface: any, fromDeviceId: string, ipv4: Ipv4Payload): OutgoingFrame[] {
+function routeIpv4Frame(device: Device, frame: EthernetFrame, ifaces: RouterInterface[], ingressIface: RouterInterface, fromDeviceId: string, ipv4: Ipv4Payload): OutgoingFrame[] {
   const sim = state.simulation;
   const outgoing: OutgoingFrame[] = [];
 
@@ -2542,7 +2544,7 @@ function routeIpv4Frame(device: Device, frame: EthernetFrame, ifaces: any[], ing
 
   // ARP lookup on egress interface — resolve next-hop IP (may differ from dstIp for static/RIP routes)
   const egressVlanTag = egressIface.vlanTag ?? null;
-  const arpEntry = (egressIface.arpTable || []).find((e: any) => e.ipv4Address === nextHopIp);
+  const arpEntry = (egressIface.arpTable || []).find((e) => e.ipv4Address === nextHopIp);
   if (arpEntry) {
     // Known next-hop — rewrite L2 and forward, set vlanTag for sub-interface
     const rewrittenFrame: EthernetFrame = {
@@ -2833,7 +2835,7 @@ function dhcpClientsOwn<L extends { macAddress: string; ipv4Address: string }>(c
   };
 }
 
-export function allocateDhcpIp(iface: any, router: Device, clientMac?: string): string | null {
+export function allocateDhcpIp(iface: RouterInterface, router: Device, clientMac?: string): string | null {
   if (!iface.ipv4Address || !isValidIpv4(iface.ipv4Address)) return null;
   const ifPrefix = prefixOf(iface);
   // The pool is the interface's USABLE range — network+1 … broadcast−1 for the
@@ -2940,9 +2942,9 @@ function ifaceName(router: Device, iface: { peerId?: string; vlanTag?: number | 
 
 // ─── Helpers ─────────────────────────────────────────────────────────────────
 
-function learnArp(config: any, ip: string, mac: string): void {
+function learnArp(config: DeviceConfig, ip: string, mac: string): void {
   config.arpTable = normaliseArpTable(config.arpTable || []);
-  const existing = config.arpTable.find((e: any) => e.ipv4Address === ip);
+  const existing = config.arpTable.find((e) => e.ipv4Address === ip);
   if (existing) {
     existing.macAddress = mac;
   } else {
@@ -2955,7 +2957,7 @@ function learnArp(config: any, ip: string, mac: string): void {
 // with the ROUTER's MAC as its source, so learning from it filed the remote
 // host's address against the gateway's MAC (`arp -n` on a server listed every
 // off-subnet client that way — review R70).
-function learnOnLinkArp(config: any, ip: string, mac: string): void {
+function learnOnLinkArp(config: DeviceConfig | undefined, ip: string, mac: string): void {
   if (config?.ipv4Address && sameSubnet(config.ipv4Address, ip, prefixOf(config))) learnArp(config, ip, mac);
 }
 
@@ -2971,9 +2973,9 @@ function isGroupMac(mac: string): boolean {
   return Number.isFinite(first) && (first & 1) === 1;
 }
 
-function learnRouterArp(iface: any, ip: string, mac: string): void {
+function learnRouterArp(iface: RouterInterface, ip: string, mac: string): void {
   iface.arpTable = normaliseArpTable(iface.arpTable || []);
-  const existing = iface.arpTable.find((e: any) => e.ipv4Address === ip);
+  const existing = iface.arpTable.find((e) => e.ipv4Address === ip);
   if (existing) {
     existing.macAddress = mac;
   } else {
@@ -3042,7 +3044,7 @@ function saveCurrentCapture(): void {
   }
 }
 
-function findLinkBetween(a: string, b: string): any | null {
+function findLinkBetween(a: string, b: string): Link | null {
   // Use the by-endpoint adjacency index instead of scanning every link. Frames
   // cross the real cable even when a collapsed LAN hides it, never a proxy link.
   return linksFor(a).find(link =>
@@ -3053,7 +3055,7 @@ function findLinkBetween(a: string, b: string): any | null {
 // Maps a link's latency (ms) to a transit-time multiplier for the animation.
 // 10 ms is the "normal" LAN baseline (1×); the result is clamped so the dot
 // stays watchable (a far/satellite link crawls but never stalls forever).
-export function linkLatencyFactor(link: any): number {
+export function linkLatencyFactor(link: Pick<Link, "latency"> | null | undefined): number {
   const ms = Number(link?.latency);
   if (!(ms > 0)) return 1;
   return Math.min(20, Math.max(0.25, ms / 10));

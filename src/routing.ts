@@ -109,7 +109,7 @@ function longestMatch(table: RouteEntry[], addr: number, connectedOnly: boolean)
   return best;
 }
 
-export function routingLookup(router: Device, dstIp: string, prebuilt?: RouteEntry[]): { egressIface: any; nextHopIp: string } | null {
+export function routingLookup(router: Device, dstIp: string, prebuilt?: RouteEntry[]): { egressIface: RouterInterface; nextHopIp: string } | null {
   // A caller resolving several frames for the same router in one pass (e.g. an
   // ARP-reply flushing buffered frames) can pass a table built once.
   const table = prebuilt ?? buildRoutingTable(router);

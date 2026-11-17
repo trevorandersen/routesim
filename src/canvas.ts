@@ -144,22 +144,56 @@ export function linkLabelText(link: Pick<Link, "name" | "latency" | "loss">, sta
 const roundForLabel = (n: number): string => String(Math.round(n * 100) / 100);
 
 // ── Where a link's label goes ────────────────────────────────────────────────
-// The label sits just above the link's midpoint. On a short link that put part
-// of it under an endpoint device (devices are drawn after links), and a clipped
-// number reads as a different number: "40 ms" showed as "0 ms". So the label is
-// moved the least distance that clears both endpoints — their icons and the
-// text beneath them.
+// The label sits just above the link's midpoint, centred. Two things made it
+// unreadable there, and a damaged number reads as another number ("40 ms"
+// showed as "0 ms"):
+//   - the link's OWN line. Level text above the midpoint is clear of a level
+//     line, but a sloping one runs up through one end of it;
+//   - an endpoint device, on a short link (devices are drawn after links).
+// So the label is moved the least distance that clears the line and the
+// devices around it — their icons and the text beneath them.
 
 export interface Box { x: number; y: number; w: number; h: number }   // top-left corner + size, world units
 
 const LABEL_HEIGHT = 12;   // FONT_SMALL's line box
 const LABEL_LIFT = 8;      // the gap between the midpoint and the label's baseline
-const LABEL_STEP = 6;      // how far each try moves it
-const LABEL_REACH = 72;    // the furthest it will go before giving up
-// Sideways first (the label stays level with its line), then up, down, diagonals.
-const LABEL_DIRECTIONS: readonly [number, number][] = [[1, 0], [-1, 0], [0, -1], [0, 1], [1, -1], [-1, -1], [1, 1], [-1, 1]];
+const LABEL_STEP = 6;      // the grid the candidate spots lie on
+const LABEL_REACH = 72;    // the furthest it will go before giving up (further for a wide label — see placeLinkLabel)
+const LABEL_REACH_MAX = 150;
+
+// Every spot on the grid around the usual one, nearest first; at the same
+// distance sideways before up or down (the label stays level with its line),
+// and up before down. Built once.
+let labelOffsets: readonly (readonly [number, number, number])[] | null = null;   // [dx, dy, distance]
+function labelOffsetsByDistance(): readonly (readonly [number, number, number])[] {
+  if (labelOffsets) return labelOffsets;
+  const all: [number, number, number][] = [];
+  for (let dx = -LABEL_REACH_MAX; dx <= LABEL_REACH_MAX; dx += LABEL_STEP) {
+    for (let dy = -LABEL_REACH_MAX; dy <= LABEL_REACH_MAX; dy += LABEL_STEP) {
+      if (dx || dy) all.push([dx, dy, Math.hypot(dx, dy)]);
+    }
+  }
+  all.sort((a, b) => a[2] - b[2] || Math.abs(a[1]) - Math.abs(b[1]) || a[1] - b[1] || b[0] - a[0]);
+  return labelOffsets = all;
+}
 
 const boxesOverlap = (a: Box, b: Box) => a.x < b.x + b.w && b.x < a.x + a.w && a.y < b.y + b.h && b.y < a.y + a.h;
+
+export interface Segment { x1: number; y1: number; x2: number; y2: number }
+
+// Does the segment pass through the box? (Liang–Barsky clipping.)
+function segmentCrossesBox(s: Segment, b: Box): boolean {
+  const dx = s.x2 - s.x1, dy = s.y2 - s.y1;
+  let enter = 0, leave = 1;
+  const edges: [number, number][] = [[-dx, s.x1 - b.x], [dx, b.x + b.w - s.x1], [-dy, s.y1 - b.y], [dy, b.y + b.h - s.y1]];
+  for (const [p, q] of edges) {
+    if (p === 0) { if (q < 0) return false; continue; }
+    const t = q / p;
+    if (p < 0) { if (t > leave) return false; if (t > enter) enter = t; }
+    else { if (t < enter) return false; if (t < leave) leave = t; }
+  }
+  return true;
+}
 
 // What a device covers on the canvas: its icon — out to the edge of the ring
 // drawn round it when it is selected or being linked (7 out, 4 wide), whether
@@ -181,22 +215,39 @@ export function deviceFootprint(device: Device): Box[] {
   return [icon, { x: device.x - width / 2, y: device.y + device.height / 2 + 10, w: width, h: lines }];
 }
 
+const LINE_MARGIN = 3;     // room kept between the text and the line (a trunk is drawn double, an active link thick)
+
+// The footprints a label near (midX, midY) could run into: every drawn device
+// close enough to matter — the link's own ends, and a neighbour whose text
+// block the label would otherwise be moved onto.
+export function labelObstacles(midX: number, midY: number, width: number): Box[] {
+  const near = LABEL_REACH_MAX + width / 2 + 120;   // the furthest a label goes, plus half of it, plus a device's own extent
+  const boxes: Box[] = [];
+  for (const device of state.devices) {
+    if (device.hidden || Math.abs(device.x - midX) > near || Math.abs(device.y - midY) > near) continue;
+    boxes.push(...deviceFootprint(device));
+  }
+  return boxes;
+}
+
 // The anchor (centre x, baseline y) for a label `width` wide above the midpoint
-// (midX, midY): the usual spot when it is clear of `obstacles`, else the
-// nearest spot that is. With nowhere clear within reach it stays where it
-// always was. Pure, and exported for the tests.
-export function placeLinkLabel(midX: number, midY: number, width: number, obstacles: readonly Box[]): { x: number; y: number } {
+// (midX, midY): the usual spot when it is clear of `obstacles` and of the
+// link's own `line`, else the nearest spot that is. With nowhere clear within
+// reach it stays where it always was. Pure, and exported for the tests.
+export function placeLinkLabel(midX: number, midY: number, width: number, obstacles: readonly Box[], line?: Segment): { x: number; y: number } {
   const home = { x: midX, y: midY - LABEL_LIFT };
   const clearAt = (x: number, y: number) => {
     const box: Box = { x: x - width / 2, y: y - LABEL_HEIGHT, w: width, h: LABEL_HEIGHT };
-    return !obstacles.some(o => boxesOverlap(box, o));
+    if (obstacles.some(o => boxesOverlap(box, o))) return false;
+    return !line || !segmentCrossesBox(line, { x: box.x - LINE_MARGIN, y: box.y - LINE_MARGIN, w: box.w + LINE_MARGIN * 2, h: box.h + LINE_MARGIN * 2 });
   };
   if (clearAt(home.x, home.y)) return home;
-  for (let reach = LABEL_STEP; reach <= LABEL_REACH; reach += LABEL_STEP) {
-    for (const [dx, dy] of LABEL_DIRECTIONS) {
-      const x = home.x + dx * reach, y = home.y + dy * reach;
-      if (clearAt(x, y)) return { x, y };
-    }
+  // Beside an upright line a label has to step half its own width aside, so a
+  // wide one is allowed that much.
+  const limit = Math.min(LABEL_REACH_MAX, Math.max(LABEL_REACH, width / 2 + LINE_MARGIN + LABEL_STEP * 2));
+  for (const [dx, dy, distance] of labelOffsetsByDistance()) {
+    if (distance > limit) break;
+    if (clearAt(home.x + dx, home.y + dy)) return { x: home.x + dx, y: home.y + dy };
   }
   return home;
 }
@@ -291,8 +342,10 @@ export function drawLink(link: Link): void {
         : status.tone === "secure" ? "#14b8a6"
         : cssColor("--muted")
       : cssColor("--muted");
-    // Clear of both endpoints: a label under a device loses characters.
-    const at = placeLinkLabel(midX, midY, ctx.measureText(label).width, [...deviceFootprint(from), ...deviceFootprint(to)]);
+    // Clear of the link's own line and of the devices around it: a label
+    // crossed by its line, under an icon or over a device's text loses characters.
+    const width = ctx.measureText(label).width;
+    const at = placeLinkLabel(midX, midY, width, labelObstacles(midX, midY, width), { x1: from.x, y1: from.y, x2: to.x, y2: to.y });
     ctx.fillText(label, at.x, at.y);
   }
   ctx.restore();

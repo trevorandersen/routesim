@@ -7,7 +7,7 @@ import { state } from "../src/state";
 import { runSimulationHeadless } from "../src/engine";
 import { buildPingEvents } from "../src/simulation";
 import { linkName, deleteLink, deleteSelection, addLink, toggleLinkShutdown } from "../src/devices";
-import { linkStatusLabel, linkLabelText, placeLinkLabel, deviceFootprint } from "../src/canvas";
+import { linkStatusLabel, linkLabelText, placeLinkLabel, deviceFootprint, labelObstacles } from "../src/canvas";
 import type { Box } from "../src/canvas";
 import { buildConfigPayload, parseConfig } from "../src/config";
 import { runConsoleScript, runConsoleCommand as exec } from "../src/commands";
@@ -281,62 +281,95 @@ describe("latency and loss on the canvas label (text, not colour)", () => {
   });
 });
 
-// On a short link the label used to run under an endpoint device (devices are
-// drawn after links), and a clipped number reads as another number: "40 ms ·
-// 5% loss" between PC-A1 and its switch showed as "0 ms · 5% loss".
-describe("a link label stays clear of the devices at its ends", () => {
+// A link's label sat centred just above the midpoint, where two things could
+// damage it — and a damaged number reads as another number ("40 ms · 5% loss"
+// between PC-A1 and its switch showed as "0 ms · 5% loss"): the link's own
+// line, which on a sloping link runs up through one end of level text; and, on
+// a short link, an endpoint device (devices are drawn after links).
+describe("a link label stays clear of its own line and of the devices at its ends", () => {
   beforeEach(() => { resetState(); registerNoopCallbacks(); });
 
   const labelBox = (at: { x: number; y: number }, width: number): Box => ({ x: at.x - width / 2, y: at.y - 12, w: width, h: 12 });
   const overlaps = (a: Box, b: Box) => a.x < b.x + b.w && b.x < a.x + a.w && a.y < b.y + b.h && b.y < a.y + a.h;
+  // Does the cable run through the box? Sampled every half unit — independent
+  // of the clipping maths under test.
+  function crossed(box: Box, line: { x1: number; y1: number; x2: number; y2: number }): boolean {
+    const steps = Math.ceil(Math.hypot(line.x2 - line.x1, line.y2 - line.y1) * 2);
+    for (let i = 0; i <= steps; i++) {
+      const x = line.x1 + (line.x2 - line.x1) * i / steps, y = line.y1 + (line.y2 - line.y1) * i / steps;
+      if (x > box.x && x < box.x + box.w && y > box.y && y < box.y + box.h) return true;
+    }
+    return false;
+  }
   const dev = (name: string) => state.devices.find(d => d.name === name)!;
   // The label's anchor for the cable between two devices, as drawLink places it.
   function placed(a: string, b: string, width: number) {
     const from = dev(a), to = dev(b);
-    const obstacles = [...deviceFootprint(from), ...deviceFootprint(to)];
-    const at = placeLinkLabel((from.x + to.x) / 2, (from.y + to.y) / 2, width, obstacles);
-    return { at, obstacles, home: { x: (from.x + to.x) / 2, y: (from.y + to.y) / 2 - 8 } };
+    const line = { x1: from.x, y1: from.y, x2: to.x, y2: to.y };
+    const mid = { x: (from.x + to.x) / 2, y: (from.y + to.y) / 2 };
+    const obstacles = labelObstacles(mid.x, mid.y, width);
+    const at = placeLinkLabel(mid.x, mid.y, width, obstacles, line);
+    return { at, obstacles, line, home: { x: mid.x, y: mid.y - 8 } };
   }
+  const damaged = (at: { x: number; y: number }, width: number, obstacles: Box[], line: Parameters<typeof crossed>[1]) =>
+    crossed(labelBox(at, width), line) || obstacles.some(o => overlaps(labelBox(at, width), o));
 
-  it("with room at the midpoint it sits where it always did", () => {
+  it("on a level link with room at the midpoint it sits where it always did", () => {
     runConsoleScript("add computer PC1 at 0 0\nadd switch SW at 600 0\nlink PC1 SW");
     const { at, home } = placed("PC1", "SW", 80);
     expect(at).toEqual(home);
     expect(placeLinkLabel(100, 100, 80, [])).toEqual({ x: 100, y: 92 });
   });
 
-  it("on a short link it moves just far enough to clear both ends", () => {
-    // A PC and its switch 160 apart, labelled "40 ms · 5% loss" (about 80 wide):
-    // at the midpoint the label's ends are under both icons.
-    runConsoleScript("add computer PC1 at 0 0\nadd switch SW at 160 40\nlink PC1 SW");
-    const { at, obstacles, home } = placed("PC1", "SW", 80);
-    expect(obstacles.some(o => overlaps(labelBox(home, 80), o))).toBe(true);       // the old spot was under a device
-    expect(obstacles.some(o => overlaps(labelBox(at, 80), o))).toBe(false);        // the new one is clear
-    expect(Math.hypot(at.x - home.x, at.y - home.y)).toBeLessThanOrEqual(72 * Math.SQRT2);   // and still beside its link
-  });
-
-  it("the ring drawn round a selected device counts as part of it — the reported case", () => {
-    // The Basic Network's PC-A1 → Access-SW-A: the label's first character sat
-    // under PC-A1's selection ring, so "40 ms" read as "0 ms".
+  it("on a sloping link it moves off its own line — the reported case", () => {
+    // The Basic Network's PC-A1 → Access-SW-A, "40 ms · 5% loss" (80 wide in the
+    // browser): the line ran through the label's first character.
     exec("topology basic");
-    const pc = dev("PC-A1");
-    const [icon] = deviceFootprint(pc);
-    expect(icon.x + icon.w).toBeGreaterThanOrEqual(pc.x + pc.width / 2 + 7 + 2);   // the ring's outer edge
-    const width = 2 * ((pc.x + dev("Access-SW-A").x) / 2 - (pc.x + pc.width / 2 + 7));   // a label reaching just into the ring
-    const { at, obstacles } = placed("PC-A1", "Access-SW-A", width);
-    expect(obstacles.some(o => overlaps(labelBox(at, width), o))).toBe(false);
+    const { at, obstacles, line, home } = placed("PC-A1", "Access-SW-A", 80);
+    expect(crossed(labelBox(home, 80), line)).toBe(true);          // the old spot: struck through
+    expect(damaged(at, 80, obstacles, line)).toBe(false);          // the new one: clear of line and devices
+    expect(Math.hypot(at.x - home.x, at.y - home.y)).toBeLessThanOrEqual(24);   // a small move — still beside its midpoint
   });
 
-  it("every cable of every built-in topology can carry a long label without touching its ends", () => {
+  it("on an upright link it steps aside, level with the midpoint", () => {
+    runConsoleScript("add switch TOP at 0 0\nadd switch BOTTOM at 0 400\nlink TOP BOTTOM");
+    const { at, obstacles, line, home } = placed("TOP", "BOTTOM", 80);
+    expect(crossed(labelBox(home, 80), line)).toBe(true);
+    expect(damaged(at, 80, obstacles, line)).toBe(false);
+    expect(at.y).toBe(home.y);                                     // sideways, not up the cable
+  });
+
+  it("on a short link it also clears both ends", () => {
+    // A PC and its switch 160 apart: at the midpoint an 80-wide label's ends are under both icons.
+    runConsoleScript("add computer PC1 at 0 0\nadd switch SW at 160 40\nlink PC1 SW");
+    const { at, obstacles, line, home } = placed("PC1", "SW", 80);
+    expect(obstacles.some(o => overlaps(labelBox(home, 80), o))).toBe(true);
+    expect(damaged(at, 80, obstacles, line)).toBe(false);
+  });
+
+  it("it is not moved onto a neighbour: a device that is not at either end is avoided too", () => {
+    // The Basic Network's PC-B2 → Access-SW-B: moving a long label off its line
+    // put it on PC-B1's MAC address, which sits just above that cable.
+    exec("topology basic");
+    const { at, obstacles, line } = placed("PC-B2", "Access-SW-B", 143);   // "Uplink-to-floor-two · 120 ms"
+    expect(obstacles.length).toBeGreaterThan(4);                   // more than the two ends
+    expect(deviceFootprint(dev("PC-B1")).some(o => overlaps(labelBox(at, 143), o))).toBe(false);
+    expect(damaged(at, 143, obstacles, line)).toBe(false);
+    // Far-off devices are not gathered (the search stays cheap on a big canvas).
+    runConsoleScript("add computer FAR at 5000 5000");
+    expect(labelObstacles(0, 0, 80).some(o => o.x > 4000)).toBe(false);
+  });
+
+  it("every cable of every built-in topology carries a short and a long label undamaged", () => {
     for (const name of ["basic", "vlan-roas", "router-mesh", "wifi-vlan"]) {
       exec(`topology ${name}`);
       for (const link of state.links) {
         const from = state.devices.find(d => d.id === link.from)!, to = state.devices.find(d => d.id === link.to)!;
         if (from.hidden || to.hidden) continue;
-        const obstacles = [...deviceFootprint(from), ...deviceFootprint(to)];
-        const width = 150;   // "Uplink · 120 ms · 12.5% loss · down"
-        const at = placeLinkLabel((from.x + to.x) / 2, (from.y + to.y) / 2, width, obstacles);
-        expect(obstacles.some(o => overlaps(labelBox(at, width), o)), `${name}: ${from.name} ↔ ${to.name}`).toBe(false);
+        for (const width of [24, 80, 150]) {   // "down" · "40 ms · 5% loss" · "Uplink · 120 ms · 12.5% loss · down"
+          const { at, obstacles, line } = placed(from.name, to.name, width);
+          expect(damaged(at, width, obstacles, line), `${name}: ${from.name} ↔ ${to.name} at ${width}`).toBe(false);
+        }
       }
     }
   });
@@ -345,8 +378,8 @@ describe("a link label stays clear of the devices at its ends", () => {
     // A box over the left end of the usual spot, reaching 2 above its baseline:
     // up 24 clears it; sideways would take 42. Up wins.
     expect(placeLinkLabel(100, 100, 80, [{ x: 60, y: 70, w: 40, h: 40 }])).toEqual({ x: 100, y: 68 });
-    // A thin post just inside the right end, the height of the label: 6 left
-    // clears it, and so would 18 up — sideways is nearer, and keeps it level.
+    // A thin post just inside the right end, taller than the label: 6 left
+    // clears it, and so would going well up — sideways is nearer, and keeps it level.
     expect(placeLinkLabel(100, 100, 80, [{ x: 136, y: 60, w: 4, h: 60 }])).toEqual({ x: 94, y: 92 });
     expect(placeLinkLabel(100, 100, 80, [{ x: 60, y: 60, w: 4, h: 60 }])).toEqual({ x: 106, y: 92 });   // the mirror image
   });
@@ -355,11 +388,11 @@ describe("a link label stays clear of the devices at its ends", () => {
     expect(placeLinkLabel(100, 100, 80, [{ x: -1000, y: -1000, w: 2000, h: 2000 }])).toEqual({ x: 100, y: 92 });
   });
 
-  it("a device's footprint is its icon and the text under it, as the display options show it", () => {
+  it("a device's footprint is its icon (out to the selection ring) and the text under it, as the display options show it", () => {
     runConsoleScript("add computer PC1 at 0 0\nip PC1 10.0.0.1/24\nadd switch SW at 600 0");
     const pc = dev("PC1");
     const [icon, text] = deviceFootprint(pc);
-    expect(icon.x).toBeLessThan(pc.x - pc.width / 2);            // out to the selection ring
+    expect(icon.x + icon.w).toBeGreaterThanOrEqual(pc.x + pc.width / 2 + 7 + 2);   // the ring's outer edge
     expect(icon.y + icon.h).toBeGreaterThan(pc.y + pc.height / 2);
     expect(text.y).toBe(pc.y + pc.height / 2 + 10);
     expect(text.h).toBe(17 + 15 + 13);                           // name, address, MAC

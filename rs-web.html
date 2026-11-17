@@ -7129,8 +7129,40 @@ Full legal text: https://creativecommons.org/publicdomain/zero/1.0/legalcode</pr
   var LABEL_LIFT = 8;
   var LABEL_STEP = 6;
   var LABEL_REACH = 72;
-  var LABEL_DIRECTIONS = [[1, 0], [-1, 0], [0, -1], [0, 1], [1, -1], [-1, -1], [1, 1], [-1, 1]];
+  var LABEL_REACH_MAX = 150;
+  var labelOffsets = null;
+  function labelOffsetsByDistance() {
+    if (labelOffsets) return labelOffsets;
+    const all = [];
+    for (let dx = -LABEL_REACH_MAX; dx <= LABEL_REACH_MAX; dx += LABEL_STEP) {
+      for (let dy = -LABEL_REACH_MAX; dy <= LABEL_REACH_MAX; dy += LABEL_STEP) {
+        if (dx || dy) all.push([dx, dy, Math.hypot(dx, dy)]);
+      }
+    }
+    all.sort((a, b) => a[2] - b[2] || Math.abs(a[1]) - Math.abs(b[1]) || a[1] - b[1] || b[0] - a[0]);
+    return labelOffsets = all;
+  }
   var boxesOverlap = (a, b) => a.x < b.x + b.w && b.x < a.x + a.w && a.y < b.y + b.h && b.y < a.y + a.h;
+  function segmentCrossesBox(s, b) {
+    const dx = s.x2 - s.x1, dy = s.y2 - s.y1;
+    let enter = 0, leave = 1;
+    const edges = [[-dx, s.x1 - b.x], [dx, b.x + b.w - s.x1], [-dy, s.y1 - b.y], [dy, b.y + b.h - s.y1]];
+    for (const [p, q] of edges) {
+      if (p === 0) {
+        if (q < 0) return false;
+        continue;
+      }
+      const t = q / p;
+      if (p < 0) {
+        if (t > leave) return false;
+        if (t > enter) enter = t;
+      } else {
+        if (t < enter) return false;
+        if (t < leave) leave = t;
+      }
+    }
+    return true;
+  }
   function deviceFootprint(device) {
     const pad = 10;
     const icon = { x: device.x - device.width / 2 - pad, y: device.y - device.height / 2 - pad, w: device.width + pad * 2, h: device.height + pad * 2 };
@@ -7149,18 +7181,28 @@ Full legal text: https://creativecommons.org/publicdomain/zero/1.0/legalcode</pr
     const width = wide ? Math.max(device.width + 10, 108) : device.width + 10;
     return [icon, { x: device.x - width / 2, y: device.y + device.height / 2 + 10, w: width, h: lines }];
   }
-  function placeLinkLabel(midX, midY, width, obstacles) {
+  var LINE_MARGIN = 3;
+  function labelObstacles(midX, midY, width) {
+    const near = LABEL_REACH_MAX + width / 2 + 120;
+    const boxes = [];
+    for (const device of state.devices) {
+      if (device.hidden || Math.abs(device.x - midX) > near || Math.abs(device.y - midY) > near) continue;
+      boxes.push(...deviceFootprint(device));
+    }
+    return boxes;
+  }
+  function placeLinkLabel(midX, midY, width, obstacles, line) {
     const home = { x: midX, y: midY - LABEL_LIFT };
     const clearAt = (x, y) => {
       const box = { x: x - width / 2, y: y - LABEL_HEIGHT, w: width, h: LABEL_HEIGHT };
-      return !obstacles.some((o) => boxesOverlap(box, o));
+      if (obstacles.some((o) => boxesOverlap(box, o))) return false;
+      return !line || !segmentCrossesBox(line, { x: box.x - LINE_MARGIN, y: box.y - LINE_MARGIN, w: box.w + LINE_MARGIN * 2, h: box.h + LINE_MARGIN * 2 });
     };
     if (clearAt(home.x, home.y)) return home;
-    for (let reach = LABEL_STEP; reach <= LABEL_REACH; reach += LABEL_STEP) {
-      for (const [dx, dy] of LABEL_DIRECTIONS) {
-        const x = home.x + dx * reach, y = home.y + dy * reach;
-        if (clearAt(x, y)) return { x, y };
-      }
+    const limit = Math.min(LABEL_REACH_MAX, Math.max(LABEL_REACH, width / 2 + LINE_MARGIN + LABEL_STEP * 2));
+    for (const [dx, dy, distance] of labelOffsetsByDistance()) {
+      if (distance > limit) break;
+      if (clearAt(home.x + dx, home.y + dy)) return { x: home.x + dx, y: home.y + dy };
     }
     return home;
   }
@@ -7231,7 +7273,8 @@ Full legal text: https://creativecommons.org/publicdomain/zero/1.0/legalcode</pr
       ctx.textAlign = "center";
       ctx.textBaseline = "bottom";
       ctx.fillStyle = status ? status.tone === "danger" ? cssColor("--danger") : status.tone === "stp" ? cssColor("--stp-block") : status.tone === "secure" ? "#14b8a6" : cssColor("--muted") : cssColor("--muted");
-      const at = placeLinkLabel(midX, midY, ctx.measureText(label).width, [...deviceFootprint(from), ...deviceFootprint(to)]);
+      const width = ctx.measureText(label).width;
+      const at = placeLinkLabel(midX, midY, width, labelObstacles(midX, midY, width), { x1: from.x, y1: from.y, x2: to.x, y2: to.y });
       ctx.fillText(label, at.x, at.y);
     }
     ctx.restore();

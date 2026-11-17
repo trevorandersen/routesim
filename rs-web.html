@@ -16259,7 +16259,7 @@ Snort successfully validated the configuration${bad ? " (with errors)" : "."}`);
     [...dom.deviceList.querySelectorAll(".link-row")].forEach((row) => {
       row.addEventListener("click", () => {
         state.selectedId = null;
-        state.selectedLinkId = row.dataset.linkId;
+        state.selectedLinkId = row.dataset.linkId ?? null;
         state.configuringId = null;
         syncPanel();
         sync().render();
@@ -16267,7 +16267,7 @@ Snort successfully validated the configuration${bad ? " (with errors)" : "."}`);
     });
     [...dom.deviceList.querySelectorAll(".device-row:not(.link-row)")].forEach((row) => {
       row.addEventListener("click", () => {
-        state.selectedId = row.dataset.id;
+        state.selectedId = row.dataset.id ?? null;
         state.selectedLinkId = null;
         if (state.configuringId && state.configuringId !== state.selectedId) state.configuringId = null;
         syncPanel();

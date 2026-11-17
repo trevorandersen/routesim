@@ -1,4 +1,4 @@
-import type { Device, Link, DeviceType, EthernetFrame, CaptureEntry, ExplainLine, SwitchPort } from "./types";
+import type { Device, Link, DeviceType, EthernetFrame, CaptureEntry, ExplainLine, SwitchPort, DeviceConfig } from "./types";
 import { state, sync, pushUndo, captureUndoOnFocus, captureUndoOnFocusWithin, linksChanged } from "./state";
 import { DEVICE_SPECS, isHost, offersTerminal, defaultPortCount } from "./device-registry";
 import { dom } from "./dom";
@@ -45,14 +45,14 @@ export function syncOptionControls(): void {
 // The address-source pill shown beside a host's IP field: how the current
 // address was assigned, or "unassigned" when there's none. A configured IP with
 // no recorded source reads as static.
-export function ipSourceInfo(config: any): { cls: string; text: string } {
+export function ipSourceInfo(config: DeviceConfig | null | undefined): { cls: string; text: string } {
   if (!config?.ipv4Address) return { cls: "none", text: "unassigned" };
   if (config.ipSource === "dhcp") return { cls: "dhcp", text: "DHCP" };
   if (config.ipSource === "apipa") return { cls: "apipa", text: "APIPA" };
   return { cls: "static", text: "static" };
 }
 
-function ipSourceBadge(config: unknown): string {
+function ipSourceBadge(config: DeviceConfig | undefined): string {
   const info = ipSourceInfo(config);
   return `<span class="ip-source ip-source-${info.cls}" id="ipSourceBadge">${info.text}</span>`;
 }
@@ -124,7 +124,7 @@ export function renderSwitchVlans(device: Device): string {
 
 // The SSID + optional-password fields, shared by the laptop and access-point
 // inspector sections. `hint` tailors the help note to the device's role.
-function renderWifiFields(config: any, hint: string): string {
+function renderWifiFields(config: DeviceConfig, hint: string): string {
   return `
       <div class="field">
         <label for="selectedSsid">SSID (network name)</label>
@@ -280,7 +280,7 @@ export function renderFirewallRules(device: Device): string {
 // live by `touchNat` while this panel is open). The flash is a highlighted row
 // plus a "●" marker, so the signal is not carried by colour alone.
 export function renderNatTranslations(device: Device): string {
-  const translations = (device.config?.natTranslations || []) as any[];
+  const translations = device.config?.natTranslations || [];
   if (!translations.length) return "";
   const maxStep = Math.max(-1, ...translations.map(t => t.lastStep ?? -1));
   const endpoint = (ip: string, port: number, proto: string) => proto === "tcp" ? `${ip}:${port}` : `${ip} #${port}`;
@@ -463,28 +463,28 @@ function renderDnsmasqSection(device: Device): string {
 function bindDnsmasqControls(selected: Device): void {
   const runningInput = document.getElementById("dnsmasqRunning") as HTMLInputElement | null;
   if (runningInput) {
-    runningInput.addEventListener("change", (event: any) => {
+    runningInput.addEventListener("change", (event) => {
       pushUndo();
       ensureConfig(selected);
-      selected.config.dnsmasqRunning = event.target.checked;
+      selected.config.dnsmasqRunning = (event.target as HTMLInputElement).checked;
       syncPanel();
     });
   }
   const httpInput = document.getElementById("httpEnabled") as HTMLInputElement | null;
   if (httpInput) {
-    httpInput.addEventListener("change", (event: any) => {
+    httpInput.addEventListener("change", (event) => {
       pushUndo();
       ensureConfig(selected);
-      selected.config.httpEnabled = event.target.checked;
+      selected.config.httpEnabled = (event.target as HTMLInputElement).checked;
       syncPanel(); // reveal/hide the title field
     });
   }
   const httpTitleInput = document.getElementById("httpTitle") as HTMLInputElement | null;
   if (httpTitleInput) {
-    httpTitleInput.addEventListener("change", (event: any) => {
+    httpTitleInput.addEventListener("change", (event) => {
       pushUndo();
       ensureConfig(selected);
-      selected.config.httpTitle = event.target.value.replace(/\s+/g, " ").trim().slice(0, 200);
+      selected.config.httpTitle = (event.target as HTMLInputElement).value.replace(/\s+/g, " ").trim().slice(0, 200);
       syncPanel();
     });
   }
@@ -511,8 +511,8 @@ function bindDnsmasqControls(selected: Device): void {
     });
   }
   document.querySelectorAll(".dns-record-remove").forEach(button => {
-    button.addEventListener("click", (event: any) => {
-      const index = Number(event.currentTarget.dataset.index);
+    button.addEventListener("click", (event) => {
+      const index = Number((event.currentTarget as HTMLElement).dataset.index);
       pushUndo();
       ensureConfig(selected);
       const records = normaliseDnsRecords(selected.config.dnsRecords || []);
@@ -568,8 +568,8 @@ function bindDnsmasqControls(selected: Device): void {
     });
   }
   document.querySelectorAll(".radius-user-remove").forEach(button => {
-    button.addEventListener("click", (event: any) => {
-      const index = Number(event.currentTarget.dataset.index);
+    button.addEventListener("click", (event) => {
+      const index = Number((event.currentTarget as HTMLElement).dataset.index);
       pushUndo();
       ensureConfig(selected);
       const users = normaliseRadiusUsers(selected.config.radius?.users || []);
@@ -1003,8 +1003,8 @@ function renderLinkPanel(link: Link): void {
   const nameInput = document.getElementById("selectedLinkName") as HTMLInputElement | null;
   if (nameInput) {
     captureUndoOnFocus(nameInput);
-    nameInput.addEventListener("input", (event: any) => {
-      const value = event.target.value.trim();
+    nameInput.addEventListener("input", (event) => {
+      const value = (event.target as HTMLInputElement).value.trim();
       if (value) link.name = value;
       else delete link.name; // empty reverts to the derived default
       syncSimLog(); // the packet list's Link column shows this name
@@ -1021,8 +1021,8 @@ function renderLinkPanel(link: Link): void {
   }
   const shutdownInput = document.getElementById("selectedLinkShutdown") as HTMLInputElement | null;
   if (shutdownInput) {
-    shutdownInput.addEventListener("change", (event: any) => {
-      dom.modeLabel.textContent = mutationText(setLinkShutdown(link, event.target.checked));
+    shutdownInput.addEventListener("change", (event) => {
+      dom.modeLabel.textContent = mutationText(setLinkShutdown(link, (event.target as HTMLInputElement).checked));
     });
   }
   // Bandwidth / latency / loss: a positive number sets the property; blank or
@@ -1031,8 +1031,8 @@ function renderLinkPanel(link: Link): void {
     const input = document.getElementById(id) as HTMLInputElement | null;
     if (!input) return;
     captureUndoOnFocus(input);
-    input.addEventListener("input", (event: any) => {
-      let value = Number(event.target.value);
+    input.addEventListener("input", (event) => {
+      let value = Number((event.target as HTMLInputElement).value);
       if (max != null && value > max) value = max;
       if (Number.isFinite(value) && value > 0) (link)[key] = value;
       else delete (link)[key];
@@ -1095,7 +1095,7 @@ export function renderWhy(frame: EthernetFrame): string {
     </section>`;
 }
 
-export function renderFramePanel(frame: any): void {
+export function renderFramePanel(frame: EthernetFrame): void {
   const etherTypeLabel: Record<number, string> = {
     0x0806: "0x0806 (ARP)", 0x0800: "0x0800 (IPv4)",
     0x888e: "0x888e (802.1X / EAPOL / 802.11)", 0x0802: "0x0802 (Spanning Tree / BPDU)",
@@ -1214,9 +1214,9 @@ function bindWifiControls(selected: Device): void {
       const input = document.getElementById(id) as HTMLInputElement | null;
       if (!input) return;
       captureUndoOnFocus(input);
-      input.addEventListener("change", (event: any) => {
+      input.addEventListener("change", (event) => {
         ensureConfig(selected);
-        selected.config[field] = normalise(event.target.value);
+        selected.config[field] = normalise((event.target as HTMLInputElement).value);
         syncPanel();
         sync().render();
       });
@@ -1238,12 +1238,12 @@ function bindPortCountField(selected: Device): void {
     const portsInput = document.getElementById("selectedPorts") as HTMLInputElement;
     if (portsInput) {
       captureUndoOnFocus(portsInput);
-      portsInput.addEventListener("input", (event: any) => {
-        const value = Number(event.target.value);
+      portsInput.addEventListener("input", (event) => {
+        const value = Number((event.target as HTMLInputElement).value);
         if (!Number.isInteger(value) || value < 4 || value > 24) {
-          event.target.setCustomValidity("Enter a port count from 4 to 24.");
+          (event.target as HTMLInputElement).setCustomValidity("Enter a port count from 4 to 24.");
         } else {
-          event.target.setCustomValidity("");
+          (event.target as HTMLInputElement).setCustomValidity("");
           ensureConfig(selected);
           selected.config.ethernetPorts = value;
           // The rows' listeners are delegated on the list (bindSwitchPortControls),
@@ -1293,8 +1293,8 @@ export const INSPECTOR_SECTIONS: InspectorSection[] = [
         // and scripts address the device (R38). A colliding value is not
         // applied; the field says why, and reverts when it is left.
         captureUndoOnFocus(nameInput);
-        nameInput.addEventListener("input", (event: any) => {
-          const typed = event.target.value;
+        nameInput.addEventListener("input", (event) => {
+          const typed = (event.target as HTMLInputElement).value;
           const problem = typed ? deviceNameBlockReason(typed, selected) : null;
           nameInput.setCustomValidity(problem || "");
           if (problem) { nameInput.reportValidity(); return; }
@@ -1495,8 +1495,8 @@ export const INSPECTOR_SECTIONS: InspectorSection[] = [
     bind(selected) {
       const managedInput = document.getElementById("selectedManaged") as HTMLInputElement;
       if (managedInput) {
-        managedInput.addEventListener("change", (event: any) => {
-          dom.modeLabel.textContent = mutationText(setSwitchManaged(selected, event.target.checked));
+        managedInput.addEventListener("change", (event) => {
+          dom.modeLabel.textContent = mutationText(setSwitchManaged(selected, (event.target as HTMLInputElement).checked));
         });
       }
       bindPortCountField(selected);
@@ -1541,10 +1541,10 @@ export const INSPECTOR_SECTIONS: InspectorSection[] = [
     bind(selected) {
       const routerRole = document.getElementById("selectedRouterRole") as HTMLSelectElement | null;
       if (routerRole) {
-        routerRole.addEventListener("change", (event: any) => {
+        routerRole.addEventListener("change", (event) => {
           pushUndo();
           ensureConfig(selected);
-          if (event.target.value === "border") selected.config.role = "border";
+          if ((event.target as HTMLSelectElement).value === "border") selected.config.role = "border";
           else delete selected.config.role; // internal is the plain default
           syncPanel();
           sync().render(); // redraw the border badge
@@ -1554,15 +1554,15 @@ export const INSPECTOR_SECTIONS: InspectorSection[] = [
       const routerSerialPorts = document.getElementById("selectedRouterSerialPorts") as HTMLInputElement;
       [routerEthernetPorts, routerSerialPorts].filter(Boolean).forEach(input => {
         captureUndoOnFocus(input);
-        input.addEventListener("input", (event: any) => {
-          const value = Number(event.target.value);
+        input.addEventListener("input", (event) => {
+          const value = Number((event.target as HTMLInputElement).value);
           if (!Number.isInteger(value) || value < 0 || value > 12) {
-            event.target.setCustomValidity("Enter a port count from 0 to 12.");
+            (event.target as HTMLInputElement).setCustomValidity("Enter a port count from 0 to 12.");
             return;
           }
-          event.target.setCustomValidity("");
+          (event.target as HTMLInputElement).setCustomValidity("");
           ensureConfig(selected);
-          if (event.target.id === "selectedRouterEthernetPorts") {
+          if ((event.target as HTMLInputElement).id === "selectedRouterEthernetPorts") {
             selected.config.ethernetPorts = value;
           } else {
             selected.config.serialPorts = value;
@@ -1733,18 +1733,18 @@ export function syncDeviceList(): void {
       <span class="device-type">${link.shutdown ? "Down" : link.wireless ? "Wireless" : "Cable"}</span>
     </button>`).join("");
   }
-  [...dom.deviceList.querySelectorAll(".link-row")].forEach((row: any) => {
+  [...dom.deviceList.querySelectorAll<HTMLElement>(".link-row")].forEach((row) => {
     row.addEventListener("click", () => {
       state.selectedId = null;
-      state.selectedLinkId = row.dataset.linkId;
+      state.selectedLinkId = row.dataset.linkId ?? null;   // the row template always writes it
       state.configuringId = null;
       syncPanel();
       sync().render();
     });
   });
-  [...dom.deviceList.querySelectorAll(".device-row:not(.link-row)")].forEach((row: any) => {
+  [...dom.deviceList.querySelectorAll<HTMLElement>(".device-row:not(.link-row)")].forEach((row) => {
     row.addEventListener("click", () => {
-      state.selectedId = row.dataset.id;
+      state.selectedId = row.dataset.id ?? null;   // the row template always writes it
       state.selectedLinkId = null;
       if (state.configuringId && state.configuringId !== state.selectedId) state.configuringId = null;
       syncPanel();

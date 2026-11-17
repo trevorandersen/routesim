@@ -10,6 +10,7 @@ import { SCENARIO_GROUPS } from "../src/scenario-library";
 import { addLink, clearNetwork } from "../src/devices";
 import { runConsoleCommand as exec, runConsoleScript } from "../src/commands";
 import { registerNoopCallbacks, resetState } from "./helpers";
+import type { SerialisedTopology } from "../src/types";
 
 describe("built-in topologies & scenarios — positive coordinates", () => {
   const configs: [string, any][] = [
@@ -381,9 +382,10 @@ describe("isolation checks pass only for the taught reason (blockedBy)", () => {
         if (c.kind !== "ping-fail" && c.kind !== "tcp-fail") continue;
         seen++;
         expect(c.blockedBy, `${scenario.id}: "${c.label}" has no blockedBy`).toBeTruthy();
-        const guard = scenario.topology.devices.find((d: any) => d.name === c.blockedBy || d.id === c.blockedBy);
+        // A built-in's topology is a serialised one (an imported one is raw until normalised).
+        const guard = (scenario.topology as SerialisedTopology).devices.find(d => d.name === c.blockedBy || d.id === c.blockedBy);
         expect(guard, `${scenario.id}: blockedBy ${c.blockedBy} is not in the topology`).toBeTruthy();
-        expect(POLICY_TYPES.has(guard.type), `${scenario.id}: ${c.blockedBy} (${guard.type}) has no policy`).toBe(true);
+        expect(POLICY_TYPES.has(guard!.type), `${scenario.id}: ${c.blockedBy} (${guard!.type}) has no policy`).toBe(true);
       }
     }
     expect(seen).toBeGreaterThanOrEqual(6);   // vlan x2, firewall-guard, troubleshoot-firewall, harden-gateway, stateful-firewall

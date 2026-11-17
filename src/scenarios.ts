@@ -4,7 +4,7 @@
  * then verifies it. Goal evaluation reuses the headless simulation runner and the
  * topology system. See docs/scenarios.md.
  */
-import type { Device } from "./types";
+import type { Device, DeviceConfig, Link, FrameHistoryEntry } from "./types";
 import { state, sync } from "./state";
 import { getDevice, isPhysicalLink } from "./devices";
 import { applyConfig } from "./config";
@@ -42,7 +42,7 @@ export interface Scenario {
   id: string;
   name: string;
   objective: string;
-  topology: any;            // { version, devices, links } — same shape as built-in topologies
+  topology: unknown;        // { version, devices, links } like a built-in topology — raw (an import is only checked to be an object), so it goes through normaliseConfig on load
   checks: ScenarioCheck[];
   group?: string;           // chooser category; built-ins are grouped via SCENARIO_GROUPS
 }
@@ -252,7 +252,9 @@ function evaluate(check: ScenarioCheck): boolean {
   if (check.kind === "config") {
     const d = resolve(check.device);
     if (!d) return because(missing(check.device));
-    const actual = (d.config as any)?.[check.field];
+    // `field` names any config field (the check is data), so read it by name.
+    const fields: Record<string, unknown> | undefined = d.config;
+    const actual = fields?.[check.field];
     return actual === check.equals
       || because(`${d.name}'s ${check.field} is ${actual == null || actual === "" ? "not set" : JSON.stringify(actual)}; the goal needs ${JSON.stringify(check.equals)}.`);
   }
@@ -427,7 +429,7 @@ function evaluateCheck(check: ScenarioCheck): CheckResult {
 // `dns` check reading the address a `dhcp` check just assigned — then restore.
 interface GradingState {
   configs: Array<{ device: Device; data: string }>;
-  frameHistories: Array<{ link: any; copy: any[] | undefined }>;
+  frameHistories: Array<{ link: Link; copy: FrameHistoryEntry[] | undefined }>;
 }
 
 function saveGradingState(): GradingState {
@@ -443,12 +445,12 @@ function saveGradingState(): GradingState {
 
 function restoreGradingState(saved: GradingState): void {
   for (const { device, data } of saved.configs) {
-    const cfg = device.config as any;
+    const cfg = device.config;
     const restored = JSON.parse(data);
     if (!cfg) { device.config = restored; continue; }
     // Rewrite the existing config object in place so its identity survives — the
     // per-frame port-mode/VLAN memoisation keys on it (normalise.ts).
-    for (const k of Object.keys(cfg)) delete cfg[k];
+    for (const k of Object.keys(cfg) as (keyof DeviceConfig)[]) delete cfg[k];
     Object.assign(cfg, restored);
   }
   for (const { link, copy } of saved.frameHistories) {

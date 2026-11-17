@@ -22,7 +22,7 @@ interface Scenario {
   id: string;
   name: string;
   objective: string;          // shown in the banner
-  topology: any;              // { version, devices, links } — same shape as built-in topologies
+  topology: unknown;          // { version, devices, links } like a built-in topology — raw until normaliseConfig
   checks: ScenarioCheck[];    // the goal
   group?: string;             // chooser category (built-ins are grouped via SCENARIO_GROUPS)
 }

@@ -17437,7 +17437,8 @@ Snort successfully validated the configuration${bad ? " (with errors)" : "."}`);
     if (check.kind === "config") {
       const d = resolve(check.device);
       if (!d) return because(missing(check.device));
-      const actual = d.config?.[check.field];
+      const fields = d.config;
+      const actual = fields?.[check.field];
       return actual === check.equals || because(`${d.name}'s ${check.field} is ${actual == null || actual === "" ? "not set" : JSON.stringify(actual)}; the goal needs ${JSON.stringify(check.equals)}.`);
     }
     if (check.kind === "ping") return pingSucceeds(check.from, check.to);

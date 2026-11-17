@@ -7107,6 +7107,17 @@ Full legal text: https://creativecommons.org/publicdomain/zero/1.0/legalcode</pr
     if (s.macsec === "secured") return { text: "MACsec \u2713", tone: "secure" };
     return null;
   }
+  function linkLabelText(link, statusText = null) {
+    const parts = [];
+    if (link.name) parts.push(link.name);
+    const latency = Number(link.latency);
+    if (latency > 0) parts.push(`${roundForLabel(latency)} ms`);
+    const loss = Number(link.loss);
+    if (loss > 0) parts.push(`${roundForLabel(Math.min(100, loss))}% loss`);
+    if (statusText) parts.push(statusText);
+    return parts.join(" \xB7 ");
+  }
+  var roundForLabel = (n) => String(Math.round(n * 100) / 100);
   function drawLink(link) {
     const from = getDevice(link.from);
     const to = getDevice(link.to);
@@ -7166,17 +7177,15 @@ Full legal text: https://creativecommons.org/publicdomain/zero/1.0/legalcode</pr
     ctx.arc(midX, midY, 5, 0, Math.PI * 2);
     ctx.fill();
     ctx.stroke();
-    const labelParts = [];
-    if (link.name) labelParts.push(link.name);
     const status = linkStatusLabel({ shut, unauth, blocked, macsec });
-    if (status) labelParts.push(status.text);
-    if (labelParts.length) {
+    const label = linkLabelText(link, status?.text ?? null);
+    if (label) {
       ctx.globalAlpha = 1;
       ctx.font = FONT_SMALL;
       ctx.textAlign = "center";
       ctx.textBaseline = "bottom";
       ctx.fillStyle = status ? status.tone === "danger" ? cssColor("--danger") : status.tone === "stp" ? cssColor("--stp-block") : status.tone === "secure" ? "#14b8a6" : cssColor("--muted") : cssColor("--muted");
-      ctx.fillText(labelParts.join(" \xB7 "), midX, midY - 8);
+      ctx.fillText(label, midX, midY - 8);
     }
     ctx.restore();
   }

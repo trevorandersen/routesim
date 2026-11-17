@@ -7,7 +7,7 @@ import { state } from "../src/state";
 import { runSimulationHeadless } from "../src/engine";
 import { buildPingEvents } from "../src/simulation";
 import { linkName, deleteLink, deleteSelection, addLink, toggleLinkShutdown } from "../src/devices";
-import { linkStatusLabel } from "../src/canvas";
+import { linkStatusLabel, linkLabelText } from "../src/canvas";
 import { buildConfigPayload, parseConfig } from "../src/config";
 import { runConsoleScript, runConsoleCommand as exec } from "../src/commands";
 import { registerNoopCallbacks, resetState } from "./helpers";
@@ -237,5 +237,45 @@ describe("link state carries a non-colour marker (R54 — perceivable by everyon
     expect(linkStatusLabel({ shut: true, macsec: "secured" })).toEqual({ text: "down", tone: "danger" });
     expect(linkStatusLabel({ blocked: true, macsec: "failed" })).toEqual({ text: "MACsec ✗", tone: "danger" });
     expect(linkStatusLabel({ blocked: true, macsec: "secured" })).toEqual({ text: "STP blocked", tone: "stp" });
+  });
+});
+
+describe("latency and loss on the canvas label (text, not colour)", () => {
+  it("a link with neither, no name and no state marker has no label (drawn as it always was)", () => {
+    expect(linkLabelText({})).toBe("");
+    expect(linkLabelText({ latency: 0, loss: 0 })).toBe("");
+  });
+
+  it("the name and the state marker are kept as before", () => {
+    expect(linkLabelText({ name: "WAN" })).toBe("WAN");
+    expect(linkLabelText({ name: "WAN" }, "down")).toBe("WAN · down");
+    expect(linkLabelText({}, "STP blocked")).toBe("STP blocked");
+  });
+
+  it("a non-default latency and loss join the label, after the name and before the marker", () => {
+    expect(linkLabelText({ name: "WAN", latency: 40, loss: 5 })).toBe("WAN · 40 ms · 5% loss");
+    expect(linkLabelText({ name: "WAN", latency: 40, loss: 5 }, "down")).toBe("WAN · 40 ms · 5% loss · down");
+    expect(linkLabelText({ latency: 40 })).toBe("40 ms");          // an unnamed link shows just this part
+    expect(linkLabelText({ loss: 12.5 })).toBe("12.5% loss");
+  });
+
+  it("numbers are shown readably and loss never above 100%", () => {
+    expect(linkLabelText({ latency: 2.5 })).toBe("2.5 ms");
+    expect(linkLabelText({ latency: 0.1 + 0.2 })).toBe("0.3 ms");
+    expect(linkLabelText({ loss: 250 })).toBe("100% loss");
+  });
+
+  it("a link set with linkset carries its latency and loss into the label", () => {
+    resetState();
+    runConsoleScript(`
+      add computer PC1
+      add computer PC2
+      link PC1 PC2
+      linkset PC1 PC2 latency 40
+      linkset PC1 PC2 loss 5
+    `);
+    expect(linkLabelText(state.links[0])).toBe("40 ms · 5% loss");
+    runConsoleScript("linkset PC1 PC2 latency 0");
+    expect(linkLabelText(state.links[0])).toBe("5% loss");
   });
 });

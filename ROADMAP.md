@@ -320,9 +320,10 @@ labels for named links**, and now **bandwidth / latency / loss** per link:
 latency stretches that wire's transit animation (a far/WAN link visibly
 crawls), loss randomly drops forwarded frames in animated runs (headless
 reachability stays deterministic), and bandwidth is stored as the capacity
-input the *streams* mode will consume. What remains: **per-link colour/style**,
-and surfacing latency/loss on the canvas (currently inspector-only). Effort: low
-(the cosmetic bits).
+input the *streams* mode will consume. **Latency/loss on the canvas — shipped
+(2026-11):** a non-default latency and loss join the link's canvas label as text
+(`WAN · 40 ms · 5% loss`), not as a colour. What remains: **per-link
+colour/style**. Effort: low (the cosmetic bits).
 
 ### Firewall — beyond basic packet filtering
 **Stateful filtering + REJECT — shipped (2026-06).** Connection tracking

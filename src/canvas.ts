@@ -124,6 +124,25 @@ export function linkStatusLabel(
   return null;
 }
 
+// A link's canvas label: its name, then a non-default latency and loss, then
+// the state marker — "WAN · 40 ms · 5% loss · down". Latency and loss are text,
+// not a colour (they were inspector-only). "" = no label: an unnamed, healthy
+// link at the default latency and loss is drawn as it always was. Pure and
+// exported for the tests — drawLink itself needs a live canvas.
+export function linkLabelText(link: Pick<Link, "name" | "latency" | "loss">, statusText: string | null = null): string {
+  const parts: string[] = [];
+  if (link.name) parts.push(link.name);
+  const latency = Number(link.latency);
+  if (latency > 0) parts.push(`${roundForLabel(latency)} ms`);
+  const loss = Number(link.loss);
+  if (loss > 0) parts.push(`${roundForLabel(Math.min(100, loss))}% loss`);
+  if (statusText) parts.push(statusText);
+  return parts.join(" · ");
+}
+
+// At most two decimals: a typed 2.5 ms stays 2.5, a float artefact does not show.
+const roundForLabel = (n: number): string => String(Math.round(n * 100) / 100);
+
 export function drawLink(link: Link): void {
   const from = getDevice(link.from);
   const to = getDevice(link.to);
@@ -196,15 +215,14 @@ export function drawLink(link: Link): void {
   ctx.fill();
   ctx.stroke();
 
-  // Label: an explicit name (opt-in canvas label), plus a non-colour state marker
-  // ("down", "auth failed", "MACsec ✗/✓", "STP blocked"). Drawn unconditionally —
-  // like "down"/"STP blocked" always were — so selecting an endpoint (which
-  // repaints the wire the active colour) can no longer hide the cue.
-  const labelParts: string[] = [];
-  if (link.name) labelParts.push(link.name);
+  // Label: an explicit name (opt-in canvas label), a non-default latency/loss,
+  // plus a non-colour state marker ("down", "auth failed", "MACsec ✗/✓", "STP
+  // blocked") — linkLabelText. Drawn unconditionally — like "down"/"STP
+  // blocked" always were — so selecting an endpoint (which repaints the wire
+  // the active colour) can no longer hide the cue.
   const status = linkStatusLabel({ shut, unauth, blocked, macsec });
-  if (status) labelParts.push(status.text);
-  if (labelParts.length) {
+  const label = linkLabelText(link, status?.text ?? null);
+  if (label) {
     ctx.globalAlpha = 1;
     ctx.font = FONT_SMALL;
     ctx.textAlign = "center";
@@ -215,7 +233,7 @@ export function drawLink(link: Link): void {
         : status.tone === "secure" ? "#14b8a6"
         : cssColor("--muted")
       : cssColor("--muted");
-    ctx.fillText(labelParts.join(" · "), midX, midY - 8);
+    ctx.fillText(label, midX, midY - 8);
   }
   ctx.restore();
 }

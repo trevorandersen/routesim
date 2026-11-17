@@ -12,6 +12,7 @@ import {
   toggleDockTab, closeDock, handleDockTabClick, startDockResize, moveDockResize, stopDockResize,
 } from "./terminal";
 import { openConsole, consoleLine, submitConsoleCommand, handleConsoleKeydown } from "./console";
+import { clearedText } from "./commands";
 import { buildHelpHtml } from "./help";
 import { loadScenario } from "./scenarios";
 import { runActiveScenarioCheck, dismissScenario, collapseScenario, expandScenario } from "./scenario-ui";
@@ -674,7 +675,7 @@ export function setupUI(): void {
   // Most ribbon buttons are wired by data attribute (delegated so dynamically
   // rendered buttons — scenarios — work without re-binding).
   const ribbonActions: Record<string, () => void> = {
-    "clear": clearNetwork,
+    "clear": () => { const ended = clearNetwork(); if (ended) dom.modeLabel.textContent = clearedText(ended); },
     "undo": undo,
     "redo": redo,
     "delete": deleteSelection,

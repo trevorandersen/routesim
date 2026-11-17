@@ -11,6 +11,10 @@ A **scenario** is a guided challenge: an initial topology + config and a **goal*
 
 **Undo across a load.** Loading a scenario is one undo point. Undo brings back the previous network *and* what stood with it: the scenario that was active then (none, or the one you switched away from) and the name-resolution mode — a scenario turns Instant DNS off, and undoing the load turns it back on if it was on. Redo returns the scenario, its network and its realistic DNS together. (`activeScenarioId` and `options.instantDns` are part of the undo snapshot — `networkSnapshot` in `state.ts`.) Dismissing a scenario is not an undo point; undoing back to an edit made while it was active shows its banner again.
 
+## A scenario lasts as long as its network
+
+Anything that replaces the network ends the scenario: loading a topology or another scenario, importing a config, opening a link — and **Clear** (`clearNetwork`), which says so (`Cleared network — the scenario "…" ended with it`). Each is one undo point that carries the scenario, so Undo brings the network back with its goal.
+
 ## Data model (`src/scenarios.ts`)
 
 ```ts

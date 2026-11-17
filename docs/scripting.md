@@ -66,7 +66,7 @@ Param keys and boolean values are case-insensitive. Adding a setting is a one-ro
 | `move <ref> <x> <y>` | Reposition a device. |
 | `rename <ref> <name>` | Rename a device. The new name must not be another device's (ignoring case; a device may change the case of its own). For a CLI device the name **is** its hostname (canvas label, prompt, and resolvable name) — the realistic equivalent is `cli <host> hostname <name>` / `hostnamectl set-hostname <name>`, `cli <router> hostname <name>` (config mode), or `cli <switch> config hostname <name>`. |
 | `collapse <switch> [as <name>]` / `expand <lan>` | Collapse a switch + hosts into a LAN node / undo. The node is named `<switch> LAN` (or `<switch> LAN 2`, … when a device already has that name), or `<name>` when given — refused if taken, like any device name. Each says what it did, and fails with the reason when there is nothing to do (not a switch, nothing attached, already collapsed, not a collapsed LAN). |
-| `clear` | Remove all devices and links. |
+| `clear` | Remove all devices and links. An active scenario ends with its network (the output says so); one `undo` brings both back. |
 
 ### Device config
 | Command | Effect |

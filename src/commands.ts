@@ -231,7 +231,12 @@ function cmdRename(args: string[]): CommandResult {
   return ok(`Renamed to ${name}.`);
 }
 
-function cmdClear(): CommandResult { clearNetwork(); return ok("Cleared network."); }
+function cmdClear(): CommandResult { return ok(clearedText(clearNetwork())); }
+// What Clear says: the network is gone, and so is the scenario it belonged to.
+export function clearedText(endedScenarioId: string | null): string {
+  if (!endedScenarioId) return "Cleared network.";
+  return `Cleared network — the scenario "${getScenario(endedScenarioId)?.name ?? endedScenarioId}" ended with it. Undo brings both back.`;
+}
 
 function cmdCollapse(args: string[]): CommandResult {
   const device = resolveDevice(args[0]);

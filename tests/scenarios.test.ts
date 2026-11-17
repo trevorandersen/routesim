@@ -7,7 +7,7 @@ import { join } from "node:path";
 import { state, defaultConfig, vlanRoasConfig, routerMeshConfig, wifiVlanConfig, undo, redo, networkSnapshot, restoreSnapshot, registerCallbacks } from "../src/state";
 import { SCENARIOS, getScenario, loadScenario, checkScenario, registerScenario, isValidScenarioCheck, unregisterScenario, scenarioIssue } from "../src/scenarios";
 import { SCENARIO_GROUPS } from "../src/scenario-library";
-import { addLink } from "../src/devices";
+import { addLink, clearNetwork } from "../src/devices";
 import { runConsoleCommand as exec, runConsoleScript } from "../src/commands";
 import { registerNoopCallbacks, resetState } from "./helpers";
 
@@ -487,5 +487,59 @@ describe("undo across a load restores the scenario and name-resolution mode (R78
     restoreSnapshot(JSON.stringify(bare));
     expect(state.activeScenarioId).toBe(first.id);
     expect(state.options.instantDns).toBe(false);
+  });
+});
+
+// A scenario is its network. Clear used to leave the goal banner standing over
+// an empty canvas — a goal with nothing to check — and an autosave then
+// restored that orphan. Every other replacement of the network (a topology
+// load, an import) already ended the scenario; Clear now does too.
+describe("Clear ends the scenario along with its network", () => {
+  beforeEach(() => { resetState(); registerNoopCallbacks(); });
+  const [first] = SCENARIOS;
+
+  it("the scenario ends, the console says so, and one Undo brings back both", () => {
+    loadScenario(first.id);
+    const before = state.devices.map(d => d.name).sort().join(",");
+    const result = exec("clear");
+    expect(state.activeScenarioId).toBeNull();
+    expect(state.devices.length).toBe(0);
+    expect(result.output).toEqual([`Cleared network — the scenario "${first.name}" ended with it. Undo brings both back.`]);
+    expect(exec("scenario check").ok).toBe(false);                 // nothing is active to check
+    undo();
+    expect(state.activeScenarioId).toBe(first.id);
+    expect(state.devices.map(d => d.name).sort().join(",")).toBe(before);
+    redo();
+    expect(state.activeScenarioId).toBeNull();
+    expect(state.devices.length).toBe(0);
+  });
+
+  it("the goal banner is redrawn, not left standing", () => {
+    let banner = 0;
+    registerNoopCallbacks({ syncScenarioPanel: () => { banner++; } });
+    loadScenario(first.id);
+    banner = 0;
+    exec("clear");
+    expect(banner).toBeGreaterThan(0);
+    registerNoopCallbacks();
+  });
+
+  it("a scenario whose devices were all deleted by hand still ends — as an undo point", () => {
+    loadScenario(first.id);
+    state.devices = [];
+    state.links = [];
+    const depth = state.undoStack.length;
+    expect(clearNetwork()).toBe(first.id);
+    expect(state.activeScenarioId).toBeNull();
+    expect(state.undoStack.length).toBe(depth + 1);
+    undo();
+    expect(state.activeScenarioId).toBe(first.id);
+  });
+
+  it("with no scenario active Clear is as it was: no mention of one, no undo point for an empty canvas", () => {
+    expect(clearNetwork()).toBeNull();
+    expect(state.undoStack.length).toBe(0);
+    exec("add computer PC1 at 0 0");
+    expect(exec("clear").output).toEqual(["Cleared network."]);
   });
 });

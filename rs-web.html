@@ -5468,7 +5468,9 @@ Full legal text: https://creativecommons.org/publicdomain/zero/1.0/legalcode</pr
   }
   function clearNetwork() {
     _stopSimulation?.();
-    if (state.devices.length || state.links.length) pushUndo();
+    const endedScenarioId = state.activeScenarioId;
+    if (state.devices.length || state.links.length || endedScenarioId) pushUndo();
+    state.activeScenarioId = null;
     state.devices = [];
     state.links = [];
     state.selectedId = null;
@@ -5482,7 +5484,9 @@ Full legal text: https://creativecommons.org/publicdomain/zero/1.0/legalcode</pr
     sync().syncPanel();
     sync().syncTerminal();
     sync().syncSimLog();
+    sync().syncScenarioPanel();
     sync().render();
+    return endedScenarioId;
   }
   function moveDevice(device, x, y) {
     device.x = x;
@@ -18627,7 +18631,10 @@ Snort successfully validated the configuration${bad ? " (with errors)" : "."}`);
     window.addEventListener("keydown", handleGlobalKeydown);
     setupRibbon();
     const ribbonActions = {
-      "clear": clearNetwork,
+      "clear": () => {
+        const ended = clearNetwork();
+        if (ended) dom.modeLabel.textContent = clearedText(ended);
+      },
       "undo": undo,
       "redo": redo,
       "delete": deleteSelection,
@@ -19406,8 +19413,11 @@ Snort successfully validated the configuration${bad ? " (with errors)" : "."}`);
     return ok(`Renamed to ${name}.`);
   }
   function cmdClear() {
-    clearNetwork();
-    return ok("Cleared network.");
+    return ok(clearedText(clearNetwork()));
+  }
+  function clearedText(endedScenarioId) {
+    if (!endedScenarioId) return "Cleared network.";
+    return `Cleared network \u2014 the scenario "${getScenario(endedScenarioId)?.name ?? endedScenarioId}" ended with it. Undo brings both back.`;
   }
   function cmdCollapse(args) {
     const device = resolveDevice(args[0]);

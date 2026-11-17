@@ -914,13 +914,21 @@ function forgetArpEntries(gone: Set<string>, skipId?: string): void {
   }
 }
 
-export function clearNetwork(): void {
+// Returns the id of the scenario that ended with the network, or null — the
+// surface that called it says so (the console's `clear`, the ribbon's Clear).
+export function clearNetwork(): string | null {
   // Tear down any active run BEFORE the topology it references disappears —
   // the same stop-before-replace order applyConfigWithoutUndo follows. Without
   // it the animation loop kept running against deleted devices (status stuck
   // on "running", a transit pointing at a missing link).
   _stopSimulation?.();
-  if (state.devices.length || state.links.length) pushUndo();
+  const endedScenarioId = state.activeScenarioId;
+  if (state.devices.length || state.links.length || endedScenarioId) pushUndo();
+  // A scenario is its network: with the network gone there is nothing left for
+  // its goal to check, so it ends too — like every other replacement of the
+  // network (a topology load, an import). The undo point above carries it, so
+  // one Undo brings back both.
+  state.activeScenarioId = null;
   state.devices = [];
   state.links = [];
   state.selectedId = null;
@@ -936,7 +944,9 @@ export function clearNetwork(): void {
   sync().syncPanel();
   sync().syncTerminal();
   sync().syncSimLog();
+  sync().syncScenarioPanel();
   sync().render();
+  return endedScenarioId;
 }
 
 export function moveDevice(device: Device, x: number, y: number): void {

@@ -114,19 +114,25 @@ export function applyDnsmasqConfLine(device: Device, line: string): string {
   return `dnsmasq: unsupported directive: ${trimmed} (use address=/name/ip, dhcp-range=start,end, dhcp-option=option:router,ip)`;
 }
 
+// The server's `help`: the host shell's commands plus dnsmasq. Tab completion
+// (completion.ts) reads its words from here too, so the two cannot drift.
+export function serverHelpLines(): string[] {
+  return [
+    ...hostHelpLines(),
+    "dnsmasq (DNS + DHCP):",
+    "  cat /etc/dnsmasq.conf",
+    "  echo address=/<name>/<ipv4> >> /etc/dnsmasq.conf",
+    "  echo dhcp-range=<start>,<end> >> /etc/dnsmasq.conf",
+    "  echo dhcp-option=option:router,<ipv4> >> /etc/dnsmasq.conf",
+    "  systemctl start|stop|restart|status dnsmasq"
+  ];
+}
+
 export function runServerTerminalCommand(server: Device, command: string): void {
   const lower = command.toLowerCase().trim();
 
   if (lower === "help") {
-    terminalLine("muted", [
-      ...hostHelpLines(),
-      "dnsmasq (DNS + DHCP):",
-      "  cat /etc/dnsmasq.conf",
-      "  echo address=/<name>/<ipv4> >> /etc/dnsmasq.conf",
-      "  echo dhcp-range=<start>,<end> >> /etc/dnsmasq.conf",
-      "  echo dhcp-option=option:router,<ipv4> >> /etc/dnsmasq.conf",
-      "  systemctl start|stop|status dnsmasq"
-    ].join("\n"));
+    terminalLine("muted", serverHelpLines().join("\n"));
     return;
   }
 

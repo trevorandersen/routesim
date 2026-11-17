@@ -420,6 +420,7 @@ export function hostHelpLines(): string[] {
     "  ip link set dev eth0 address <mac>",
     "  hostname [name]               (show / set the hostname)",
     "  hostnamectl set-hostname <name>",
+    "  cat /etc/hostname",
     "  arp -n",
     "  ip neigh flush all            (clear the ARP cache)",
     "  cat /etc/resolv.conf",
@@ -434,6 +435,21 @@ export function hostHelpLines(): string[] {
     "  clear"
   ];
 }
+
+// Commands the dispatcher above accepts that `help` does not list (another
+// spelling of a listed one, or the help command itself). Tab completion offers
+// them as first words, and completes their arguments as their help-listed
+// twin's; a test runs each through the dispatcher, so one it stops accepting
+// fails there. null = no twin (nothing to complete after it).
+export const HOST_COMMAND_ALIASES: Readonly<Record<string, string | null>> = {
+  help: null,
+  tracert: "traceroute",
+  host: "nslookup",
+  dig: "nslookup",
+  wget: "curl",
+  dhclient: "dhcp",
+  route: null,
+};
 
 // The address the run's success check compares replies against. Resolves a
 // name exactly as the builders do (findPingTarget / the DNS auto-zone) — a

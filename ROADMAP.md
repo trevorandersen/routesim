@@ -403,8 +403,13 @@ The JSON import path already exists.
 > the **terminal QoL** wins — `Ctrl+C` cancels a running simulation from a terminal
 > or the console (echoes `^C`), and a **right-click device context menu** (Terminal
 > / Configure / Power / Delete).
-- **Terminal QoL (remaining)** — tab completion for the Linux host/server
-  commands (the router already has `?` + abbreviation).
+- **Tab completion — shipped (2026-11).** The Linux host and server shells
+  (and the Kali shells' host commands) complete on Tab as bash does: one
+  match completes, several complete their common prefix, a second Tab lists
+  them. Commands, the `ip` subcommands, the files the shell reads and device
+  names as the target of `ping`/`traceroute`/`nc`/`curl`/`nslookup`; the words
+  are read from the shell's own `help`, so they cannot drift. Tab still leaves
+  an empty input (keyboard reach). The router keeps `?` + abbreviation.
 
 ### Polish
 - **Annotations / notes on the canvas** — labels and callouts for teaching.

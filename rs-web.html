@@ -11328,6 +11328,7 @@ ${body}
       "  ip link set dev eth0 address <mac>",
       "  hostname [name]               (show / set the hostname)",
       "  hostnamectl set-hostname <name>",
+      "  cat /etc/hostname",
       "  arp -n",
       "  ip neigh flush all            (clear the ARP cache)",
       "  cat /etc/resolv.conf",
@@ -11342,6 +11343,15 @@ ${body}
       "  clear"
     ];
   }
+  var HOST_COMMAND_ALIASES = {
+    help: null,
+    tracert: "traceroute",
+    host: "nslookup",
+    dig: "nslookup",
+    wget: "curl",
+    dhclient: "dhcp",
+    route: null
+  };
   function resolvePingTargetIp(targetText) {
     if (isValidIpv4(targetText)) return targetText;
     return findPingTarget(targetText)?.config?.ipv4Address || hostnameToIp(targetText) || targetText;
@@ -11424,18 +11434,21 @@ ${body}
     }
     return `dnsmasq: unsupported directive: ${trimmed} (use address=/name/ip, dhcp-range=start,end, dhcp-option=option:router,ip)`;
   }
+  function serverHelpLines() {
+    return [
+      ...hostHelpLines(),
+      "dnsmasq (DNS + DHCP):",
+      "  cat /etc/dnsmasq.conf",
+      "  echo address=/<name>/<ipv4> >> /etc/dnsmasq.conf",
+      "  echo dhcp-range=<start>,<end> >> /etc/dnsmasq.conf",
+      "  echo dhcp-option=option:router,<ipv4> >> /etc/dnsmasq.conf",
+      "  systemctl start|stop|restart|status dnsmasq"
+    ];
+  }
   function runServerTerminalCommand(server, command) {
     const lower = command.toLowerCase().trim();
     if (lower === "help") {
-      terminalLine("muted", [
-        ...hostHelpLines(),
-        "dnsmasq (DNS + DHCP):",
-        "  cat /etc/dnsmasq.conf",
-        "  echo address=/<name>/<ipv4> >> /etc/dnsmasq.conf",
-        "  echo dhcp-range=<start>,<end> >> /etc/dnsmasq.conf",
-        "  echo dhcp-option=option:router,<ipv4> >> /etc/dnsmasq.conf",
-        "  systemctl start|stop|status dnsmasq"
-      ].join("\n"));
+      terminalLine("muted", serverHelpLines().join("\n"));
       return;
     }
     if (lower === "cat /etc/dnsmasq.conf") {
@@ -13747,6 +13760,101 @@ Snort successfully validated the configuration${bad ? " (with errors)" : "."}`);
     runHostTerminalCommand(device, command);
   }
 
+  // src/terminal/completion.ts
+  var wordNode = () => ({ words: /* @__PURE__ */ new Map(), stems: /* @__PURE__ */ new Set() });
+  function hostShellHelpLines(device) {
+    if (device.type === "server") return serverHelpLines();
+    return isHost(device.type) ? hostHelpLines() : null;
+  }
+  function shellGrammar(helpLines) {
+    const root = wordNode();
+    const targets = /* @__PURE__ */ new Set();
+    const paths = /* @__PURE__ */ new Set();
+    for (const raw of helpLines) {
+      if (!/^\s+\S/.test(raw)) continue;
+      const tokens = raw.trim().split(/\s{2,}/)[0].split(/\s+/);
+      for (const t of tokens) if (/^\/[\w./-]+$/.test(t)) paths.add(t);
+      if (tokens.slice(1).find((t) => !t.startsWith("-"))?.includes("<name")) targets.add(tokens[0]);
+      let at = [root];
+      for (const token of tokens) {
+        const open = token.search(/[<[(]/);
+        if (open === 0) break;
+        if (open > 0) {
+          at.forEach((n) => n.stems.add(token.slice(0, open)));
+          break;
+        }
+        const next = [];
+        for (const word of token.split("|")) {
+          for (const n of at) {
+            let child = n.words.get(word);
+            if (!child) {
+              child = wordNode();
+              n.words.set(word, child);
+            }
+            next.push(child);
+          }
+        }
+        at = next;
+      }
+    }
+    for (const [alias, twin] of Object.entries(HOST_COMMAND_ALIASES)) {
+      if (root.words.has(alias)) continue;
+      root.words.set(alias, twin && root.words.get(twin) || wordNode());
+      if (twin && targets.has(twin)) targets.add(alias);
+    }
+    return { root, targets, paths: [...paths] };
+  }
+  function deviceNames() {
+    return state.devices.filter((d) => isHost(d.type) && /^\S+$/.test(d.name)).map((d) => d.name);
+  }
+  function commonPrefix(words) {
+    let prefix = words[0];
+    for (const w of words.slice(1)) {
+      let i = 0;
+      while (i < prefix.length && i < w.length && prefix[i].toLowerCase() === w[i].toLowerCase()) i++;
+      prefix = prefix.slice(0, i);
+    }
+    return prefix;
+  }
+  function completeShellLine(device, line) {
+    const help = hostShellHelpLines(device);
+    if (!help) return { line, candidates: [] };
+    const grammar = shellGrammar(help);
+    const start = line.search(/\S*$/);
+    const before = line.slice(0, start);
+    let current = line.slice(start);
+    const previous = before.trim() ? before.trim().split(/\s+/) : [];
+    let prefix = "";
+    const options = [];
+    const stems = /* @__PURE__ */ new Set();
+    if (previous.length === 0) {
+      options.push(...grammar.root.words.keys());
+    } else if (current.startsWith("/")) {
+      options.push(...grammar.paths);
+    } else {
+      let node = grammar.root;
+      for (const w of previous) node = node?.words.get(w.toLowerCase());
+      if (node) {
+        options.push(...node.words.keys(), ...node.stems);
+        node.stems.forEach((s) => stems.add(s));
+      }
+      const command = previous[0].toLowerCase();
+      if (grammar.targets.has(command) && previous.slice(1).every((w) => w.startsWith("-")) && !current.startsWith("-")) {
+        const scheme = current.match(/^https?:\/\//i);
+        if (scheme) {
+          prefix = scheme[0];
+          current = current.slice(prefix.length);
+        }
+        options.push(...deviceNames());
+      }
+    }
+    const typed = current.toLowerCase();
+    const candidates = [...new Set(options.filter((o) => o.toLowerCase().startsWith(typed)))].sort((a, b) => a.toLowerCase().localeCompare(b.toLowerCase()));
+    if (!candidates.length) return { line, candidates };
+    const word = candidates.length === 1 ? candidates[0] + (stems.has(candidates[0]) ? "" : " ") : commonPrefix(candidates);
+    return { line: before + prefix + word, candidates: candidates.map((c) => prefix + c) };
+  }
+
   // src/terminal/core.ts
   var injectedMode = false;
   function terminalLineFor(session, kind, text) {
@@ -14007,7 +14115,31 @@ Snort successfully validated the configuration${bad ? " (with errors)" : "."}`);
       syncTerminal();
     }
   }
+  var lastTab = null;
+  function completeOnTab(event) {
+    if (event.key !== "Tab" || event.shiftKey || event.ctrlKey || event.altKey || event.metaKey) return false;
+    const input = dom.terminalInput;
+    const line = input.value;
+    if (!line.trim() || input.disabled || input.readOnly) return false;
+    const end = line.length;
+    if ((input.selectionStart ?? end) !== end || (input.selectionEnd ?? end) !== end) return false;
+    const device = getDevice(state.terminal.deviceId);
+    if (!device || !hostShellHelpLines(device)) return false;
+    event.preventDefault();
+    const session = state.terminal;
+    const result = completeShellLine(device, line);
+    if (result.line !== line) {
+      input.value = result.line;
+    } else if (result.candidates.length > 1 && lastTab?.session === session && lastTab.line === line) {
+      terminalLine("command", `${terminalPromptText(device)} ${line}`);
+      terminalLine("muted", result.candidates.join("  "));
+      syncTerminal();
+    }
+    lastTab = { session, line: input.value };
+    return true;
+  }
   function handleTerminalKeydown(event) {
+    if (completeOnTab(event)) return;
     const h = state.terminal.history;
     if (event.key === "ArrowUp") {
       event.preventDefault();
@@ -16411,7 +16543,7 @@ Snort successfully validated the configuration${bad ? " (with errors)" : "."}`);
 
   // src/help.ts
   var DEVICE_DOCS = [
-    { type: "computer", body: "A general-purpose host with a single NIC. Give it an IP, gateway and DNS from the inspector or its Linux terminal (`ip addr`, `ip route`, `/etc/resolv.conf`), then run `ping`, `arp -n`, `nslookup`, `curl`, `nc`, and `traceroute`." },
+    { type: "computer", body: "A general-purpose host with a single NIC. Give it an IP, gateway and DNS from the inspector or its Linux terminal (`ip addr`, `ip route`, `/etc/resolv.conf`), then run `ping`, `arp -n`, `nslookup`, `curl`, `nc`, and `traceroute`. In the terminal, Tab completes a command, a file path or a device name (press it twice to list the choices); on an empty line Tab moves on as usual." },
     { type: "laptop", body: "A WiFi-only host. Instead of a cable it associates to an access point whose SSID (and password, if secured) matches \u2014 otherwise it behaves exactly like a client PC on the wired LAN it reaches through the AP." },
     { type: "kali", body: "A hand-driven pentest workstation. Its terminal is an ordinary Linux shell plus `nmap -sS` (SYN port scan), `nmap -sn` (ping sweep) and `arpspoof` \u2014 you launch the attacks yourself, one command at a time. With `sysctl -w net.ipv4.ip_forward=1` it becomes a transparent man-in-the-middle: a poisoned victim's traffic is relayed on to its real destination instead of dropped, so the connection keeps working while you watch it." },
     { type: "server", body: "A host that also runs dnsmasq \u2014 DNS A-records and a DHCP pool \u2014 and can serve HTTP. The DNS / DHCP / RADIUS / Web tool variants are the same device with a different service switched on; enable more from the inspector." },

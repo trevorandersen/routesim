@@ -22,6 +22,7 @@ import { runSwitchTerminalCommand } from "./switch";
 import { runFirewallTerminalCommand } from "./firewall";
 import { runIdsTerminalCommand } from "./ids";
 import { runAttackerTerminalCommand } from "./attacker";
+import { completeShellLine, hostShellHelpLines } from "./completion";
 import { RUN_BUSY, animatedRunBlockReason, takePreemptionNote } from "../engine";
 
 // While true, lines pushed are flagged `injected` — the simulator typed them
@@ -402,7 +403,41 @@ export function submitTerminalCommand(event: Event): void {
   }
 }
 
+// The line the last Tab left in the input, per session: a second Tab on the
+// same, unchanged line lists the candidates (bash's double Tab).
+let lastTab: { session: TerminalSession; line: string } | null = null;
+
+// Tab completion in a Linux host/server shell (completion.ts). Tab is also how
+// a keyboard user leaves the input, so it is taken only for a bare Tab with
+// text in the input and the caret at its end, in a shell that can complete;
+// on an empty line Tab moves focus as before, and Shift+Tab always does.
+// Returns whether it handled the key.
+function completeOnTab(event: KeyboardEvent): boolean {
+  if (event.key !== "Tab" || event.shiftKey || event.ctrlKey || event.altKey || event.metaKey) return false;
+  const input = dom.terminalInput;
+  const line = input.value;
+  if (!line.trim() || input.disabled || input.readOnly) return false;
+  const end = line.length;
+  if ((input.selectionStart ?? end) !== end || (input.selectionEnd ?? end) !== end) return false;
+  const device = getDevice(state.terminal.deviceId);
+  if (!device || !hostShellHelpLines(device)) return false;
+  event.preventDefault();
+  const session = state.terminal;
+  const result = completeShellLine(device, line);
+  if (result.line !== line) {
+    input.value = result.line;
+  } else if (result.candidates.length > 1 && lastTab?.session === session && lastTab.line === line) {
+    // As bash does: the line as typed, then the candidates; the input keeps it.
+    terminalLine("command", `${terminalPromptText(device)} ${line}`);
+    terminalLine("muted", result.candidates.join("  "));
+    syncTerminal();
+  }
+  lastTab = { session, line: input.value };
+  return true;
+}
+
 export function handleTerminalKeydown(event: KeyboardEvent): void {
+  if (completeOnTab(event)) return;
   const h = state.terminal.history;
   if (event.key === "ArrowUp") {
     event.preventDefault();

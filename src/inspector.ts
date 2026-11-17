@@ -1,4 +1,4 @@
-import type { Device, Link, DeviceType, EthernetFrame, CaptureEntry, ExplainLine } from "./types";
+import type { Device, Link, DeviceType, EthernetFrame, CaptureEntry, ExplainLine, SwitchPort } from "./types";
 import { state, sync, pushUndo, captureUndoOnFocus, captureUndoOnFocusWithin, linksChanged } from "./state";
 import { DEVICE_SPECS, isHost, offersTerminal, defaultPortCount } from "./device-registry";
 import { dom } from "./dom";
@@ -661,7 +661,7 @@ export function renderMirrorSection(device: Device): string {
   // Source-port selection: which cabled ports get mirrored. All ticked = the
   // whole switch (sources omitted); untick to mirror only specific ports.
   const sources: string[] | undefined = mirror?.sources;
-  const eligible = ports.filter((p) => p.peer && p.name !== dest);
+  const eligible = ports.filter((p): p is SwitchPort & { peer: Device } => p.peer !== null && p.name !== dest);
   const sourceField = eligible.length
     ? `
     <div class="field">

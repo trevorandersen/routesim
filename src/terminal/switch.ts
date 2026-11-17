@@ -145,12 +145,18 @@ export function setSwitchMirror(device: Device, change: { name?: string; dest: s
     if (!cfg.mirror) return "No mirror session is configured.";   // nothing to remove: no undo point
     pushUndo(); delete cfg.mirror; sync().syncPanel(); sync().render(); return "Mirror session removed.";
   }
-  const valid = (p: string) => !!switchIfaceByName(device, p);
-  if (!valid(change.dest)) return `Unknown interface ${change.dest}.`;
+  // Resolve every named port to its canonical name, refusing an unknown one.
+  const destPort = switchIfaceByName(device, change.dest);
+  if (!destPort) return `Unknown interface ${change.dest}.`;
   const sources = (change.sources || []).filter(Boolean);
-  for (const s of sources) if (!valid(s)) return `Unknown interface ${s}.`;
+  const sourceNames: string[] = [];
+  for (const s of sources) {
+    const port = switchIfaceByName(device, s);
+    if (!port) return `Unknown interface ${s}.`;
+    sourceNames.push(port.name);
+  }
   pushUndo();   // after validation — a rejected port must not leave a spurious entry / wipe redo
-  cfg.mirror = { name: change.name || "MON", dest: switchIfaceByName(device, change.dest).name, ...(sources.length ? { sources: sources.map(s => switchIfaceByName(device, s).name) } : {}) };
+  cfg.mirror = { name: change.name || "MON", dest: destPort.name, ...(sources.length ? { sources: sourceNames } : {}) };
   sync().syncPanel();
   sync().render();
   const srcLabel = sources.length ? sources.join(",") : "all ports";

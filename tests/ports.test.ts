@@ -29,7 +29,7 @@ beforeEach(() => resetState());
 const dev = (name: string) => state.devices.find(d => d.name === name)!;
 const linkOf = (a: string, b: string) => state.links.find(l => [l.from, l.to].includes(dev(a).id) && [l.from, l.to].includes(dev(b).id))!;
 const portOf = (device: string, peer: string) => linkPortName(linkOf(device, peer), dev(device).id);
-const switchPorts = (name: string) => switchInterfacesWithNames(dev(name)).filter(p => p.peer).map(p => `${p.name}→${p.peer.name}`);
+const switchPorts = (name: string) => switchInterfacesWithNames(dev(name)).filter(p => p.peer).map(p => `${p.name}→${p.peer?.name}`);
 const routerPorts = (name: string) => routerInterfacesWithNames(dev(name), true).map(i => `${i.name}→${i.peer!.name}`);
 
 describe("an explicit port never lands on a cabled port (R28)", () => {
@@ -54,7 +54,7 @@ describe("an explicit port never lands on a cabled port (R28)", () => {
     expect(r.ok).toBe(true);
     expect(switchPorts("SW1")).toEqual(["Ethernet1→PC1", "Ethernet2→PC2", "Ethernet3→PC3"]);
     expect(linkOf("SW1", "PC3").fromPort).toBeUndefined();        // not honoured, so not pinned
-    expect(switchInterfacesWithNames(dev("SW1")).find(p => p.name === "Ethernet1")!.peer.name).toBe("PC1");   // VLAN 10 stays PC1's
+    expect(switchInterfacesWithNames(dev("SW1")).find(p => p.name === "Ethernet1")!.peer?.name).toBe("PC1");   // VLAN 10 stays PC1's
   });
 
   it("the command says which port was refused, why, and where the cable went", () => {
@@ -269,7 +269,7 @@ describe("the script export never invents a port (R32)", () => {
       ],
       links: [{ from: "a", to: "sw" }, { from: "b", to: "sw", toPort: 1 }],
     } as any));
-    const vlan20 = () => switchInterfacesWithNames(dev("SW")).find(p => p.vlan === 20)!.peer.name;
+    const vlan20 = () => switchInterfacesWithNames(dev("SW")).find(p => p.vlan === 20)!.peer?.name;
     expect(switchPorts("SW")).toEqual(["Ethernet1→PC-B", "Ethernet2→PC-A"]);
     expect(vlan20()).toBe("PC-B");
     const script = exportTopologyScript();

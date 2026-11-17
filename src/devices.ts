@@ -1,4 +1,4 @@
-import type { PortOption, Device, Link, DeviceType, DeviceConfig, NamedRouterIface, RouterInterface, LinkedPort, MutationResult, LinkResult } from "./types";
+import type { PortOption, Device, Link, DeviceType, DeviceConfig, NamedRouterIface, RouterInterface, LinkedPort, SwitchPort, MutationResult, LinkResult } from "./types";
 import { state, sync, pushUndo, networkSnapshot, dropTerminalSessions, resetCaptureState, linksChanged, appendSessionLine } from "./state";
 import { dom } from "./dom";
 import { deviceSize, defaultDeviceConfig, ensureConfig, normaliseRouterInterfaces, normalisePortVlans, normalisePortModes } from "./normalise";
@@ -1500,7 +1500,7 @@ export function wiredPortCapacity(device: Device): number {
   }
 }
 
-export function switchInterfacesWithNames(device: Device): any[] {
+export function switchInterfacesWithNames(device: Device): SwitchPort[] {
   const portCount = wiredPortCapacity(device);
   // A wireless association (laptop ↔ access point) is not an ethernet port, so
   // it never occupies a wired-port slot in the inspector / port picker. The
@@ -1524,7 +1524,7 @@ export function switchInterfacesWithNames(device: Device): any[] {
 }
 
 // Case-insensitive switch port lookup by name (e.g. "ethernet3" → Ethernet3).
-export function switchIfaceByName(device: Device, portName: string): any {
+export function switchIfaceByName(device: Device, portName: string): SwitchPort | undefined {
   const lower = String(portName || "").toLowerCase();
   return switchInterfacesWithNames(device).find((p) => p.name.toLowerCase() === lower);
 }

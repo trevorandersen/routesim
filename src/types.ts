@@ -160,6 +160,19 @@ export interface LinkedPort {
   peer: Device;
 }
 
+// One wired port of a switch-like device as `switchInterfacesWithNames`
+// (devices.ts) lists it: every port up to the device's capacity, cabled or
+// not, with the VLAN settings keyed by its name.
+export interface SwitchPort {
+  name: string;          // Ethernet<n>
+  portNumber: number;    // n, 1-based
+  peer: Device | null;   // the device cabled here, or null for a free port
+  link: Link | null;     // that cable (so status views can honour a shut link)
+  vlan: number;          // access VLAN (1 when unset)
+  mode: PortMode;        // "access" unless set to "trunk"
+  nativeVlan: number;    // trunk native VLAN (1 when unset)
+}
+
 // An IPv4 CIDR parsed to integers (utils.ts: parseCidr/cachedCidr/cidrHas) —
 // what the routing, RIP, and firewall hot paths compare instead of strings.
 export interface Cidr {

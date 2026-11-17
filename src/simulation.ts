@@ -137,7 +137,7 @@ export function getVlanForDevice(deviceId: string): number {
 }
 
 // A ping/name target is any host (the registry's host role).
-export function findPingTarget(value: string): any {
+export function findPingTarget(value: string): Device | undefined {
   const target = String(value || "").trim().toLowerCase();
   return state.devices.find(device =>
     isHost(device.type) && (
@@ -163,7 +163,7 @@ export function hostnameToIp(name: string): string | null {
  * Validates inputs and generates the initial SimEvent(s) for a ping.
  * Returns a string error message if validation fails, or a PingSetup object.
  */
-export function buildPingEvents(source: any, targetText: string, options: { ttl?: number } = {}): PingSetup | string {
+export function buildPingEvents(source: Device, targetText: string, options: { ttl?: number } = {}): PingSetup | string {
   seedSimRng();   // reseed the run's PRNG (clock by default; pinned via `seed <n>`)
   const ttl = options.ttl ?? 64;
   if (!source.config?.ipv4Address) return `${source.name}: eth0 has no IPv4 address.`;
@@ -209,7 +209,7 @@ export function buildPingEvents(source: any, targetText: string, options: { ttl?
 
   if (sameSubnet(srcIp, dstIp, prefixOf(source.config))) {
     // Same subnet — check ARP cache
-    const arpEntry = (source.config.arpTable || []).find((e: any) => e.ipv4Address === dstIp);
+    const arpEntry = (source.config.arpTable || []).find((e) => e.ipv4Address === dstIp);
     let initialFrame;
     if (arpEntry) {
       initialFrame = createIcmpEchoRequest(srcMac, arpEntry.macAddress, srcIp, dstIp, ttl, vlanTag);
@@ -241,7 +241,7 @@ export function buildPingEvents(source: any, targetText: string, options: { ttl?
   // decided by the simulation — the router forwards it or drops it ("No route"),
   // and a non-existent gateway/host makes the ARP or routed packet time out.
   // We deliberately do NOT pre-check reachability here, so the ARP is always seen.
-  const gwArpEntry = (source.config.arpTable || []).find((e: any) => e.ipv4Address === gwIp);
+  const gwArpEntry = (source.config.arpTable || []).find((e) => e.ipv4Address === gwIp);
   let initialFrame;
   if (gwArpEntry) {
     initialFrame = createIcmpEchoRequest(srcMac, gwArpEntry.macAddress, srcIp, dstIp, ttl, vlanTag);

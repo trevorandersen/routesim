@@ -6,8 +6,9 @@
  * Link ordering in these fixtures is therefore intentional.
  */
 import { deviceSize } from "../src/normalise";
+import type { DeviceType } from "../src/types";
 
-function device(id: string, type: string, name: string, config: any = {}) {
+function device(id: string, type: DeviceType, name: string, config: any = {}) {
   const size = deviceSize(type);
   return { id, type, name, x: 0, y: 0, width: size.width, height: size.height, config };
 }

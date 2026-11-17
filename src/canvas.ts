@@ -1,4 +1,4 @@
-import type { Device, DeviceType, ActiveTransit } from "./types";
+import type { Device, DeviceType, ActiveTransit, Link } from "./types";
 import { state, colors } from "./state";
 import { dom } from "./dom";
 import { cssColor, prefixOf } from "./utils";
@@ -75,7 +75,7 @@ export function syncZoomLevel(): void {
   dom.zoomLevel.textContent = `${Math.round(state.scale * 100)}%`;
 }
 
-export function linkColorFor(from: any, to: any): string {
+export function linkColorFor(from: Device, to: Device): string {
   if (from.type === "router" && to.type === "router") return cssColor("--link-router");
   if (from.type === "switch" || to.type === "switch") {
     if (!isHost(from.type) && !isHost(to.type)) return cssColor("--link-switch");
@@ -83,7 +83,9 @@ export function linkColorFor(from: any, to: any): string {
   return cssColor("--link-host");
 }
 
-export function devicePalette(type: string): { fill: string; stroke: string; accent: string; dark: string } {
+export interface DevicePalette { fill: string; stroke: string; accent: string; dark: string }
+
+export function devicePalette(type: string): DevicePalette {
   const v = DEVICE_SPECS[type as DeviceType]?.paletteVar ?? "switch";
   return {
     fill: cssColor(`--${v}-fill`),
@@ -94,7 +96,7 @@ export function devicePalette(type: string): { fill: string; stroke: string; acc
 }
 
 // Exported for benchmarking the per-frame render cost (memoised port-mode read).
-export function isTrunkLink(from: any, to: any): boolean {
+export function isTrunkLink(from: Device, to: Device): boolean {
   function hasTrunkPort(sw: Device, peerId: string): boolean {
     if (sw.type !== "switch" || !sw.config?.managed) return false;
     const portModes = memoPortModes(sw.config.portModes);
@@ -122,7 +124,7 @@ export function linkStatusLabel(
   return null;
 }
 
-export function drawLink(link: any): void {
+export function drawLink(link: Link): void {
   const from = getDevice(link.from);
   const to = getDevice(link.to);
   if (!isVisibleDevice(from) || !isVisibleDevice(to) || link.hidden) return;
@@ -219,7 +221,7 @@ export function drawLink(link: any): void {
 }
 
 // Draws any device body + icon from its registry spec (size, radius, paths).
-export function drawIconDevice(device: Device, palette: any): void {
+export function drawIconDevice(device: Device, palette: DevicePalette): void {
   const spec = DEVICE_SPECS[device.type as DeviceType] ?? DEVICE_SPECS.switch;
   const radius = spec.iconRadius;
   const x = device.x - device.width / 2;
@@ -263,7 +265,7 @@ export function drawTablerIcon(centerX: number, centerY: number, paths: string[]
   ctx.restore();
 }
 
-export function drawManagedBadge(device: Device, palette: any): void {
+export function drawManagedBadge(device: Device, palette: DevicePalette): void {
   const x = device.x + device.width / 2 - 18;
   const y = device.y - device.height / 2 + 18;
   ctx.save();

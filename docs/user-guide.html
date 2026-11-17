@@ -1,0 +1,509 @@
+<!doctype html>
+<html lang="en-AU">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>RouteSim User Guide and Simulation Mechanics</title>
+<style>
+  :root {
+    --bg: #faf6ef; --surface: #fffdf8; --ink: #2a2620; --muted: #6b6356; --line: #e2d9c8;
+    --accent: #b4521f; --accent-soft: #f6e4d6; --code-bg: #f1ebdf; --ok: #2f7a4b; --warn: #9a6a00;
+    --note-bg: #eef5ee; --caveat-bg: #fbf1d9;
+    --arp: #c98a00; --icmp: #2f6fb3; --reply: #2f7a4b; --dhcp: #7a4fb3; --tcp: #c4631a; --dns: #1d8a99; --err: #b03030;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root:not([data-theme="light"]) {
+      --bg: #17150f; --surface: #1f1c15; --ink: #ece6d8; --muted: #a99f8c; --line: #3a3528;
+      --accent: #e08a55; --accent-soft: #3a261a; --code-bg: #272319; --ok: #6cc08a; --warn: #e0b04a;
+      --note-bg: #1b2a1f; --caveat-bg: #33290f;
+      --arp: #e0b04a; --icmp: #6fa8e0; --reply: #6cc08a; --dhcp: #a98ae0; --tcp: #e08a55; --dns: #5cc0cf; --err: #e06a6a;
+    }
+  }
+  :root[data-theme="dark"] {
+    --bg: #17150f; --surface: #1f1c15; --ink: #ece6d8; --muted: #a99f8c; --line: #3a3528;
+    --accent: #e08a55; --accent-soft: #3a261a; --code-bg: #272319; --ok: #6cc08a; --warn: #e0b04a;
+    --note-bg: #1b2a1f; --caveat-bg: #33290f;
+    --arp: #e0b04a; --icmp: #6fa8e0; --reply: #6cc08a; --dhcp: #a98ae0; --tcp: #e08a55; --dns: #5cc0cf; --err: #e06a6a;
+  }
+  * { box-sizing: border-box; }
+  html { scroll-behavior: smooth; scroll-padding-top: 1rem; }
+  body { margin: 0; background: var(--bg); color: var(--ink);
+    font: 16px/1.65 system-ui, -apple-system, "Segoe UI", Roboto, sans-serif; }
+  .layout { display: grid; grid-template-columns: 17rem minmax(0, 1fr); max-width: 76rem; margin: 0 auto; }
+  nav.toc { position: sticky; top: 0; align-self: start; height: 100vh; overflow-y: auto;
+    padding: 1.5rem 1rem 2rem 1.25rem; border-right: 1px solid var(--line); font-size: .9rem; }
+  nav.toc .brand { font-weight: 700; font-size: 1.05rem; margin: 0 0 .15rem; }
+  nav.toc .ver { color: var(--muted); font-size: .8rem; margin: 0 0 1rem; }
+  nav.toc h2 { font-size: .72rem; text-transform: uppercase; letter-spacing: .08em; color: var(--muted); margin: 1.1rem 0 .3rem; }
+  nav.toc ol { list-style: none; margin: 0; padding: 0; }
+  nav.toc a { display: block; padding: .18rem .5rem; color: var(--ink); text-decoration: none; border-radius: 4px; }
+  nav.toc a:hover, nav.toc a:focus-visible { background: var(--accent-soft); outline: none; }
+  main { padding: 2rem clamp(1rem, 4vw, 3rem) 4rem; min-width: 0; }
+  header.hero { border-bottom: 2px solid var(--accent); padding-bottom: 1.25rem; margin-bottom: 2rem; }
+  header.hero h1 { font-size: clamp(1.7rem, 4vw, 2.4rem); line-height: 1.2; margin: 0 0 .5rem; }
+  header.hero p { margin: .3rem 0; color: var(--muted); max-width: 46rem; }
+  h2.part { font-size: 1.7rem; margin: 3.2rem 0 .4rem; padding-top: 1rem; border-top: 1px solid var(--line); }
+  h2.part + p.lede { color: var(--muted); margin-top: 0; max-width: 46rem; }
+  h3 { font-size: 1.3rem; margin: 2.4rem 0 .5rem; }
+  h4 { font-size: 1.05rem; margin: 1.6rem 0 .3rem; }
+  p, li { max-width: 46rem; }
+  code { background: var(--code-bg); padding: .1em .35em; border-radius: 4px; font: .88em ui-monospace, "SF Mono", Menlo, monospace; }
+  pre { background: var(--code-bg); padding: .9rem 1rem; border-radius: 8px; overflow-x: auto; font: .85rem/1.5 ui-monospace, "SF Mono", Menlo, monospace; border: 1px solid var(--line); }
+  pre code { background: none; padding: 0; font-size: inherit; }
+  kbd { font: .8em ui-monospace, Menlo, monospace; background: var(--surface); border: 1px solid var(--line); border-bottom-width: 2px; border-radius: 4px; padding: .05em .4em; }
+  table { border-collapse: collapse; width: 100%; margin: 1rem 0; font-size: .93rem; background: var(--surface); }
+  th, td { text-align: left; vertical-align: top; padding: .5rem .7rem; border: 1px solid var(--line); }
+  th { background: var(--accent-soft); font-weight: 600; }
+  .scroll { overflow-x: auto; }
+  main table { display: block; overflow-x: auto; max-width: 100%; }
+  p code, li code, td code { overflow-wrap: anywhere; }
+  .note, .caveat { border-left: 4px solid var(--ok); background: var(--note-bg); padding: .7rem 1rem; border-radius: 0 8px 8px 0; margin: 1.2rem 0; max-width: 46rem; }
+  .caveat { border-left-color: var(--warn); background: var(--caveat-bg); }
+  .note > :first-child, .caveat > :first-child { margin-top: 0; }
+  .note > :last-child, .caveat > :last-child { margin-bottom: 0; }
+  .tag { font-size: .72rem; font-weight: 700; text-transform: uppercase; letter-spacing: .06em; }
+  .fig { margin: 1.5rem 0; background: var(--surface); border: 1px solid var(--line); border-radius: 10px; padding: 1rem; }
+  .fig svg { width: 100%; height: auto; display: block; }
+  .fig figcaption { color: var(--muted); font-size: .88rem; margin-top: .6rem; }
+  .swatches { display: flex; flex-wrap: wrap; gap: .5rem .9rem; margin: .8rem 0; font-size: .9rem; }
+  .sw { display: inline-flex; align-items: center; gap: .4rem; }
+  .sw i { width: .9rem; height: .9rem; border-radius: 50%; display: inline-block; }
+  .cols { display: grid; grid-template-columns: repeat(auto-fit, minmax(15rem, 1fr)); gap: 1rem; margin: 1rem 0; }
+  .card { background: var(--surface); border: 1px solid var(--line); border-radius: 10px; padding: .8rem 1rem; }
+  .card h4 { margin: 0 0 .3rem; }
+  .card p { margin: 0; font-size: .93rem; }
+  footer { margin-top: 4rem; padding-top: 1rem; border-top: 1px solid var(--line); color: var(--muted); font-size: .85rem; }
+  .skip { position: absolute; left: -999px; } .skip:focus { left: 1rem; top: 1rem; background: var(--surface); padding: .4rem .8rem; z-index: 9; }
+  @media (max-width: 52rem) {
+    .layout { display: block; }
+    nav.toc { position: static; height: auto; border-right: 0; border-bottom: 1px solid var(--line); }
+  }
+  @media print { nav.toc { display: none; } .layout { display: block; } body { background: #fff; color: #000; } }
+</style>
+</head>
+<body>
+<a class="skip" href="#main">Skip to content</a>
+<div class="layout">
+<nav class="toc" aria-label="Contents">
+  <p class="brand">RouteSim</p>
+  <p class="ver">User guide and mechanics &middot; v0.7.1-alpha</p>
+  <h2>Part 1 &middot; Using it</h2>
+  <ol>
+    <li><a href="#start">Getting started</a></li>
+    <li><a href="#screen">The screen</a></li>
+    <li><a href="#build">Building a network</a></li>
+    <li><a href="#devices">Devices</a></li>
+    <li><a href="#configure">Configuring devices</a></li>
+    <li><a href="#run">Running a simulation</a></li>
+    <li><a href="#read">Reading the results</a></li>
+    <li><a href="#explain">Why? and Likely cause</a></li>
+    <li><a href="#console">Console, scripts, share</a></li>
+    <li><a href="#scenarios">Scenarios</a></li>
+    <li><a href="#settings">Settings</a></li>
+    <li><a href="#access">Keyboard and accessibility</a></li>
+  </ol>
+  <h2>Part 2 &middot; How it works</h2>
+  <ol>
+    <li><a href="#m-model">The model</a></li>
+    <li><a href="#m-run">Anatomy of a run</a></li>
+    <li><a href="#m-l2">Layer 2: switching</a></li>
+    <li><a href="#m-l3">Layer 3: routing</a></li>
+    <li><a href="#m-ctl">Control planes: RIP, STP</a></li>
+    <li><a href="#m-svc">Services: DHCP, DNS, TCP, HTTP</a></li>
+    <li><a href="#m-nat">NAT and firewalling</a></li>
+    <li><a href="#m-sec">Port security and detection</a></li>
+    <li><a href="#m-fail">Failure and diagnosis</a></li>
+    <li><a href="#m-det">Determinism and loss</a></li>
+    <li><a href="#m-limits">What is simplified</a></li>
+  </ol>
+</nav>
+
+<main id="main">
+<header class="hero">
+  <h1>RouteSim: user guide and simulation mechanics</h1>
+  <p>RouteSim is a single-file teaching simulator. You build a network on a canvas, configure it the way you would a real one, and watch real Ethernet frames (ARP, ICMP, DHCP, DNS, TCP, HTTP and more) hop from device to device.</p>
+  <p>Part 1 is for people using the tool. Part 2 explains what the simulator actually does when you press Play, and where it deliberately departs from a real network.</p>
+</header>
+
+<!-- ============================ PART 1 ============================ -->
+<h2 class="part" id="part1">Part 1 &middot; User guide</h2>
+<p class="lede">Everything you need to build, run and read a network.</p>
+
+<h3 id="start">1. Getting started</h3>
+<p>RouteSim ships as one file, <code>rs-web.html</code>. Open it in any modern browser; there is nothing to install and the page makes no network requests, so it works offline. The built-in topologies and the scenario curriculum are compiled in.</p>
+<p>To build it yourself you need only <code>esbuild</code> and <code>bun</code>:</p>
+<pre><code>bash build.sh            # dev build, writes rs-web.html
+bash build.sh --minify   # minified build
+bun test-server.ts       # optional: serve on http://localhost:8767</code></pre>
+
+<h4>Your first ping, in five steps</h4>
+<ol>
+  <li>Press <kbd>C</kbd> and left-click the canvas twice to drop two PCs. A faint preview of the device follows the cursor; right-click or <kbd>Esc</kbd> puts the tool down.</li>
+  <li>Press <kbd>S</kbd> and click once to drop a switch.</li>
+  <li>Press <kbd>L</kbd> (Connect), click a PC, then the switch. Repeat for the other PC.</li>
+  <li>Select a PC with <kbd>V</kbd>, and in the inspector on the right give each PC an address in the same subnet, for example <code>192.168.1.10/24</code> and <code>192.168.1.11/24</code>.</li>
+  <li>Open the first PC&rsquo;s terminal (double-click it) and type <code>ping PC-2</code> (use the name shown on your canvas). Open the <strong>Sim Log</strong> tab in the bottom dock and watch the ARP request, the ARP reply, then the ICMP echo and its reply cross the wires.</li>
+</ol>
+<div class="note"><p><strong>Tip.</strong> The Help &rarr; Tutorial menu plays a hands-off demo that builds two LANs joined by a router and pings across them. It drives the real interface, so it shows exactly what you would do by hand, and you can step through it with the arrow keys.</p></div>
+
+<h3 id="screen">2. The screen</h3>
+<div class="cols">
+  <div class="card"><h4>Ribbon</h4><p>Four tabs. <strong>Main</strong> has the drawing tools, undo/redo/delete/Clear and the play controls. <strong>File</strong> has topologies, the scenario chooser, import/export and Copy link. <strong>View</strong> has themes, label toggles and Packet callouts. <strong>Help</strong> has the Guide, the Tutorial and About.</p></div>
+  <div class="card"><h4>Canvas</h4><p>Pan by dragging the background, zoom with the scroll wheel. Devices snap to a grid. Frames in flight are drawn as coloured dots, each carrying a text label and a letter glyph so colour is never the only signal.</p></div>
+  <div class="card"><h4>Inspector</h4><p>The right-hand panel. It shows whatever is selected: a device&rsquo;s settings, a link&rsquo;s name, latency and loss, or the full field breakdown of a frame you clicked.</p></div>
+  <div class="card"><h4>Bottom dock</h4><p>One resizable panel with a tab per open device terminal, the <strong>command console</strong>, and the <strong>Sim Log</strong>. Drag its top edge to resize it.</p></div>
+  <div class="card"><h4>Transport pill</h4><p>While a run is active, a play/pause/step/stop pill floats over the canvas, whichever ribbon tab you are on. <kbd>Space</kbd> pauses and resumes.</p></div>
+  <div class="card"><h4>Settings pane</h4><p>The cog on the Main tab opens a right-docked pane with the boot, name-resolution, autosave and silent-protocol switches (section 11).</p></div>
+</div>
+
+<h3 id="build">3. Building a network</h3>
+<h4>Placing devices</h4>
+<p>Pick a tool from the ribbon or press its key. Related devices share a split button: the face places the last variant you used and the caret opens the rest. Left-click drops a device and the tool stays armed for the next one. Right-click or <kbd>Esc</kbd> returns to Select. Names are assigned automatically (<code>PC1</code>, <code>MSW-1</code>, and so on) and can be changed in the inspector.</p>
+<h4>Cabling</h4>
+<p>With the Connect tool, click one device and then another. The first free port on each end is chosen for you. <kbd>Shift</kbd>-click the second device to pick ports by hand; a port chosen that way is <em>pinned</em> and keeps its name as other cables come and go. Computers and servers have a single network card, so they accept one cable. Double-click a cable to shut it without deleting it (shut cables are drawn dashed red with a &ldquo;down&rdquo; label).</p>
+<h4>Link properties</h4>
+<p>Select a cable to give it a name, a latency (its frames visibly crawl) and a loss rate (animated runs drop that share of frames). Non-default values appear on the canvas as text, for example <code>WAN &middot; 40 ms &middot; 5% loss</code>.</p>
+<h4>Undo, redo, Clear</h4>
+<p><kbd>Ctrl/Cmd+Z</kbd> undoes topology and configuration changes and <kbd>Ctrl/Cmd+Shift+Z</kbd> (or <kbd>Ctrl/Cmd+Y</kbd>) redoes them. Clear wipes the canvas and ends any active scenario with it; one Undo brings both back.</p>
+
+<h3 id="devices">4. Devices</h3>
+<div class="scroll"><table>
+  <thead><tr><th>Device</th><th>What it is and how you drive it</th></tr></thead>
+  <tbody>
+  <tr><td>Computer / Laptop</td><td>A host with one NIC. Set IP, gateway and DNS in the inspector or with Linux commands in its terminal. A laptop is WiFi-only and associates to an access point.</td></tr>
+  <tr><td>Server</td><td>A host running <code>dnsmasq</code> (DNS records and a DHCP pool) that can also serve HTTP. The DNS, DHCP, RADIUS and Web tool variants are the same device with different services switched on.</td></tr>
+  <tr><td>Switch</td><td>Learns MAC addresses per port and floods the unknown. The <em>basic</em> switch is unmanaged. The <em>managed</em> variant adds 802.1Q VLANs, a SONiC-style CLI, SPAN port mirroring and spanning tree.</td></tr>
+  <tr><td>Router</td><td>Longest-prefix routing, static routes, RIP, NAT/PAT and netfilter INPUT/FORWARD chains, through an FRRouting-style CLI. The <em>border</em> variant (a &ldquo;B&rdquo; badge) is the edge archetype.</td></tr>
+  <tr><td>Internet</td><td>A cloud that stands in for the public internet. Cable several routers to it, each on its own public subnet, and it routes between them.</td></tr>
+  <tr><td>Firewall</td><td>A transparent inline packet filter (the FORWARD chain). Rules can be written in <code>iptables</code> or <code>nftables</code> syntax; both shells parse either.</td></tr>
+  <tr><td>Hub</td><td>A layer-1 repeater that floods every frame out every other port. It is the Legacy tool, there to show why switches exist.</td></tr>
+  <tr><td>Access point</td><td>Bridges associated laptops onto the wired LAN, broadcasts an SSID and optionally enforces a WPA2 password.</td></tr>
+  <tr><td>IDS</td><td>A passive Snort sensor. Cable it to a managed switch&rsquo;s monitor port, and it matches mirrored traffic against your rules and raises alerts. It detects but never blocks.</td></tr>
+  <tr><td>Kali PC / Red Team actor</td><td>Two security-training hosts that share one attack engine: a hand-driven workstation and an autonomous adversary. They run a port scan, a ping sweep and ARP spoofing so that a learner can practise detection with an IDS. See section 9 of Part 2.</td></tr>
+  </tbody>
+</table></div>
+<p>The in-app reference (Help &rarr; Guide) documents every device and every setting with its own icon, and a test keeps it complete.</p>
+
+<h3 id="configure">5. Configuring devices</h3>
+<p>Double-click a device (or use the Configure tool, <kbd>W</kbd>) to open its inspector and, for a command-line device, its terminal.</p>
+<h4>The inspector</h4>
+<p>Addresses accept <code>address/prefix</code>; a bare address keeps the existing prefix. A pill beside the address tells you where it came from (<code>static</code>, <code>dhcp</code> or <code>apipa</code>), and the canvas label reads &ldquo;unassigned&rdquo; until a host has one. Committing a host field runs the matching Linux command in the host&rsquo;s terminal, flagged as simulator-issued, so the GUI and the shell never disagree. Routers and firewalls show an editable rule list with a default policy for each chain.</p>
+<h4>Device terminals</h4>
+<table>
+  <thead><tr><th>Device</th><th>Shell</th><th>Examples</th></tr></thead>
+  <tbody>
+  <tr><td>PC, laptop</td><td>Linux</td><td><code>ip addr</code>, <code>ip route</code>, <code>ping</code>, <code>traceroute</code>, <code>nslookup</code>, <code>curl http://host</code>, <code>nc -z host 22</code>, <code>arp -n</code>, <code>ip neigh flush all</code></td></tr>
+  <tr><td>Server</td><td>Linux + dnsmasq</td><td>Edit <code>/etc/dnsmasq.conf</code> (<code>address=</code>, <code>dhcp-range=</code>), then <code>systemctl</code></td></tr>
+  <tr><td>Router</td><td>FRRouting (vtysh)</td><td><code>configure terminal</code>, <code>interface</code>, <code>ip route</code>, <code>router rip</code>, <code>ip nat inside</code>, <code>show ip route</code></td></tr>
+  <tr><td>Managed switch</td><td>SONiC</td><td><code>config vlan add 10</code>, <code>config vlan member add 10 Ethernet1</code>, <code>show spanning_tree</code></td></tr>
+  <tr><td>Firewall</td><td>iptables / nftables</td><td><code>iptables -A FORWARD -p tcp --dport 23 -j DROP</code></td></tr>
+  <tr><td>IDS</td><td>Snort 3 on Linux</td><td>Edit <code>/etc/snort/rules/local.rules</code>, read <code>/var/log/snort/alert</code></td></tr>
+  </tbody>
+</table>
+<p>Tab completes commands, file paths and device names in the Linux shells (twice lists the choices). A router also offers <code>?</code> help and abbreviation. Every device&rsquo;s hostname <em>is</em> its canvas name, so renaming one renames the other.</p>
+
+<h3 id="run">6. Running a simulation</h3>
+<p>There are three ways to start a run, and they all produce the same frames.</p>
+<ul>
+  <li><strong>From a terminal.</strong> <code>ping</code>, <code>traceroute</code>, <code>nc</code>, <code>curl</code>, <code>nslookup</code>, <code>dhcp</code>. The result is written to the terminal that started the run.</li>
+  <li><strong>From the console.</strong> <code>ping PC1 PC2</code>, <code>connect PC1 Server1 80</code>, <code>http PC1 Server1</code>, <code>associate Laptop1</code>, <code>stp</code>.</li>
+  <li><strong>Play.</strong> On an idle network Play <em>boots</em> any unconfigured, cabled, powered-on hosts, one at a time (see Settings), and then launches any ready Red Team actor. During a run it pauses and resumes.</li>
+</ul>
+<p>The transport controls are Play/Pause, <strong>Step</strong> (advance one hop at a time, useful for following a single frame), <strong>Stop</strong> (<kbd>Ctrl+C</kbd> in a terminal does the same) and a <strong>Speed</strong> setting in milliseconds per hop (default 1000).</p>
+<div class="note"><p><strong>One run at a time.</strong> A second animated run is refused with the reason while yours is running or paused. A <em>headless</em> check (the console&rsquo;s <code>run</code>, <code>traceroute</code>, or a scenario Check) stops the animated run first and says so. The terminal that started a run is read-only until it ends, but other devices&rsquo; terminals stay usable, so you can run <code>arp -n</code> or <code>show ip route</code> mid-run.</p></div>
+
+<h3 id="read">7. Reading the results</h3>
+<h4>The packet list</h4>
+<p>Every animated run fills a Wireshark-style list in the Sim Log: one row per frame per wire crossing, with columns for number, step, source, destination, protocol, info and link. Rows are coloured by protocol and also lead with a monochrome glyph.</p>
+<div class="swatches" role="list">
+  <span class="sw" role="listitem"><i style="background:var(--arp)"></i>ARP</span>
+  <span class="sw" role="listitem"><i style="background:var(--icmp)"></i>ICMP request</span>
+  <span class="sw" role="listitem"><i style="background:var(--reply)"></i>ICMP reply</span>
+  <span class="sw" role="listitem"><i style="background:var(--dhcp)"></i>DHCP</span>
+  <span class="sw" role="listitem"><i style="background:var(--tcp)"></i>TCP</span>
+  <span class="sw" role="listitem"><i style="background:var(--dns)"></i>DNS</span>
+  <span class="sw" role="listitem"><i style="background:var(--err)"></i>Errors (RST, NXDOMAIN, TTL exceeded)</span>
+</div>
+<p>Click a row (or a dot on the canvas) to pause the run and open the <strong>frame breakdown</strong> in the inspector: every Ethernet, IP and transport field. The row&rsquo;s wire and both endpoint devices glow on the canvas so the list and the topology point at each other. The <strong>Packets / Events</strong> toggle switches to the narrative log of MAC learns, routing decisions and verdicts.</p>
+<h4>Filtering</h4>
+<p>Combine clickable protocol chips, a per-device dropdown and a Wireshark-style display filter. The three are ANDed, and a status line reads &ldquo;Showing N of M&rdquo;.</p>
+<pre><code>dns || icmp &amp;&amp; !arp
+ip.addr == 10.0.0.0/24
+tcp.port == 22 &amp;&amp; device contains PC</code></pre>
+<p>An invalid expression flags red but does not empty the list. Fields include <code>ip</code>, <code>eth</code>, <code>tcp</code>, <code>device</code> and <code>frame</code>; operators are <code>==</code>, <code>!=</code>, <code>&lt;</code>, <code>&gt;</code>, <code>contains</code>, with CIDR matching on addresses.</p>
+<h4>Captures and Compare</h4>
+<p>Each finished run is archived (the last twelve are kept). Switch between them from the capture dropdown, or turn on <strong>Compare</strong> to see two runs side by side, baseline on the left. This is the way to check a fix: run, change one thing, run again, and read the difference.</p>
+<h4>Packet callouts</h4>
+<p>In the View tab, <strong>Packet callouts</strong> draws a small field summary beside each frame in flight. A field that the last hop <em>rewrote</em> (the MACs at a router, the source address at a NAT router) is underlined and pulsed, and a reply field echoed from its request is marked, so you can see exactly what changed at each hop.</p>
+
+<h3 id="explain">8. Why? and Likely cause</h3>
+<p>RouteSim is built to explain itself. Every captured packet remembers what its sender logged, what its receiver did with it, and which earlier packet caused it.</p>
+<ul>
+  <li><strong>Why?</strong> Under a frame&rsquo;s field table, a summary sentence and then a chain of earlier packets, each a jump button, with the reason its sender gave (&ldquo;PC-A has no ARP entry for 10.0.1.1, so it must learn that MAC address&hellip;&rdquo;). In the console, <code>why &lt;packet no&gt;</code> prints the same.</li>
+  <li><strong>Likely cause.</strong> When a ping, <code>nc</code>, <code>curl</code>, <code>nslookup</code>, <code>dhcp</code> or <code>traceroute</code> fails, or a scenario goal is unmet, a probe names the most probable misconfiguration, such as a gateway that no device owns. It names the cause and never the fix, and stays quiet when the failure already explains itself.</li>
+  <li><strong>Post-mortems.</strong> A failed run says what happened in plain words: an ARP nobody answered (naming the default gateway when it is the culprit), a shut cable, an unauthorised 802.1X port, a spanning-tree block, a powered-off peer.</li>
+</ul>
+
+<h3 id="console">9. Console, scripts and sharing</h3>
+<p>The console (dock &rarr; Console) is a text front door to everything the GUI does. It is the same engine behind <code>window.routesim</code> and behind script files, so a topology can be built, run and checked from text.</p>
+<pre><code>add router R1
+add computer PC1
+add computer PC2
+link PC1 R1
+link PC2 R1
+ip PC1 192.168.1.10/24
+gateway PC1 192.168.1.1
+ping PC1 PC2
+help           # every command; "help ping" for one</code></pre>
+<ul>
+  <li><strong>Export a script</strong> (<code>export</code> or File &rarr; Export) writes your topology as a reproducible command script. Importing it replays it as one undo step.</li>
+  <li><strong>Copy link</strong> (File tab) packs the whole network, and the scenario in progress, into the link itself (<code>rs-web.html#net=&hellip;</code>). Whoever opens it gets the network. The fragment never leaves the browser, so nothing is uploaded.</li>
+  <li><strong>Autosave.</strong> The network on the canvas is kept in your browser&rsquo;s storage and restored on your next visit. Turn it off in Settings, or open the page with <code>?autosave=0</code> for a visit that keeps nothing.</li>
+  <li><strong>URL settings.</strong> A link can pre-set options, for example <code>?theme=dark&amp;names=0&amp;autodhcp=on&amp;silentarp=1&amp;speed=400</code>.</li>
+</ul>
+
+<h3 id="scenarios">10. Scenarios</h3>
+<p>A scenario is a guided challenge: a starting topology and a goal. Load one from File &rarr; Load scenario. A goal banner appears top-left with a checklist; edit the network, then press <strong>Check goal</strong>. Each line turns to a tick or a cross, with the reason beneath any failure. The banner can collapse to a small progress pill.</p>
+<p>The curriculum has 29 scenarios in seven groups, each with a tested reference solution:</p>
+<table>
+  <thead><tr><th>Group</th><th>Scenarios</th></tr></thead>
+  <tbody>
+  <tr><td>Getting started</td><td>Connect a LAN</td></tr>
+  <tr><td>Switching &amp; VLANs</td><td>VLAN segmentation; Router on a stick; Break the loop (spanning tree)</td></tr>
+  <tr><td>Routing</td><td>Static routes; RIP convergence; NAT gateway; Publish a web server (port-forward); Reach a server across the internet</td></tr>
+  <tr><td>Services</td><td>DHCP service; Name service (DNS); DHCP from the server; Publish a web page</td></tr>
+  <tr><td>Wireless</td><td>Join a WiFi network; WiFi hotspot + DHCP</td></tr>
+  <tr><td>Security</td><td>Firewall: allow SSH, block Telnet; Harden the gateway; Stateful firewall; 802.1X port authentication; MACsec the inter-switch trunk; Secure access; Catch the intruder (IDS + SPAN); Detect the Red Team scan (IDS rule)</td></tr>
+  <tr><td>Troubleshooting</td><td>Broken gateway; Wrong VLAN; Overzealous firewall; Bad static route; Name vs address; Wrong WiFi password</td></tr>
+  </tbody>
+</table>
+<p>Goals that say &ldquo;this must be blocked&rdquo; are checked carefully. They name the device that must do the blocking, and the checker re-runs the flow with that device&rsquo;s policy removed. If the flow would still fail, the goal is not met: closing a port on the server does not count as a firewall rule. From the console, <code>scenario list</code>, <code>scenario load &lt;id&gt;</code>, <code>scenario goal</code> and <code>scenario check</code> do the same.</p>
+
+<h3 id="settings">11. Settings</h3>
+<table>
+  <thead><tr><th>Setting</th><th>Effect</th><th>Default</th></tr></thead>
+  <tbody>
+  <tr><td>Auto-DHCP on boot</td><td>Play runs an animated Discover/Offer/Request/Ack for each unconfigured host.</td><td>Off</td></tr>
+  <tr><td>APIPA fallback</td><td>A host with no lease self-assigns <code>169.254.x.y/16</code>. Works with or without Auto-DHCP.</td><td>Off</td></tr>
+  <tr><td>Instant DNS</td><td>A device name resolves straight to its IP, like a hosts file. Off requires a real DNS query.</td><td>On in topologies, off in scenarios</td></tr>
+  <tr><td>Autosave</td><td>Keeps the network in this browser between visits.</td><td>On</td></tr>
+  <tr><td>Silent ARP / DHCP / DNS / WiFi / STP</td><td>The exchange still happens, but is delivered instantly and kept off the canvas and out of the packet list.</td><td>Off</td></tr>
+  </tbody>
+</table>
+<p>Use the silent switches for progressive disclosure: leave everything animated while you are learning ARP, then silence it so the higher-layer flow you care about is not buried in plumbing.</p>
+
+<h3 id="access">12. Keyboard and accessibility</h3>
+<div class="scroll"><table>
+  <thead><tr><th>Key</th><th>Action</th><th>Key</th><th>Action</th></tr></thead>
+  <tbody>
+  <tr><td><kbd>V</kbd></td><td>Select</td><td><kbd>F</kbd></td><td>Firewall</td></tr>
+  <tr><td><kbd>C</kbd></td><td>Computer</td><td><kbd>I</kbd></td><td>IDS</td></tr>
+  <tr><td><kbd>E</kbd></td><td>Server</td><td><kbd>K</kbd></td><td>Kali PC</td></tr>
+  <tr><td><kbd>S</kbd></td><td>Switch</td><td><kbd>A</kbd></td><td>Red Team actor</td></tr>
+  <tr><td><kbd>R</kbd></td><td>Router</td><td><kbd>H</kbd></td><td>Hub</td></tr>
+  <tr><td><kbd>L</kbd></td><td>Connect</td><td><kbd>W</kbd></td><td>Configure</td></tr>
+  <tr><td><kbd>Del</kbd> / <kbd>Backspace</kbd></td><td>Delete selection</td><td><kbd>Esc</kbd></td><td>Cancel, back to Select</td></tr>
+  <tr><td><kbd>Space</kbd></td><td>Pause / resume a run</td><td><kbd>Ctrl/Cmd+Z</kbd></td><td>Undo (add <kbd>Shift</kbd> to redo)</td></tr>
+  </tbody>
+</table></div>
+<p>The tool letters fire only as bare keys: not while you are typing in a field, not with Ctrl/Cmd/Alt held, and not while a dialog is open.</p>
+<p>Accessibility is a design goal, not an afterthought. Meaning is never carried by colour alone: every packet category has a monochrome glyph, each link state has a text marker, and the canvas dots carry text labels. Controls are real buttons with names, toggles expose their state, packet-list rows are focusable and answer Enter and Space, and dialogs trap and restore focus. Anything you can select on the canvas, devices and cables included, has a counterpart you can reach from the inspector. Three colour themes are available in the View tab: Warm Light, Dark and Blueprint.</p>
+
+<!-- ============================ PART 2 ============================ -->
+<h2 class="part" id="part2">Part 2 &middot; Simulation mechanics</h2>
+<p class="lede">What the engine does when you press Play, why it is built that way, and where it is honestly simpler than the real thing.</p>
+
+<h3 id="m-model">1. The model</h3>
+<p>RouteSim does not move &ldquo;pings&rdquo; or &ldquo;connections&rdquo;. It moves <strong>frames</strong>. A ping becomes a small cast of real Ethernet frames: an ARP request, an ARP reply, an ICMP echo request, an echo reply. Each is an object with source and destination MACs, optional IP and transport headers, and a payload. Every device on the path takes a frame in, decides what to do with it using the same information a real device would have, and emits zero or more frames in response.</p>
+<p>That choice is the whole point. A learner can see <em>why</em> the first ping to a new host is slower than the second (the ARP), why a switch floods the first frame and not the next, and why traffic that crosses a router has different MAC addresses on each side while the IP addresses stay put.</p>
+<p>Underneath is one mutable <code>state</code> object holding the devices, links and options, a callback registry that lets the engine ask for a redraw without importing the drawing code, and a deliberately small set of principles that decide hard cases:</p>
+<ul>
+  <li><strong>Faithful to the protocols</strong>: real frame fields and real order of operations beat shortcuts.</li>
+  <li><strong>Explain, don&rsquo;t just show</strong>: every outcome carries a reason string a learner can act on.</li>
+  <li><strong>Failure is a lesson</strong>: nothing fails silently; each drop says why.</li>
+  <li><strong>Determinism</strong>: the same topology and the same inputs give the same result.</li>
+</ul>
+
+<h3 id="m-run">2. Anatomy of a run</h3>
+<p>Every run has four stages.</p>
+<figure class="fig">
+<svg viewBox="0 0 760 150" role="img" aria-labelledby="f1t f1d">
+  <title id="f1t">The four stages of a simulation run</title>
+  <desc id="f1d">Setup builds the starting events, process dequeues an event and runs the receiving device&rsquo;s handler, animate draws the frame crossing a link, and finish writes the result. Process and animate repeat until no events remain.</desc>
+  <defs><marker id="ar" markerWidth="8" markerHeight="8" refX="7" refY="4" orient="auto"><path d="M0,0 L8,4 L0,8 z" fill="var(--muted)"/></marker></defs>
+  <g font-family="system-ui,sans-serif" font-size="13" fill="var(--ink)">
+    <rect x="10" y="30" width="150" height="70" rx="10" fill="var(--accent-soft)" stroke="var(--accent)"/>
+    <text x="85" y="58" text-anchor="middle" font-weight="700">1. Setup</text>
+    <text x="85" y="78" text-anchor="middle" fill="var(--muted)">validate, seed PRNG,</text>
+    <text x="85" y="93" text-anchor="middle" fill="var(--muted)">first events</text>
+    <rect x="215" y="30" width="150" height="70" rx="10" fill="var(--surface)" stroke="var(--line)"/>
+    <text x="290" y="58" text-anchor="middle" font-weight="700">2. Process</text>
+    <text x="290" y="78" text-anchor="middle" fill="var(--muted)">device handler</text>
+    <text x="290" y="93" text-anchor="middle" fill="var(--muted)">decides, emits frames</text>
+    <rect x="420" y="30" width="150" height="70" rx="10" fill="var(--surface)" stroke="var(--line)"/>
+    <text x="495" y="58" text-anchor="middle" font-weight="700">3. Animate</text>
+    <text x="495" y="78" text-anchor="middle" fill="var(--muted)">admit on link, draw dot,</text>
+    <text x="495" y="93" text-anchor="middle" fill="var(--muted)">record capture row</text>
+    <rect x="625" y="30" width="125" height="70" rx="10" fill="var(--accent-soft)" stroke="var(--accent)"/>
+    <text x="687" y="58" text-anchor="middle" font-weight="700">4. Finish</text>
+    <text x="687" y="78" text-anchor="middle" fill="var(--muted)">result, post-mortem,</text>
+    <text x="687" y="93" text-anchor="middle" fill="var(--muted)">archive capture</text>
+    <line x1="160" y1="65" x2="213" y2="65" stroke="var(--muted)" stroke-width="1.6" marker-end="url(#ar)"/>
+    <line x1="365" y1="55" x2="418" y2="55" stroke="var(--muted)" stroke-width="1.6" marker-end="url(#ar)"/>
+    <line x1="420" y1="78" x2="367" y2="78" stroke="var(--muted)" stroke-width="1.6" marker-end="url(#ar)"/>
+    <line x1="570" y1="65" x2="623" y2="65" stroke="var(--muted)" stroke-width="1.6" marker-end="url(#ar)"/>
+    <text x="392" y="125" text-anchor="middle" fill="var(--muted)">2 and 3 repeat until the event queue is empty</text>
+  </g>
+</svg>
+<figcaption>The run pipeline. Setup lives in <code>simulation.ts</code>; process, animate and finish live in <code>engine.ts</code>.</figcaption>
+</figure>
+<ol>
+  <li><strong>Setup.</strong> A builder such as <code>buildPingEvents</code> validates the request and returns either an error string or a starting queue of events plus a table of frames waiting on ARP. Because validation returns before any run begins, every command&rsquo;s error path is testable and costs nothing.</li>
+  <li><strong>Process.</strong> The engine dequeues one event and calls the handler for the receiving device&rsquo;s type. Handlers exist for computers, servers, switches (and access points), routers, the internet cloud, hubs, firewalls, IDS sensors and the two attack hosts. A handler returns the frames it wants to send.</li>
+  <li><strong>Animate.</strong> Every outgoing frame passes through one admission point that applies the data-plane gates (a spanning-tree-blocked link, an unauthorised 802.1X port, an unassociated WiFi client, an unkeyed MACsec link) and, in animated runs, the link&rsquo;s loss. An admitted frame becomes a dot that moves along the link at a speed scaled by the link&rsquo;s latency. On arrival a row is added to the packet capture (capped at 1000 rows) and the arrive event is queued.</li>
+  <li><strong>Finish.</strong> A mode-specific result (ping statistics, a DHCP lease, an nmap-style table) is written to the <em>origin</em> device&rsquo;s terminal, even if you are looking at another tab. The capture is archived for Compare, and the boot queue advances.</li>
+</ol>
+<h4>Animated and headless runs</h4>
+<p>The same handlers also run <strong>headless</strong>: the queue is drained synchronously, with no drawing, no capture and no loss. Headless runs power the console&rsquo;s <code>run</code>, <code>traceroute</code> and scenario Check, so a check gives a stable answer even though your animated run drops frames on a lossy link. Where the two differ the difference is <em>surfaced</em>, not silent: a headless run notes each lossy link it ignored.</p>
+
+<h3 id="m-l2">3. Layer 2: ARP, switching and VLANs</h3>
+<p>A host that wants to send to an IP on its own subnet needs the destination MAC, so it ARPs. The first frame it wanted to send is held in a <code>pendingArp</code> buffer and released when the reply arrives. If the destination is off-subnet, the host ARPs for its <em>default gateway</em> instead, which is why an unset gateway produces the diagnosis &ldquo;never ARPs off-subnet&rdquo;.</p>
+<figure class="fig">
+<svg viewBox="0 0 760 330" role="img" aria-labelledby="f2t f2d">
+  <title id="f2t">A ping across a router, first attempt</title>
+  <desc id="f2d">PC-A ARPs for its gateway, the router replies, PC-A sends the echo request, the router ARPs for PC-B, PC-B replies, the router forwards the echo with rewritten MAC addresses, and the echo reply returns the same way.</desc>
+  <g font-family="system-ui,sans-serif" font-size="12.5" fill="var(--ink)">
+    <g font-weight="700" text-anchor="middle">
+      <text x="70" y="22">PC-A</text><text x="250" y="22">Switch 1</text><text x="430" y="22">Router</text><text x="610" y="22">PC-B</text>
+    </g>
+    <g stroke="var(--line)" stroke-width="1.5" stroke-dasharray="4 4">
+      <line x1="70" y1="30" x2="70" y2="320"/><line x1="250" y1="30" x2="250" y2="320"/>
+      <line x1="430" y1="30" x2="430" y2="320"/><line x1="610" y1="30" x2="610" y2="320"/>
+    </g>
+    <g stroke-width="2" fill="none">
+      <line x1="70" y1="52" x2="428" y2="52" stroke="var(--arp)"/>
+      <line x1="430" y1="82" x2="72" y2="82" stroke="var(--arp)"/>
+      <line x1="70" y1="112" x2="428" y2="112" stroke="var(--icmp)"/>
+      <line x1="430" y1="142" x2="608" y2="142" stroke="var(--arp)"/>
+      <line x1="610" y1="172" x2="432" y2="172" stroke="var(--arp)"/>
+      <line x1="430" y1="202" x2="608" y2="202" stroke="var(--icmp)"/>
+      <line x1="610" y1="232" x2="432" y2="232" stroke="var(--reply)"/>
+      <line x1="430" y1="262" x2="72" y2="262" stroke="var(--reply)"/>
+    </g>
+    <g font-size="11.5" fill="var(--muted)">
+      <text x="80" y="46">ARP who-has gateway? (broadcast, flooded)</text>
+      <text x="150" y="76">ARP is-at (unicast)</text>
+      <text x="80" y="106">Echo request: dst MAC = router, dst IP = PC-B</text>
+      <text x="440" y="136">ARP who-has PC-B?</text>
+      <text x="470" y="166">ARP is-at</text>
+      <text x="440" y="196">Echo request: TTL-1, new MACs</text>
+      <text x="470" y="226">Echo reply</text>
+      <text x="120" y="256">Echo reply: TTL-1, MACs rewritten again</text>
+    </g>
+    <text x="380" y="300" text-anchor="middle" fill="var(--muted)" font-size="12">The switch is omitted from the arrows: it forwards each frame without changing it, and learns PC-A&rsquo;s and PC-B&rsquo;s MACs as they pass.</text>
+  </g>
+</svg>
+<figcaption>Frames for the first ping across a router. A second ping skips every ARP step: the tables are already warm.</figcaption>
+</figure>
+<h4>What a switch does</h4>
+<ul>
+  <li><strong>Learns</strong> the source MAC on the ingress port.</li>
+  <li><strong>Forwards</strong> known unicast out the learnt port, <strong>floods</strong> broadcast and unknown unicast out every other port (within the VLAN).</li>
+  <li>Enforces <strong>802.1Q</strong>: an access port belongs to one VLAN, a trunk carries tagged traffic with a native VLAN and an allowed list.</li>
+  <li>Honours <strong>spanning tree</strong> (section 5) and <strong>SPAN</strong> mirroring: a copy of selected traffic goes to a monitor port.</li>
+</ul>
+<p>The learnt table is <em>derived from the cabling</em>, so any cable change invalidates it. Adding, removing or shutting a link flushes the dynamic entries on the affected LAN and recomputes the spanning tree, just as a real topology change would. A stale entry that survives anyway is forgotten with a logged reason and the frame flooded, never dropped.</p>
+<p>A <strong>hub</strong> does none of this. It repeats every frame out every other port, so every device on it hears every frame. A router on a hub still takes up only frames addressed to its own interface MAC.</p>
+
+<h3 id="m-l3">4. Layer 3: routing, TTL and ICMP errors</h3>
+<p>A router admits a frame only if it is addressed to the ingress interface&rsquo;s MAC (or is a broadcast it handles locally, like DHCP). It then decides in a fixed order:</p>
+<ol>
+  <li>Handle ARP on the interface.</li>
+  <li>Check the <strong>TTL</strong> <em>before</em> the forwarding decision. At zero it drops the packet and sends an ICMP <em>Time Exceeded</em> back to the source.</li>
+  <li>Apply NAT and the INPUT or FORWARD chains (section 7).</li>
+  <li>Look up the destination by <strong>longest-prefix match</strong>, decrement TTL, rewrite the Ethernet header for the next hop, and ARP for that next hop if needed.</li>
+</ol>
+<p>The routing table merges three sources in priority order: <strong>connected</strong> routes (metric 0), <strong>static</strong> routes (metric 1) and <strong>RIP</strong>-learned routes (metric 2 and up). An internet cloud presents an implicit default route to each router cabled to it.</p>
+<p><code>traceroute</code> is implemented the real way. It sends probes with TTL 1, 2, 3&hellip; (up to 30) and records who answered each: a router&rsquo;s Time Exceeded marks an intermediate hop, and the destination&rsquo;s echo reply marks the end. Because ICMP errors quote the offending datagram, traceroute still sees every hop from behind NAT.</p>
+<p>Interfaces belong to <em>ports</em>. A router interface&rsquo;s address, prefix, NAT role and MAC stay with the port when you unplug the cable and follow it onto the next cable, so moving a cable keeps the interface and only a cable on a different port creates a new one.</p>
+
+<h3 id="m-ctl">5. Control planes: RIP and spanning tree</h3>
+<p>Both are computed <em>before</em> each run and whenever the topology changes, and both are treated as <strong>derived state</strong>: recomputed from the live topology, never trusted from storage, never saved in undo snapshots.</p>
+<h4>RIP</h4>
+<p><code>runRipConvergence</code> iterates up to 15 rounds, exchanging advertisements between RIP-enabled routers until a round changes nothing. Split horizon stops a route being advertised back where it came from, and metric 16 means unreachable. A <code>network</code> statement enables RIP on the interfaces it covers, and an adjacency forms only when <em>both</em> ends are covered. Neighbours are found per <em>segment</em>, not per cable: because RIPv2 multicasts, routers joined through a switch form adjacencies with each other. A router cabled to an internet cloud originates a default route into RIP, so routers several hops from the edge learn a way out.</p>
+<h4>Spanning tree (802.1D)</h4>
+<p><code>runStpConvergence</code> elects a root bridge per connected set of switches (lowest priority, then lowest bridge MAC; the MAC derives from the switch&rsquo;s name so the same script always builds the same tree). It costs each bridge to the root, gives every port a role (root, designated, alternate) and a state, and marks each alternate port as blocked. The block is enforced at the same admission gate as every other data-plane rule, so a redundant path is cut and the loop broken. Blocked links are drawn dashed amber.</p>
+<p>Turn STP off on a looped topology and the point becomes visible: a broadcast circulates forever. The engine detects this <em>by evidence</em> rather than a step count: the same frame lineage crossing the same wire in the same direction, at the same TTL, a second time means a copy came back round the loop. The sim log names that wire. Because detection counts only steps that send frames, a large loop-free run is never mistaken for a storm.</p>
+
+<h3 id="m-svc">6. Services: DHCP, DNS, TCP and HTTP</h3>
+<h4>DHCP</h4>
+<p>The four-message exchange (Discover, Offer, Request, Ack) is handled by the client, a router or a server. A router leases from the usable range of its interface&rsquo;s real prefix; a server leases from its configured <code>dhcp-range</code> and also hands out a router option and itself as nameserver. The client takes the <em>first</em> Offer, and a server only ACKs a Request that names it, so multi-server segments behave properly. A client that asks again keeps its address.</p>
+<p><strong>Network boot</strong> is deliberate. Adding or cabling a host does not configure it; pressing Play does, one host at a time, with a visible exchange. If DHCP times out and APIPA is enabled, the host self-assigns a link-local address, as a real machine would.</p>
+<h4>DNS</h4>
+<p>Name resolution is a real UDP/53 query that crosses switches, routers, firewalls and NAT. When a host pings or connects by name, it resolves first and launches the ICMP or TCP flow on the answer. An NXDOMAIN reply is drawn red. A server answers from its manual records and from an automatic zone containing every device&rsquo;s hostname. <strong>Instant DNS</strong> short-circuits the query for beginners; turning it off requires a reachable nameserver, as in the real world.</p>
+<h4>TCP and HTTP</h4>
+<p><code>nc -z host port</code> runs a genuine three-way handshake: SYN, then SYN-ACK if the port is listening (RST if not), then ACK. A silent drop produces a timeout, which reads differently from a refusal; that difference is what makes firewall DROP versus REJECT instructive. HTTP rides on top of the handshake: once established, the client sends a GET as a data segment and a server with its web service on answers <em>200 OK</em>. An open port with no web service connects but gives an &ldquo;empty reply&rdquo;; a closed port is &ldquo;connection refused&rdquo;.</p>
+
+<h3 id="m-nat">7. NAT and firewalling</h3>
+<h4>NAT and PAT</h4>
+<p>Mark router interfaces <code>ip nat inside</code> or <code>ip nat outside</code>. An inside-to-outside flow is source-translated onto the outside address and recorded in the router&rsquo;s translation table; TCP flows map by an allocated source port, and ICMP echo by its sequence. The return path is restored before the router considers the packet its own. The inspector lists the live table and flashes the entry a frame has just created or used. <strong>Port-forwarding</strong> is the inbound mirror: a static rule redirects a published outside address and port to an inside server, and the server&rsquo;s reply is translated back.</p>
+<h4>Netfilter</h4>
+<p>Routers carry INPUT (traffic to the router itself) and FORWARD (traffic through it) chains; the transparent firewall device is FORWARD-only. Rules match protocol, source, destination, port and connection state. The filter is <em>stateful</em>: a connection-tracking table lets the canonical ruleset work, where default-drop plus accept ESTABLISHED,RELATED plus accept the inside hosts&rsquo; NEW traffic blocks unsolicited inbound flows while the inside hosts browse freely. <strong>REJECT</strong> answers back (a TCP RST, so a scan reads the port as closed, otherwise an ICMP unreachable) whereas DROP is silent. <code>iptables</code> and <code>nft</code> are two front doors onto one model, and rules round-trip between them.</p>
+
+<h3 id="m-sec">8. Port security, encryption and detection</h3>
+<ul>
+  <li><strong>802.1X.</strong> A switch port in <code>auto</code> mode blocks data until the supplicant authenticates. The EAP exchange runs supplicant, authenticator, RADIUS server and back, animated. A bad credential gets Access-Reject then EAP-Failure. Port control belongs to the <em>port</em>, so whatever is plugged in, a PC or a hub or anything else, is subject to it. Control frames such as EAPOL and BPDUs are exempt from the gates, as they must be.</li>
+  <li><strong>MACsec (802.1AE).</strong> A link encrypted with a pre-shared key shows frames as encrypted in the packet list. A <code>must</code>-secure key mismatch drops traffic; <code>should</code>-secure falls back to plaintext. With <code>dot1x</code> the key is derived from the 802.1X exchange: the link stays unsecured until the port authenticates, then keys itself.</li>
+  <li><strong>WiFi.</strong> A laptop associates to an access point over a matching SSID, with a visible probe, authentication and association exchange, plus the WPA2 four-way handshake on a secured network. A wrong password still associates but fails the key handshake, leaving the link unauthenticated and carrying no data.</li>
+  <li><strong>IDS and SPAN.</strong> A managed switch copies selected traffic to its monitor port. The Snort sensor on that port is a passive sink: it parses your <code>local.rules</code>, matches mirrored frames, and records alerts. It cannot affect the traffic it watches.</li>
+  <li><strong>Offensive hosts, for training.</strong> The Kali PC and Red Team actor share one engine, kept in its own module so it is easy to review in isolation. It models a SYN scan (an open port answers SYN-ACK, a closed one RST), a ping sweep, and ARP cache poisoning, and reports an nmap-style table. A host with IP forwarding enabled relays intercepted traffic on to its real next hop, so a victim&rsquo;s connection keeps working while the extra hop appears in the packet list. The purpose is detection practice: pair these hosts with an IDS rule or a static ARP entry and see what each catches.</li>
+</ul>
+
+<h3 id="m-fail">9. Failure and diagnosis</h3>
+<p>The sim is built so that a broken network <em>teaches</em>. Several layers cooperate:</p>
+<ol>
+  <li><strong>Reasoned gates.</strong> The data-path check returns a reason, not just a boolean: shut, spanning-tree blocked, WiFi password mismatch, unauthorised 802.1X port, failed MACsec, powered-off peer. Every &ldquo;Network is unreachable&rdquo; names the real cause, and &ldquo;no link&rdquo; appears only when there really is no cable.</li>
+  <li><strong>Step logs.</strong> Each handler logs why it did what it did (&ldquo;No route to X, dropping&rdquo;, &ldquo;Cannot reply, no default gateway&rdquo;). These strings are the raw material for everything below.</li>
+  <li><strong>Post-mortem.</strong> When a run ends, any ARP still waiting is an ARP nobody answered. It is explained on the device that waited, naming the default gateway when that is the cause and quoting the actual drop reason when the ARP died on the way.</li>
+  <li><strong>Why? chain.</strong> The engine tags each captured frame with what its sender logged, what its receiver logged, and the packet that caused it. The <em>explain</em> module walks that back into a causal chain.</li>
+  <li><strong>Likely cause.</strong> A prober looks at the failed flow in order: the origin, name resolution, the run&rsquo;s decisive drops, then gateway, target, VLAN and return-path addressing, and names the most likely misconfiguration.</li>
+</ol>
+<p>Observable symptoms match Linux where they can: a failed ping prints <code>Time to live exceeded</code>, <code>Destination Port Unreachable</code> or <code>Destination Host Unreachable</code> as the real tool would.</p>
+
+<h3 id="m-det">10. Determinism, randomness and loss</h3>
+<p>The engine is deterministic given a topology and a seed, and the tests depend on it. The values that are random in reality, TCP source ports, DHCP and DNS transaction ids, scan ports, APIPA addresses, and which frames a lossy link drops, come from a seeded per-run generator that is reseeded at the start of each run. By default it is seeded from the clock, so runs vary like real traffic. The console command <code>seed &lt;n&gt;</code> pins it, making captures, NAT translations and DHCP ids reproducible bit for bit. That is what makes Compare a true before-and-after diff: only your change differs, not the dice.</p>
+<p>Link loss has its own stream, reseeded for every animated run. Frame ids are a monotonic counter with no wall-clock component. Any new engine randomness must draw from the seeded generator, never from the system clock or <code>Math.random()</code>, or reproducibility quietly breaks.</p>
+
+<h3 id="m-limits">11. What is simplified</h3>
+<p>RouteSim aims to be faithful, but it is a teaching tool and is honest about where it simplifies. Knowing these edges stops them being surprises.</p>
+<div class="caveat"><p><span class="tag">Known simplifications</span></p></div>
+<div class="scroll"><table>
+  <thead><tr><th>Area</th><th>What the simulator does</th><th>Real networks</th></tr></thead>
+  <tbody>
+  <tr><td>Time</td><td>No clock. ARP never ages out; a MAC leaving the wire takes its cached ARP entries with it.</td><td>Entries expire on timers.</td></tr>
+  <tr><td>Hosts</td><td>One NIC per computer or server, so one cable.</td><td>Multi-homed hosts.</td></tr>
+  <tr><td>Spanning tree</td><td>One tree per bridge (no per-VLAN trees), a fixed cost of 1 per link, instant convergence, loops across directly linked managed switches.</td><td>PVST/RSTP, path costs, listening and learning timers.</td></tr>
+  <tr><td>RIP</td><td>Converges before the run begins, up to 15 rounds.</td><td>Periodic updates, timers, triggered updates.</td></tr>
+  <tr><td>Addressing</td><td>IPv4 only.</td><td>IPv6 and NDP.</td></tr>
+  <tr><td>Link bandwidth</td><td>Stored as metadata; it does not yet limit throughput.</td><td>Congestion and queues.</td></tr>
+  <tr><td>Traffic</td><td>Discrete frames, one flow at a time, one animated run at once.</td><td>Many concurrent flows.</td></tr>
+  <tr><td>Loss</td><td>Applied in animated runs only; headless checks stay deterministic and say so.</td><td>Always present.</td></tr>
+  <tr><td>Firewall state</td><td><code>new</code> and <code>established</code> are tracked; <code>related</code> and <code>invalid</code> parse but never match.</td><td>Full conntrack.</td></tr>
+  </tbody>
+</table></div>
+<p>The approach to every such choice is <em>progressive disclosure</em>: a legible default, with full fidelity one layer down. Silent protocols, Instant DNS and the Packets/Events toggle are all instances. A beginner can start simple and descend to the real thing when ready, without the tool becoming either a toy or a wall.</p>
+
+<h4>Where to read more</h4>
+<ul>
+  <li><code>docs/architecture.md</code>: the map of the whole codebase, layer by layer.</li>
+  <li><code>docs/scenarios.md</code>: scenario data model and how to add one.</li>
+  <li><code>docs/scripting.md</code>: the command language, scripts and URL settings.</li>
+  <li><code>docs/src/&lt;module&gt;.md</code>: one note per module.</li>
+  <li><code>ROADMAP.md</code>: what is planned next.</li>
+</ul>
+
+<footer>RouteSim is released into the public domain under CC0 1.0. This guide describes version 0.7.1-alpha.</footer>
+</main>
+</div>
+</body>
+</html>

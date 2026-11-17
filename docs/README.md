@@ -6,6 +6,7 @@ It is a single-page app with **no framework and no runtime dependencies** — it
 
 ## How to read these docs
 
+- **[user-guide.html](user-guide.html)** — a self-contained, printable guide in two parts: how to use RouteSim (building, running, reading results, scenarios, settings), and how the simulation works underneath (the frame model, a run's four stages, switching, routing, RIP/STP, services, NAT, failure diagnosis, determinism, and what is deliberately simplified). Open it directly in a browser.
 - **[architecture.md](architecture.md)** — the map of the whole codebase: every source file by layer, the shared state and its mutation rules, the callback bridges and the import cycles they leave, how the GUI, terminals, console and scripts converge on one set of actions, the simulation pipeline, the topology lifecycle, and extension recipes. Start here.
 - **[build.md](build.md)** — how source becomes the single self-contained `rs-web.html`.
 - **[testing.md](testing.md)** — the Bun test suite, DOM mocking, fixtures, and how to run/write tests.

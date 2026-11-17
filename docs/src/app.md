@@ -10,7 +10,7 @@ The bundle's entry point (esbuild bundles `app.ts` and everything it transitivel
 2. **`setupUI()`** (`ui.ts`) — attaches all DOM event listeners.
 3. **`initialiseApp()`** — sizes the canvas, sets the inspector width, centres the pan, applies the default Warm Light theme (switch to Dark or Blueprint in the View tab), syncs the panels, then `loadDefaultConfig()` to load the built-in Basic Network. Finishes with `syncPanel()` + `render()`. No network request.
 
-It also exposes the `window.routesim` API (`exec`/`run`/`export`/`snapshot`/`diagnose`/`urlSettings`/`settingsQuery` + the io import/export functions) for automation. Before the first sync it applies any settings from the URL query string (`parseSettingsFromUrl`) and reports unknown keys on the status line. See [architecture.md](../architecture.md) for how the modules it wires fit together.
+It also exposes the `window.routesim` API (`exec`/`run`/`export`/`snapshot`/`diagnose`/`urlSettings`/`settingsQuery`/`shareLink`/`openLink` + the io import/export functions) for automation. Before the first sync it applies any settings from the URL query string (`parseSettingsFromUrl`) and reports unknown keys on the status line. See [architecture.md](../architecture.md) for how the modules it wires fit together.
 
 ## How it fits
 
@@ -20,3 +20,5 @@ It also exposes the `window.routesim` API (`exec`/`run`/`export`/`snapshot`/`dia
 
 - Startup is fully synchronous — defaults are compiled in, so there's nothing to fetch.
 - Tests never import `app.ts`; they import individual modules and register no-op callbacks instead.
+
+After the first render `initialiseApp` opens a network carried in the address bar's fragment (`#net=…`, [share-link.md](share-link.md)) and listens for `hashchange`, so a link pasted into an open tab loads too; `openLinkInAddressBar` removes the fragment once the network is in, so a refresh does not load the link again over later work.

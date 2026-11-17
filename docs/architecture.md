@@ -60,7 +60,7 @@ The modules fall into seven layers, L0 to L6. Arrows point from importer to impo
 ```mermaid
 flowchart TB
   L6["<b>L6 Entry</b><br/>app.ts"]
-  L5["<b>L5 Application</b><br/>ui · commands · console · config · io · settings-url<br/>scenarios · scenario-library · scenario-ui · ribbon · tutorial"]
+  L5["<b>L5 Application</b><br/>ui · commands · console · config · io · settings-url · share-link<br/>scenarios · scenario-library · scenario-ui · ribbon · tutorial"]
   L4["<b>L4 Presentation</b><br/>canvas · inspector · simlog-view · port-picker · dialog"]
   L3["<b>L3 Engine and device CLIs</b><br/>engine · terminal/*"]
   L2["<b>L2 Network logic</b><br/>simulation · routing · stp"]
@@ -171,6 +171,7 @@ The Kali CLI (`terminal/attacker.ts`) and the `attack` / `redteam` console handl
 | `config.ts` | 290 | Serialise the live network to a payload; apply a payload back (stop run, normalise, replace, drop sessions, refit); load built-ins. | `buildConfigPayload`, `applyConfig`, `applyConfigWithoutUndo`, `loadTopology` | [config.md](src/config.md) |
 | `io.ts` | 165 | File download and file picker for configs, scenarios, scripts and logs. | `exportConfig`, `importConfig`, `runImportedScript` | [scripting.md](scripting.md) |
 | `settings-url.ts` | 110 | Parse display and sim settings from the query string, and build the inverse shareable query. Pure parser. | `parseSettingsFromUrl`, `buildSettingsQuery` | [settings-url.md](src/settings-url.md) |
+| `share-link.ts` | 130 | A network in a link: the pure codec behind `rs-web.html#net=…` — topology JSON ⇄ a URL-safe token (`z.` deflated, `j.` plain), bounded decoding, fragment parsing, URL building. The actions that use it are in `io.ts`. | `encodeShare`, `decodeShare`, `shareTokenFromHash`, `shareUrl` | [share-link.md](src/share-link.md) |
 | `scenarios.ts` | 220 | The scenario model, registry and goal checker. Checks run headless simulations. | `SCENARIOS`, `loadScenario`, `checkScenario`, `registerScenario` | [scenarios.md](scenarios.md) |
 | `scenario-library.ts` | 820 | The built-in curriculum: topology plus goal checks for each challenge. Data only. | `CURRICULUM` | [scenarios.md](scenarios.md) |
 | `scenario-ui.ts` | 70 | The floating goal banner and its Check button. | `syncScenarioPanel`, `runActiveScenarioCheck` | [scenarios.md](scenarios.md) |
@@ -383,6 +384,7 @@ Many paths replace the whole network. All of them must leave no trace of the pre
 | Command script | `commands.exportTopologyScript` | `runConsoleScript`, `io.runImportedScript` | Human-readable, replayable; names quoted as needed. |
 | Scenario JSON | `io.exportScenarios` | `io.importScenario` → `registerScenario` | Checks validated with `isValidScenarioCheck`. |
 | Event log JSON | `io.exportLog` | `io.importLog` | The narrative sim event log, not the packet capture. |
+| URL fragment (`#net=…`) | `io.buildShareLink` (File → Copy link; codec in `share-link.ts`) | `io.openSharedNetwork` from `app.ts` (boot + `hashchange`) | The topology JSON, deflated and base64url-encoded. Untrusted input: bounded decoding, then the same `parseConfig` as a file. The fragment is removed from the address bar once loaded. |
 | URL query | `settings-url.buildSettingsQuery` | `parseSettingsFromUrl` in `app.ts` | Display options, speed, theme. Unknown keys are reported, not dropped silently. |
 | In-memory slot | console `save` | console `load` | `state.configStore`, lost on reload. |
 

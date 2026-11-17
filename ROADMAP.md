@@ -366,8 +366,12 @@ An in-app editor (define topology + goal checks from the UI, export as JSON).
 The JSON import path already exists.
 
 ### Persistence & sharing
-- **Shareable URL** — encode the topology in the URL hash; perfect for a
-  single-file tool, no server needed. Effort: low.
+- **Shareable URL — shipped (2026-11).** File → **Copy link** puts the whole
+  network in the link's fragment (`rs-web.html#net=…`, deflated with the
+  browser's own `CompressionStream`); opening the link loads it, with no server
+  and no request. A link is untrusted input and is bounded and normalised like
+  an imported file (`src/share-link.ts`). **Later:** carry the active scenario
+  in the link, so a half-solved exercise can be shared with its goal.
 - **localStorage autosave** (opt-out) — "lost my work on refresh" starts to
   matter once strangers use it. The zero-request principle is about *network*,
   not storage. Effort: low.

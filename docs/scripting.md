@@ -19,6 +19,8 @@ routesim.snapshot()                             // { devices, links, simulation 
 routesim.diagnose()                             // [] when runtime model invariants hold
 routesim.urlSettings()                          // what the current URL query string would apply (ParsedSettings)
 routesim.settingsQuery()                        // a shareable query string built from the live settings
+await routesim.shareLink()                      // a link that opens the current network (rs-web.html#net=…)
+await routesim.openLink(url)                    // open the network a link carries → true when it loaded
 ```
 
 `CommandResult` is `{ ok: boolean, output: string[], data?: unknown }`. For `run ping`/`run dhcp`, `data` is the `SimResult` (`{ success, ttl, assignedIp, assignedGateway, storm, diagnosis, log, steps }`) and `ok` reflects reachability. A failed `run` appends the run's post-mortem (`diagnosis`) to `output` — a broadcast storm, or an ARP nobody answered (naming the gateway when it is the cause) — and `run ping` notes an ICMP error it got back (`unreachable (Time to live exceeded from 10.0.0.1)`).
@@ -257,3 +259,14 @@ routesim.exportLog(); routesim.importLog();              // simulation log JSON
 ```
 
 Default topologies and scenarios are compiled in (`state.ts` / `scenarios.ts`), so a fresh page already has them — import is only for sharing/restoring your own.
+
+### A network as a link
+
+File → **Copy link** puts the whole topology in the link's fragment (`rs-web.html#net=…`) — nothing is uploaded; opening the link in any browser loads the network. From a script:
+
+```js
+const url = await routesim.shareLink();   // a Promise: the packing is async
+await routesim.openLink(url);             // true when the network loaded (one undo point)
+```
+
+The link holds exactly what the Config export holds, passwords and keys included. See [share-link.md](src/share-link.md).

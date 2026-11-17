@@ -65,6 +65,10 @@ setupTutorial();
   exportLog: io.exportLog, importLog: io.importLog,
   // URL settings plumbing: inspect what the current query string would apply,
   // and build a shareable query string from the live settings.
+  // A link that opens the current network (a Promise — the packing is async),
+  // and the inverse: open the network a link's fragment carries.
+  shareLink: () => io.buildShareLink(),
+  openLink: (url: string) => io.openSharedNetwork(url.includes("#") ? url.slice(url.indexOf("#")) : url),
   urlSettings: () => parseSettingsFromUrl(window.location.search),
   settingsQuery: () => buildSettingsQuery(),
 };
@@ -96,6 +100,20 @@ function initialiseApp(): void {
   if (urlSettings.ignored.length) {
     dom.modeLabel.textContent = `Ignored unknown URL setting${urlSettings.ignored.length > 1 ? "s" : ""}: ${urlSettings.ignored.join(", ")}.`;
   }
+
+  // A link that carries a network (`#net=…`) opens it over the default.
+  void openLinkInAddressBar(false);
+  // The same link pasted into a tab that is already open only changes the
+  // fragment — no reload — so listen for it. That load is an undo point.
+  window.addEventListener("hashchange", () => { void openLinkInAddressBar(true); });
+}
+
+// Open the network in the address bar's fragment, then take the fragment out
+// of the address bar: left there, a refresh would load the link's network
+// again over whatever the learner has built since.
+async function openLinkInAddressBar(undo: boolean): Promise<void> {
+  if (!(await io.openSharedNetwork(window.location.hash, { undo }))) return;
+  try { window.history.replaceState(null, "", window.location.pathname + window.location.search); } catch { /* sandboxed: leave it */ }
 }
 
 initialiseApp();

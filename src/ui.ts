@@ -686,6 +686,7 @@ export function setupUI(): void {
     "export-script": io.exportScript,
     "import-log": () => { void io.importLog(); },
     "export-log": io.exportLog,
+    "copy-link": () => { void io.copyShareLink(); },
     "panel-network": () => setNetworkPanel(!state.options.networkPanelOpen),
     "panel-terminal": () => openTerminalFor(getDevice(state.selectedId)),
     "panel-console": () => openConsole(),

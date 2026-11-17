@@ -30,7 +30,7 @@ rm .bundle.js
 
 There is a **single** build output, `rs-web.html` — a self-contained portable file with **no runtime requests**. The default topologies (`defaultConfig`/`vlanRoasConfig`/`routerMeshConfig` in `state.ts`) and scenarios (`SCENARIOS` in `scenarios.ts`) are compiled in; on startup the app loads the Basic Network directly. There is no `config.json`, no fetch, and no File System Access API.
 
-Persistence is **JSON import/export** (download + file picker) for configs, scenarios, scripts, and logs — see [scripting.md](scripting.md). `rs-web.html` is committed (the portable deliverable lives in the repo).
+Persistence is **JSON import/export** (download + file picker) for configs, scenarios, scripts, and logs — see [scripting.md](scripting.md) — and a network can travel as a **link** (`#net=…`, the topology in the URL fragment; still no request — see [share-link.md](src/share-link.md)). `rs-web.html` is committed (the portable deliverable lives in the repo).
 
 ## Serving
 

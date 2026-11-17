@@ -1362,16 +1362,17 @@ export function routerInterfaceFor(router: Device, peerId: string, vlanTag?: num
 // cable exists; normaliseRouterInterfaces keeps the entry alive because it has
 // a name. If a cable later occupies that port, the by-peer entry takes over.
 // With a VLAN tag it only finds (a parked sub-interface may not exist), so the
-// result can be undefined; untagged, it always finds or makes the entry (`name`
-// names a port, so the normaliser keeps it).
+// result can be undefined — uncabledSubInterfaceFor is the one that makes it;
+// untagged, it always finds or makes the entry (`name` names a port, so the
+// normaliser keeps it).
 export function routerInterfaceForName(router: Device, name: string): RouterInterface;
 export function routerInterfaceForName(router: Device, name: string, vlanTag?: number | null): RouterInterface | undefined;
 export function routerInterfaceForName(router: Device, name: string, vlanTag?: number | null): RouterInterface | undefined {
   const config = ensureConfig(router);
   let interfaces = config.interfaces = normaliseRouterInterfaces(config.interfaces || [], router.id);
   // The port's own (untagged) entry — or, with a tag, a sub-interface parked
-  // on the unplugged port. A parked sub-interface is only ever found, never
-  // made here: one is created by naming it on a CABLED port.
+  // on the unplugged port. A parked sub-interface is only found here, never
+  // made: uncabledSubInterfaceFor makes one, deliberately.
   if (vlanTag != null) {
     return interfaces.find(entry => entry.peerId === "" && entry.name === name && entry.vlanTag === vlanTag);
   }
@@ -1383,6 +1384,21 @@ export function routerInterfaceForName(router: Device, name: string, vlanTag?: n
     iface = interfaces.find((entry) => entry.peerId === "" && entry.name === name && entry.vlanTag == null);
   }
   return iface;
+}
+
+// Find or create a sub-interface on a port with NO cable: `interface
+// Ethernet3.10` (or `encapsulation dot1q 10` on Ethernet3) typed while nothing
+// is plugged in, as FRR and IOS allow. It is the same entry an unplugged
+// cable leaves behind (releaseRouterPorts) — keyed by the port's name, with
+// its VLAN tag — so everything that already handles a parked sub-interface
+// handles it: the inspector lists it (down), a save keeps it, and when a cable
+// lands on the port addLink re-keys it to the new peer (adoptUncabledRouterPort).
+export function uncabledSubInterfaceFor(router: Device, name: string, vlanTag: number): RouterInterface {
+  const existing = routerInterfaceForName(router, name, vlanTag);
+  if (existing) return existing;
+  const config = ensureConfig(router);
+  const interfaces = config.interfaces = normaliseRouterInterfaces([...(config.interfaces || []), { peerId: "", name, type: /^serial/i.test(name) ? "serial" : "ethernet", ipv4Address: "", vlanTag }], router.id);
+  return interfaces.find(entry => entry.peerId === "" && entry.name === name && entry.vlanTag === vlanTag)!;
 }
 
 // `cabledOnly` stops after the cabled interfaces, skipping the enumeration of

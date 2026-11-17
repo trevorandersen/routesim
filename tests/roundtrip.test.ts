@@ -320,6 +320,37 @@ describe("export → replay: the awkward corners", () => {
     expect(firstPower).toBeGreaterThan(lastCli);
   });
 
+  it("sub-interfaces parked on an unplugged port replay: addressed, with a NAT role, and empty", () => {
+    runConsoleScript(`
+      add router R1 at 0 0
+      add switch SW at 200 0
+      managed SW
+      link R1 SW
+      interface R1 SW ip 10.0.0.1/24
+      interface R1 SW ip 192.168.10.1/24 vlan 10
+      interface R1 SW ip 192.168.20.1/26 vlan 20
+      cli R1 enable
+      cli R1 configure terminal
+      cli R1 interface Ethernet1.20
+      cli R1 ip nat inside
+      cli R1 interface Ethernet1.30
+      cli R1 end
+      unlink R1 SW
+    `);
+    const parked = () => dev("R1").config.interfaces!.filter(i => i.peerId === "")
+      .map(i => `${i.name}${i.vlanTag != null ? `.${i.vlanTag}` : ""}=${i.ipv4Address}${i.natRole ? ` ${i.natRole}` : ""}`).sort();
+    const before = parked();
+    expect(before).toEqual(["Ethernet1.10=192.168.10.1", "Ethernet1.20=192.168.20.1 inside", "Ethernet1.30=", "Ethernet1=10.0.0.1"]);
+    const { rejected, diffs, script } = roundTrip();
+    expect(rejected).toEqual([]);
+    expect(diffs).toEqual([]);
+    expect(parked()).toEqual(before);           // on the same port (canonical() compares no port names)
+    expect(script).not.toContain("# R1");       // commands, not a note
+    expect(script).toContain("cli R1 interface Ethernet1.20\ncli R1 encapsulation dot1q 20\ncli R1 ip address 192.168.20.1/26\ncli R1 ip nat inside\ncli R1 exit");
+    // …and they come up with the next cable, as before the save.
+    expect(runConsoleScript("add switch SW2 at 200 200\nlink R1 SW2").pop()!.output.join(" ")).toContain("R1 Ethernet1 keeps its address 10.0.0.1/24 and its sub-interfaces .10, .20, .30.");
+  });
+
   it("link properties, shut cables, power and port counts survive together", () => {
     runConsoleScript(`
       add switch SW at 100 100

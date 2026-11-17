@@ -5806,6 +5806,13 @@ Full legal text: https://creativecommons.org/publicdomain/zero/1.0/legalcode</pr
     }
     return iface;
   }
+  function uncabledSubInterfaceFor(router, name, vlanTag) {
+    const existing = routerInterfaceForName(router, name, vlanTag);
+    if (existing) return existing;
+    const config = ensureConfig(router);
+    const interfaces = config.interfaces = normaliseRouterInterfaces([...config.interfaces || [], { peerId: "", name, type: /^serial/i.test(name) ? "serial" : "ethernet", ipv4Address: "", vlanTag }], router.id);
+    return interfaces.find((entry) => entry.peerId === "" && entry.name === name && entry.vlanTag === vlanTag);
+  }
   function routerInterfacesWithNames(router, cabledOnly = false) {
     const ethernetPorts = clampRouterPortCount(router.config?.ethernetPorts ?? defaultPortCount("router"));
     const serialPorts = clampRouterPortCount(router.config?.serialPorts ?? 4);
@@ -12287,6 +12294,16 @@ ${body}
     const name = uncabledTarget();
     return name ? routerInterfaceForName(router, name, state.terminal.interfaceVlanTag) : routerInterfaceFor(router, state.terminal.interfacePeerId, state.terminal.interfaceVlanTag);
   }
+  function sessionPortEntries(router) {
+    const name = uncabledTarget();
+    const peerId = state.terminal.interfacePeerId;
+    return (router.config?.interfaces || []).filter((i) => name ? i.peerId === "" && i.name === name : i.peerId === peerId);
+  }
+  function sessionPortEntry(router, vlanTag) {
+    const name = uncabledTarget();
+    if (!name) return routerInterfaceFor(router, state.terminal.interfacePeerId, vlanTag);
+    return vlanTag == null ? routerInterfaceForName(router, name) : uncabledSubInterfaceFor(router, name, vlanTag);
+  }
   var notCabledNote = (name) => `% ${name} is not cabled \u2014 it stays down, with no connected route, until a cable is plugged in.`;
   function routerMode() {
     const m = state.terminal.mode;
@@ -12621,10 +12638,24 @@ ${body}
       }
       const iface = routerInterfaceByName(router, interfaceMatch[1]);
       if (!iface) {
-        const sub = interfaceMatch[1].match(/^(.+?)\.\d+$/);
+        const sub = interfaceMatch[1].match(/^(.+?)\.(\d+)$/);
         const uncabledBase = sub ? routerInterfaceByName(router, sub[1]) : null;
-        if (uncabledBase && !uncabledBase.peer) {
-          terminalLine("error", `% ${uncabledBase.name} is not cabled \u2014 a sub-interface needs a cable to carry its VLAN. Connect the port first.`);
+        if (sub && uncabledBase && !uncabledBase.peer && uncabledBase.config.vlanTag == null) {
+          const vlan = normaliseVlanId(sub[2]);
+          if (!vlan) {
+            terminalLine("error", `% Unknown interface ${interfaceMatch[1]}`);
+            return true;
+          }
+          const port = uncabledBase.name;
+          pushUndo();
+          uncabledSubInterfaceFor(router, port, vlan);
+          sync().syncPanel();
+          sync().render();
+          state.terminal.mode = "interface";
+          clearInterfaceTarget(state.terminal);
+          state.terminal.interfaceName = port;
+          state.terminal.interfaceVlanTag = vlan;
+          terminalLine("muted", notCabledNote(`${port}.${vlan}`));
           return true;
         }
         const sel = routerBaseOrNewSubInterface(router, interfaceMatch[1]);
@@ -12677,20 +12708,17 @@ ${body}
         terminalLine("error", "% Interface mode required.");
         return true;
       }
-      if (uncabledTarget()) {
-        terminalLine("error", `% ${uncabledTarget()} is not cabled \u2014 a sub-interface needs a cable to carry its VLAN. Connect the port first.`);
-        return true;
-      }
       const vlanId = normaliseVlanId(encapMatch[1]);
       if (!vlanId) {
         terminalLine("error", `% Invalid VLAN ID: ${encapMatch[1]}`);
         return true;
       }
+      const uncabled = uncabledTarget();
       const peerId = state.terminal.interfacePeerId;
       const current = state.terminal.interfaceVlanTag;
-      const holder = (router.config?.interfaces || []).some((i) => i.peerId === peerId && i.vlanTag === vlanId);
+      const holder = sessionPortEntries(router).some((i) => i.vlanTag === vlanId);
       if (current != null && current !== vlanId && holder) {
-        const base = routerInterfacesWithNames(router).find((i) => i.peerId === peerId)?.name.split(".")[0] || "this port";
+        const base = uncabled || routerInterfacesWithNames(router).find((i) => i.peerId === peerId)?.name.split(".")[0] || "this port";
         terminalLine("error", `% VLAN ${vlanId} is already carried by sub-interface ${base}.${vlanId} \u2014 a VLAN belongs to one sub-interface per port. Configure that one (interface ${base}.${vlanId}) or pick another VLAN.`);
         return true;
       }
@@ -12698,16 +12726,20 @@ ${body}
         terminalLine("", `Encapsulation is already 802.1Q VLAN ${vlanId}.`);
         return true;
       }
-      pushUndo();
       if (current == null) {
-        routerInterfaceFor(router, state.terminal.interfacePeerId, vlanId);
+        if (!holder) {
+          pushUndo();
+          sessionPortEntry(router, vlanId);
+          sync().syncPanel();
+          sync().render();
+        }
         state.terminal.interfaceVlanTag = vlanId;
-        sync().syncPanel();
-        sync().render();
         terminalLine("", `Encapsulation 802.1Q VLAN ${vlanId} \u2014 now configuring sub-interface .${vlanId}.`);
+        if (uncabled) terminalLine("muted", notCabledNote(`${uncabled}.${vlanId}`));
         return true;
       }
-      const iface = routerInterfaceFor(router, state.terminal.interfacePeerId, state.terminal.interfaceVlanTag);
+      pushUndo();
+      const iface = sessionPortEntry(router, current);
       iface.vlanTag = vlanId;
       state.terminal.interfaceVlanTag = vlanId;
       sync().syncPanel();
@@ -12724,12 +12756,12 @@ ${body}
         terminalLine("error", "% The base interface carries no encapsulation.");
         return true;
       }
-      if ((router.config?.interfaces || []).some((i) => i.peerId === state.terminal.interfacePeerId && i.vlanTag == null)) {
+      if (sessionPortEntries(router).some((i) => i.vlanTag == null)) {
         terminalLine("error", "% The base interface already exists \u2014 remove the sub-interface's address instead (no ip address).");
         return true;
       }
       pushUndo();
-      const iface = routerInterfaceFor(router, state.terminal.interfacePeerId, state.terminal.interfaceVlanTag);
+      const iface = sessionPortEntry(router, state.terminal.interfaceVlanTag);
       iface.vlanTag = null;
       state.terminal.interfaceVlanTag = null;
       sync().syncPanel();
@@ -20734,11 +20766,11 @@ Snort successfully validated the configuration${bad ? " (with errors)" : "."}`);
         for (const i of c.interfaces || []) {
           if (i.peerId || !i.name) continue;
           if (i.vlanTag != null) {
-            if (i.ipv4Address) lines.push(`# ${d.name} ${i.name}.${i.vlanTag} (unplugged) had ${i.ipv4Address}/${prefixOf(i)} \u2014 re-create the sub-interface once the port is cabled`);
-            continue;
+            cfg.push(`interface ${i.name}.${i.vlanTag}`, `encapsulation dot1q ${i.vlanTag}`);
+          } else {
+            if (!i.ipv4Address && !i.natRole) continue;
+            cfg.push(`interface ${i.name}`);
           }
-          if (!i.ipv4Address && !i.natRole) continue;
-          cfg.push(`interface ${i.name}`);
           if (i.ipv4Address) cfg.push(`ip address ${i.ipv4Address}/${prefixOf(i)}`);
           if (i.natRole === "inside" || i.natRole === "outside") cfg.push(`ip nat ${i.natRole}`);
           cfg.push("exit");

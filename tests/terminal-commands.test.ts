@@ -1105,7 +1105,10 @@ describe("router shell — a CLI mode whose target is gone falls back to config 
     expect({ name: state.terminal.interfaceName, tag: state.terminal.interfaceVlanTag }).toEqual({ name: "Ethernet1", tag: 10 });
     expect(run("ip address 192.168.10.254/24")).toContain("% Ethernet1.10 is not cabled");   // names the sub-interface
     expect(r1().config!.interfaces!.find(i => i.vlanTag === 10)).toMatchObject({ peerId: "", name: "Ethernet1", ipv4Address: "192.168.10.254" });
-    expect(run("encapsulation dot1q 20")).toContain("needs a cable");   // retagging still needs one
+    // Retagging works on the unplugged port too (it is kept by the port's name).
+    expect(run("encapsulation dot1q 20")).toContain("Encapsulation set to 802.1Q VLAN 20");
+    expect(r1().config!.interfaces!.filter(i => i.peerId === "" && i.name === "Ethernet1").map(i => i.vlanTag)).toEqual([null, 20]);
+    run("encapsulation dot1q 10");
     runConsoleScript("add switch SW2 at 200 200\nlink R1 SW2");
     expect(run("ip address 192.168.10.1/24")).toContain("Ethernet1.10 is now cabled to SW2");
     expect(state.terminal.interfaceVlanTag).toBe(10);
@@ -1192,18 +1195,75 @@ describe("router shell — config-if on a port with no cable (R39)", () => {
     expect(byName("Ethernet3")!.ipv4Address).toBe("");
   });
 
-  it("a sub-interface on an unplugged port is refused with the reason, not `Unknown interface`", () => {
+  it("naming a sub-interface on an unplugged port creates it (as FRR does), kept by the port's name, one undo step", () => {
+    const { r1, run } = shell();
+    const undoDepth = state.undoStack.length;
+    const sub = (tag: number) => (r1().config.interfaces || []).find(i => i.peerId === "" && i.name === "Ethernet3" && i.vlanTag === tag);
+    const out = run("interface Ethernet3.10");
+    expect(out).toContain("Ethernet3.10 is not cabled — it stays down");   // why it will not carry traffic yet
+    expect(out).not.toContain("Unknown interface");
+    expect(state.terminal.mode).toBe("interface");
+    expect({ name: state.terminal.interfaceName, tag: state.terminal.interfaceVlanTag }).toEqual({ name: "Ethernet3", tag: 10 });
+    expect(sub(10)).toMatchObject({ peerId: "", name: "Ethernet3", vlanTag: 10, ipv4Address: "" });
+    expect(state.undoStack.length).toBe(undoDepth + 1);
+    run("ip address 10.3.10.1/24");
+    expect(sub(10)!.ipv4Address).toBe("10.3.10.1");
+    expect(showRouterRunningConfig(r1())).toContain("interface Ethernet3.10\n encapsulation dot1q 10\n ip address 10.3.10.1/24");
+    // Naming it again selects it: nothing changes, so no undo point.
+    const depth = state.undoStack.length;
+    run("interface Ethernet3.10");
+    expect(state.undoStack.length).toBe(depth);
+    undo(); undo();                                                  // the address, then the sub-interface
+    expect(sub(10)).toBeUndefined();
+    expect(state.undoStack.length).toBe(undoDepth);
+  });
+
+  it("`encapsulation dot1q` on an unplugged port makes (or selects) the sub-interface, and retags one", () => {
+    const { r1, run } = shell();
+    const subs = () => (r1().config.interfaces || []).filter(i => i.peerId === "" && i.name === "Ethernet3").map(i => i.vlanTag);
+    run("interface Ethernet3");
+    const undoDepth = state.undoStack.length;
+    const out = run("encapsulation dot1q 20");
+    expect(out).toContain("now configuring sub-interface .20");
+    expect(out).toContain("Ethernet3.20 is not cabled");
+    expect(state.terminal.interfaceVlanTag).toBe(20);
+    expect(subs()).toEqual([20]);
+    expect(state.undoStack.length).toBe(undoDepth + 1);
+    run("interface Ethernet3");
+    run("encapsulation dot1q 20");                                   // it exists: selected, no undo point
+    expect(state.terminal.interfaceVlanTag).toBe(20);
+    expect(state.undoStack.length).toBe(undoDepth + 1);
+    run("interface Ethernet3.30");
+    expect(run("encapsulation dot1q 20")).toContain("VLAN 20 is already carried by sub-interface Ethernet3.20");
+    expect(run("encapsulation dot1q 40")).toContain("Encapsulation set to 802.1Q VLAN 40");
+    expect(subs().sort()).toEqual([20, 40]);
+    expect(run("no encapsulation")).toContain("Encapsulation removed");   // no base entry yet: .40 becomes the base
+    expect(subs().sort((a, b) => (a ?? 0) - (b ?? 0))).toEqual([null, 20]);
+    run("interface Ethernet3.20");
+    expect(run("no encapsulation")).toContain("The base interface already exists");
+  });
+
+  it("names that are not a sub-interface of a free port are still unknown", () => {
     const { run } = shell();
     const undoDepth = state.undoStack.length;
-    const out = run("interface Ethernet3.10");
-    expect(out).toContain("Ethernet3 is not cabled");
-    expect(out).not.toContain("Unknown interface");
-    expect(state.terminal.mode).toBe("config");
-    run("interface Ethernet3");
-    expect(run("encapsulation dot1q 10")).toContain("Ethernet3 is not cabled");
-    expect(state.terminal.interfaceVlanTag).toBeNull();
-    expect(state.undoStack.length).toBe(undoDepth);
-    expect(run("interface Ethernet99")).toContain("Unknown interface Ethernet99");   // a port that does not exist still is
+    expect(run("interface Ethernet99")).toContain("Unknown interface Ethernet99");
+    expect(run("interface Ethernet99.10")).toContain("Unknown interface Ethernet99.10");
+    expect(run("interface Ethernet3.5000")).toContain("Unknown interface Ethernet3.5000");
+    run("interface Ethernet3.10");
+    run("exit");
+    expect(run("interface Ethernet3.10.5")).toContain("Unknown interface Ethernet3.10.5");   // not a sub of a sub
+    expect(state.undoStack.length).toBe(undoDepth + 1);
+  });
+
+  it("a cable landing on the port brings a sub-interface made there up, keyed by its new peer", () => {
+    const { r1, run } = shell();
+    run("interface Ethernet2.10");
+    run("ip address 192.168.10.1/24");
+    run("end");
+    const out = runConsoleScript("add switch SW2 at 200 200\nlink R1 SW2").pop()!.output.join(" ");
+    expect(out).toContain("R1 Ethernet2 keeps its sub-interface .10.");
+    const sw2 = state.devices.find(d => d.name === "SW2")!.id;
+    expect(r1().config.interfaces!.find(i => i.vlanTag === 10)).toMatchObject({ peerId: sw2, name: "", ipv4Address: "192.168.10.1" });
   });
 
   it("retargeting to a cabled interface, `exit` and `end` drop the port name", () => {
@@ -1418,14 +1478,15 @@ describe("a router port keeps its configuration when its cable is removed", () =
     expect(brief()).toMatch(/Ethernet1\.10\s+192\.168\.10\.1\/24\s+down/);
     expect(brief()).toMatch(/Ethernet1\.20\s+192\.168\.20\.1\/24\s+down/);
     expect(runConsoleScript("cli R1 show running-config")[0].output.join("\n")).toContain("interface Ethernet1.10\n encapsulation dot1q 10\n ip address 192.168.10.1/24");
-    // An existing parked sub-interface can be selected and re-addressed; a new one still needs a cable.
+    // An existing parked sub-interface can be selected and re-addressed, and a new one made there.
     expect(runConsoleScript("cli R1 enable\ncli R1 configure terminal\ncli R1 interface Ethernet1.20\ncli R1 ip address 192.168.20.254/24").filter(r => !r.ok && !r.output.join(" ").includes("not cabled"))).toEqual([]);
     expect(entries()).toContain("[Ethernet1].20=192.168.20.254");
-    expect(runConsoleScript("cli R1 interface Ethernet1.30")[0].output.join(" ")).toContain("a sub-interface needs a cable");
+    expect(runConsoleScript("cli R1 interface Ethernet1.30")[0].output.join(" ")).toContain("Ethernet1.30 is not cabled");
+    expect(entries()).toContain("[Ethernet1].30=");
     runConsoleScript("cli R1 interface Ethernet1.20\ncli R1 ip address 192.168.20.1/24\ncli R1 end");
     const out = runConsoleScript("add switch SW2 at 200 200\nlink R1 SW2").pop()!.output.join(" ");
-    expect(out).toContain("R1 Ethernet1 keeps its sub-interfaces .10, .20.");
-    expect(entries()).toEqual(["SW2.10=192.168.10.1", "SW2.20=192.168.20.1"]);
+    expect(out).toContain("R1 Ethernet1 keeps its sub-interfaces .10, .20, .30.");
+    expect(entries()).toEqual(["SW2.10=192.168.10.1", "SW2.20=192.168.20.1", "SW2.30="]);
     expect(brief()).toMatch(/Ethernet1\.10\s+192\.168\.10\.1\/24\s+up/);
   });
 

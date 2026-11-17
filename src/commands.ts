@@ -1503,17 +1503,18 @@ export function exportTopologyScript(): string {
       }
       // A port with no cable keeps its configuration (set there before cabling,
       // or left when its cable was pulled). It has no peer to name, so it
-      // replays through the shell by port name. Sub-interfaces parked on an
-      // unplugged port cannot be typed back (the shell needs a cable to carry
-      // a VLAN): say so rather than drop them silently — the JSON save keeps them.
+      // replays through the shell by port name — and so does a sub-interface
+      // parked on it, which the shell creates by naming it (as FRR does), in
+      // the running-config's own form. One with nothing set is still written:
+      // it exists (the inspector lists it) and returns with the next cable.
       for (const i of (c.interfaces || [])) {
         if (i.peerId || !i.name) continue;
         if (i.vlanTag != null) {
-          if (i.ipv4Address) lines.push(`# ${d.name} ${i.name}.${i.vlanTag} (unplugged) had ${i.ipv4Address}/${prefixOf(i)} — re-create the sub-interface once the port is cabled`);
-          continue;
+          cfg.push(`interface ${i.name}.${i.vlanTag}`, `encapsulation dot1q ${i.vlanTag}`);
+        } else {
+          if (!i.ipv4Address && !i.natRole) continue;
+          cfg.push(`interface ${i.name}`);
         }
-        if (!i.ipv4Address && !i.natRole) continue;
-        cfg.push(`interface ${i.name}`);
         if (i.ipv4Address) cfg.push(`ip address ${i.ipv4Address}/${prefixOf(i)}`);
         if (i.natRole === "inside" || i.natRole === "outside") cfg.push(`ip nat ${i.natRole}`);
         cfg.push("exit");

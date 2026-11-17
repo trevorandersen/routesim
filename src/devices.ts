@@ -1327,30 +1327,32 @@ export function expandLan(lan: any): MutationResult {
   return { ok: true, message: `Expanded ${lan.name}.`, warnings: [] };
 }
 
-export function routerInterfaceFor(router: any, peerId: string, vlanTag?: number | null): any {
-  ensureConfig(router);
-  router.config.interfaces = normaliseRouterInterfaces(router.config.interfaces || [], router.id);
-  let iface;
+// The config entry of the interface facing `peerId` (a cabled peer's id, so
+// never empty), made — fully formed — if the router has none yet.
+export function routerInterfaceFor(router: Device, peerId: string, vlanTag?: number | null): RouterInterface {
+  const config = ensureConfig(router);
+  let interfaces = config.interfaces = normaliseRouterInterfaces(config.interfaces || [], router.id);
+  let iface: RouterInterface | undefined;
   if (vlanTag != null) {
     // Find sub-interface with matching peerId AND vlanTag
-    iface = router.config.interfaces.find((entry: any) => entry.peerId === peerId && entry.vlanTag === vlanTag);
+    iface = interfaces.find((entry) => entry.peerId === peerId && entry.vlanTag === vlanTag);
   } else {
     // Find interface with peerId and no vlanTag (or first match if no sub-interfaces)
-    iface = router.config.interfaces.find((entry: any) => entry.peerId === peerId && entry.vlanTag == null)
-      || router.config.interfaces.find((entry: any) => entry.peerId === peerId);
+    iface = interfaces.find((entry) => entry.peerId === peerId && entry.vlanTag == null)
+      || interfaces.find((entry) => entry.peerId === peerId);
   }
   if (!iface) {
     const peer = getDevice(peerId);
     const type = peer?.type === "router" ? "serial" : "ethernet";
-    // Push, then re-normalise, so the new entry is fully formed from birth
+    // Append, then re-normalise, so the new entry is fully formed from birth
     // (deterministic MAC, arpTable, …) — a bare entry would otherwise leak an
     // undefined MAC into ARP replies until something re-normalised this router.
-    router.config.interfaces.push({ peerId, type, ipv4Address: "", vlanTag: vlanTag ?? null });
-    router.config.interfaces = normaliseRouterInterfaces(router.config.interfaces, router.id);
+    interfaces = config.interfaces = normaliseRouterInterfaces([...interfaces, { peerId, type, ipv4Address: "", vlanTag: vlanTag ?? null }], router.id);
+    // The appended entry is now in the list, so one of these finds it.
     iface = (vlanTag != null
-      ? router.config.interfaces.find((entry: any) => entry.peerId === peerId && entry.vlanTag === vlanTag)
-      : router.config.interfaces.find((entry: any) => entry.peerId === peerId && entry.vlanTag == null))
-      || router.config.interfaces.find((entry: any) => entry.peerId === peerId);
+      ? interfaces.find((entry) => entry.peerId === peerId && entry.vlanTag === vlanTag)
+      : interfaces.find((entry) => entry.peerId === peerId && entry.vlanTag == null))
+      || interfaces.find((entry) => entry.peerId === peerId)!;
   }
   return iface;
 }
@@ -1359,22 +1361,26 @@ export function routerInterfaceFor(router: any, peerId: string, vlanTag?: number
 // interface name (Ethernet3, Serial2). Lets a user pre-assign an IP before a
 // cable exists; normaliseRouterInterfaces keeps the entry alive because it has
 // a name. If a cable later occupies that port, the by-peer entry takes over.
-export function routerInterfaceForName(router: any, name: string, vlanTag?: number | null): any {
-  ensureConfig(router);
-  router.config.interfaces = normaliseRouterInterfaces(router.config.interfaces || [], router.id);
+// With a VLAN tag it only finds (a parked sub-interface may not exist), so the
+// result can be undefined; untagged, it always finds or makes the entry (`name`
+// names a port, so the normaliser keeps it).
+export function routerInterfaceForName(router: Device, name: string): RouterInterface;
+export function routerInterfaceForName(router: Device, name: string, vlanTag?: number | null): RouterInterface | undefined;
+export function routerInterfaceForName(router: Device, name: string, vlanTag?: number | null): RouterInterface | undefined {
+  const config = ensureConfig(router);
+  let interfaces = config.interfaces = normaliseRouterInterfaces(config.interfaces || [], router.id);
   // The port's own (untagged) entry — or, with a tag, a sub-interface parked
   // on the unplugged port. A parked sub-interface is only ever found, never
   // made here: one is created by naming it on a CABLED port.
   if (vlanTag != null) {
-    return (router.config.interfaces as RouterInterface[]).find(entry => entry.peerId === "" && entry.name === name && entry.vlanTag === vlanTag);
+    return interfaces.find(entry => entry.peerId === "" && entry.name === name && entry.vlanTag === vlanTag);
   }
-  let iface = router.config.interfaces.find((entry: any) => entry.peerId === "" && entry.name === name && entry.vlanTag == null);
+  let iface = interfaces.find((entry) => entry.peerId === "" && entry.name === name && entry.vlanTag == null);
   if (!iface) {
-    // Push, then re-normalise — same as routerInterfaceFor, so the by-name
+    // Append, then re-normalise — same as routerInterfaceFor, so the by-name
     // entry carries a deterministic MAC and empty tables from birth.
-    router.config.interfaces.push({ peerId: "", name, type: /^serial/i.test(name) ? "serial" : "ethernet", ipv4Address: "", vlanTag: null });
-    router.config.interfaces = normaliseRouterInterfaces(router.config.interfaces, router.id);
-    iface = router.config.interfaces.find((entry: any) => entry.peerId === "" && entry.name === name && entry.vlanTag == null);
+    interfaces = config.interfaces = normaliseRouterInterfaces([...interfaces, { peerId: "", name, type: /^serial/i.test(name) ? "serial" : "ethernet", ipv4Address: "", vlanTag: null }], router.id);
+    iface = interfaces.find((entry) => entry.peerId === "" && entry.name === name && entry.vlanTag == null);
   }
   return iface;
 }
@@ -1420,7 +1426,7 @@ export function routerInterfacesWithNames(router: Device, cabledOnly = false): N
     if (n > capacityOf(entry.type)) continue;   // over capacity — not shown (unchanged)
     used.add(n); entry.index = n;
   }
-  const occupied: any[] = [];
+  const occupied: NamedRouterIface[] = [];
   for (const entry of linked) {
     const index = entry.index;
     if (!index) continue;
@@ -1469,14 +1475,14 @@ export function routerInterfacesWithNames(router: Device, cabledOnly = false): N
       .sort((a, b) => a.vlanTag! - b.vlanTag!)
       .map((config) => ({ name: `${name}.${config.vlanTag}`, type, peer: null, peerId: "", config })),
   ];
-  const emptyEthernet: any[] = [];
+  const emptyEthernet: NamedRouterIface[] = [];
   for (let n = 1; n <= ethernetPorts; n++) if (!usedByMedia.ethernet.has(n)) emptyEthernet.push(...freePort(`Ethernet${n}`, "ethernet"));
-  const emptySerial: any[] = [];
+  const emptySerial: NamedRouterIface[] = [];
   for (let n = 1; n <= serialPorts; n++) if (!usedByMedia.serial.has(n)) emptySerial.push(...freePort(`Serial${n}`, "serial"));
   return [...occupied, ...emptyEthernet, ...emptySerial];
 }
 
-export function routerInterfaceByName(router: Device, name: string): any {
+export function routerInterfaceByName(router: Device, name: string): NamedRouterIface | undefined {
   const lower = String(name || "").trim().toLowerCase();
   return routerInterfacesWithNames(router).find(iface => iface.name.toLowerCase() === lower);
 }

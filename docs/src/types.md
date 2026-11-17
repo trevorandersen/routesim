@@ -20,6 +20,8 @@ The single source of truth for the data model. No runtime code — only `interfa
 The views `devices.ts` builds over a device's cables, typed so every reader (engine, inspector, canvas, simulation, commands) is checked against one shape:
 
 - **`LinkedPort`** — `{ link, peer }`: one slot of `linkedPortsFor(id)`, the physical cable and the device at its far end. The list is `(LinkedPort | null)[]`, indexed by port (slot 0 = port 1) and sparse when an explicit port number skips a slot, so a reader tests a slot for `null` before using it.
+- **`RouterInterface`** — one stored router interface (`RouterConfig.interfaces`): `peerId` (the cabled peer, or `""` for a port with no cable, keyed by `name`), `type`, `ipv4Address`/`prefixLength`, `macAddress`, its own `arpTable`/`dhcpLeases`, `vlanTag` (a sub-interface) and `natRole`. `routerInterfaceFor(router, peerId, vlanTag?)` finds or makes the entry facing a peer and always returns one; `routerInterfaceForName(router, name, vlanTag?)` finds or makes the entry for an uncabled port, and returns `undefined` only when asked for a parked sub-interface that is not there (an overload types the untagged call as always found).
+- **`NamedRouterIface`** — the named view `routerInterfacesWithNames` builds: the resolved port `name` (`Ethernet2`, `Ethernet1.10`), `type`, `peer`/`peerId` (`null`/`""` on a free port), the cable `link`, and the stored entry under `config`. Kept distinct from `RouterInterface` (the address sits under `.config`, not at the top level) so the two cannot be swapped on the routing hot path. `routerInterfaceByName` returns one, or `undefined` for a name the router has no port for.
 
 ## Frames & simulation
 

@@ -3,7 +3,7 @@
  * (exec/privileged/config/interface/rip), show commands, prefix abbreviation,
  * and context-sensitive `?` driven by the ROUTER_COMMANDS registry.
  */
-import type { Device, TerminalSession, MutationResult } from "../types";
+import type { Device, TerminalSession, MutationResult, RouterInterface } from "../types";
 import { state, sync, pushUndo } from "../state";
 import { isValidIpv4, parseIpv4Token, normaliseVlanId, prefixOf, clampPrefixLength, networkOf } from "../utils";
 import { normaliseArpTable, normaliseDhcpLeases, normaliseStaticRoutes, normaliseRipConfig } from "../normalise";
@@ -203,7 +203,9 @@ export function setUncabledRouterInterfaceIp(router: Device, name: string, addre
   if (address === "" && !(router.config?.interfaces || []).some((i) => i.peerId === "" && i.name === name && (i.vlanTag ?? null) === vlanTag && i.ipv4Address)) return "";
   if (vlanTag != null && !routerInterfaceForName(router, name, vlanTag)) return `% ${name}.${vlanTag} no longer exists.`;
   pushUndo();
-  const iface = routerInterfaceForName(router, name, vlanTag);
+  // Found or made: an untagged port entry is created on demand, and a tagged
+  // one was checked to exist just above.
+  const iface = routerInterfaceForName(router, name, vlanTag)!;
   iface.ipv4Address = parsed ? parsed.address : "";
   if (parsed?.prefixLength != null) iface.prefixLength = clampPrefixLength(parsed.prefixLength);
   sync().syncPanel();
@@ -366,10 +368,12 @@ function uncabledTarget(): string | null {
 }
 
 // The config entry the session's interface commands edit (created on demand).
-function sessionInterfaceEntry(router: Device): any {
+// A parked sub-interface is only found, never made, but reconcileRouterSession
+// has already left config-if if the one the session names is gone.
+function sessionInterfaceEntry(router: Device): RouterInterface {
   const name = uncabledTarget();
   return name
-    ? routerInterfaceForName(router, name, state.terminal.interfaceVlanTag)
+    ? routerInterfaceForName(router, name, state.terminal.interfaceVlanTag)!
     : routerInterfaceFor(router, state.terminal.interfacePeerId!, state.terminal.interfaceVlanTag);
 }
 

@@ -5777,34 +5777,32 @@ Full legal text: https://creativecommons.org/publicdomain/zero/1.0/legalcode</pr
     return { ok: true, message: `Expanded ${lan.name}.`, warnings: [] };
   }
   function routerInterfaceFor(router, peerId, vlanTag) {
-    ensureConfig(router);
-    router.config.interfaces = normaliseRouterInterfaces(router.config.interfaces || [], router.id);
+    const config = ensureConfig(router);
+    let interfaces = config.interfaces = normaliseRouterInterfaces(config.interfaces || [], router.id);
     let iface;
     if (vlanTag != null) {
-      iface = router.config.interfaces.find((entry) => entry.peerId === peerId && entry.vlanTag === vlanTag);
+      iface = interfaces.find((entry) => entry.peerId === peerId && entry.vlanTag === vlanTag);
     } else {
-      iface = router.config.interfaces.find((entry) => entry.peerId === peerId && entry.vlanTag == null) || router.config.interfaces.find((entry) => entry.peerId === peerId);
+      iface = interfaces.find((entry) => entry.peerId === peerId && entry.vlanTag == null) || interfaces.find((entry) => entry.peerId === peerId);
     }
     if (!iface) {
       const peer = getDevice(peerId);
       const type = peer?.type === "router" ? "serial" : "ethernet";
-      router.config.interfaces.push({ peerId, type, ipv4Address: "", vlanTag: vlanTag ?? null });
-      router.config.interfaces = normaliseRouterInterfaces(router.config.interfaces, router.id);
-      iface = (vlanTag != null ? router.config.interfaces.find((entry) => entry.peerId === peerId && entry.vlanTag === vlanTag) : router.config.interfaces.find((entry) => entry.peerId === peerId && entry.vlanTag == null)) || router.config.interfaces.find((entry) => entry.peerId === peerId);
+      interfaces = config.interfaces = normaliseRouterInterfaces([...interfaces, { peerId, type, ipv4Address: "", vlanTag: vlanTag ?? null }], router.id);
+      iface = (vlanTag != null ? interfaces.find((entry) => entry.peerId === peerId && entry.vlanTag === vlanTag) : interfaces.find((entry) => entry.peerId === peerId && entry.vlanTag == null)) || interfaces.find((entry) => entry.peerId === peerId);
     }
     return iface;
   }
   function routerInterfaceForName(router, name, vlanTag) {
-    ensureConfig(router);
-    router.config.interfaces = normaliseRouterInterfaces(router.config.interfaces || [], router.id);
+    const config = ensureConfig(router);
+    let interfaces = config.interfaces = normaliseRouterInterfaces(config.interfaces || [], router.id);
     if (vlanTag != null) {
-      return router.config.interfaces.find((entry) => entry.peerId === "" && entry.name === name && entry.vlanTag === vlanTag);
+      return interfaces.find((entry) => entry.peerId === "" && entry.name === name && entry.vlanTag === vlanTag);
     }
-    let iface = router.config.interfaces.find((entry) => entry.peerId === "" && entry.name === name && entry.vlanTag == null);
+    let iface = interfaces.find((entry) => entry.peerId === "" && entry.name === name && entry.vlanTag == null);
     if (!iface) {
-      router.config.interfaces.push({ peerId: "", name, type: /^serial/i.test(name) ? "serial" : "ethernet", ipv4Address: "", vlanTag: null });
-      router.config.interfaces = normaliseRouterInterfaces(router.config.interfaces, router.id);
-      iface = router.config.interfaces.find((entry) => entry.peerId === "" && entry.name === name && entry.vlanTag == null);
+      interfaces = config.interfaces = normaliseRouterInterfaces([...interfaces, { peerId: "", name, type: /^serial/i.test(name) ? "serial" : "ethernet", ipv4Address: "", vlanTag: null }], router.id);
+      iface = interfaces.find((entry) => entry.peerId === "" && entry.name === name && entry.vlanTag == null);
     }
     return iface;
   }

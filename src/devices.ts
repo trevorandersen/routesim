@@ -1207,7 +1207,7 @@ export function collectLanMembers(anchorId: string): { members: string[]; absorb
 // given — refused if taken — and otherwise "<switch> LAN", stepping to
 // "<switch> LAN 2", "… 3" when a device already has that name: it used to
 // create a second "SW LAN" that nothing could then address.
-export function collapseLan(anchor: any, name?: string): MutationResult {
+export function collapseLan(anchor: Device | null | undefined, name?: string): MutationResult {
   if (!anchor) return { ok: false, error: "No such device.", warnings: [] };
   if (anchor.type !== "switch") return { ok: false, error: `${anchor.name} is not a switch — a LAN is collapsed around its switch.`, warnings: [] };
   if (anchor.hidden) return { ok: false, error: `${anchor.name} is already inside a collapsed LAN.`, warnings: [] };
@@ -1234,7 +1234,7 @@ export function collapseLan(anchor: any, name?: string): MutationResult {
     maxY: Math.max(acc.maxY, device.y + device.height / 2)
   }), { minX: Infinity, minY: Infinity, maxX: -Infinity, maxY: -Infinity });
   const lanId = crypto.randomUUID ? crypto.randomUUID() : `${Date.now()}-${Math.random()}`;
-  const lan = {
+  const lan: Device = {
     id: lanId,
     type: "lan",
     name: lanName,
@@ -1280,7 +1280,7 @@ export function collapseLan(anchor: any, name?: string): MutationResult {
       collapsedBy: lanId
     });
   });
-  state.devices.push(lan as any);
+  state.devices.push(lan);
   state.selectedId = lanId;
   state.configuringId = null;
   state.linkStartId = null;
@@ -1294,7 +1294,7 @@ export function collapseLan(anchor: any, name?: string): MutationResult {
 
 // Expand a collapsed LAN back into its devices. Returns why it did not (the
 // target is not a collapsed LAN).
-export function expandLan(lan: any): MutationResult {
+export function expandLan(lan: Device | null | undefined): MutationResult {
   if (!lan) return { ok: false, error: "No such device.", warnings: [] };
   if (lan.type !== "lan") return { ok: false, error: `${lan.name} is not a collapsed LAN — there is nothing to expand.`, warnings: [] };
   pushUndo();

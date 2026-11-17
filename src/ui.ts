@@ -1,5 +1,5 @@
 import { state, toolCopy, networkSnapshot, pushUndoSnapshot, pushUndo, undo, redo, undoBlockReason, THEMES, DEFAULT_THEME } from "./state";
-import type { DisplayOptions } from "./types";
+import type { DisplayOptions, Device } from "./types";
 import { dom } from "./dom";
 import { addLink, deleteSelection, clearNetwork, findDeviceAt, findLinkAt, getDevice, configureDevice, placeToolDevice, PLACEMENT_TOOLS, toggleLinkShutdown, setDevicePower, linkName } from "./devices";
 import { openPortSelectionModal, confirmPortSelection, cancelPortSelection } from "./port-picker";
@@ -118,7 +118,7 @@ let contextActions: (() => void)[] = [];
 
 function closeContextMenu(): void { dom.contextMenu.hidden = true; }
 
-function openDeviceContextMenu(device: any, clientX: number, clientY: number): void {
+function openDeviceContextMenu(device: Device, clientX: number, clientY: number): void {
   const items: { label: string; action: () => void; danger?: boolean }[] = [];
   if (canOpenTerminal(device)) items.push({ label: "Terminal", action: () => openTerminalFor(device) });
   if (device.type !== "lan") {
@@ -136,7 +136,7 @@ function openDeviceContextMenu(device: any, clientX: number, clientY: number): v
   dom.contextMenu.style.top = `${Math.min(clientY, window.innerHeight - h - 8)}px`;
 }
 
-function toggleDevicePower(device: any): void {
+function toggleDevicePower(device: Device): void {
   dom.modeLabel.textContent = mutationText(setDevicePower(device, !!device.poweredOff));
 }
 

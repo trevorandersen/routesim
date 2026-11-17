@@ -721,7 +721,7 @@ export function restoreSnapshot(snapshot: string): void {
   state.links = restored.links;
   // Terminal sessions for devices the restored topology lacks would otherwise
   // linger (and the active terminal could point at a vanished device).
-  const gone = state.terminalSessions.map(s => s.deviceId).filter((id): id is string => !!id && !restored.devices.some((d: any) => d.id === id));
+  const gone = state.terminalSessions.map(s => s.deviceId).filter((id): id is string => !!id && !state.devices.some(d => d.id === id));   // state.devices is restored.devices now
   if (gone.length) dropTerminalSessions(gone);
   state.selectedId = restored.selectedId;
   state.configuringId = restored.configuringId;

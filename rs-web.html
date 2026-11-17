@@ -4677,7 +4677,7 @@ Full legal text: https://creativecommons.org/publicdomain/zero/1.0/legalcode</pr
     const restored = JSON.parse(snapshot);
     state.devices = restored.devices;
     state.links = restored.links;
-    const gone = state.terminalSessions.map((s) => s.deviceId).filter((id) => !!id && !restored.devices.some((d) => d.id === id));
+    const gone = state.terminalSessions.map((s) => s.deviceId).filter((id) => !!id && !state.devices.some((d) => d.id === id));
     if (gone.length) dropTerminalSessions(gone);
     state.selectedId = restored.selectedId;
     state.configuringId = restored.configuringId;

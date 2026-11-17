@@ -13,7 +13,7 @@ A **scenario** is a guided challenge: an initial topology + config and a **goal*
 
 ## A scenario lasts as long as its network
 
-Anything that replaces the network ends the scenario: loading a topology or another scenario, importing a config, opening a link — and **Clear** (`clearNetwork`), which says so (`Cleared network — the scenario "…" ended with it`). Each is one undo point that carries the scenario, so Undo brings the network back with its goal.
+Anything that replaces the network ends the scenario: loading a topology or another scenario, importing a config, opening a link (which brings its own scenario, if it was made in one — [share-link.md](src/share-link.md)) — and **Clear** (`clearNetwork`), which says so (`Cleared network — the scenario "…" ended with it`). Each is one undo point that carries the scenario, so Undo brings the network back with its goal.
 
 ## Data model (`src/scenarios.ts`)
 
@@ -59,6 +59,7 @@ A flow that is dead for another reason stays dead in the what-if, so the check f
 **Every built-in isolation check names its device.** Give a new `ping-fail`/`tcp-fail` a `blockedBy` unless any failure genuinely satisfies the goal; the check without it is kept for imported scenarios and that rare case.
 
 - `loadScenario(id)` → `applyConfig(normaliseConfig(topology))` + sets `state.activeScenarioId` + refreshes the banner. Loading a plain topology or clearing the network drops the active scenario.
+- `sessionContext()` / `resumeSession(context, keepInstantDns?)` — what a saved or shared network remembers besides its devices and cables (the active scenario's id and Instant DNS), and putting it back over a network that has just been loaded. Autosave and shared links both use them; a scenario id this page does not know resumes nothing.
 - `ping`/`dns`/`dhcp` checks reuse `buildPingEvents`/`buildResolveEvents`/`buildDhcpEvents` (simulation.ts) + `runSimulationHeadless` (engine.ts). A `ping`/`tcp` check whose `to` is neither a device nor an IP is a real hostname — the headless run performs the DNS resolution first, so name-based goals exercise the full resolver path.
 - An `alert` check branches on its source. When `from` is an **attacker** (a Red Team host) it launches that host's **port scan** against `to` (`buildScanEvents(from, check.to)`, sim mode `"attack"`) — the burst of SYN probes is what an IDS rule matches; for any other source it falls back to a TCP connect when a `port` is given, else a ping. Either way the check first clears every sensor's runtime `alerts`, runs the flow headless, and passes when some IDS raised an alert containing `contains`.
 

@@ -270,4 +270,4 @@ const url = await routesim.shareLink();   // a Promise: the packing is async
 await routesim.openLink(url);             // true when the network loaded (one undo point)
 ```
 
-The link holds exactly what the Config export holds, passwords and keys included. See [share-link.md](src/share-link.md).
+The link holds what the Config export holds — passwords and keys included — plus the scenario in progress, so an exercise arrives with its goal. See [share-link.md](src/share-link.md).

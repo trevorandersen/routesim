@@ -20,10 +20,10 @@
  * is guarded, the page works without it, and a refusal is said once on the
  * status line rather than swallowed.
  */
-import { state, sync } from "./state";
+import { state } from "./state";
 import { dom } from "./dom";
 import { buildConfigPayload, parseConfig, applyConfigWithoutUndo } from "./config";
-import { getScenario } from "./scenarios";
+import { sessionContext, resumeSession } from "./scenarios";
 import type { SerialisedTopology } from "./types";
 
 export const AUTOSAVE_KEY = "routesim.autosave";
@@ -69,7 +69,7 @@ const remove = (key: string): void => { try { store?.removeItem(key); } catch { 
 // The session as text, without its timestamp — what "has anything changed?"
 // compares.
 function sessionText(): string {
-  return JSON.stringify({ scenarioId: state.activeScenarioId ?? null, instantDns: state.options.instantDns, config: buildConfigPayload() });
+  return JSON.stringify({ ...sessionContext(), config: buildConfigPayload() });
 }
 
 let baseline: string | null = null;      // the built-in network the page boots with: nothing worth keeping
@@ -144,12 +144,8 @@ export function restoreAutosave(options: { keepInstantDns?: boolean; now?: Date 
     dom.modeLabel.textContent = "The autosaved session could not be read, so it was discarded.";
     return false;
   }
-  // The two things a load changes along with the network (see the undo snapshot).
-  const scenario = typeof session.scenarioId === "string" ? getScenario(session.scenarioId) : undefined;
-  state.activeScenarioId = scenario ? scenario.id : null;
-  if (!options.keepInstantDns && typeof session.instantDns === "boolean") state.options.instantDns = session.instantDns;
-  sync().syncOptionControls();
-  sync().syncScenarioPanel();
+  // The scenario and name-resolution mode that stood with the network.
+  resumeSession(session, options.keepInstantDns);
   lastWritten = sessionText();
   const count = state.devices.length;
   dom.modeLabel.textContent = `Restored your last session (${count} device${count === 1 ? "" : "s"}, saved ${savedAtText(session.savedAt, options.now)}). File → Topologies loads a fresh network.`;

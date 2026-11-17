@@ -175,6 +175,30 @@ export function loadScenario(id: string): boolean {
   return true;
 }
 
+// What a saved or shared network remembers besides its devices and cables:
+// the scenario it belonged to and the name-resolution mode that stood with it
+// — the two things a load changes along with the network (the pair the undo
+// snapshot carries). Autosave keeps it; a shared link carries it.
+export interface SessionContext { scenarioId: string | null; instantDns: boolean }
+
+export const sessionContext = (): SessionContext => ({ scenarioId: state.activeScenarioId ?? null, instantDns: state.options.instantDns });
+
+// Put that context back over a network that has just been loaded. Call it
+// AFTER the load (and after the load's undo point, so Undo restores what stood
+// before). The context is input from a file, a store or a link: a scenario id
+// this page does not know restores no scenario, and anything that is not a
+// boolean leaves Instant DNS alone. `keepInstantDns` is for a boot where the
+// URL named Instant DNS itself — the URL wins. Returns the scenario resumed.
+export function resumeSession(context: unknown, keepInstantDns = false): Scenario | null {
+  const { scenarioId, instantDns } = (context && typeof context === "object" ? context : {}) as { scenarioId?: unknown; instantDns?: unknown };
+  const scenario = typeof scenarioId === "string" ? getScenario(scenarioId) ?? null : null;
+  state.activeScenarioId = scenario ? scenario.id : null;
+  if (!keepInstantDns && typeof instantDns === "boolean") state.options.instantDns = instantDns;
+  sync().syncOptionControls();
+  sync().syncScenarioPanel();
+  return scenario;
+}
+
 function resolve(ref: string): Device | undefined {
   const byId = getDevice(ref);
   if (byId) return byId;

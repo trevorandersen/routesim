@@ -17382,6 +17382,16 @@ Snort successfully validated the configuration${bad ? " (with errors)" : "."}`);
     sync().syncScenarioPanel();
     return true;
   }
+  var sessionContext = () => ({ scenarioId: state.activeScenarioId ?? null, instantDns: state.options.instantDns });
+  function resumeSession(context, keepInstantDns = false) {
+    const { scenarioId, instantDns } = context && typeof context === "object" ? context : {};
+    const scenario = typeof scenarioId === "string" ? getScenario(scenarioId) ?? null : null;
+    state.activeScenarioId = scenario ? scenario.id : null;
+    if (!keepInstantDns && typeof instantDns === "boolean") state.options.instantDns = instantDns;
+    sync().syncOptionControls();
+    sync().syncScenarioPanel();
+    return scenario;
+  }
   function resolve(ref2) {
     const byId = getDevice(ref2);
     if (byId) return byId;
@@ -18037,7 +18047,7 @@ Snort successfully validated the configuration${bad ? " (with errors)" : "."}`);
     }
   }
   async function buildShareLink(base = pageBase(window.location.href)) {
-    const token = await encodeShare(JSON.stringify(buildConfigPayload()));
+    const token = await encodeShare(JSON.stringify({ ...buildConfigPayload(), session: sessionContext() }));
     return shareUrl(base, buildSettingsQuery(), token);
   }
   async function copyText(text) {
@@ -18083,6 +18093,12 @@ Snort successfully validated the configuration${bad ? " (with errors)" : "."}`);
     }
     dom.modeLabel.textContent = `Could not reach the clipboard \u2014 the link (${sizeText(url.length)}) is in the address bar; copy it from there.${long}`;
   }
+  function scenarioNote(session, resumed) {
+    if (resumed) return `, with its scenario "${resumed}"`;
+    const id = session && typeof session === "object" ? session.scenarioId : null;
+    if (typeof id !== "string" || !id) return "";
+    return ` \u2014 its scenario "${id.slice(0, 40)}" is not one this page has, so it opened as a plain network`;
+  }
   async function openSharedNetwork(hash, options = { undo: true }) {
     const token = shareTokenFromHash(hash);
     if (token == null) return false;
@@ -18092,11 +18108,14 @@ Snort successfully validated the configuration${bad ? " (with errors)" : "."}`);
       return false;
     }
     try {
-      const config = parseConfig(await decodeShare(token));
+      const text = await decodeShare(token);
+      const config = parseConfig(text);
+      const session = JSON.parse(text).session;
       if (options.undo) applyConfig(config);
       else applyConfigWithoutUndo(config);
+      const scenario = resumeSession(session);
       const count = config.devices.length;
-      dom.modeLabel.textContent = `Opened the network from the link (${count} device${count === 1 ? "" : "s"}).${options.undo ? " Undo returns to what was here." : ""}`;
+      dom.modeLabel.textContent = `Opened the network from the link (${count} device${count === 1 ? "" : "s"})${scenarioNote(session, scenario?.name)}.${options.undo ? " Undo returns to what was here." : ""}`;
       return true;
     } catch (error) {
       const reason = error instanceof Error && error.message ? error.message.replace(/\.$/, "") : "it could not be read";
@@ -21030,7 +21049,7 @@ Snort successfully validated the configuration${bad ? " (with errors)" : "."}`);
     }
   };
   function sessionText() {
-    return JSON.stringify({ scenarioId: state.activeScenarioId ?? null, instantDns: state.options.instantDns, config: buildConfigPayload() });
+    return JSON.stringify({ ...sessionContext(), config: buildConfigPayload() });
   }
   var baseline = null;
   var lastWritten = null;
@@ -21088,11 +21107,7 @@ Snort successfully validated the configuration${bad ? " (with errors)" : "."}`);
       dom.modeLabel.textContent = "The autosaved session could not be read, so it was discarded.";
       return false;
     }
-    const scenario = typeof session.scenarioId === "string" ? getScenario(session.scenarioId) : void 0;
-    state.activeScenarioId = scenario ? scenario.id : null;
-    if (!options.keepInstantDns && typeof session.instantDns === "boolean") state.options.instantDns = session.instantDns;
-    sync().syncOptionControls();
-    sync().syncScenarioPanel();
+    resumeSession(session, options.keepInstantDns);
     lastWritten = sessionText();
     const count = state.devices.length;
     dom.modeLabel.textContent = `Restored your last session (${count} device${count === 1 ? "" : "s"}, saved ${savedAtText(session.savedAt, options.now)}). File \u2192 Topologies loads a fresh network.`;

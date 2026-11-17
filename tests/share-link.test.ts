@@ -172,6 +172,82 @@ describe("opening a link", () => {
   });
 });
 
+describe("a link carries the scenario in progress", () => {
+  const SCENARIO = "troubleshoot-gateway";
+
+  async function linkToScenarioInProgress(): Promise<string> {
+    exec(`scenario load ${SCENARIO}`);
+    exec("gateway PC-A 192.168.1.1");                       // half the work done
+    const url = await buildShareLink(BASE);
+    exec("clear");
+    state.options.instantDns = true;
+    return url;
+  }
+
+  it("the goal, the work so far and the name-resolution mode all arrive", async () => {
+    const url = await linkToScenarioInProgress();
+    expect(state.activeScenarioId).toBeNull();
+    expect(await openSharedNetwork(hashOf(url))).toBe(true);
+    expect(state.activeScenarioId).toBe(SCENARIO);
+    expect(state.options.instantDns).toBe(false);          // a scenario resolves names for real
+    expect(state.devices.find(d => d.name === "PC-A")!.config.gatewayIpv4Address).toBe("192.168.1.1");
+    expect(exec("scenario check").ok).toBe(true);
+    expect(dom.modeLabel.textContent).toBe(`Opened the network from the link (4 devices), with its scenario "Troubleshoot: broken gateway". Undo returns to what was here.`);
+  });
+
+  it("Undo returns to what was there — its network, its scenario (none), its Instant DNS", async () => {
+    const url = await linkToScenarioInProgress();
+    runConsoleScript("add router Mine at 0 0");
+    await openSharedNetwork(hashOf(url));
+    undo();
+    expect(names()).toEqual(["Mine"]);
+    expect(state.activeScenarioId).toBeNull();
+    expect(state.options.instantDns).toBe(true);
+  });
+
+  it("a link made with no scenario ends the one that was active here", async () => {
+    exec("clear");
+    exec("add computer Alpha at 0 0");
+    const url = await buildShareLink(BASE);
+    exec(`scenario load ${SCENARIO}`);
+    expect(await openSharedNetwork(hashOf(url))).toBe(true);
+    expect(state.activeScenarioId).toBeNull();
+    expect(state.options.instantDns).toBe(true);
+    expect(dom.modeLabel.textContent).toBe("Opened the network from the link (1 device). Undo returns to what was here.");
+  });
+
+  it("a scenario this page has never seen (imported on the sender's) opens as a plain network, and says so", async () => {
+    const payload = { ...normaliseAndPayload(), session: { scenarioId: "my-own-lab-" + "x".repeat(80), instantDns: false } };
+    expect(await openSharedNetwork(`#net=${await encodeShare(JSON.stringify(payload))}`)).toBe(true);
+    expect(state.activeScenarioId).toBeNull();
+    expect(dom.modeLabel.textContent).toBe(`Opened the network from the link (${state.devices.length} devices) — its scenario "${("my-own-lab-" + "x".repeat(80)).slice(0, 40)}" is not one this page has, so it opened as a plain network. Undo returns to what was here.`);
+  });
+
+  it("a link from before links carried a session still opens, changing neither scenario nor mode beyond the load", async () => {
+    const old = await encodeShare(JSON.stringify(normaliseAndPayload()));      // v0.7.0's payload: no `session`
+    state.options.instantDns = false;
+    expect(await openSharedNetwork(`#net=${old}`)).toBe(true);
+    expect(state.activeScenarioId).toBeNull();
+    expect(state.options.instantDns).toBe(false);
+  });
+
+  it("the session is input like the rest of the link: junk in it is ignored, never trusted", async () => {
+    for (const session of [null, 7, "x", [], { scenarioId: 42, instantDns: "yes" }, { scenarioId: { toString: "x" } }, { scenarioId: "__proto__" }]) {
+      state.options.instantDns = true;
+      const payload = { ...normaliseAndPayload(), session };
+      expect(await openSharedNetwork(`#net=${await encodeShare(JSON.stringify(payload))}`), JSON.stringify(session)).toBe(true);
+      expect(state.activeScenarioId).toBeNull();
+      expect(state.options.instantDns).toBe(true);
+    }
+  });
+});
+
+// The Basic Network as a file export would write it.
+function normaliseAndPayload() {
+  applyConfigWithoutUndo(normaliseConfig(defaultConfig));
+  return buildConfigPayload();
+}
+
 describe("File → Copy link", () => {
   const nav = (globalThis as any).navigator;
   const win = (globalThis as any).window;

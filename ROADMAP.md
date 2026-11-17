@@ -376,8 +376,11 @@ The JSON import path already exists.
   network in the link's fragment (`rs-web.html#net=…`, deflated with the
   browser's own `CompressionStream`); opening the link loads it, with no server
   and no request. A link is untrusted input and is bounded and normalised like
-  an imported file (`src/share-link.ts`). **Later:** carry the active scenario
-  in the link, so a half-solved exercise can be shared with its goal.
+  an imported file (`src/share-link.ts`). The link carries the scenario in
+  progress, so a half-solved exercise arrives with its goal. **Later:** carry
+  the *definition* of a scenario imported from a file (today only built-in
+  scenarios travel, by id), so a teacher's own exercise can be handed out as a
+  link.
 - **localStorage autosave — shipped (2026-11).** The network on the canvas
   (with the active scenario and Instant DNS) is kept in the browser and
   restored on the next visit; opt-out in Settings, or `?autosave=0` for a

@@ -11,7 +11,7 @@ import { buildConfigPayload, parseConfig, applyConfig, applyConfigWithoutUndo } 
 import { encodeShare, decodeShare, shareTokenFromHash, shareUrl, pageBase, SHARE_LONG_LINK } from "./share-link";
 import { buildSettingsQuery } from "./settings-url";
 import { exportTopologyScript, runConsoleScript } from "./commands";
-import { SCENARIOS, registerScenario, unregisterScenario, scenarioIssue, loadScenario } from "./scenarios";
+import { SCENARIOS, registerScenario, unregisterScenario, scenarioIssue, loadScenario, sessionContext, resumeSession } from "./scenarios";
 import { normaliseConfig } from "./normalise";
 import { syncSimLog } from "./simlog-view";
 import { openDock } from "./terminal";
@@ -176,9 +176,12 @@ export async function importLog(): Promise<void> {
 // ── Share links ──────────────────────────────────────────────────────────────
 
 // A link that opens the current network: this page's address, the settings
-// that differ from the defaults, and the network in the fragment.
+// that differ from the defaults, and the network in the fragment. The payload
+// is the Config export's, plus a `session` (the scenario in progress and the
+// name-resolution mode) so an exercise travels with its goal. `session` sits
+// beside `devices`/`links`, which is all a reader that predates it looks at.
 export async function buildShareLink(base = pageBase(window.location.href)): Promise<string> {
-  const token = await encodeShare(JSON.stringify(buildConfigPayload()));
+  const token = await encodeShare(JSON.stringify({ ...buildConfigPayload(), session: sessionContext() }));
   return shareUrl(base, buildSettingsQuery(), token);
 }
 
@@ -224,6 +227,15 @@ export async function copyShareLink(): Promise<void> {
   dom.modeLabel.textContent = `Could not reach the clipboard — the link (${sizeText(url.length)}) is in the address bar; copy it from there.${long}`;
 }
 
+// What the status line adds about the scenario a link named: resumed, or — a
+// scenario imported on the sender's page, which this page has never seen — not.
+function scenarioNote(session: unknown, resumed: string | undefined): string {
+  if (resumed) return `, with its scenario "${resumed}"`;
+  const id = session && typeof session === "object" ? (session as { scenarioId?: unknown }).scenarioId : null;
+  if (typeof id !== "string" || !id) return "";
+  return ` — its scenario "${id.slice(0, 40)}" is not one this page has, so it opened as a plain network`;
+}
+
 // Open the network a link carries (`hash` is a location hash). Resolves to
 // true when a network was loaded, false when the hash names none or the link
 // could not be read — the network on the canvas is then left untouched, and
@@ -236,10 +248,14 @@ export async function openSharedNetwork(hash: string, options: { undo: boolean }
   const blocked = undoBlockReason();
   if (blocked) { dom.modeLabel.textContent = `The link was not opened: ${blocked}`; return false; }
   try {
-    const config = parseConfig(await decodeShare(token));
+    const text = await decodeShare(token);
+    const config = parseConfig(text);
+    const session = (JSON.parse(text) as { session?: unknown }).session;
     if (options.undo) applyConfig(config); else applyConfigWithoutUndo(config);
+    // After the load and its undo point: the scenario the network belonged to.
+    const scenario = resumeSession(session);
     const count = config.devices.length;
-    dom.modeLabel.textContent = `Opened the network from the link (${count} device${count === 1 ? "" : "s"}).${options.undo ? " Undo returns to what was here." : ""}`;
+    dom.modeLabel.textContent = `Opened the network from the link (${count} device${count === 1 ? "" : "s"})${scenarioNote(session, scenario?.name)}.${options.undo ? " Undo returns to what was here." : ""}`;
     return true;
   } catch (error) {
     const reason = error instanceof Error && error.message ? error.message.replace(/\.$/, "") : "it could not be read";

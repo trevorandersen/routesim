@@ -19,7 +19,9 @@ One record under `routesim.autosave`:
 
 `config` is exactly the topology payload a file export writes. `scenarioId` and
 `instantDns` are the two things a load changes along with the network — the
-same pair the undo snapshot carries — so a scenario in progress comes back with
+same pair the undo snapshot carries, and the `session` a shared link carries
+(`sessionContext` / `resumeSession` in scenarios.ts, one implementation for
+both) — so a scenario in progress comes back with
 its goal banner and its name-resolution mode. `savedAt` is only for the
 "restored" message. Terminal scrollback, captures and the undo history are not
 kept.

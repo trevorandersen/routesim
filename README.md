@@ -160,7 +160,7 @@ sync().render();
 - **Undo/redo** — snapshot-based history for topology and config changes
 - **Persistence** — import/export configs, scenarios, scripts, and logs as JSON files
 - **Autosave** — the network on the canvas is kept in your browser and comes back after a refresh or a closed tab, a scenario in progress included. Nothing is sent anywhere; switch it off in Settings (or open the page with `?autosave=0` for a visit that keeps nothing)
-- **Share a network as a link** — File → Copy link puts the whole topology in the link itself (`rs-web.html#net=…`); whoever opens it gets the network, with nothing uploaded anywhere
+- **Share a network as a link** — File → Copy link puts the whole topology in the link itself (`rs-web.html#net=…`); whoever opens it gets the network — and the scenario in progress, with its goal — with nothing uploaded anywhere
 - **WiFi** — a WiFi-only **laptop** that associates to an **access point** (a transparent L2 bridge) over a matching **SSID** (with an optional password); the wireless link is drawn dotted, and ARP/DHCP/IP work through the AP onto the wired LAN. `associate <laptop>` animates the real **802.11 join** — probe / authentication / association, plus the WPA2 4-way (EAPOL) key handshake on a secured network. A **wrong password** still associates but fails the key handshake (the AP deauthenticates), leaving the link unauthenticated and carrying no data until the password is fixed
 - **URL settings** — share a pre-configured link, e.g. `?theme=dark&names=0&autodhcp=on&silentarp=1&speed=400` (see [docs/scripting.md](docs/scripting.md#url-settings))
 - **Dark/light theme** — toggle via toolbar, implemented with CSS custom properties

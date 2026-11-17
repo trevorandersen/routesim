@@ -7125,6 +7125,45 @@ Full legal text: https://creativecommons.org/publicdomain/zero/1.0/legalcode</pr
     return parts.join(" \xB7 ");
   }
   var roundForLabel = (n) => String(Math.round(n * 100) / 100);
+  var LABEL_HEIGHT = 12;
+  var LABEL_LIFT = 8;
+  var LABEL_STEP = 6;
+  var LABEL_REACH = 72;
+  var LABEL_DIRECTIONS = [[1, 0], [-1, 0], [0, -1], [0, 1], [1, -1], [-1, -1], [1, 1], [-1, 1]];
+  var boxesOverlap = (a, b) => a.x < b.x + b.w && b.x < a.x + a.w && a.y < b.y + b.h && b.y < a.y + a.h;
+  function deviceFootprint(device) {
+    const pad = 10;
+    const icon = { x: device.x - device.width / 2 - pad, y: device.y - device.height / 2 - pad, w: device.width + pad * 2, h: device.height + pad * 2 };
+    const host = isHost(device.type);
+    let lines = 0, wide = false;
+    if (state.options.showDeviceNames) lines += 17;
+    if (host && state.options.showIpAddresses) {
+      lines += 15;
+      wide = true;
+    }
+    if (host && state.options.showMacAddresses && device.config?.macAddress) {
+      lines += 13;
+      wide = true;
+    }
+    if (!lines) return [icon];
+    const width = wide ? Math.max(device.width + 10, 108) : device.width + 10;
+    return [icon, { x: device.x - width / 2, y: device.y + device.height / 2 + 10, w: width, h: lines }];
+  }
+  function placeLinkLabel(midX, midY, width, obstacles) {
+    const home = { x: midX, y: midY - LABEL_LIFT };
+    const clearAt = (x, y) => {
+      const box = { x: x - width / 2, y: y - LABEL_HEIGHT, w: width, h: LABEL_HEIGHT };
+      return !obstacles.some((o) => boxesOverlap(box, o));
+    };
+    if (clearAt(home.x, home.y)) return home;
+    for (let reach = LABEL_STEP; reach <= LABEL_REACH; reach += LABEL_STEP) {
+      for (const [dx, dy] of LABEL_DIRECTIONS) {
+        const x = home.x + dx * reach, y = home.y + dy * reach;
+        if (clearAt(x, y)) return { x, y };
+      }
+    }
+    return home;
+  }
   function drawLink(link) {
     const from = getDevice(link.from);
     const to = getDevice(link.to);
@@ -7192,7 +7231,8 @@ Full legal text: https://creativecommons.org/publicdomain/zero/1.0/legalcode</pr
       ctx.textAlign = "center";
       ctx.textBaseline = "bottom";
       ctx.fillStyle = status ? status.tone === "danger" ? cssColor("--danger") : status.tone === "stp" ? cssColor("--stp-block") : status.tone === "secure" ? "#14b8a6" : cssColor("--muted") : cssColor("--muted");
-      ctx.fillText(label, midX, midY - 8);
+      const at = placeLinkLabel(midX, midY, ctx.measureText(label).width, [...deviceFootprint(from), ...deviceFootprint(to)]);
+      ctx.fillText(label, at.x, at.y);
     }
     ctx.restore();
   }

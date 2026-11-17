@@ -143,6 +143,64 @@ export function linkLabelText(link: Pick<Link, "name" | "latency" | "loss">, sta
 // At most two decimals: a typed 2.5 ms stays 2.5, a float artefact does not show.
 const roundForLabel = (n: number): string => String(Math.round(n * 100) / 100);
 
+// ── Where a link's label goes ────────────────────────────────────────────────
+// The label sits just above the link's midpoint. On a short link that put part
+// of it under an endpoint device (devices are drawn after links), and a clipped
+// number reads as a different number: "40 ms" showed as "0 ms". So the label is
+// moved the least distance that clears both endpoints — their icons and the
+// text beneath them.
+
+export interface Box { x: number; y: number; w: number; h: number }   // top-left corner + size, world units
+
+const LABEL_HEIGHT = 12;   // FONT_SMALL's line box
+const LABEL_LIFT = 8;      // the gap between the midpoint and the label's baseline
+const LABEL_STEP = 6;      // how far each try moves it
+const LABEL_REACH = 72;    // the furthest it will go before giving up
+// Sideways first (the label stays level with its line), then up, down, diagonals.
+const LABEL_DIRECTIONS: readonly [number, number][] = [[1, 0], [-1, 0], [0, -1], [0, 1], [1, -1], [-1, -1], [1, 1], [-1, 1]];
+
+const boxesOverlap = (a: Box, b: Box) => a.x < b.x + b.w && b.x < a.x + a.w && a.y < b.y + b.h && b.y < a.y + a.h;
+
+// What a device covers on the canvas: its icon — out to the edge of the ring
+// drawn round it when it is selected or being linked (7 out, 4 wide), whether
+// or not it is selected now, so a label does not jump when its end is clicked —
+// and the text block drawn under it (name, and a host's address and MAC, as
+// the display options show them). A
+// router's per-interface lines are not counted — listing them costs more than
+// a label is worth on every redraw.
+export function deviceFootprint(device: Device): Box[] {
+  const pad = 10;
+  const icon: Box = { x: device.x - device.width / 2 - pad, y: device.y - device.height / 2 - pad, w: device.width + pad * 2, h: device.height + pad * 2 };
+  const host = isHost(device.type);
+  let lines = 0, wide = false;
+  if (state.options.showDeviceNames) lines += 17;
+  if (host && state.options.showIpAddresses) { lines += 15; wide = true; }
+  if (host && state.options.showMacAddresses && device.config?.macAddress) { lines += 13; wide = true; }
+  if (!lines) return [icon];
+  const width = wide ? Math.max(device.width + 10, 108) : device.width + 10;
+  return [icon, { x: device.x - width / 2, y: device.y + device.height / 2 + 10, w: width, h: lines }];
+}
+
+// The anchor (centre x, baseline y) for a label `width` wide above the midpoint
+// (midX, midY): the usual spot when it is clear of `obstacles`, else the
+// nearest spot that is. With nowhere clear within reach it stays where it
+// always was. Pure, and exported for the tests.
+export function placeLinkLabel(midX: number, midY: number, width: number, obstacles: readonly Box[]): { x: number; y: number } {
+  const home = { x: midX, y: midY - LABEL_LIFT };
+  const clearAt = (x: number, y: number) => {
+    const box: Box = { x: x - width / 2, y: y - LABEL_HEIGHT, w: width, h: LABEL_HEIGHT };
+    return !obstacles.some(o => boxesOverlap(box, o));
+  };
+  if (clearAt(home.x, home.y)) return home;
+  for (let reach = LABEL_STEP; reach <= LABEL_REACH; reach += LABEL_STEP) {
+    for (const [dx, dy] of LABEL_DIRECTIONS) {
+      const x = home.x + dx * reach, y = home.y + dy * reach;
+      if (clearAt(x, y)) return { x, y };
+    }
+  }
+  return home;
+}
+
 export function drawLink(link: Link): void {
   const from = getDevice(link.from);
   const to = getDevice(link.to);
@@ -233,7 +291,9 @@ export function drawLink(link: Link): void {
         : status.tone === "secure" ? "#14b8a6"
         : cssColor("--muted")
       : cssColor("--muted");
-    ctx.fillText(label, midX, midY - 8);
+    // Clear of both endpoints: a label under a device loses characters.
+    const at = placeLinkLabel(midX, midY, ctx.measureText(label).width, [...deviceFootprint(from), ...deviceFootprint(to)]);
+    ctx.fillText(label, at.x, at.y);
   }
   ctx.restore();
 }

@@ -98,7 +98,7 @@ export function buildConfigPayload(): SerialisedTopology {
           ...(config?.rules?.length ? { rules: normaliseFirewallRules(config.rules) } : {}),
           ...(config?.policy && Object.keys(config.policy).length ? { policy: config.policy } : {}),
           ...(config?.ruleLang === "nftables" ? { ruleLang: "nftables" } : {}),
-          ...(config?.natTranslations?.length ? { natTranslations: ((config?.natTranslations || []).map(({ lastStep, ...e }: any) => e)) } : {}),
+          ...(config?.natTranslations?.length ? { natTranslations: ((config?.natTranslations || []).map(({ lastStep, ...e }) => e)) } : {}),
           ...((pf => pf.length ? { portForwards: pf } : {})(normalisePortForwards(config?.portForwards)))
         }
       } : {}),

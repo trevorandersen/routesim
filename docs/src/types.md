@@ -15,6 +15,12 @@ The single source of truth for the data model. No runtime code — only `interfa
 
 `ArpEntry`, `MacTableEntry`, `Vlan`, `DhcpLease`, `RouterInterface`, `Cidr` (an IPv4 CIDR parsed to integers — `net` (already masked) / `mask` / `prefix`; see utils.md), `RouteEntry` (now carrying `cidr: Cidr | null`, its network parsed once at table build so a lookup compares integers), `StaticRoute`, `RipRoute`, `RipConfig`, `PortMode`, `DnsRecord`, `NatEntry`, `PortForward` (a static destination-NAT rule — `proto:"tcp"`/`outsideIp`/`outsidePort`/`insideIp`/`insidePort`), `HttpInfo` (HTTP data on a TCP segment — a GET request or its response), `FirewallRule` (the netfilter rule — target/chain/protocol/src/dst/dport/… plus `states?: ConnState[]` (from `-m state --state` / `-m conntrack --ctstate`) and `rejectWith?: string` (from `--reject-with`, e.g. `"tcp-reset"`)), `ConnState` (`"new" | "established" | "related" | "invalid"` — the netfilter connection-tracking state; only `new`/`established` are ever assigned, while `related`/`invalid` parse in a rule but never match, a documented simplification), `ConntrackEntry` (`proto`/`srcIp`/`dstIp`/`srcPort`/`dstPort`/`established` — one tracked connection; the "original" direction is the first packet, a packet matching the swapped tuple is the reply), `MirrorSession` (`SwitchConfig.mirror` — `name`/`dest`/`sources?`, a managed-switch SPAN session).
 
+## Port and interface records
+
+The views `devices.ts` builds over a device's cables, typed so every reader (engine, inspector, canvas, simulation, commands) is checked against one shape:
+
+- **`LinkedPort`** — `{ link, peer }`: one slot of `linkedPortsFor(id)`, the physical cable and the device at its far end. The list is `(LinkedPort | null)[]`, indexed by port (slot 0 = port 1) and sparse when an explicit port number skips a slot, so a reader tests a slot for `null` before using it.
+
 ## Frames & simulation
 
 - **`EthernetFrame`** — `srcMac`/`dstMac`/`etherType`/`vlanTag`/`payload`. The payload is `ArpPayload | Ipv4Payload` (an L2 frame carries either ARP or IPv4; `Ipv4Payload.payload` is itself `IcmpPayload | DhcpPayload | TcpPayload | DnsPayload`). An ICMP **error** (type 11/3) carries `IcmpPayload.original` (**`IcmpOriginal`**: src/dst IP, proto, flow id) — the sim's equivalent of real ICMP quoting the offending datagram's header, and what lets a NAT router restore the error to the inside sender (see [nat.md](nat.md)).

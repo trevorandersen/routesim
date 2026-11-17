@@ -151,6 +151,15 @@ export interface NamedRouterIface {
   link?: Link | null;   // the cable to the peer (so routing/RIP can honour link.shutdown)
 }
 
+// One slot of a device's port list as `linkedPortsFor` (devices.ts) builds it:
+// the physical cable and the device at its far end. The list is indexed by port
+// (slot 0 = port 1) and can be sparse — an explicit port number past an empty
+// slot leaves a `null` gap — so readers index it and test for null.
+export interface LinkedPort {
+  link: Link;
+  peer: Device;
+}
+
 // An IPv4 CIDR parsed to integers (utils.ts: parseCidr/cachedCidr/cidrHas) —
 // what the routing, RIP, and firewall hot paths compare instead of strings.
 export interface Cidr {

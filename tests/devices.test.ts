@@ -286,8 +286,8 @@ describe("linkedPortsFor", () => {
     addLink(sw.id, pc1.id);
     addLink(sw.id, pc2.id);
     const ports = linkedPortsFor(sw.id);
-    expect(ports[0].peer.id).toBe(pc1.id);
-    expect(ports[1].peer.id).toBe(pc2.id);
+    expect(ports[0]?.peer.id).toBe(pc1.id);
+    expect(ports[1]?.peer.id).toBe(pc2.id);
   });
 
   it("places an explicit port at its index", () => {
@@ -295,7 +295,7 @@ describe("linkedPortsFor", () => {
     const pc = addDevice("computer", 100, 0);
     addLink(sw.id, pc.id, 4, 1); // fromPort 4 → index 3
     const ports = linkedPortsFor(sw.id);
-    expect(ports[3].peer.id).toBe(pc.id);
+    expect(ports[3]?.peer.id).toBe(pc.id);
   });
 });
 

@@ -170,7 +170,7 @@ describe("a router numbers Ethernet and serial ports separately (R29)", () => {
   it("both cables survive in linkedPortsFor (the same number no longer overwrites a slot)", () => {
     edge();
     exec("link R1 R2 3 1");
-    expect(linkedPortsFor(dev("R1").id).filter(p => p).map(p => p.peer.name).sort()).toEqual(["R2", "SW"]);
+    expect(linkedPortsFor(dev("R1").id).filter(p => p).map(p => p?.peer.name).sort()).toEqual(["R2", "SW"]);
   });
 
   it("the same media still collides: a second Ethernet3 is refused", () => {

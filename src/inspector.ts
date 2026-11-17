@@ -154,7 +154,7 @@ export function renderSwitchPorts(device: Device): string {
       ? `<span class="port-stp port-stp-${si.state === "blocking" ? "block" : si.role}" title="Spanning tree: ${si.role} port, ${si.state}">${si.state === "blocking" ? "Block" : si.role === "root" ? "Root" : "Desig"}</span>`
       : "";
     const removeButton = port ? `
-      <button class="port-remove" data-link-id="${escapeHtml(port.link.id)}" title="Remove link to ${escapeHtml(peer.name)}" aria-label="Remove link to ${escapeHtml(peer.name)}">
+      <button class="port-remove" data-link-id="${escapeHtml(port.link.id)}" title="Remove link to ${escapeHtml(port.peer.name)}" aria-label="Remove link to ${escapeHtml(port.peer.name)}">
         <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M18 6 6 18"></path><path d="m6 6 12 12"></path></svg>
       </button>
     ` : `<span></span>`;

@@ -1,4 +1,4 @@
-import type { EthernetFrame, ArpPayload, Ipv4Payload, DhcpPayload, TcpPayload, DnsPayload, Dot11Payload, Dot1xPayload, BpduPayload, NatEntry, SimEvent, SimLogEntry, ActiveTransit, FrameHistoryEntry, RouteEntry, RouterInterface, Device, DeviceType, FirewallRule, FirewallTarget, ConnState, Link, Cidr, SimMode, ArpEntry } from "./types";
+import type { EthernetFrame, ArpPayload, Ipv4Payload, DhcpPayload, TcpPayload, DnsPayload, Dot11Payload, Dot1xPayload, BpduPayload, NatEntry, SimEvent, SimLogEntry, ActiveTransit, FrameHistoryEntry, RouteEntry, RouterInterface, Device, DeviceType, FirewallRule, FirewallTarget, ConnState, Link, Cidr, SimMode, ArpEntry, LinkedPort } from "./types";
 import { state, pushUndo, sync, sessionFor, appendSessionLine, showDock } from "./state";
 import { dom } from "./dom";
 import { getDevice, linkedPortsFor, routerInterfacesWithNames, linkName, linkById, linksFor, linkDataBlockReason, macsecState, macsOwnedBy, liveMacsOf, isPhysicalLink, dot1xPortFacing } from "./devices";
@@ -2743,7 +2743,7 @@ export function processAtFirewall(device: Device, frame: EthernetFrame, fromDevi
   // Transparent bridge legs (every linked peer except the ingress one).
   // (linkedPortsFor can be sparse — null gaps — when explicit ports skip a slot.)
   const egressAll = linkedPortsFor(device.id)
-    .filter((p) => p?.peer)
+    .filter((p): p is LinkedPort => p !== null)
     .map((p) => p.peer.id)
     .filter((id: string) => id !== fromDeviceId);
 

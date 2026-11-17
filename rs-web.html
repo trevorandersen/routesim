@@ -5812,7 +5812,7 @@ Full legal text: https://creativecommons.org/publicdomain/zero/1.0/legalcode</pr
     const ethernetPorts = clampRouterPortCount(router.config?.ethernetPorts ?? defaultPortCount("router"));
     const serialPorts = clampRouterPortCount(router.config?.serialPorts ?? 4);
     const configured = normaliseRouterInterfaces(router.config?.interfaces || [], router.id);
-    const linked = linkedPortsFor(router.id).filter((port) => port).map((port) => {
+    const linked = linkedPortsFor(router.id).filter((port) => port !== null).map((port) => {
       const type = port.peer.type === "router" ? "serial" : "ethernet";
       const allConfigs = configured.filter((entry) => entry.peerId === port.peer.id);
       if (allConfigs.length === 0) {
@@ -10465,7 +10465,7 @@ Full legal text: https://creativecommons.org/publicdomain/zero/1.0/legalcode</pr
   function processAtFirewall(device, frame, fromDeviceId) {
     const outgoing = [];
     if (device.poweredOff) return outgoing;
-    const egressAll = linkedPortsFor(device.id).filter((p) => p?.peer).map((p) => p.peer.id).filter((id) => id !== fromDeviceId);
+    const egressAll = linkedPortsFor(device.id).filter((p) => p !== null).map((p) => p.peer.id).filter((id) => id !== fromDeviceId);
     const cfg = device.config;
     if (fromDeviceId && frame.srcMac && frame.srcMac !== BROADCAST_MAC) {
       cfg.macTable = normaliseMacTable(cfg.macTable || []);
@@ -14834,7 +14834,7 @@ Snort successfully validated the configuration${bad ? " (with errors)" : "."}`);
       const si = peer ? stpPorts[iface.name] : null;
       const stpBadge = si ? `<span class="port-stp port-stp-${si.state === "blocking" ? "block" : si.role}" title="Spanning tree: ${si.role} port, ${si.state}">${si.state === "blocking" ? "Block" : si.role === "root" ? "Root" : "Desig"}</span>` : "";
       const removeButton = port ? `
-      <button class="port-remove" data-link-id="${escapeHtml(port.link.id)}" title="Remove link to ${escapeHtml(peer.name)}" aria-label="Remove link to ${escapeHtml(peer.name)}">
+      <button class="port-remove" data-link-id="${escapeHtml(port.link.id)}" title="Remove link to ${escapeHtml(port.peer.name)}" aria-label="Remove link to ${escapeHtml(port.peer.name)}">
         <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M18 6 6 18"></path><path d="m6 6 12 12"></path></svg>
       </button>
     ` : `<span></span>`;

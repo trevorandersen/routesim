@@ -1,4 +1,4 @@
-import type { PortOption, Device, Link, DeviceType, DeviceConfig, NamedRouterIface, RouterInterface, MutationResult, LinkResult } from "./types";
+import type { PortOption, Device, Link, DeviceType, DeviceConfig, NamedRouterIface, RouterInterface, LinkedPort, MutationResult, LinkResult } from "./types";
 import { state, sync, pushUndo, networkSnapshot, dropTerminalSessions, resetCaptureState, linksChanged, appendSessionLine } from "./state";
 import { dom } from "./dom";
 import { deviceSize, defaultDeviceConfig, ensureConfig, normaliseRouterInterfaces, normalisePortVlans, normalisePortModes } from "./normalise";
@@ -1100,7 +1100,7 @@ export function physicalPeerIds(id: string): string[] {
 // and 802.1X key on. Collapsing a LAN must not unplug the router's cable to it
 // — that dropped the interface's address and connected route, renumbered the
 // ports, and failed a ping across it with a false "No route" (review R4).
-export function linkedPortsFor(id: string): any[] {
+export function linkedPortsFor(id: string): (LinkedPort | null)[] {
   const entries = linksFor(id)
     .filter(isPhysicalLink)
     .map(link => {
@@ -1115,7 +1115,7 @@ export function linkedPortsFor(id: string): any[] {
         portNum
       };
     })
-    .filter(port => !!port.peer);
+    .filter((port): port is LinkedPort & { portNum: number } => !!port.peer);
 
   // If any entry has an explicit port number, place entries at those indices
   const hasExplicit = entries.some(e => e.portNum > 0);
@@ -1124,7 +1124,7 @@ export function linkedPortsFor(id: string): any[] {
   }
 
   // Place explicit-port entries at the right index, fill others in order
-  const result: any[] = [];
+  const result: (LinkedPort | null)[] = [];
   const explicit = entries.filter(e => e.portNum > 0).sort((a, b) => a.portNum - b.portNum);
   const implicit = entries.filter(e => e.portNum === 0);
 
@@ -1387,7 +1387,7 @@ export function routerInterfacesWithNames(router: Device, cabledOnly = false): N
   const ethernetPorts = clampRouterPortCount(router.config?.ethernetPorts ?? defaultPortCount("router"));
   const serialPorts = clampRouterPortCount(router.config?.serialPorts ?? 4);
   const configured = normaliseRouterInterfaces(router.config?.interfaces || [], router.id);
-  const linked = linkedPortsFor(router.id).filter((port) => port).map(port => {   // drop null gaps from sparse port arrays
+  const linked = linkedPortsFor(router.id).filter((port): port is LinkedPort => port !== null).map(port => {   // drop null gaps from sparse port arrays
     const type = port.peer.type === "router" ? "serial" : "ethernet";
     // Find ALL configured interfaces for this peer (supports sub-interfaces)
     const allConfigs = configured.filter((entry) => entry.peerId === port.peer.id);
@@ -1395,7 +1395,7 @@ export function routerInterfacesWithNames(router: Device, cabledOnly = false): N
       allConfigs.push({ peerId: port.peer.id, type, name: "", ipv4Address: "", macAddress: "", arpTable: [], dhcpLeases: [], vlanTag: null });
     }
     const raw = port.link.from === router.id ? port.link.fromPort : port.link.toPort;
-    const explicitPort = Number.isInteger(raw) && raw > 0 ? raw : 0;
+    const explicitPort = Number.isInteger(raw) && (raw as number) > 0 ? (raw as number) : 0;
     return { peer: port.peer, peerId: port.peer.id, type: allConfigs[0].type || type, configs: allConfigs, link: port.link, explicitPort, index: 0 };
   });
   // Naming honours an explicitly chosen port: the picker said "port 4", so

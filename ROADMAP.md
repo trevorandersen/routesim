@@ -372,9 +372,13 @@ The JSON import path already exists.
   and no request. A link is untrusted input and is bounded and normalised like
   an imported file (`src/share-link.ts`). **Later:** carry the active scenario
   in the link, so a half-solved exercise can be shared with its goal.
-- **localStorage autosave** (opt-out) — "lost my work on refresh" starts to
-  matter once strangers use it. The zero-request principle is about *network*,
-  not storage. Effort: low.
+- **localStorage autosave — shipped (2026-11).** The network on the canvas
+  (with the active scenario and Instant DNS) is kept in the browser and
+  restored on the next visit; opt-out in Settings, or `?autosave=0` for a
+  visit that keeps nothing. The zero-request principle is about *network*, not
+  storage, and the page works identically when storage is missing, blocked or
+  full (`src/autosave.ts`). **Later:** keep more than one session (a named
+  list), and warn when a second tab is about to overwrite the first's copy.
 
 ### UI polish (from the 2026-06 UI review)
 > **Shipped (2026-06):** the **floating sim transport** (a play/pause/step/stop

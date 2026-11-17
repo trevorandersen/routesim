@@ -5,7 +5,7 @@ Reads (and writes) app settings via the page's query string, so a link can carry
 ## Key exports
 
 - **`parseSettingsFromUrl(search)`** — pure parser. Takes a query string (typically `window.location.search`; a leading `?` is fine) and returns a `ParsedSettings`: `{ options, theme?, speed?, applied, ignored }`. It mutates nothing. Booleans accept `1/0`, `true/false`, `yes/no`, `on/off` (case-insensitive, as are the param keys); the theme is validated against the `THEMES` registry (`light` aliases `warm-light`); speed is coerced to a number and clamped to `SPEED_MIN`–`SPEED_MAX` (200–3000). Anything unknown or unparseable is collected in `ignored` rather than silently dropped, so a typo'd link is debuggable.
-- **`buildSettingsQuery()`** — the inverse: reads the live `state` and returns a query string (no leading `?`) of only the settings that differ from their defaults — a shareable-link tail. Empty when everything is at default. `parseSettingsFromUrl(buildSettingsQuery())` round-trips.
+- **`buildSettingsQuery()`** — the inverse: reads the live `state` and returns a query string (no leading `?`) of only the settings that differ from their defaults — a shareable-link tail. Empty when everything is at default. `parseSettingsFromUrl(buildSettingsQuery())` round-trips. One row is **parse-only** (`parseOnly: true`): `autosave` is read from a URL (`?autosave=0` — a visit that neither restores nor saves, see [autosave.md](autosave.md)) but never emitted, because a shared link must not carry the sender's choice about their own browser's storage.
 - **`SPEED_MIN` / `SPEED_MAX` / `SPEED_DEFAULT`** — the ms/hop bounds (match the `#simSpeed` slider) and default.
 
 ## How it fits

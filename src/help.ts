@@ -72,6 +72,13 @@ export const SETTING_GROUPS: SettingGroup[] = [
     ],
   },
   {
+    title: "This browser",
+    blurb: "What the page keeps on this computer between visits. Nothing is sent anywhere — the page makes no network requests.",
+    items: [
+      { id: "optAutosave", title: "Autosave", body: "Keeps the network on the canvas in this browser's storage and brings it back the next time the page opens, so a refresh or a closed tab does not lose your work. A scenario in progress comes back with its goal. Turning it off removes the saved copy. To hand a network to someone else, use File → Copy link or File → Export instead." },
+    ],
+  },
+  {
     title: "Silent protocols",
     blurb: "Resolve these instantly with no animated frames or packet-list rows. The exchange still happens — it just isn't shown — so the higher-layer flow stays uncluttered once you understand it.",
     items: [

@@ -17,7 +17,7 @@ export const SPEED_DEFAULT = 1000;
 // The boolean DisplayOptions that a query param maps to, plus the default each
 // holds in a fresh state.options (so buildSettingsQuery only emits differences).
 // Param keys are lowercase; matching is case-insensitive.
-const BOOL_PARAMS: { param: string; key: keyof DisplayOptions; def: boolean }[] = [
+const BOOL_PARAMS: { param: string; key: keyof DisplayOptions; def: boolean; parseOnly?: boolean }[] = [
   { param: "names", key: "showDeviceNames", def: true },
   { param: "ips", key: "showIpAddresses", def: true },
   { param: "macs", key: "showMacAddresses", def: true },
@@ -29,6 +29,10 @@ const BOOL_PARAMS: { param: string; key: keyof DisplayOptions; def: boolean }[] 
   { param: "silentwifi", key: "silentWifi", def: false },
   { param: "silentstp", key: "silentStp", def: false },
   { param: "instantdns", key: "instantDns", def: true },
+  // Parsed, never emitted: `?autosave=0` makes a page that neither restores
+  // nor saves (a lab bookmark), but a shared link must not carry the sender's
+  // choice about their own browser's storage to whoever opens it.
+  { param: "autosave", key: "autosave", def: true, parseOnly: true },
 ];
 
 export interface ParsedSettings {
@@ -99,8 +103,8 @@ export function parseSettingsFromUrl(search: string): ParsedSettings {
 // at its default.
 export function buildSettingsQuery(): string {
   const params = new URLSearchParams();
-  for (const { param, key, def } of BOOL_PARAMS) {
-    if (state.options[key] !== def) params.set(param, state.options[key] ? "1" : "0");
+  for (const { param, key, def, parseOnly } of BOOL_PARAMS) {
+    if (!parseOnly && state.options[key] !== def) params.set(param, state.options[key] ? "1" : "0");
   }
   if (state.theme !== DEFAULT_THEME) params.set("theme", state.theme);
   if (state.simulation.speed !== SPEED_DEFAULT) params.set("speed", String(state.simulation.speed));

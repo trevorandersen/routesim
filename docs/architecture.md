@@ -60,7 +60,7 @@ The modules fall into seven layers, L0 to L6. Arrows point from importer to impo
 ```mermaid
 flowchart TB
   L6["<b>L6 Entry</b><br/>app.ts"]
-  L5["<b>L5 Application</b><br/>ui · commands · console · config · io · settings-url · share-link<br/>scenarios · scenario-library · scenario-ui · ribbon · tutorial"]
+  L5["<b>L5 Application</b><br/>ui · commands · console · config · io · settings-url · share-link · autosave<br/>scenarios · scenario-library · scenario-ui · ribbon · tutorial"]
   L4["<b>L4 Presentation</b><br/>canvas · inspector · simlog-view · port-picker · dialog"]
   L3["<b>L3 Engine and device CLIs</b><br/>engine · terminal/*"]
   L2["<b>L2 Network logic</b><br/>simulation · routing · stp"]
@@ -172,6 +172,7 @@ The Kali CLI (`terminal/attacker.ts`) and the `attack` / `redteam` console handl
 | `io.ts` | 165 | File download and file picker for configs, scenarios, scripts and logs. | `exportConfig`, `importConfig`, `runImportedScript` | [scripting.md](scripting.md) |
 | `settings-url.ts` | 110 | Parse display and sim settings from the query string, and build the inverse shareable query. Pure parser. | `parseSettingsFromUrl`, `buildSettingsQuery` | [settings-url.md](src/settings-url.md) |
 | `share-link.ts` | 130 | A network in a link: the pure codec behind `rs-web.html#net=…` — topology JSON ⇄ a URL-safe token (`z.` deflated, `j.` plain), bounded decoding, fragment parsing, URL building. The actions that use it are in `io.ts`. | `encodeShare`, `decodeShare`, `shareTokenFromHash`, `shareUrl` | [share-link.md](src/share-link.md) |
+| `autosave.ts` | 210 | Keeps the network in the browser's `localStorage` and restores it on the next visit (opt-out). A poll writes only differences; every storage access is guarded. Imported only by `app.ts`. | `initAutosave`, `restoreAutosave`, `startAutosave`, `saveNow`, `setAutosave` | [autosave.md](src/autosave.md) |
 | `scenarios.ts` | 220 | The scenario model, registry and goal checker. Checks run headless simulations. | `SCENARIOS`, `loadScenario`, `checkScenario`, `registerScenario` | [scenarios.md](scenarios.md) |
 | `scenario-library.ts` | 820 | The built-in curriculum: topology plus goal checks for each challenge. Data only. | `CURRICULUM` | [scenarios.md](scenarios.md) |
 | `scenario-ui.ts` | 70 | The floating goal banner and its Check button. | `syncScenarioPanel`, `runActiveScenarioCheck` | [scenarios.md](scenarios.md) |
@@ -386,6 +387,7 @@ Many paths replace the whole network. All of them must leave no trace of the pre
 | Event log JSON | `io.exportLog` | `io.importLog` | The narrative sim event log, not the packet capture. |
 | URL fragment (`#net=…`) | `io.buildShareLink` (File → Copy link; codec in `share-link.ts`) | `io.openSharedNetwork` from `app.ts` (boot + `hashchange`) | The topology JSON, deflated and base64url-encoded. Untrusted input: bounded decoding, then the same `parseConfig` as a file. The fragment is removed from the address bar once loaded. |
 | URL query | `settings-url.buildSettingsQuery` | `parseSettingsFromUrl` in `app.ts` | Display options, speed, theme. Unknown keys are reported, not dropped silently. |
+| `localStorage` | `autosave.saveNow` (a 3 s poll + a flush on page hide) | `autosave.restoreAutosave` at boot | The topology payload plus the active scenario and Instant DNS. Opt-out; guarded against a missing, blocked or full store; an unreadable record is discarded with a reason. A `#net=…` link beats it (opened over the restore as an undo point). |
 | In-memory slot | console `save` | console `load` | `state.configStore`, lost on reload. |
 
 ## 12. Scenarios, tutorial and help

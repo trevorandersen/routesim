@@ -98,6 +98,9 @@ export interface DisplayOptions {
   // name needs a reachable DNS server (which auto-resolves device hostnames).
   // Defaults on for topologies, off when a scenario is loaded.
   instantDns: boolean;
+  // Keep the network in this browser's localStorage and restore it on the next
+  // visit (autosave.ts). On by default; the choice itself is remembered there.
+  autosave: boolean;
 }
 
 export interface ArpEntry {

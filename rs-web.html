@@ -2907,6 +2907,16 @@
         </label>
       </section>
       <section class="settings-section">
+        <h3 class="settings-section-title">This browser<button type="button" class="settings-info" aria-label="What the page keeps on this computer between visits. Nothing is sent anywhere — the page makes no network requests.">i</button></h3>
+        <label class="settings-row">
+          <input id="optAutosave" type="checkbox">
+          <span class="settings-row-text">
+            <span class="settings-row-title">Autosave</span>
+          </span>
+          <button type="button" class="settings-info" aria-label="Keep the network on the canvas in this browser, and bring it back the next time the page opens — so a refresh or a closed tab does not lose your work. Turning it off removes the saved copy.">i</button>
+        </label>
+      </section>
+      <section class="settings-section">
         <h3 class="settings-section-title">Silent protocols<button type="button" class="settings-info" aria-label="Resolve these instantly with no animated frames or packet-list rows. The exchange still happens — it just isn't shown — so the higher-layer flow stays uncluttered once you understand it.">i</button></h3>
         <label class="settings-row">
           <input id="optSilentArp" type="checkbox">
@@ -4082,7 +4092,8 @@ Full legal text: https://creativecommons.org/publicdomain/zero/1.0/legalcode</pr
       silentDns: false,
       silentWifi: false,
       silentStp: false,
-      instantDns: true
+      instantDns: true,
+      autosave: true
     };
   }
   function freshDockState() {
@@ -4763,6 +4774,7 @@ Full legal text: https://creativecommons.org/publicdomain/zero/1.0/legalcode</pr
     optSilentWifi: document.getElementById("optSilentWifi"),
     optSilentStp: document.getElementById("optSilentStp"),
     optInstantDns: document.getElementById("optInstantDns"),
+    optAutosave: document.getElementById("optAutosave"),
     detailsPanel: document.getElementById("detailsPanel"),
     deviceList: document.getElementById("deviceList"),
     zoomLevel: document.getElementById("zoomLevel"),
@@ -14725,6 +14737,7 @@ Snort successfully validated the configuration${bad ? " (with errors)" : "."}`);
     dom.optSilentWifi.checked = state.options.silentWifi;
     dom.optSilentStp.checked = state.options.silentStp;
     dom.optInstantDns.checked = state.options.instantDns;
+    dom.optAutosave.checked = state.options.autosave;
   }
   function ipSourceInfo(config) {
     if (!config?.ipv4Address) return { cls: "none", text: "unassigned" };
@@ -16421,6 +16434,13 @@ Snort successfully validated the configuration${bad ? " (with errors)" : "."}`);
       ]
     },
     {
+      title: "This browser",
+      blurb: "What the page keeps on this computer between visits. Nothing is sent anywhere \u2014 the page makes no network requests.",
+      items: [
+        { id: "optAutosave", title: "Autosave", body: "Keeps the network on the canvas in this browser's storage and brings it back the next time the page opens, so a refresh or a closed tab does not lose your work. A scenario in progress comes back with its goal. Turning it off removes the saved copy. To hand a network to someone else, use File \u2192 Copy link or File \u2192 Export instead." }
+      ]
+    },
+    {
       title: "Silent protocols",
       blurb: "Resolve these instantly with no animated frames or packet-list rows. The exchange still happens \u2014 it just isn't shown \u2014 so the higher-layer flow stays uncluttered once you understand it.",
       items: [
@@ -17798,7 +17818,11 @@ Snort successfully validated the configuration${bad ? " (with errors)" : "."}`);
     { param: "silentdns", key: "silentDns", def: false },
     { param: "silentwifi", key: "silentWifi", def: false },
     { param: "silentstp", key: "silentStp", def: false },
-    { param: "instantdns", key: "instantDns", def: true }
+    { param: "instantdns", key: "instantDns", def: true },
+    // Parsed, never emitted: `?autosave=0` makes a page that neither restores
+    // nor saves (a lab bookmark), but a shared link must not carry the sender's
+    // choice about their own browser's storage to whoever opens it.
+    { param: "autosave", key: "autosave", def: true, parseOnly: true }
   ];
   function parseBool(raw) {
     const v = raw.trim().toLowerCase();
@@ -17857,8 +17881,8 @@ Snort successfully validated the configuration${bad ? " (with errors)" : "."}`);
   }
   function buildSettingsQuery() {
     const params = new URLSearchParams();
-    for (const { param, key, def } of BOOL_PARAMS) {
-      if (state.options[key] !== def) params.set(param, state.options[key] ? "1" : "0");
+    for (const { param, key, def, parseOnly } of BOOL_PARAMS) {
+      if (!parseOnly && state.options[key] !== def) params.set(param, state.options[key] ? "1" : "0");
     }
     if (state.theme !== DEFAULT_THEME) params.set("theme", state.theme);
     if (state.simulation.speed !== SPEED_DEFAULT) params.set("speed", String(state.simulation.speed));
@@ -20967,6 +20991,149 @@ Snort successfully validated the configuration${bad ? " (with errors)" : "."}`);
     });
   }
 
+  // src/autosave.ts
+  var AUTOSAVE_KEY = "routesim.autosave";
+  var AUTOSAVE_OFF_KEY = "routesim.autosave.off";
+  var AUTOSAVE_INTERVAL_MS = 3e3;
+  var store = null;
+  function browserStore() {
+    try {
+      const candidate = window.localStorage;
+      if (!candidate) return null;
+      candidate.getItem(AUTOSAVE_OFF_KEY);
+      return candidate;
+    } catch {
+      return null;
+    }
+  }
+  var read = (key) => {
+    try {
+      return store ? store.getItem(key) : null;
+    } catch {
+      return null;
+    }
+  };
+  var remove = (key) => {
+    try {
+      store?.removeItem(key);
+    } catch {
+    }
+  };
+  function sessionText() {
+    return JSON.stringify({ scenarioId: state.activeScenarioId ?? null, instantDns: state.options.instantDns, config: buildConfigPayload() });
+  }
+  var baseline = null;
+  var lastWritten = null;
+  var refusalSaid = false;
+  function saveNow(now = /* @__PURE__ */ new Date()) {
+    if (!store || !state.options.autosave) return "off";
+    if (state.tutorialActive) return "skipped";
+    let text;
+    try {
+      text = sessionText();
+    } catch {
+      return "skipped";
+    }
+    if (text === lastWritten) return "unchanged";
+    if (text === baseline) {
+      if (lastWritten === null) return "unchanged";
+      remove(AUTOSAVE_KEY);
+      lastWritten = null;
+      return "cleared";
+    }
+    try {
+      store.setItem(AUTOSAVE_KEY, `{"v":1,"savedAt":${JSON.stringify(now.toISOString())},${text.slice(1)}`);
+    } catch {
+      if (!refusalSaid) {
+        refusalSaid = true;
+        dom.modeLabel.textContent = "Autosave could not store this network (the browser's storage is full or blocked) \u2014 File \u2192 Export \u2192 Config keeps it as a file.";
+      }
+      return "failed";
+    }
+    lastWritten = text;
+    refusalSaid = false;
+    return "saved";
+  }
+  var two = (n) => String(n).padStart(2, "0");
+  var MONTHS = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
+  function savedAtText(iso, now = /* @__PURE__ */ new Date()) {
+    const at = new Date(iso);
+    if (Number.isNaN(at.getTime())) return "earlier";
+    const time = `${two(at.getHours())}:${two(at.getMinutes())}`;
+    const sameDay = at.getFullYear() === now.getFullYear() && at.getMonth() === now.getMonth() && at.getDate() === now.getDate();
+    return sameDay ? `at ${time}` : `on ${at.getDate()} ${MONTHS[at.getMonth()]} at ${time}`;
+  }
+  function restoreAutosave(options = {}) {
+    if (!store || !state.options.autosave) return false;
+    const raw = read(AUTOSAVE_KEY);
+    if (raw == null) return false;
+    let session;
+    try {
+      session = JSON.parse(raw);
+      if (!session || typeof session !== "object" || !session.config) throw new Error("not a session");
+      applyConfigWithoutUndo(parseConfig(JSON.stringify(session.config)));
+    } catch {
+      remove(AUTOSAVE_KEY);
+      lastWritten = null;
+      dom.modeLabel.textContent = "The autosaved session could not be read, so it was discarded.";
+      return false;
+    }
+    const scenario = typeof session.scenarioId === "string" ? getScenario(session.scenarioId) : void 0;
+    state.activeScenarioId = scenario ? scenario.id : null;
+    if (!options.keepInstantDns && typeof session.instantDns === "boolean") state.options.instantDns = session.instantDns;
+    sync().syncOptionControls();
+    sync().syncScenarioPanel();
+    lastWritten = sessionText();
+    const count = state.devices.length;
+    dom.modeLabel.textContent = `Restored your last session (${count} device${count === 1 ? "" : "s"}, saved ${savedAtText(session.savedAt, options.now)}). File \u2192 Topologies loads a fresh network.`;
+    return true;
+  }
+  function setAutosave(on) {
+    state.options.autosave = on;
+    if (!store) {
+      dom.modeLabel.textContent = on ? "Autosave is unavailable: this browser is not letting the page store anything (a private window, or blocked site data)." : "Autosave is off.";
+      return;
+    }
+    try {
+      if (on) store.removeItem(AUTOSAVE_OFF_KEY);
+      else store.setItem(AUTOSAVE_OFF_KEY, "1");
+    } catch {
+    }
+    if (on) {
+      saveNow();
+      dom.modeLabel.textContent = "Autosave is on \u2014 this network is kept in this browser between visits.";
+    } else {
+      remove(AUTOSAVE_KEY);
+      lastWritten = null;
+      dom.modeLabel.textContent = "Autosave is off \u2014 the saved session was removed from this browser.";
+    }
+  }
+  function initAutosave(options = {}) {
+    store = options.store !== void 0 ? options.store : browserStore();
+    baseline = null;
+    lastWritten = null;
+    refusalSaid = false;
+    state.options.autosave = options.urlChoice ?? read(AUTOSAVE_OFF_KEY) !== "1";
+    try {
+      baseline = sessionText();
+    } catch {
+      baseline = null;
+    }
+  }
+  function startAutosave() {
+    dom.optAutosave.addEventListener("change", () => setAutosave(dom.optAutosave.checked));
+    if (!store) return;
+    setInterval(() => {
+      saveNow();
+    }, AUTOSAVE_INTERVAL_MS);
+    window.addEventListener("pagehide", () => {
+      saveNow();
+    });
+    document.addEventListener("visibilitychange", () => {
+      if (document.visibilityState === "hidden") saveNow();
+    });
+  }
+
   // src/app.ts
   registerCallbacks({
     render,
@@ -21036,12 +21203,16 @@ Snort successfully validated the configuration${bad ? " (with errors)" : "."}`);
     syncConsole();
     syncScenarioPanel();
     loadDefaultConfig();
+    initAutosave({ urlChoice: urlSettings.options.autosave });
+    const restored = restoreAutosave({ keepInstantDns: urlSettings.options.instantDns !== void 0 });
+    syncOptionControls();
+    startAutosave();
     syncPanel();
     render();
     if (urlSettings.ignored.length) {
       dom.modeLabel.textContent = `Ignored unknown URL setting${urlSettings.ignored.length > 1 ? "s" : ""}: ${urlSettings.ignored.join(", ")}.`;
     }
-    void openLinkInAddressBar(false);
+    void openLinkInAddressBar(restored);
     window.addEventListener("hashchange", () => {
       void openLinkInAddressBar(true);
     });

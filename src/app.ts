@@ -17,6 +17,7 @@ import { syncPortSelectionModal } from "./port-picker";
 import { parseSettingsFromUrl, buildSettingsQuery } from "./settings-url";
 import { diagnoseRuntimeState } from "./diagnostics";
 import * as io from "./io";
+import { initAutosave, restoreAutosave, startAutosave } from "./autosave";
 
 // Register the callback bridge so any module can trigger render/syncPanel/etc.
 registerCallbacks({
@@ -93,6 +94,12 @@ function initialiseApp(): void {
   syncConsole();
   syncScenarioPanel();
   loadDefaultConfig();
+  // Autosave: note the built-in network (nothing worth keeping), then bring
+  // back the last session if there is one. `?autosave=0|1` holds for this visit.
+  initAutosave({ urlChoice: urlSettings.options.autosave });
+  const restored = restoreAutosave({ keepInstantDns: urlSettings.options.instantDns !== undefined });
+  syncOptionControls();
+  startAutosave();
   syncPanel();
   render();
 
@@ -101,8 +108,10 @@ function initialiseApp(): void {
     dom.modeLabel.textContent = `Ignored unknown URL setting${urlSettings.ignored.length > 1 ? "s" : ""}: ${urlSettings.ignored.join(", ")}.`;
   }
 
-  // A link that carries a network (`#net=…`) opens it over the default.
-  void openLinkInAddressBar(false);
+  // A link that carries a network (`#net=…`) opens it over the default — or,
+  // when a session was just restored, over that as an undo point: the link
+  // wins, and one Undo returns to the learner's own work.
+  void openLinkInAddressBar(restored);
   // The same link pasted into a tab that is already open only changes the
   // fragment — no reload — so listen for it. That load is an undo point.
   window.addEventListener("hashchange", () => { void openLinkInAddressBar(true); });

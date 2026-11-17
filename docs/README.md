@@ -51,6 +51,7 @@ It is a single-page app with **no framework and no runtime dependencies** — it
 | `src/io.ts` | [scripting.md](scripting.md) | JSON import/export (config/scenario/script/log) |
 | `src/settings-url.ts` | [settings-url.md](src/settings-url.md) | Read/apply settings from the URL query string (+ inverse) |
 | `src/share-link.ts` | [share-link.md](src/share-link.md) | A whole network in a link (`#net=…`): the codec behind File → Copy link |
+| `src/autosave.ts` | [autosave.md](src/autosave.md) | Keeps the network in the browser's localStorage and restores it on the next visit |
 | `src/tutorial.ts` | [tutorial.md](src/tutorial.md) | Tutorial mode: an auto-playing faux-cursor demo that builds a network |
 | `src/ribbon.ts` | [src/ribbon.md](src/ribbon.md) | Tabbed ribbon: tab switching + dynamic scenario buttons |
 | `src/tokenize.ts` | [tokenize.md](src/tokenize.md) | Quote-aware tokenizer for the command language, and its `quoteArg` inverse |

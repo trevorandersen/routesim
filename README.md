@@ -61,6 +61,7 @@ routesim/
     ├── ribbon.ts       # Tabbed ribbon UI
     ├── io.ts           # JSON import/export (config/scenario/script/log), share links
     ├── share-link.ts   # A network in a link (#net=…): the codec
+    ├── autosave.ts     # Keeps the network in localStorage between visits (opt-out)
     ├── config.ts       # Topology serialise/apply + built-in topologies
     ├── tutorial.ts     # Tutorial mode: auto-playing faux-cursor demo
     └── ui.ts           # Event handlers, tools, keyboard shortcuts
@@ -100,6 +101,7 @@ Modules are organized to keep concerns separate while producing a flat IIFE bund
 | `inspector.ts` | Right panel DOM — device details, service config, MAC/ARP table views |
 | `config.ts` + `io.ts` | Topology serialise/apply, built-in topologies, JSON import/export |
 | `share-link.ts` | A whole network in a link (`rs-web.html#net=…`) — File → Copy link |
+| `autosave.ts` | The network survives a refresh: kept in the browser's `localStorage`, restored on the next visit (Settings → Autosave to opt out) |
 | `ui.ts` | Mouse/keyboard event wiring, tool switching, drag, zoom, undo shortcuts |
 | `app.ts` | Boots everything — registers cross-module callbacks, loads config, starts render loop |
 
@@ -157,6 +159,7 @@ sync().render();
 - **Scenarios** — a 29-entry guided curriculum with goal checking, every entry solvable (tested) — including WiFi joins, 802.1X port authentication, MACsec link encryption, breaking an L2 loop with spanning tree, catching an intruder with an IDS, writing a Snort rule to detect a Red Team port scan, publishing a web page, and building a stateful firewall that blocks inbound scans while letting hosts browse out
 - **Undo/redo** — snapshot-based history for topology and config changes
 - **Persistence** — import/export configs, scenarios, scripts, and logs as JSON files
+- **Autosave** — the network on the canvas is kept in your browser and comes back after a refresh or a closed tab, a scenario in progress included. Nothing is sent anywhere; switch it off in Settings (or open the page with `?autosave=0` for a visit that keeps nothing)
 - **Share a network as a link** — File → Copy link puts the whole topology in the link itself (`rs-web.html#net=…`); whoever opens it gets the network, with nothing uploaded anywhere
 - **WiFi** — a WiFi-only **laptop** that associates to an **access point** (a transparent L2 bridge) over a matching **SSID** (with an optional password); the wireless link is drawn dotted, and ARP/DHCP/IP work through the AP onto the wired LAN. `associate <laptop>` animates the real **802.11 join** — probe / authentication / association, plus the WPA2 4-way (EAPOL) key handshake on a secured network. A **wrong password** still associates but fails the key handshake (the AP deauthenticates), leaving the link unauthenticated and carrying no data until the password is fixed
 - **URL settings** — share a pre-configured link, e.g. `?theme=dark&names=0&autodhcp=on&silentarp=1&speed=400` (see [docs/scripting.md](docs/scripting.md#url-settings))

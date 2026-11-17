@@ -14,7 +14,7 @@ without leaving the app.
   router, the `*-server` presets) fold into their parent device's blurb rather
   than getting their own card.
 - **`SETTING_GROUPS: SettingGroup[]`** — the simulation settings, grouped to
-  mirror the Settings pane (Network boot, Name resolution, Silent protocols) plus
+  mirror the Settings pane (Network boot, Name resolution, This browser, Silent protocols) plus
   a **Running a simulation** group for the ribbon transport (Play/Step/Stop/
   Speed). Each `SettingDoc` carries an `id`: for a pane toggle it is the
   checkbox's `id` (e.g. `optAutoDhcp`), which is how the coverage test pairs every

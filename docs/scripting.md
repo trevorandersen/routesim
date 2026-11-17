@@ -45,6 +45,7 @@ rs-web.html?names=0&ips=1&macs=0&autodhcp=on&apipa=1&theme=dark&speed=400
 | `silentdns` | Silent DNS (instant resolve) | (boolean) |
 | `silentwifi` | Silent WiFi association (instant join) | (boolean) |
 | `instantdns` | Instant DNS (resolve device names to IPs without a DNS query; default on) | (boolean) |
+| `autosave` | Autosave for **this visit only**: `0` neither restores nor saves and leaves the stored session alone. Read from a URL, never written into one. | (boolean) |
 | `theme` | Colour theme | `warm-light` (or `light`), `dark`, `blueprint` |
 | `speed` | Animation ms/hop | a number, clamped to 200–3000 |
 

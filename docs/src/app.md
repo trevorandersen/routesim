@@ -22,3 +22,5 @@ It also exposes the `window.routesim` API (`exec`/`run`/`export`/`snapshot`/`dia
 - Tests never import `app.ts`; they import individual modules and register no-op callbacks instead.
 
 After the first render `initialiseApp` opens a network carried in the address bar's fragment (`#net=…`, [share-link.md](share-link.md)) and listens for `hashchange`, so a link pasted into an open tab loads too; `openLinkInAddressBar` removes the fragment once the network is in, so a refresh does not load the link again over later work.
+
+Between loading the built-in network and the first render it starts autosave ([autosave.md](autosave.md)): `initAutosave` (baseline + stored preference, or the URL's `autosave` for this visit), `restoreAutosave` (the last session, if any), `startAutosave` (the poll, the page-hide flush, the Settings switch). When a session was restored, a `#net=…` link in the address bar is opened over it as an undo point rather than silently replacing it.

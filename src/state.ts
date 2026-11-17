@@ -67,7 +67,8 @@ export function freshOptions(): AppState["options"] {
     silentDns: false,
     silentWifi: false,
     silentStp: false,
-    instantDns: true
+    instantDns: true,
+    autosave: true
   };
 }
 

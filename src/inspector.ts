@@ -39,6 +39,7 @@ export function syncOptionControls(): void {
   dom.optSilentWifi.checked = state.options.silentWifi;
   dom.optSilentStp.checked = state.options.silentStp;
   dom.optInstantDns.checked = state.options.instantDns;
+  dom.optAutosave.checked = state.options.autosave;
 }
 
 // The address-source pill shown beside a host's IP field: how the current

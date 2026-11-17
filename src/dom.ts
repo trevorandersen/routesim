@@ -17,6 +17,7 @@ export const dom = {
   optSilentWifi: document.getElementById("optSilentWifi") as HTMLInputElement,
   optSilentStp: document.getElementById("optSilentStp") as HTMLInputElement,
   optInstantDns: document.getElementById("optInstantDns") as HTMLInputElement,
+  optAutosave: document.getElementById("optAutosave") as HTMLInputElement,
   detailsPanel: document.getElementById("detailsPanel")!,
   deviceList: document.getElementById("deviceList")!,
   zoomLevel: document.getElementById("zoomLevel")!,

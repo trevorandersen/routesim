@@ -50,7 +50,9 @@ link made in one browser opens in another:
   dialog — `undoBlockReason`) the link is not opened, for the same reason undo
   is not.
 
-`app.ts` calls it twice: at boot (over the default network, no undo point) and
+`app.ts` calls it twice: at boot (over the default network with no undo point
+— or, when autosave has just restored a session, over that *as* an undo point,
+so one Undo returns to the learner's own work; see [autosave.md](autosave.md)) and
 on `hashchange` (a link pasted into a tab that is already open — one undo
 point, so Undo returns to what was there). After a successful load the fragment
 is **taken out of the address bar**: left there, a refresh would load the link's

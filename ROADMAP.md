@@ -5,7 +5,12 @@ that makes invisible network behaviour visible, faithfully and fast.* Each item
 notes rough effort and how it leverages what already exists. Nothing here is
 committed scope — it's a menu for "what next".
 
-> **Released:** [`v0.7.0-alpha`](https://github.com/trevorandersen/routesim/releases/tag/v0.7.0-alpha)
+> **Released:** [`v0.7.1-alpha`](https://github.com/trevorandersen/routesim/releases/tag/v0.7.1-alpha)
+> (2026-11) — a shared link carries the scenario in progress, so an exercise
+> arrives with its goal; Clear ends the active scenario along with its
+> network.
+>
+> **Earlier:** [`v0.7.0-alpha`](https://github.com/trevorandersen/routesim/releases/tag/v0.7.0-alpha)
 > (2026-11) — **Share and keep**: File → Copy link carries a whole network in
 > the link itself; the canvas is autosaved in the browser and restored on the
 > next visit; and a failed `ping` typed into a device terminal names its

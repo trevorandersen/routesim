@@ -67,8 +67,8 @@ export async function importConfig(): Promise<void> {
   try {
     applyConfig(parseConfig(text));
     dom.modeLabel.textContent = "Imported topology.";
-  } catch (error: any) {
-    dom.modeLabel.textContent = error.message || "Import failed.";
+  } catch (error) {
+    dom.modeLabel.textContent = (error instanceof Error && error.message) || "Import failed.";
   }
 }
 

@@ -308,8 +308,8 @@ export function loadTopology(name: string): void {
     // the previous network (the snapshot records it).
     state.options.instantDns = true;
     sync().syncOptionControls();
-  } catch (error: any) {
-    dom.modeLabel.textContent = error.message;
+  } catch (error) {
+    dom.modeLabel.textContent = error instanceof Error ? error.message : String(error);
   }
 }
 

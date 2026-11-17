@@ -1294,8 +1294,8 @@ export function runConsoleCommand(line: string): CommandResult {
     const note = takePreemptionNote();
     if (note) result.output.unshift(note);
     return result;
-  } catch (e: any) {
-    return err(`Error: ${e?.message || String(e)}`);
+  } catch (e) {
+    return err(`Error: ${(e instanceof Error && e.message) || String(e)}`);
   }
 }
 

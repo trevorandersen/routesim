@@ -11,7 +11,7 @@ import { readdirSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 
 const SRC = join(import.meta.dir, "..", "src");
-export const BUDGET = 76;
+export const BUDGET = 73;
 
 // Type-level uses only: annotations, casts, array and generic arguments, unions.
 // Comments and string/template/regex-ish literals are stripped first.

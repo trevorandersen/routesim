@@ -17953,7 +17953,7 @@ Snort successfully validated the configuration${bad ? " (with errors)" : "."}`);
       applyConfig(parseConfig(text));
       dom.modeLabel.textContent = "Imported topology.";
     } catch (error) {
-      dom.modeLabel.textContent = error.message || "Import failed.";
+      dom.modeLabel.textContent = error instanceof Error && error.message || "Import failed.";
     }
   }
   function exportScenarios() {
@@ -19119,7 +19119,7 @@ Snort successfully validated the configuration${bad ? " (with errors)" : "."}`);
       state.options.instantDns = true;
       sync().syncOptionControls();
     } catch (error) {
-      dom.modeLabel.textContent = error.message;
+      dom.modeLabel.textContent = error instanceof Error ? error.message : String(error);
     }
   }
   function loadDefaultConfig() {
@@ -20451,7 +20451,7 @@ Snort successfully validated the configuration${bad ? " (with errors)" : "."}`);
       if (note) result.output.unshift(note);
       return result;
     } catch (e) {
-      return err(`Error: ${e?.message || String(e)}`);
+      return err(`Error: ${e instanceof Error && e.message || String(e)}`);
     }
   }
   function runConsoleScript(text) {

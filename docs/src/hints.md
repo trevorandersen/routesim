@@ -60,10 +60,38 @@ through says `Nothing on <device> stops this flow yet.` The goal banner prints
 it under the reasons as **Likely cause:** and `scenario check` as
 `    likely cause: …`.
 
+**Outside a scenario** the same probe follows a flow typed by hand — two small
+wrappers keep the callers honest:
+
+- **`runHint(from, target, kind, port, run)`** — a flow that ran and failed,
+  read from the run's own log and post-mortem. A storm gets none (it is the
+  whole story, and says so). `finishSimulation` (engine.ts) prints it as the
+  last line in the origin's terminal after a failed animated `ping` / `nc` /
+  `curl` / `nslookup` / `dhcp` — under the result and the post-mortem — as a
+  line of kind `hint` (`.terminal-line.hint`; the `Likely cause:` label says
+  what it is, the colour only sets it apart). The console's `run ping|connect|
+  http|resolve|dhcp` prints it under the diagnosis, and `runTraceroute` sets
+  `TracerouteResult.hint` from the last probe for a trace that never arrives
+  (not for a short trace that merely ran out of hops).
+- **`refusalHint(from, target, kind, port, refusal)`** — a flow its builder
+  refused to start. Only a refusal that reports a **symptom** is probed
+  (`Network is unreachable (no default gateway)`, `cannot resolve`, `unknown
+  host`); one that already is the cause (`eth0 has no IPv4 address`, `invalid
+  port`) gets nothing, since a hint under it would repeat it or guess past it.
+  The host shell (`refuseFlow` in terminal/host.ts) and the console (`refused`
+  in commands.ts) print it under the refusal.
+
+`hintLine(cause)` is the one place the `Likely cause: …` wording lives.
+
 ## Tests
 
 `tests/hints.test.ts`: each troubleshooting scenario's hint names the fault that
 was planted (and never spells out the fix); the build-it scenarios name what is
 still missing; the self-explaining failures get no hint; after its reference
 solution every built-in scenario passes with no hint or reason left; and each
-probe is exercised one fault at a time on a small routed network.
+probe is exercised one fault at a time on a small routed network. Outside a
+scenario: a failed animated `ping`, `nc`, `curl`, `nslookup` and `dhcp` in a
+device terminal end with the hint (and a working ping with none); a refusal that
+reports a symptom is explained while one that is already the cause, or names
+its own (a shut cable), is left alone; and the console's `run`, `traceroute` and
+refusals carry it.

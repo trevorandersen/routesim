@@ -228,7 +228,7 @@ export function likelyCause(flow: FailedFlow): string | null {
   // authenticated …)" — has already named the cause, and usually the remedy.
   // (The terse ones — no link, no gateway — are left for the probes below to
   // state properly.)
-  if (flow.refusal && /unreachable \((?!no link\)|no default gateway\)|gateway not on source subnet\))[^)]+\)/.test(flow.refusal)) return null;
+  if (flow.refusal && /(?:unreachable|could be reached) \((?!no link\)|no default gateway\)|gateway not on source subnet\))[^)]+\)/.test(flow.refusal)) return null;
   if (flow.kind === "dhcp") return dhcpCause(flow.from);
 
   let targetIp = flow.target;
@@ -248,4 +248,30 @@ export function likelyCause(flow: FailedFlow): string | null {
   if (addressing) return addressing;
   if (flow.refused && flow.port != null) return `Nothing listens on port ${flow.port} at ${ownerOf(targetIp)?.device.name ?? targetIp}.`;
   return null;
+}
+
+// ── Outside a scenario ───────────────────────────────────────────────────────
+
+// How a hint reads wherever it is printed as a line of its own (a device
+// terminal, the console): the label carries the meaning, not the colour.
+export const hintLine = (cause: string) => `Likely cause: ${cause}`;
+
+// A refusal that reports a SYMPTOM — unreachable, cannot resolve — is worth a
+// probe. One that already is the cause ("eth0 has no IPv4 address", "invalid
+// port") is not: a hint under it would only repeat it, or guess past it.
+const SYMPTOM = /unreachable|cannot resolve|unknown host|no route to nameserver|could be reached/i;
+
+// The hint for a flow its builder refused to start, as typed in a device
+// terminal or the console. Null when there is nothing to add.
+export function refusalHint(from: Device, target: string, kind: FailedFlow["kind"], port: number | null, refusal: string): string | null {
+  if (!SYMPTOM.test(refusal)) return null;
+  return likelyCause({ from, target, kind, port, refusal });
+}
+
+// The hint for a flow that ran and failed, from the run's own evidence.
+export interface FailedRun { log?: readonly SimLogEntry[]; diagnosis?: readonly string[]; resolvedIp?: string | null; refused?: boolean; storm?: boolean }
+export function runHint(from: Device, target: string, kind: FailedFlow["kind"], port: number | null, run: FailedRun): string | null {
+  if (run.storm) return null;                       // the storm is the whole story, and says so
+  if (!target && kind !== "dhcp") return null;
+  return likelyCause({ from, target, kind, port, log: run.log, diagnosis: run.diagnosis, resolvedIp: run.resolvedIp, refused: run.refused });
 }

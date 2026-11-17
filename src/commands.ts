@@ -19,6 +19,8 @@ import {
 } from "./engine";
 import { explainCapture, explanationText, storyEnd } from "./explain";
 import type { SimResult } from "./engine";
+import { refusalHint, runHint, hintLine } from "./hints";
+import type { FailedFlow } from "./hints";
 import { buildPingEvents, buildDhcpEvents, buildConnectEvents, buildResolveEvents, buildHttpEvents, parseHttpTarget, buildAssociationEvents, buildDot1xEvents, buildStpEvents, associatedAp, findPingTarget } from "./simulation";
 import { buildScanEvents, buildSweepEvents, buildArpSpoofEvents, buildAttackEvents } from "./security/offensive/attacks";
 import { DEFAULT_BRIDGE_PRIORITY } from "./stp";
@@ -51,6 +53,12 @@ export interface CommandResult {
 
 const ok = (...output: string[]): CommandResult => ({ ok: true, output });
 const err = (...output: string[]): CommandResult => ({ ok: false, output });
+// A flow its builder refused to start: the refusal, then the likely cause
+// where the refusal reports a symptom rather than the cause (hints.ts).
+function refused(from: Device, refusal: string, target: string, kind: FailedFlow["kind"], port: number | null = null): CommandResult {
+  const cause = refusalHint(from, target, kind, port, refusal);
+  return cause ? err(refusal, hintLine(cause)) : err(refusal);
+}
 
 // Switch/router mutators report failure with a magic-prefixed string ("Invalid
 // VLAN ID: …", "Unknown interface …"). Surface those as a command error so
@@ -396,7 +404,7 @@ function cmdPing(args: string[]): CommandResult {
   // which would perturb the in-flight run. Same check in every animated verb.
   const busy = animatedRunBlockReason(); if (busy) return err(busy);
   const setup = buildPingEvents(src, dst);
-  if (typeof setup === "string") return err(setup);
+  if (typeof setup === "string") return refused(src, setup, dst, "ping");
   startSimulation(setup, src.id, targetIpFor(dst), "ping");
   return ok(`Ping ${src.name} → ${dst} started.`);
 }
@@ -409,7 +417,7 @@ function cmdConnect(args: string[]): CommandResult {
   if (!dst || !args[2]) return err(`connect: expected "connect <src> <dst> <port>".`);
   const busy = animatedRunBlockReason(); if (busy) return err(busy);
   const setup = buildConnectEvents(src, dst, port);
-  if (typeof setup === "string") return err(setup);
+  if (typeof setup === "string") return refused(src, setup, dst, "tcp", port);
   startSimulation(setup, src.id, targetIpFor(dst), "tcp", port);
   return ok(`TCP connect ${src.name} → ${dst}:${port} started.`);
 }
@@ -423,7 +431,7 @@ function cmdHttp(args: string[]): CommandResult {
   if (!Number.isInteger(port) || port < 1 || port > 65535) return err(`http: invalid port in "${args[1]}".`);
   const busy = animatedRunBlockReason(); if (busy) return err(busy);
   const setup = buildHttpEvents(src, host, port, path);
-  if (typeof setup === "string") return err(setup);
+  if (typeof setup === "string") return refused(src, setup, host, "http", port);
   startSimulation(setup, src.id, targetIpFor(host), "http", port);
   return ok(`HTTP GET ${src.name} → http://${host}:${port}${path} started.`);
 }
@@ -433,7 +441,7 @@ function cmdDhcp(args: string[]): CommandResult {
   if (typeof host === "string") return err(host);
   const busy = animatedRunBlockReason(); if (busy) return err(busy);
   const setup = buildDhcpEvents(host);
-  if (typeof setup === "string") return err(setup);
+  if (typeof setup === "string") return refused(host, setup, "", "dhcp");
   startSimulation(setup, host.id, "", "dhcp");
   return ok(`DHCP on ${host.name} started.`);
 }
@@ -753,10 +761,14 @@ function cmdStp(args: string[]): CommandResult {
 // Every console `run` is traced, so `why` can explain it afterwards.
 const RUN_TRACE = { trace: true } as const;
 
-function runOutput(r: SimResult, line: string): CommandResult {
+// `flow` names the flow for the likely-cause probe (hints.ts) — given for the
+// runs it knows how to read (ping / connect / http / resolve / dhcp).
+function runOutput(r: SimResult, line: string, flow?: { from: Device; target: string; kind: FailedFlow["kind"]; port?: number | null }): CommandResult {
+  if (r.success) return { ok: true, data: r, output: [line] };
+  const cause = flow ? runHint(flow.from, flow.target, flow.kind, flow.port ?? null, r) : null;
   // A failed run points at its own explanation (the frames it did send).
-  const hint = !r.success && r.trace?.length ? ["Type `why` to see how it got there."] : [];
-  return { ok: r.success, data: r, output: [line, ...(r.success ? [] : r.diagnosis), ...hint] };
+  const why = r.trace?.length ? ["Type `why` to see how it got there."] : [];
+  return { ok: false, data: r, output: [line, ...r.diagnosis, ...(cause ? [hintLine(cause)] : []), ...why] };
 }
 
 // Which ICMP error, if any, a failed ping got back (Linux ping's wording).
@@ -800,9 +812,9 @@ function cmdRun(args: string[]): CommandResult {
     const dst = args[2];
     if (!dst) return err(`run ping: missing target.`);
     const setup = buildPingEvents(src, dst);
-    if (typeof setup === "string") return err(setup);
+    if (typeof setup === "string") return refused(src, setup, dst, "ping");
     const r = runSimulationHeadless(setup, src.id, targetIpFor(dst), "ping", null, purpose, RUN_TRACE);
-    return runOutput(r, `ping ${dst}: ${r.success ? `reachable (ttl=${r.ttl})` : `unreachable${pingErrorNote(r)}`} — ${r.steps} steps`);
+    return runOutput(r, `ping ${dst}: ${r.success ? `reachable (ttl=${r.ttl})` : `unreachable${pingErrorNote(r)}`} — ${r.steps} steps`, { from: src, target: dst, kind: "ping" });
   }
   if (mode === "connect" || mode === "tcp") {
     const src = resolveDevice(args[1]);
@@ -811,9 +823,9 @@ function cmdRun(args: string[]): CommandResult {
     const port = Number(args[3]);
     if (!dst || !args[3]) return err(`run connect: expected "run connect <src> <dst> <port>".`);
     const setup = buildConnectEvents(src, dst, port);
-    if (typeof setup === "string") return err(setup);
+    if (typeof setup === "string") return refused(src, setup, dst, "tcp", port);
     const r = runSimulationHeadless(setup, src.id, targetIpFor(dst), "tcp", port, purpose, RUN_TRACE);
-    return runOutput(r, `connect ${dst}:${port}: ${r.success ? "open (handshake completed)" : r.refused ? "refused (RST)" : "timed out"} — ${r.steps} steps`);
+    return runOutput(r, `connect ${dst}:${port}: ${r.success ? "open (handshake completed)" : r.refused ? "refused (RST)" : "timed out"} — ${r.steps} steps`, { from: src, target: dst, kind: "tcp", port });
   }
   if (mode === "http") {
     const src = resolveDevice(args[1]);
@@ -823,15 +835,15 @@ function cmdRun(args: string[]): CommandResult {
     if (!host) return err(`run http: no host specified.`);
     if (!Number.isInteger(port) || port < 1 || port > 65535) return err(`run http: invalid port in "${args[2]}".`);
     const setup = buildHttpEvents(src, host, port, path);
-    if (typeof setup === "string") return err(setup);
+    if (typeof setup === "string") return refused(src, setup, host, "http", port);
     const r = runSimulationHeadless(setup, src.id, targetIpFor(host), "http", port, purpose, RUN_TRACE);
-    return runOutput(r, `http http://${host}:${port}${path}: ${r.httpStatus != null ? `${r.httpStatus}` : r.refused ? "refused" : "no response"} — ${r.steps} steps`);
+    return runOutput(r, `http http://${host}:${port}${path}: ${r.httpStatus != null ? `${r.httpStatus}` : r.refused ? "refused" : "no response"} — ${r.steps} steps`, { from: src, target: host, kind: "http", port });
   }
   if (mode === "dhcp") {
     const host = resolveDevice(args[1]);
     if (typeof host === "string") return err(host);
     const setup = buildDhcpEvents(host);
-    if (typeof setup === "string") return err(setup);
+    if (typeof setup === "string") return refused(host, setup, "", "dhcp");
     // The one `run` that changes saved configuration: a lease re-addresses the
     // host (and records a binding on the server). So it is an undo point, like
     // the animated `dhcp` — taken only when the run changed something, so a
@@ -839,7 +851,7 @@ function cmdRun(args: string[]): CommandResult {
     const before = networkSnapshot();
     const r = runSimulationHeadless(setup, host.id, "", "dhcp", null, purpose, RUN_TRACE);
     if (!state.isApplyingCompositeChange && networkSnapshot() !== before) pushUndoSnapshot(before);
-    return runOutput(r, r.success ? `dhcp: assigned ${r.assignedIp} (gw ${r.assignedGateway})` : "dhcp: no response");
+    return runOutput(r, r.success ? `dhcp: assigned ${r.assignedIp} (gw ${r.assignedGateway})` : "dhcp: no response", { from: host, target: "", kind: "dhcp" });
   }
   if (mode === "resolve" || mode === "dns") {
     const src = resolveDevice(args[1]);
@@ -847,9 +859,9 @@ function cmdRun(args: string[]): CommandResult {
     const name = args[2];
     if (!name) return err(`run resolve: expected "run resolve <src> <name>".`);
     const setup = buildResolveEvents(src, name, null, null);
-    if (typeof setup === "string") return err(setup);
+    if (typeof setup === "string") return refused(src, setup, name, "dns");
     const r = runSimulationHeadless(setup, src.id, name, "dns", null, purpose, RUN_TRACE);
-    return runOutput(r, `resolve ${name}: ${r.resolvedIp || "no answer"} — ${r.steps} steps`);
+    return runOutput(r, `resolve ${name}: ${r.resolvedIp || "no answer"} — ${r.steps} steps`, { from: src, target: name, kind: "dns" });
   }
   return err(`run: expected "ping <src> <dst>", "connect <src> <dst> <port>", "resolve <src> <name>", or "dhcp <host>".`);
 }
@@ -860,11 +872,12 @@ function cmdTraceroute(args: string[]): CommandResult {
   const dst = args[1];
   if (!dst) return err(`traceroute: expected "traceroute <src> <dst>".`);
   const result = runTraceroute(src, dst);
-  if (typeof result === "string") return err(result);
+  if (typeof result === "string") return refused(src, result, dst, "ping");
   const lines = [`traceroute to ${result.targetIp}, 30 hops max`];
   for (const hop of result.hops) lines.push(` ${hop.ttl}  ${hop.ip || "* (no response)"}`);
   if (result.storm) lines.push(STORM_DIAGNOSIS);
   else if (!result.reached) lines.push("(destination not reached within 30 hops)", ...(result.diagnosis ?? []));
+  if (result.hint) lines.push(hintLine(result.hint));
   return { ok: result.reached, data: result, output: lines };
 }
 

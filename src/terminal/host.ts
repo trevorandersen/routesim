@@ -11,6 +11,8 @@ import { startSimulation, runTraceroute, animatedRunBlockReason, STORM_DIAGNOSIS
 import { applyHostname } from "../devices";
 import { isHost } from "../device-registry";
 import { terminalLine } from "./core";
+import { refusalHint, hintLine } from "../hints";
+import type { FailedFlow } from "../hints";
 
 export function showHostIp(device: Device): string {
   const ipv4 = device.config?.ipv4Address || "unassigned";
@@ -167,6 +169,14 @@ export function showResolvConf(device: Device): string {
 // reseeds the run PRNG under the in-flight run). Only the shell that started the
 // run is read-only (terminal/core terminalBusy), so this is what refuses a run
 // typed in any other device's shell, the console `cli` verb, or an injected command.
+// A flow its builder refused to start: the refusal, then — where the refusal
+// reports a symptom rather than the cause — what is most likely wrong.
+function refuseFlow(host: Device, refusal: string, target: string, kind: FailedFlow["kind"], port: number | null = null): void {
+  terminalLine("error", refusal);
+  const cause = refusalHint(host, target, kind, port, refusal);
+  if (cause) terminalLine("hint", hintLine(cause));
+}
+
 function refuseIfRunning(): boolean {
   const reason = animatedRunBlockReason();
   if (reason) terminalLine("error", reason);
@@ -264,7 +274,7 @@ export function runHostTerminalCommand(host: Device, command: string): void {
     if (refuseIfRunning()) return;
     const result = buildResolveEvents(host, lookupMatch[1], null, null);
     if (typeof result === "string") {
-      terminalLine("error", result);
+      refuseFlow(host, result, lookupMatch[1], "dns");
     } else {
       startSimulation(result, host.id, lookupMatch[1], "dns");
     }
@@ -317,7 +327,7 @@ export function runHostTerminalCommand(host: Device, command: string): void {
     if (refuseIfRunning()) return;
     const result = buildDhcpEvents(host);
     if (typeof result === "string") {
-      terminalLine("error", result);
+      refuseFlow(host, result, "", "dhcp");
     } else {
       startSimulation(result, host.id, "", "dhcp");
     }
@@ -330,7 +340,7 @@ export function runHostTerminalCommand(host: Device, command: string): void {
     const port = Number(ncMatch[2]);
     const result = buildConnectEvents(host, ncMatch[1], port);
     if (typeof result === "string") {
-      terminalLine("error", result);
+      refuseFlow(host, result, ncMatch[1], "tcp", port);
     } else {
       startSimulation(result, host.id, resolvePingTargetIp(ncMatch[1]), "tcp", port);
     }
@@ -353,7 +363,7 @@ export function runHostTerminalCommand(host: Device, command: string): void {
     if (refuseIfRunning()) return;
     const result = buildHttpEvents(host, target, port, path);
     if (typeof result === "string") {
-      terminalLine("error", result);
+      refuseFlow(host, result, target, "http", port);
     } else {
       startSimulation(result, host.id, resolvePingTargetIp(target), "http", port);
     }
@@ -364,7 +374,7 @@ export function runHostTerminalCommand(host: Device, command: string): void {
   if (traceMatch) {
     const result = runTraceroute(host, traceMatch[1].trim());
     if (typeof result === "string") {
-      terminalLine("error", result);
+      refuseFlow(host, result, traceMatch[1].trim(), "ping");
     } else {
       const lines = [`traceroute to ${result.targetIp}, 30 hops max`];
       for (const hop of result.hops) {
@@ -373,6 +383,7 @@ export function runHostTerminalCommand(host: Device, command: string): void {
       if (result.storm) lines.push(STORM_DIAGNOSIS);
       else if (!result.reached) lines.push("(destination not reached within 30 hops)", ...(result.diagnosis ?? []));
       terminalLine(result.storm ? "error" : "", lines.join("\n"));
+      if (result.hint) terminalLine("hint", hintLine(result.hint));
     }
     return;
   }
@@ -384,7 +395,8 @@ export function runHostTerminalCommand(host: Device, command: string): void {
     const result = buildPingEvents(host, targetText);
     if (typeof result === "string") {
       // Validation error or instant result (self-ping)
-      terminalLine(result.startsWith("ping:") ? "error" : "", result);
+      if (result.startsWith("ping:")) refuseFlow(host, result, targetText, "ping");
+      else terminalLine("", result);
     } else {
       const targetIp = resolvePingTargetIp(targetText);
       startSimulation(result, host.id, targetIp);

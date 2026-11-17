@@ -200,8 +200,10 @@ north star, so they rank ahead of the deeper simulation work below.
   resolution, the run's decisive drops, then gateway / target / VLAN /
   return-path addressing — sets `CheckResult.hint`, shown as **Likely cause:**
   on the goal banner and in `scenario check`. It names the cause and never the
-  answer, and stays silent where the failure already explains itself. **Later:**
-  hints for an ad-hoc failed `ping` in a device terminal (outside a scenario).
+  answer, and stays silent where the failure already explains itself. The same
+  probe follows a flow typed by hand: a failed `ping` / `nc` / `curl` /
+  `nslookup` / `dhcp` / `traceroute` in a device terminal ends with a
+  `Likely cause:` line, as do the console's `run` and `traceroute`.
 
 ### Simulation modes — frame/packet · physical · streams
 Three complementary lenses on the same topology, switchable per run, so a

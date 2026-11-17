@@ -105,14 +105,14 @@ Param keys and boolean values are case-insensitive. Adding a setting is a one-ro
 | `dot1x <host>` | Animate the **802.1X** port authentication: EAPOL-Start → EAP-Identity → RADIUS Access-Request → Accept/Reject → EAP-Success/Failure. An `auto` port carries no data until it succeeds. |
 | `stp` | Animate the **spanning-tree** BPDU flood: each root bridge floods Configuration BPDUs out its designated ports toward the other switches. |
 | `attack <node> [scan\|sweep\|arp-spoof] [target]` | Launch an offensive host's simulated **attack(s)** (sim mode `"attack"`). Works on **both** a Kali PC (`kali`) and a Red Team actor (`attacker`); any other type is rejected with "is not a Kali PC or Red Team host". With an explicit kind, run just that one — for `scan`/`sweep` an optional `target` overrides **and remembers** `config.attackTarget`; for `arp-spoof` the argument is the IP to impersonate (not a target). With no kind, a bare `target` sets `config.attackTarget`, then **all enabled attacks** run (`buildAttackEvents`). The nmap-style report lands in the node's terminal session. |
-| `run ping <src> <dst>` | **Headless** ping → returns reachable/unreachable + TTL + step count. |
+| `run ping <src> <dst>` | **Headless** ping → returns reachable/unreachable + TTL + step count. A failed `run ping` / `connect` / `http` / `resolve` / `dhcp` prints its diagnosis, then `Likely cause: …` where a probe finds one, then the pointer to `why`. |
 | `run dhcp <host>` | **Headless** DHCP → returns the assigned lease (or no response). When nothing answers it leaves the host as it is — with APIPA fallback on, the animated `dhcp` (or Play) would self-assign a 169.254.x.y address, and the run says so rather than doing it silently. A lease it does assign is **one undo point** (the only `run` that changes saved configuration), like the animated `dhcp`. |
 | `run resolve <src> <name>` | **Headless** DNS lookup → returns the resolved IP (or NXDOMAIN). Alias: `run dns`. |
 | `run connect <src> <dst> <port>` | **Headless** TCP connect → open / refused (RST) / timed out. |
 | `run associate <laptop>` | **Headless** 802.11 association → joined / did-not-complete + frame count. |
 | `run dot1x <host>` | **Headless** 802.1X authentication → authorised / failed + frame count. |
 | `run stp` | **Headless** BPDU flood → frame count (the spanning tree is computed before every run regardless). |
-| `traceroute <src> <dst>` | **Headless** hop-by-hop path discovery via increasing TTL; `data` is `{ targetIp, hops, reached }`. Also `tracert`. |
+| `traceroute <src> <dst>` | **Headless** hop-by-hop path discovery via increasing TTL; `data` is `{ targetIp, hops, reached }` (plus `diagnosis` and `hint` when it does not arrive — printed as the last lines). Also `tracert`. |
 | `play` / `pause` / `step` / `stop` | Drive an animated run. |
 | `speed <ms>` | Milliseconds per hop. |
 | `why [<packet no>]` | Explain a packet in the capture the Sim Log is showing: the chain of frames that led to it (each with its sender's reason), then what its receiver did. With no number, the packet being inspected. After a headless `run …` it explains that run instead (`why` alone: the frame where it ended; `why <n>`: any of its frames) — a failed `run` says so. |

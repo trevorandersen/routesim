@@ -997,6 +997,12 @@
       color: #fca5a5;
     }
 
+    /* A likely-cause hint under a failed run. The "Likely cause:" label says
+       what it is; the colour only sets it apart from the error above. */
+    .terminal-line.hint {
+      color: #fcd34d;
+    }
+
     .terminal-line.muted {
       color: #95a4b3;
     }

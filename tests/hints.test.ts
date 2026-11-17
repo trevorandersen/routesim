@@ -4,7 +4,7 @@
  * wrong — the cause, never the answer — and says nothing when the failure
  * already names its cause or no probe fits.
  */
-import { describe, it, expect, beforeAll, beforeEach } from "bun:test";
+import { describe, it, expect, beforeAll, afterAll, beforeEach } from "bun:test";
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import { state } from "../src/state";
@@ -12,6 +12,8 @@ import { dom } from "../src/dom";
 import { runConsoleScript, runConsoleCommand as exec } from "../src/commands";
 import { SCENARIOS, checkScenario, loadScenario, getScenario } from "../src/scenarios";
 import { syncScenarioPanel, runActiveScenarioCheck } from "../src/scenario-ui";
+import { runTerminalCommand } from "../src/terminal";
+import { stepOnce } from "../src/engine";
 import { registerNoopCallbacks, resetState } from "./helpers";
 
 beforeAll(() => registerNoopCallbacks());
@@ -213,5 +215,109 @@ describe("where the hint is shown", () => {
     const banner = dom.scenarioChecks.innerHTML;
     expect(banner).toContain(`<span class="scenario-why-title">Likely cause:</span>No device has PC-A&#39;s default gateway address 192.168.1.254.`);
     registerNoopCallbacks();
+  });
+});
+
+// Outside a scenario: the same probe follows a flow typed by hand — in a device
+// terminal (animated) and in the console (`run`, `traceroute`).
+describe("an ad-hoc failure in a device terminal or the console gets the hint too", () => {
+  let raf: any;
+  beforeAll(() => { raf = (globalThis as any).requestAnimationFrame; (globalThis as any).requestAnimationFrame = () => 0; });
+  afterAll(() => { (globalThis as any).requestAnimationFrame = raf; });
+
+  // Type a line into a device's shell, run any simulation it starts to the
+  // end, and return what the shell printed for it: [kind, text] pairs.
+  function type(deviceName: string, line: string): [string, string][] {
+    const device = state.devices.find(d => d.name === deviceName)!;
+    state.terminal.deviceId = device.id;
+    const before = state.terminal.lines.length;
+    runTerminalCommand(line);
+    let guard = 0;
+    while ((state.simulation.status === "running" || state.simulation.status === "paused") && guard++ < 2000) stepOnce();
+    // (after the echoed command, and bar the shell's "Simulating …" notice)
+    return state.terminal.lines.slice(before + 1).filter(l => !l.text.startsWith("Simulating ")).map(l => [l.kind || "", l.text] as [string, string]);
+  }
+  const hintsIn = (lines: [string, string][]) => lines.filter(([kind]) => kind === "hint").map(([, text]) => text);
+
+  it("a failed ping: the result, the post-mortem, then the likely cause — as a line of its own", () => {
+    exec("scenario load troubleshoot-gateway");
+    const lines = type("PC-A", "ping 192.168.2.10");
+    expect(lines[0][1]).toContain("100% packet loss");
+    expect(lines[lines.length - 1]).toEqual(["hint", "Likely cause: No device has PC-A's default gateway address 192.168.1.254."]);
+    expect(lines.findIndex(([kind]) => kind === "error")).toBeLessThan(lines.length - 1);   // the diagnosis sits above it
+  });
+
+  it("a ping that works prints no hint", () => {
+    exec("scenario load troubleshoot-gateway");
+    exec("gateway PC-A 192.168.1.1");
+    const lines = type("PC-A", "ping 192.168.2.10");
+    expect(lines[0][1]).toContain("1 received");
+    expect(hintsIn(lines)).toEqual([]);
+  });
+
+  it("nc, curl and nslookup: a closed port, a web service that is off, a missing record", () => {
+    runConsoleScript(`
+      add switch SW at 0 0
+      add computer PC1 at -200 0
+      add server SRV at 200 0
+      link PC1 SW
+      link SRV SW
+      ip PC1 10.0.0.1/24
+      ip SRV 10.0.0.2/24
+      ports SRV 22
+      nameserver PC1 10.0.0.2
+    `);
+    expect(hintsIn(type("PC1", "nc -z 10.0.0.2 80"))).toEqual(["Likely cause: Nothing listens on port 80 at SRV."]);
+    exec("ports SRV 22,80");
+    expect(hintsIn(type("PC1", "curl http://10.0.0.2"))).toEqual(["Likely cause: SRV's web service is off."]);
+    expect(hintsIn(type("PC1", "nslookup intranet.corp"))).toEqual(["Likely cause: SRV has no record for intranet.corp."]);
+  });
+
+  it("dhcp with nobody to answer", () => {
+    runConsoleScript("add switch SW at 0 0\nadd computer PC1 at -200 0\nlink PC1 SW");
+    const lines = type("PC1", "dhcp");
+    expect(lines.some(([, text]) => text.startsWith("DHCP: no response"))).toBe(true);
+    expect(hintsIn(lines)).toEqual(["Likely cause: No DHCP server is on PC1's segment."]);
+  });
+
+  it("a refusal that reports a symptom is explained; one that is already the cause is left alone", () => {
+    runConsoleScript("add switch SW at 0 0\nadd computer PC1 at -200 0\nadd computer PC2 at 200 0\nlink PC1 SW\nip PC1 10.0.0.1/24");
+    // Off-subnet with no gateway: "Network is unreachable (no default gateway)" — a symptom.
+    expect(type("PC1", "ping 10.9.9.9")).toEqual([
+      ["error", "ping: connect: Network is unreachable (no default gateway)"],
+      ["hint", "Likely cause: PC1 has no default gateway, so it cannot send anything off its own subnet (10.0.0.0/24)."],
+    ]);
+    expect(hintsIn(type("PC1", "traceroute 10.9.9.9"))).toEqual(["Likely cause: PC1 has no default gateway, so it cannot send anything off its own subnet (10.0.0.0/24)."]);
+    // No cable.
+    expect(hintsIn(type("PC2", "dhcp"))).toEqual(["Likely cause: PC2 is not cabled to anything."]);
+    // Already the cause: a bad port, a host with no address, a ping to itself (not a failure at all).
+    expect(type("PC1", "nc -z 10.9.9.9 99999")).toEqual([["error", "nc: invalid port 99999"]]);
+    expect(hintsIn(type("PC2", "ping 10.0.0.1"))).toEqual([]);
+    expect(hintsIn(type("PC1", "ping 10.0.0.1"))).toEqual([]);
+  });
+
+  it("a refusal that names its own cause — a shut cable — gets no guess on top", () => {
+    runConsoleScript("add switch SW at 0 0\nadd computer PC1 at -200 0\nadd computer PC2 at 200 0\nlink PC1 SW\nlink PC2 SW\nip PC1 10.0.0.1/24\nip PC2 10.0.0.2/24\nshut PC1 SW");
+    const lines = type("PC1", "ping 10.0.0.2");
+    expect(lines[0][1]).toMatch(/Network is unreachable \(.*down/);
+    expect(hintsIn(lines)).toEqual([]);
+  });
+
+  it("the console: `run` and `traceroute` print it under the diagnosis; a refusal carries it as a second line", () => {
+    exec("scenario load troubleshoot-gateway");
+    const run = exec("run ping PC-A 192.168.2.10");
+    expect(run.ok).toBe(false);
+    expect(run.output).toContain("Likely cause: No device has PC-A's default gateway address 192.168.1.254.");
+    expect(run.output.indexOf("Likely cause: No device has PC-A's default gateway address 192.168.1.254.")).toBeLessThan(run.output.indexOf("Type `why` to see how it got there."));
+    const trace = exec("traceroute PC-A 192.168.2.10");
+    expect(trace.output[trace.output.length - 1]).toBe("Likely cause: No device has PC-A's default gateway address 192.168.1.254.");
+    exec("cli PC-A ip route del default");
+    expect(exec("ping PC-A 192.168.2.10").output).toEqual([
+      "ping: connect: Network is unreachable (no default gateway)",
+      "Likely cause: PC-A has no default gateway, so it cannot send anything off its own subnet (192.168.1.0/24).",
+    ]);
+    exec("gateway PC-A 192.168.1.1");
+    expect(exec("run ping PC-A 192.168.2.10").output.some(l => l.startsWith("Likely cause"))).toBe(false);
+    expect(exec("traceroute PC-A 192.168.2.10").output.some(l => l.startsWith("Likely cause"))).toBe(false);
   });
 });

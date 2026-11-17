@@ -17,6 +17,8 @@ import { runIdsRules } from "./snort";
 import { isBootable, isDot1xSupplicant, isHost } from "./device-registry";
 import type { CaptureEntry } from "./types";
 import { originReason } from "./explain";
+import { runHint, hintLine } from "./hints";
+import type { FailedFlow } from "./hints";
 
 // Re-exported so existing imports (terminal, tests, benchmarks) keep working.
 export { buildRoutingTable, routingLookup, runRipConvergence } from "./routing";
@@ -577,7 +579,8 @@ export interface TracerouteHop { ttl: number; ip: string | null; reached: boolea
 // `diagnosis`: when the destination was not reached, the last probe's
 // post-mortem (an ARP nobody answered past the last hop, say). It plays the
 // part of real traceroute's `!H`: why the trail goes silent, not just that it does.
-export interface TracerouteResult { targetIp: string; hops: TracerouteHop[]; reached: boolean; storm?: boolean; diagnosis?: string[] }
+// `hint`: the likely cause behind that (hints.ts), probed from the last probe's run.
+export interface TracerouteResult { targetIp: string; hops: TracerouteHop[]; reached: boolean; storm?: boolean; diagnosis?: string[]; hint?: string | null }
 
 // Runs traceroute headlessly: sends probes with increasing TTL and records who
 // answered each round — a router's ICMP Time-Exceeded (intermediate hop) or the
@@ -614,6 +617,7 @@ export function runTraceroute(source: Device, targetText: string, maxHops = 30):
 
   let reached = false;
   let diagnosis: string[] = [];
+  let last: SimResult | null = null;
   for (let ttl = 1; ttl <= maxHops; ttl++) {
     const setup = buildPingEvents(source, targetIp, { ttl });
     if (typeof setup === "string") return setup; // validation error (e.g. cannot resolve / no gateway)
@@ -626,8 +630,13 @@ export function runTraceroute(source: Device, targetText: string, maxHops = 30):
     }
     hops.push({ ttl, ip: res.responderIp || null, reached: false });
     diagnosis = res.diagnosis;
+    last = res;
   }
-  return reached ? { targetIp, hops, reached } : { targetIp, hops, reached, diagnosis };
+  if (reached) return { targetIp, hops, reached };
+  // A short trace (maxHops below a real path's reach) that ends on a
+  // Time-Exceeded simply ran out of hops: that is no routing loop.
+  const ranOutOfHops = !!last?.timeExceeded && maxHops < 30;
+  return { targetIp, hops, reached, diagnosis, hint: last && !ranOutOfHops ? runHint(source, targetIp, "ping", null, last) : null };
 }
 
 // ─── Animation loop ──────────────────────────────────────────────────────────
@@ -3207,6 +3216,9 @@ function runPostMortem(succeeded: boolean): string[] {
   return succeeded ? [] : lines;
 }
 
+// The flows a likely-cause hint knows how to probe (hints.ts).
+const HINT_KINDS: Partial<Record<SimMode, FailedFlow["kind"]>> = { ping: "ping", tcp: "tcp", http: "http", dns: "dns", dhcp: "dhcp" };
+
 function finishSimulation(): void {
   const sim = state.simulation;
 
@@ -3344,6 +3356,15 @@ function finishSimulation(): void {
   const flowMode = sim.mode === "ping" || sim.mode === "tcp" || sim.mode === "http" || sim.mode === "dns";
   if (!sim.headless && flowMode && !succeeded && !sim.stormDetected && sim.diagnosis.length) {
     out("error", sim.diagnosis.join("\n"));
+  }
+  // …and then what is most likely WRONG (hints.ts) — the same probe a failed
+  // scenario check gets, for a ping / nc / curl / nslookup / dhcp typed by hand.
+  const hintKind = HINT_KINDS[sim.mode];
+  const hintOrigin = getDevice(sim.originDeviceId);
+  if (!sim.headless && hintKind && hintOrigin && !succeeded) {
+    const cause = runHint(hintOrigin, sim.dnsName || sim.pingTargetIp || "", hintKind, sim.tcpTargetPort ?? null,
+      { log: sim.log, diagnosis: sim.diagnosis, resolvedIp: sim.dnsResolvedIp, refused: sim.tcpRefused, storm: sim.stormDetected });
+    if (cause) out("hint", hintLine(cause));
   }
 
   // A capped storm can finish with thousands of frames still queued. They are
